@@ -2,11 +2,8 @@
 
 use super::*;
 use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
-use crate::test_support::{mq_encoder, ready};
-use crate::{Limits, NeverCancel, native::SeekableSource};
-use std::io::Cursor;
-
-type Source = SeekableSource<Cursor<Vec<u8>>>;
+use crate::test_support::mq_encoder;
+use crate::{Limits, Payload};
 
 /// Decode `values` as consecutive IAIDs of `code_len` bits from a stream
 /// that codes them, over a bank of exactly the contexts the width needs.
@@ -21,10 +18,10 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
     let limits = Limits::default();
     let contexts = IAID_BASE + (1 << code_len);
     let mut bank = ContextBank::new(contexts, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes.clone())).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
-        &mut source,
+    let mut decoder = MqDecoder::new(
+        source,
         CodedSpan {
             offset: 0,
             length: bytes.len() as u64,
@@ -32,17 +29,16 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
     let decoded = values
         .iter()
-        .map(|_| ready(decode_iaid(&mut decoder, code_len)).unwrap())
+        .map(|_| decode_iaid(&mut decoder, code_len).unwrap())
         .collect();
     assert_eq!(decoder.snapshot().symbols_decoded, symbols);
     assert_eq!(symbols, u64::from(code_len) * values.len() as u64);
-    ready(decoder.finish(symbols)).unwrap();
+    decoder.finish(symbols).unwrap();
     let states = (0..contexts)
         .map(|index| bank.get(index).unwrap())
         .collect();
@@ -80,13 +76,13 @@ fn largest_default_width_and_truncated_stream_error() {
     );
 
     // A span without the FF AC terminal pair ends within the ID.
-    let bytes = vec![0x00, 0x00];
+    let bytes = [0x00, 0x00];
     let limits = Limits::default();
     let mut bank = ContextBank::new(IAID_BASE + 32_768, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes)).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
-        &mut source,
+    let mut decoder = MqDecoder::new(
+        source,
         CodedSpan {
             offset: 0,
             length: 2,
@@ -94,11 +90,10 @@ fn largest_default_width_and_truncated_stream_error() {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, 15)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 15).unwrap_err();
     assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
     assert_eq!(error.offset, Some(2));
     assert!(
@@ -110,13 +105,13 @@ fn largest_default_width_and_truncated_stream_error() {
 
 #[test]
 fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
-    let bytes = vec![0xff, 0xac];
+    let bytes = [0xff, 0xac];
     let limits = Limits::default();
     let mut bank = ContextBank::new(IAID_BASE + 8, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes)).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
-        &mut source,
+    let mut decoder = MqDecoder::new(
+        source,
         CodedSpan {
             offset: 0,
             length: 2,
@@ -124,9 +119,8 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
     let before = decoder.snapshot();
     // This is 32 on wasm32 and 64 on x86_64: the first invalid `usize`
@@ -136,12 +130,12 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         (usize::BITS, None),
         (u32::MAX, None),
     ] {
-        let error = ready(decode_iaid(&mut decoder, len)).unwrap_err();
+        let error = decode_iaid(&mut decoder, len).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(error.context, context, "width {len}");
         assert_eq!(decoder.snapshot(), before);
     }
-    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
+    assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);
     assert_eq!(decoder.snapshot(), before);
-    ready(decoder.finish(0)).unwrap();
+    decoder.finish(0).unwrap();
 }

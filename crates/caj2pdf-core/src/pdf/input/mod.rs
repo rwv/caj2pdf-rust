@@ -168,7 +168,7 @@ impl PdfIndex {
     }
 
     /// Open, validate, and index a PDF without retaining its content streams.
-    pub async fn open<S: RangedSource, C: Cancellation>(
+    pub fn open<S: RangedSource, C: Cancellation>(
         source: &mut S,
         range: PdfRange,
         limits: &Limits,
@@ -189,9 +189,9 @@ impl PdfIndex {
             });
         }
         let mut reader = Reader::new(source, range, limits, cancellation)?;
-        reader.check_header().await?;
-        let (xref_offset, logical_end) = reader.find_tail().await?;
-        let (slots, trailer) = reader.read_xref_chain(xref_offset).await?;
+        reader.check_header()?;
+        let (xref_offset, logical_end) = reader.find_tail()?;
+        let (slots, trailer) = reader.read_xref_chain(xref_offset)?;
         let location_bytes = slots
             .len()
             .checked_mul(std::mem::size_of::<Option<(u16, ObjectLocation)>>())
@@ -242,9 +242,9 @@ impl PdfIndex {
             retained_gap_bytes: 0,
             max_referenced_object: 0,
         };
-        reader.validate_objects(&slots, &mut index).await?;
+        reader.validate_objects(&slots, &mut index)?;
         index.stream_separator_patches.sort_unstable();
-        reader.read_structure(&slots, &mut index).await?;
+        reader.read_structure(&slots, &mut index)?;
         if let Some((reference, _)) = index.stale_page_parents.first() {
             let location = index.object_location(*reference)?;
             return Err(reader.malformed(
@@ -253,9 +253,7 @@ impl PdfIndex {
                 "stale page Parent is not reachable through validated Kids",
             ));
         }
-        reader
-            .validate_live_object_spans(&mut index, &slots, trailer.prev.is_none())
-            .await?;
+        reader.validate_live_object_spans(&mut index, &slots, trailer.prev.is_none())?;
         Ok(index)
     }
 }
@@ -405,7 +403,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
     }
 
-    async fn byte(&mut self, position: u64) -> Result<Option<u8>> {
+    fn byte(&mut self, position: u64) -> Result<Option<u8>> {
         if position >= self.range.length {
             return Ok(None);
         }
@@ -422,14 +420,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             &mut self.window[..amount],
             self.limits,
             self.cancellation,
-        )
-        .await?;
+        )?;
         self.window_offset = position;
         self.window_len = amount;
         Ok(Some(self.window[0]))
     }
 
-    async fn bytes(&mut self, position: u64, length: usize) -> Result<Vec<u8>> {
+    fn bytes(&mut self, position: u64, length: usize) -> Result<Vec<u8>> {
         let length_u64 = len_u64(length);
         if position
             .checked_add(length_u64)
@@ -455,18 +452,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 &mut result[done..done + count],
                 self.limits,
                 self.cancellation,
-            )
-            .await?;
+            )?;
             done += count;
         }
         Ok(result)
     }
 
-    async fn check_header(&mut self) -> Result<()> {
+    fn check_header(&mut self) -> Result<()> {
         if self.range.length < 8 {
             return Err(self.malformed(0, None, "PDF header is truncated"));
         }
-        let header = self.bytes(0, 8).await?;
+        let header = self.bytes(0, 8)?;
         if header.starts_with(b"%PDF-2.") && header[7].is_ascii_digit() {
             return Err(self.problem(
                 0,
@@ -481,10 +477,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
-    async fn find_tail(&mut self) -> Result<(u64, u64)> {
+    fn find_tail(&mut self) -> Result<(u64, u64)> {
         let take = min(self.range.length, MAX_TAIL_SEARCH) as usize;
         let start = self.range.length - take as u64;
-        let tail = self.bytes(start, take).await?;
+        let tail = self.bytes(start, take)?;
         for eof_at in (0..=tail.len().saturating_sub(5)).rev() {
             if tail.get(eof_at..eof_at + 5) != Some(b"%%EOF".as_slice()) {
                 continue;
@@ -526,7 +522,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let mut logical_end = start + eof_at as u64 + 5;
             while logical_end < self.range.length
                 && matches!(
-                    self.byte(logical_end).await?,
+                    self.byte(logical_end)?,
                     Some(b' ' | b'\t' | b'\r' | b'\n' | 0 | 12)
                 )
             {
@@ -563,12 +559,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         ))
     }
 
-    async fn skip_space(&mut self, cursor: &mut u64) -> Result<()> {
+    fn skip_space(&mut self, cursor: &mut u64) -> Result<()> {
         loop {
-            match self.byte(*cursor).await? {
+            match self.byte(*cursor)? {
                 Some(b' ' | b'\t' | b'\r' | b'\n' | 0 | 12) => *cursor += 1,
                 Some(b'%') => {
-                    while let Some(byte) = self.byte(*cursor).await? {
+                    while let Some(byte) = self.byte(*cursor)? {
                         *cursor += 1;
                         if byte == b'\r' || byte == b'\n' {
                             break;
@@ -581,11 +577,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
-    async fn word(&mut self, cursor: &mut u64, maximum: usize) -> Result<Vec<u8>> {
-        self.skip_space(cursor).await?;
+    fn word(&mut self, cursor: &mut u64, maximum: usize) -> Result<Vec<u8>> {
+        self.skip_space(cursor)?;
         let start = *cursor;
         let mut result = Vec::new();
-        while let Some(byte) = self.byte(*cursor).await? {
+        while let Some(byte) = self.byte(*cursor)? {
             if matches!(
                 byte,
                 b' ' | b'\t' | b'\r' | b'\n' | 0 | 12 | b'<' | b'>' | b'[' | b']' | b'/' | b'%'
@@ -604,9 +600,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(result)
     }
 
-    async fn unsigned(&mut self, cursor: &mut u64) -> Result<u64> {
+    fn unsigned(&mut self, cursor: &mut u64) -> Result<u64> {
         let start = *cursor;
-        let word = self.word(cursor, 20).await?;
+        let word = self.word(cursor, 20)?;
         if !word.iter().all(u8::is_ascii_digit) {
             return Err(self.malformed(start, None, "expected nonnegative PDF integer"));
         }
@@ -620,13 +616,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(value)
     }
 
-    async fn dictionary_at(&mut self, at: u64, maximum: u64) -> Result<(Dictionary, u64)> {
+    fn dictionary_at(&mut self, at: u64, maximum: u64) -> Result<(Dictionary, u64)> {
         let mut amount = min(512, min(maximum, self.range.length.saturating_sub(at))) as usize;
         if amount == 0 {
             return Err(self.malformed(at, None, "PDF dictionary is truncated"));
         }
         loop {
-            let bytes = self.bytes(at, amount).await?;
+            let bytes = self.bytes(at, amount)?;
             let mut parser = Syntax::new(&bytes);
             parser.skip_space();
             let start = parser.pos;
@@ -682,14 +678,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
     }
 
-    async fn read_xref_chain(&mut self, latest: u64) -> Result<(Vec<Option<XrefSlot>>, Trailer)> {
+    fn read_xref_chain(&mut self, latest: u64) -> Result<(Vec<Option<XrefSlot>>, Trailer)> {
         let mut cursor = latest;
         let mut slots: Vec<Option<XrefSlot>> = Vec::new();
         let mut latest_trailer = None;
         // Each Prev must point strictly before its section, so the chain
         // cannot revisit a section and needs no cycle check.
         for _ in 0..MAX_XREF_SECTIONS {
-            let (records, trailer) = self.read_xref_section(cursor).await?;
+            let (records, trailer) = self.read_xref_section(cursor)?;
             if slots.is_empty() {
                 let slots_len = trailer.size as usize;
                 let bytes = slots_len
@@ -737,19 +733,19 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Err(self.malformed(cursor, None, "PDF xref revision limit exceeded"))
     }
 
-    async fn read_xref_section(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
+    fn read_xref_section(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
         let mut cursor = at;
-        if self.bytes(cursor, 4).await?.as_slice() != b"xref" {
-            return self.read_xref_stream(at).await;
+        if self.bytes(cursor, 4)?.as_slice() != b"xref" {
+            return self.read_xref_stream(at);
         }
         cursor += 4;
         let mut records = Vec::new();
         loop {
-            self.skip_space(&mut cursor).await?;
-            if self.bytes(cursor, 7).await?.as_slice() == b"trailer" {
+            self.skip_space(&mut cursor)?;
+            if self.bytes(cursor, 7)?.as_slice() == b"trailer" {
                 cursor += 7;
-                self.skip_space(&mut cursor).await?;
-                let (dictionary, _) = self.dictionary_at(cursor, self.syntax_limit()).await?;
+                self.skip_space(&mut cursor)?;
+                let (dictionary, _) = self.dictionary_at(cursor, self.syntax_limit())?;
                 let trailer = self.parse_trailer(&dictionary, cursor)?;
                 records.sort_unstable_by_key(|record: &XrefRecord| record.number);
                 if records
@@ -761,8 +757,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Ok((records, trailer));
             }
             let subsection_at = cursor;
-            let start = self.unsigned(&mut cursor).await?;
-            let count = self.unsigned(&mut cursor).await?;
+            let start = self.unsigned(&mut cursor)?;
+            let count = self.unsigned(&mut cursor)?;
             if count == 0 || start.checked_add(count).is_none() {
                 return Err(self.malformed(
                     subsection_at,
@@ -781,10 +777,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     },
                 ));
             }
-            self.skip_space(&mut cursor).await?;
+            self.skip_space(&mut cursor)?;
             for step in 0..count {
                 let number = (start + step) as u32;
-                let line = self.bytes(cursor, 20).await?;
+                let line = self.bytes(cursor, 20)?;
                 let failure = self.malformed(cursor, None, "invalid fixed-width xref entry");
                 let slot = parse_xref_entry(&line).ok_or(failure)?;
                 if let XrefKind::InUse(offset) = slot.kind
@@ -811,8 +807,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
     }
 
-    async fn read_xref_stream(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
-        let head = self.load_head(at, None).await?;
+    fn read_xref_stream(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
+        let head = self.load_head(at, None)?;
         let reference = head.reference;
         let failure = self.malformed(at, Some(reference), "xref stream lacks a dictionary");
         let dictionary = head.dictionary.as_ref().ok_or(failure)?;
@@ -928,8 +924,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let data_at = at.checked_add(data_start as u64).ok_or(failure)?;
         let failure = self.malformed(data_at, Some(reference), "xref stream length overflows");
         let after_data = data_at.checked_add(length).ok_or(failure)?;
-        self.check_stream_tail(after_data, Some(reference)).await?;
-        let encoded = self.bytes(data_at, length as usize).await?;
+        self.check_stream_tail(after_data, Some(reference))?;
+        let encoded = self.bytes(data_at, length as usize)?;
         let decoded = if filter.is_some() {
             match inflate_xref(
                 &encoded,
@@ -1117,11 +1113,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         reject_duplicate_names(dictionary, self.range, at, object, self.limits)
     }
 
-    async fn load_head(&mut self, at: u64, expected: Option<PdfRef>) -> Result<ObjectHead> {
+    fn load_head(&mut self, at: u64, expected: Option<PdfRef>) -> Result<ObjectHead> {
         let maximum = min(self.syntax_limit(), self.range.length.saturating_sub(at));
         let mut amount = first_head_read(self.range, at, expected, maximum)?;
         loop {
-            let bytes = self.bytes(at, amount).await?;
+            let bytes = self.bytes(at, amount)?;
             match parse_object_head(bytes) {
                 Ok(head) => {
                     if expected.is_some_and(|reference| reference != head.reference) {
@@ -1173,13 +1169,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
     }
 
-    async fn load_object(
+    fn load_object(
         &mut self,
         at: u64,
         expected: PdfRef,
         slots: &[Option<XrefSlot>],
     ) -> Result<(ObjectHead, ObjectLocation)> {
-        let head = self.load_head(at, Some(expected)).await?;
+        let head = self.load_head(at, Some(expected))?;
         // `load_head` parsed at most `range.length - at` bytes, so offsets
         // within the head stay inside the range, and `check_stream_tail`
         // reads its `endobj` there too.
@@ -1193,14 +1189,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 let length = if let Some(value) = exact_unsigned(length_value) {
                     value
                 } else if let Some(reference) = exact_reference(length_value) {
-                    self.resolve_length(reference, slots).await?
+                    self.resolve_length(reference, slots)?
                 } else {
                     return Err(self.malformed(at, Some(expected), "invalid stream Length"));
                 };
                 let data_at = at + data_start as u64;
                 let failure = self.malformed(data_at, Some(expected), "stream extent overflows");
                 let after_data = data_at.checked_add(length).ok_or(failure)?;
-                self.check_stream_tail(after_data, Some(expected)).await?
+                self.check_stream_tail(after_data, Some(expected))?
             }
         };
         debug_assert!(end <= self.range.length);
@@ -1213,11 +1209,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         ))
     }
 
-    async fn resolve_length(
-        &mut self,
-        reference: PdfRef,
-        slots: &[Option<XrefSlot>],
-    ) -> Result<u64> {
+    fn resolve_length(&mut self, reference: PdfRef, slots: &[Option<XrefSlot>]) -> Result<u64> {
         let offset = match slots.get(reference.number as usize).and_then(|slot| *slot) {
             Some(XrefSlot {
                 generation,
@@ -1231,7 +1223,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
         };
-        let head = self.load_head(offset, Some(reference)).await?;
+        let head = self.load_head(offset, Some(reference))?;
         if !matches!(head.tail, ObjectTail::EndObject { .. }) {
             return Err(self.malformed(
                 offset,
@@ -1252,34 +1244,30 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         ))
     }
 
-    async fn check_stream_tail(&mut self, after_data: u64, object: Option<PdfRef>) -> Result<u64> {
+    fn check_stream_tail(&mut self, after_data: u64, object: Option<PdfRef>) -> Result<u64> {
         let mut cursor = after_data;
-        match self.byte(cursor).await? {
+        match self.byte(cursor)? {
             Some(b'\r') => {
                 cursor += 1;
-                if self.byte(cursor).await? == Some(b'\n') {
+                if self.byte(cursor)? == Some(b'\n') {
                     cursor += 1;
                 }
             }
             Some(b'\n') => cursor += 1,
             _ => {}
         }
-        if self.bytes(cursor, 9).await?.as_slice() != b"endstream" {
+        if self.bytes(cursor, 9)?.as_slice() != b"endstream" {
             return Err(self.malformed(cursor, object, "stream Length does not end at endstream"));
         }
         cursor += 9;
-        self.skip_space(&mut cursor).await?;
-        if self.bytes(cursor, 6).await?.as_slice() != b"endobj" {
+        self.skip_space(&mut cursor)?;
+        if self.bytes(cursor, 6)?.as_slice() != b"endobj" {
             return Err(self.malformed(cursor, object, "stream lacks endobj"));
         }
         Ok(cursor + 6)
     }
 
-    async fn validate_objects(
-        &mut self,
-        slots: &[Option<XrefSlot>],
-        index: &mut PdfIndex,
-    ) -> Result<()> {
+    fn validate_objects(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {
         for (number, slot) in slots.iter().enumerate().skip(1) {
             let Some(XrefSlot {
                 generation,
@@ -1299,7 +1287,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "live PDF object begins after logical EOF",
                 ));
             }
-            let (head, location) = self.load_object(*offset, reference, slots).await?;
+            let (head, location) = self.load_object(*offset, reference, slots)?;
             check_live_object_end(self.range, *offset, reference, location, index.logical_end)?;
             if let ObjectTail::Stream { data_start } = &head.tail
                 && *data_start > 0
@@ -1382,11 +1370,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
-    async fn read_structure(
-        &mut self,
-        slots: &[Option<XrefSlot>],
-        index: &mut PdfIndex,
-    ) -> Result<()> {
+    fn read_structure(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {
         if let Some(info) = index.trailer_info {
             let location = index.object_location(info).map_err(|_| {
                 self.malformed(
@@ -1395,7 +1379,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "trailer Info does not resolve to a live object",
                 )
             })?;
-            let (head, _) = self.load_object(location.offset, info, slots).await?;
+            let (head, _) = self.load_object(location.offset, info, slots)?;
             let failure = self.malformed(
                 location.offset,
                 Some(info),
@@ -1411,9 +1395,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
         }
         let catalog_location = index.object_location(index.catalog)?;
-        let (catalog_head, _) = self
-            .load_object(catalog_location.offset, index.catalog, slots)
-            .await?;
+        let (catalog_head, _) = self.load_object(catalog_location.offset, index.catalog, slots)?;
         let failure = self.malformed(
             catalog_location.offset,
             Some(index.catalog),
@@ -1445,7 +1427,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 )
             })?;
             let location = index.object_location(form_ref)?;
-            let (form_head, _) = self.load_object(location.offset, form_ref, slots).await?;
+            let (form_head, _) = self.load_object(location.offset, form_ref, slots)?;
             let failure = self.malformed(
                 location.offset,
                 Some(form_ref),
@@ -1531,7 +1513,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             *seen = true;
-            let (head, _) = self.load_object(location.offset, reference, slots).await?;
+            let (head, _) = self.load_object(location.offset, reference, slots)?;
             let failure = self.malformed(
                 location.offset,
                 Some(reference),
@@ -1596,8 +1578,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             let has_media_box = match dictionary.value(b"MediaBox") {
                 Some(value) => {
-                    self.validate_media_box(value, reference, location.offset, slots, index)
-                        .await?;
+                    self.validate_media_box(value, reference, location.offset, slots, index)?;
                     true
                 }
                 None => node.inherited_media_box,
@@ -1652,8 +1633,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             slots,
                             index,
                             &mut contents_validated,
-                        )
-                        .await?;
+                        )?;
                     }
                     push_bounded(
                         &mut pages,
@@ -1689,23 +1669,25 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             );
             let outline_ref = exact_reference(outline_value).ok_or(failure)?;
             let outline_location = index.object_location(outline_ref)?;
-            let (head, _) = self
-                .load_object(outline_location.offset, outline_ref, slots)
-                .await?;
+            let (head, _) = self.load_object(outline_location.offset, outline_ref, slots)?;
             let failure = self.malformed(
                 outline_location.offset,
                 Some(outline_ref),
                 "Outlines root is not a dictionary",
             );
             let outline = head.dictionary.ok_or(failure)?;
-            index.has_outlines = self
-                .validate_outline_tree(&outline, outline_ref, outline_location.offset, slots, index)
-                .await?;
+            index.has_outlines = self.validate_outline_tree(
+                &outline,
+                outline_ref,
+                outline_location.offset,
+                slots,
+                index,
+            )?;
         }
         Ok(())
     }
 
-    async fn validate_media_box(
+    fn validate_media_box(
         &mut self,
         value: &[u8],
         owner: PdfRef,
@@ -1718,7 +1700,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         if let Some(reference) = exact_reference(value) {
             let location = index.object_location(reference)?;
-            let (head, _) = self.load_object(location.offset, reference, slots).await?;
+            let (head, _) = self.load_object(location.offset, reference, slots)?;
             if head
                 .scalar
                 .as_ref()
@@ -1736,7 +1718,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Err(self.malformed(owner_offset, Some(owner), "page tree MediaBox is invalid"))
     }
 
-    async fn validate_page_contents(
+    fn validate_page_contents(
         &mut self,
         value: &[u8],
         page: PdfRef,
@@ -1754,7 +1736,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Ok(());
             }
             let location = index.object_location(reference)?;
-            let (head, _) = self.load_object(location.offset, reference, slots).await?;
+            let (head, _) = self.load_object(location.offset, reference, slots)?;
             if matches!(head.tail, ObjectTail::Stream { .. }) {
                 contents_validated[reference.number as usize] = true;
                 return Ok(());
@@ -1769,7 +1751,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .and_then(|raw| reference_array(raw, slots.len()))
                 .ok_or(failure)?;
             for stream in &references {
-                self.validate_content_stream(*stream, slots, index).await?;
+                self.validate_content_stream(*stream, slots, index)?;
             }
             contents_validated[reference.number as usize] = true;
             return Ok(());
@@ -1781,20 +1763,19 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ))?
         };
         for reference in references {
-            self.validate_content_stream(reference, slots, index)
-                .await?;
+            self.validate_content_stream(reference, slots, index)?;
         }
         Ok(())
     }
 
-    async fn validate_content_stream(
+    fn validate_content_stream(
         &mut self,
         reference: PdfRef,
         slots: &[Option<XrefSlot>],
         index: &PdfIndex,
     ) -> Result<()> {
         let location = index.object_location(reference)?;
-        let (head, _) = self.load_object(location.offset, reference, slots).await?;
+        let (head, _) = self.load_object(location.offset, reference, slots)?;
         if !matches!(head.tail, ObjectTail::Stream { .. }) {
             return Err(self.malformed(
                 location.offset,
@@ -1805,7 +1786,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
-    async fn validate_outline_tree(
+    fn validate_outline_tree(
         &mut self,
         root: &Dictionary,
         root_ref: PdfRef,
@@ -1926,9 +1907,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             self.limits
                 .check_bookmarks(item_count)
                 .map_err(self.locator(location.offset, Some(task.reference)))?;
-            let (head, _) = self
-                .load_object(location.offset, task.reference, slots)
-                .await?;
+            let (head, _) = self.load_object(location.offset, task.reference, slots)?;
             let failure = self.malformed(
                 location.offset,
                 Some(task.reference),
@@ -2208,7 +2187,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
-    async fn validate_live_object_spans(
+    fn validate_live_object_spans(
         &mut self,
         index: &mut PdfIndex,
         slots: &[Option<XrefSlot>],
@@ -2245,19 +2224,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Err(self.malformed(location.offset, None, "PDF objects overlap"));
             }
             if check_gaps && previous_end != 0 {
-                self.validate_gap(previous_end, location.offset, Some(number), slots, index)
-                    .await?;
+                self.validate_gap(previous_end, location.offset, Some(number), slots, index)?;
             }
             previous_end = location.offset + location.length;
         }
         if check_gaps && previous_end < index.xref_offset {
-            self.validate_gap(previous_end, index.xref_offset, None, slots, index)
-                .await?;
+            self.validate_gap(previous_end, index.xref_offset, None, slots, index)?;
         }
         Ok(())
     }
 
-    async fn validate_gap(
+    fn validate_gap(
         &mut self,
         start: u64,
         end: u64,
@@ -2267,11 +2244,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     ) -> Result<()> {
         let mut cursor = start;
         while cursor < end {
-            match self.byte(cursor).await? {
+            match self.byte(cursor)? {
                 Some(b' ' | b'\t' | b'\r' | b'\n' | 0 | 12) => cursor += 1,
                 Some(b'%') => {
                     while cursor < end {
-                        let byte = self.byte(cursor).await?.unwrap_or(0);
+                        let byte = self.byte(cursor)?.unwrap_or(0);
                         cursor += 1;
                         if byte == b'\r' || byte == b'\n' {
                             break;
@@ -2281,7 +2258,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 _ => {
                     let length = end - start;
                     if length <= MAX_ORPHAN_GAP_BYTES {
-                        let original = self.bytes(start, length as usize).await?;
+                        let original = self.bytes(start, length as usize)?;
                         if let Some(number) = parse_orphan_gap(&original) {
                             let free = matches!(
                                 slots.get(number as usize).and_then(|slot| *slot),
@@ -2765,7 +2742,7 @@ pub(crate) struct PlannedObject {
 
 /// Parse one complete caller-supplied object span, never scanning adjacent
 /// CAJ container bytes.
-pub(crate) async fn parse_planned_object<S: RangedSource, C: Cancellation>(
+pub(crate) fn parse_planned_object<S: RangedSource, C: Cancellation>(
     source: &mut S,
     range: PdfRange,
     expected: PdfRef,
@@ -2774,11 +2751,11 @@ pub(crate) async fn parse_planned_object<S: RangedSource, C: Cancellation>(
 ) -> Result<PlannedObject> {
     limits.validate()?;
     let mut reader = Reader::new(source, range, limits, cancellation)?;
-    let head = reader.load_head(0, Some(expected)).await?;
+    let head = reader.load_head(0, Some(expected))?;
     let (scalar, stream) = match head.tail {
         ObjectTail::EndObject { end } => {
             let mut rest = end as u64;
-            reader.skip_space(&mut rest).await?;
+            reader.skip_space(&mut rest)?;
             if rest != range.length {
                 return Err(reader.malformed(
                     rest,
@@ -2816,7 +2793,7 @@ pub(crate) async fn parse_planned_object<S: RangedSource, C: Cancellation>(
 
 /// Check a planned stream's `endstream`/`endobj` tail, resolving an indirect
 /// `/Length` through `resolve_length`, and return the object's inspection.
-pub(crate) async fn finish_planned_object<
+pub(crate) fn finish_planned_object<
     S: RangedSource,
     C: Cancellation,
     F: Fn(PdfRef) -> Option<u64>,
@@ -2849,8 +2826,8 @@ pub(crate) async fn finish_planned_object<
         object,
         "stream extent overflows",
     ))?;
-    let mut rest = reader.check_stream_tail(after_data, object).await?;
-    reader.skip_space(&mut rest).await?;
+    let mut rest = reader.check_stream_tail(after_data, object)?;
+    reader.skip_space(&mut rest)?;
     if rest != range.length {
         return Err(reader.malformed(rest, object, "fragment has trailing non-whitespace bytes"));
     }

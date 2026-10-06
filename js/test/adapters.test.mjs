@@ -2,101 +2,51 @@
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { open, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { test } from "node:test";
-import {
-  blobSource,
-  MAX_IO_CHUNK,
-  webWritableSink,
-} from "../io.mjs";
-import { fileHandleSource, nodeWritableSink } from "../node.mjs";
-import { tempDirectory } from "./helpers.mjs";
+import { webWritableSink } from "../io.mjs";
+import { convert, inspect, nodeWritableSink } from "../node.mjs";
+import { discard, syntheticCaj, tempDirectory, wasmModule } from "./helpers.mjs";
 
-test("Blob source reads a slice and never calls whole-Blob arrayBuffer", async () => {
-  const content = new Blob([Uint8Array.from([1, 2, 3, 4, 5])]);
-  const ranges = [];
-  const tracked = {
-    size: content.size,
-    slice(start, end) {
-      ranges.push([start, end]);
-      return content.slice(start, end);
-    },
-    arrayBuffer() {
-      throw new Error("whole Blob read is forbidden");
-    },
-  };
-  const source = blobSource(tracked);
-  assert.equal(source.size, 5n);
-  assert.deepEqual([...await source.readAt(2n, 2)], [3, 4]);
-  assert.deepEqual(ranges, [[2, 4]]);
-  await assert.rejects(source.readAt(0n, MAX_IO_CHUNK + 1), RangeError);
-  await assert.rejects(source.readAt(4n, 2), RangeError);
-});
-
-test("Blob source rejects unsafe numeric sizes and cancellation", async () => {
-  assert.throws(() => blobSource({ size: Number.MAX_SAFE_INTEGER + 1, slice() {} }), TypeError);
-  const source = blobSource(new Blob([Uint8Array.of(1)]));
-  const controller = new AbortController();
-  controller.abort();
-  await assert.rejects(source.readAt(0n, 1, controller.signal), { name: "AbortError" });
-});
-
-test("Blob source reports a truncated slice with a typed error", async () => {
-  const source = blobSource({
-    size: 2,
-    slice() { return new Blob([Uint8Array.of(1)]); },
-  });
-  await assert.rejects(source.readAt(0n, 2), { code: "TRUNCATED_INPUT" });
-});
-
-test("Node source uses BigInt positioned reads beyond Number.MAX_SAFE_INTEGER", async () => {
-  const positions = [];
-  const high = BigInt(Number.MAX_SAFE_INTEGER) + 7n;
-  const handle = {
-    async stat(options) {
-      assert.deepEqual(options, { bigint: true });
-      return { size: high + 4n };
-    },
-    async read({ buffer, offset, length, position }) {
-      assert.equal(typeof position, "bigint");
-      positions.push(position);
-      const count = Math.min(length, 2);
-      buffer.set([10 + offset, 11 + offset].slice(0, count), offset);
-      return { bytesRead: count };
-    },
-  };
-  const source = await fileHandleSource(handle);
-  assert.equal(source.size, high + 4n);
-  assert.deepEqual([...await source.readAt(high, 4)], [10, 11, 12, 13]);
-  assert.deepEqual(positions, [high, high + 2n]);
-});
-
-test("Node source leaves a real FileHandle open and preserves its cursor", async () => {
-  const directory = await tempDirectory("node-source");
-  const path = join(directory, "input.bin");
-  await writeFile(path, Uint8Array.from([1, 2, 3, 4]));
-  const handle = await open(path, "r");
+test("Node inputs must be regular files, descriptors, or Blobs", async () => {
+  const directory = await tempDirectory("node-input");
   try {
-    const source = await fileHandleSource(handle);
-    assert.deepEqual([...await source.readAt(2n, 2)], [3, 4]);
-    const next = new Uint8Array(2);
-    const { bytesRead } = await handle.read({ buffer: next, offset: 0, length: 2, position: 0n });
-    assert.equal(bytesRead, 2);
-    assert.deepEqual([...next], [1, 2]);
+    await mkdir(join(directory, "folder"));
+    for (const input of [join(directory, "folder"), -1, 1.5, {}, null, new Uint8Array(4)]) {
+      await assert.rejects(convert(await wasmModule(), input, discard), TypeError, String(input));
+    }
+    await assert.rejects(inspect(await wasmModule(), join(directory, "missing")), { code: "ENOENT" });
   } finally {
-    await handle.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("Node source reports a file shortened after its size snapshot", async () => {
-  const source = await fileHandleSource({
-    async stat() { return { size: 3n }; },
-    async read() { return { bytesRead: 0 }; },
+test("a Blob that returns short or empty slices ends with a typed truncation", async () => {
+  const bytes = syntheticCaj();
+  class ShortBlob extends Blob {
+    slice(start, end) {
+      // One byte per read, then nothing at all past the first kilobyte.
+      return start >= 1024 ? new Blob([]) : super.slice(start, Math.min(end, start + 1));
+    }
+  }
+  await assert.rejects(convert(await wasmModule(), new ShortBlob([bytes]), discard), {
+    code: "TRUNCATED_INPUT",
   });
-  await assert.rejects(source.readAt(0n, 3), { code: "TRUNCATED_INPUT" });
+});
+
+test("a file shortened after its size snapshot ends with a typed truncation", async () => {
+  const directory = await tempDirectory("node-truncated");
+  const path = join(directory, "input.caj");
+  try {
+    await writeFile(path, syntheticCaj());
+    const pending = convert(await wasmModule(), path, discard, { chunkSize: 1, progress() {} });
+    await writeFile(path, syntheticCaj().subarray(0, 8));
+    await assert.rejects(pending, (error) => ["TRUNCATED_INPUT", "MALFORMED_CAJ", "UNSUPPORTED_FORMAT"].includes(error.code));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("Node Writable sink waits for the callback even when write returns false", async () => {
@@ -133,7 +83,7 @@ test("Node Writable sink catches a callback error and the later error event", as
   await new Promise((resolve) => setImmediate(resolve));
 });
 
-test("Web Writable sink awaits writer.write and leaves the writer open", async () => {
+test("Web Writable sink awaits writer.write, hands over the bytes, and leaves the writer open", async () => {
   let release;
   let received;
   const writer = {
@@ -150,26 +100,20 @@ test("Web Writable sink awaits writer.write and leaves the writer open", async (
     settled = true;
     return value;
   });
-  input[0] = 99;
   await Promise.resolve();
   assert.equal(settled, false);
-  assert.deepEqual([...received], [4, 5]);
+  // Each chunk is a fresh copy from the Worker, so the writer may keep it.
+  assert.equal(received, input);
   release();
   assert.equal(await pending, 2);
   await sink.flush();
 });
 
-test("an abort interrupts stalled Node sink writes and file reads", async () => {
+test("an abort interrupts a stalled Node sink write", async () => {
   const controller = new AbortController();
   const writable = new EventEmitter();
   writable.write = () => false;
   const pending = nodeWritableSink(writable).writeChunk(Uint8Array.of(1), controller.signal);
-  const source = await fileHandleSource({
-    async stat() { return { size: 1n }; },
-    read: () => new Promise(() => {}),
-  });
-  const read = source.readAt(0n, 1, controller.signal);
   controller.abort();
   await assert.rejects(pending, { name: "AbortError" });
-  await assert.rejects(read, { name: "AbortError" });
 });

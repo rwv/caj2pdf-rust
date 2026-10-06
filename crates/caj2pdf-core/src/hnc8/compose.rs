@@ -5,13 +5,15 @@
 //! The CLI and WASM adapters share this core and reject omitted source rows.
 
 use super::placement::{source_image_transform, source_page_geometry};
+use std::io::Write;
 mod native;
 mod route;
-mod type3;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::type3_image::{CheckedType3, Type3PdfOptions, Type3Stage, preflight_type3};
+use super::type3_image::{
+    CheckedType3, Type3PdfOptions, Type3Stage, Type3Stores, emit_type3, preflight_type3,
+};
 use super::{
     ApplicationInfoStatus, At, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
     JpegColor, JpegInfo, Locate, OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant,
@@ -21,8 +23,7 @@ use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::jbig1::{
     Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info,
 };
-use crate::jbig2::text_composer::RandomAccessScratch;
-use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
+use crate::jbig2::text::TextHeaderAnomaly;
 use crate::pdf::{
     BilevelImageSpec, BookmarkView, ImageEncoding, ImagePlacement, ImageSpec,
     MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
@@ -30,40 +31,33 @@ use crate::pdf::{
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    MAX_BUDGET_COUNT, RangedSource, SequentialSink,
+    MAX_BUDGET_COUNT, Payload, RangedSource, read_payload,
 };
 use std::{error, fmt, mem::size_of};
 
-/// Caller-owned stores reused between type-3 images: three symbol stores,
-/// the full-page text scratch and the standard MQ table. Type-0 and JPEG
-/// images stream straight to the PDF and use no store.
-pub struct ComposeType3Workspaces<'a, T> {
-    pub table: &'a MqTable,
-    pub first: &'a mut T,
-    pub second: &'a mut T,
-    pub refined: &'a mut T,
-    pub text: &'a mut T,
-}
-
-/// Per-page metadata and per-image type-3 storage ceilings. The type-3
-/// limits cover all four stores together. Scratch work
-/// charges requested read/write bytes, including requests that fail or make
-/// short progress. These limits do not cap PDF indexes or process residency.
+/// Per-page metadata ceiling. It does not cap PDF indexes, the image
+/// payload, the type-3 stores or process residency; each payload and store is
+/// a single allocation within `Limits::max_allocation_bytes`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComposeBudget {
     pub max_page_metadata_bytes: u64,
-    pub max_type3_store_bytes: u64,
-    pub max_type3_store_io_bytes: u64,
 }
 
 impl Default for ComposeBudget {
     fn default() -> Self {
         Self {
             max_page_metadata_bytes: 4 * 1024 * 1024,
-            max_type3_store_bytes: 64 * 1024 * 1024,
-            max_type3_store_io_bytes: 256 * 1024 * 1024,
         }
     }
+}
+
+/// Memory reused between images: the arithmetic contexts of type-0 images,
+/// the payload being decoded, and the type-3 symbol stores and text region.
+#[derive(Default)]
+struct ImageBuffers {
+    contexts: Option<ContextBank>,
+    payload: Vec<u8>,
+    type3: Type3Stores,
 }
 
 /// Independent codec/resource choices. The geometry is the measured profile
@@ -117,13 +111,11 @@ enum CheckedImage {
     Type3,
 }
 
-struct OutlineSink<'a, 'b, W: SequentialSink, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
+struct OutlineSink<'a, 'b, W: Write, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
 
-impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_, W, C> {
-    async fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
-        self.0
-            .add_bookmark_with_view(bookmark, BookmarkView::Xyz)
-            .await
+impl<W: Write, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_, W, C> {
+    fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
+        self.0.add_bookmark_with_view(bookmark, BookmarkView::Xyz)
     }
 }
 
@@ -156,13 +148,12 @@ pub struct ComposePage<'a> {
 
 /// Streaming source/output mapping. Events borrow only the current page.
 /// A visitor failure invalidates the partial PDF, including previous pages.
-#[allow(async_fn_in_trait)]
 pub trait ComposeVisitor {
-    async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()>;
+    fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()>;
 }
 
 impl ComposeVisitor for () {
-    async fn page(&mut self, _page: ComposePage<'_>) -> crate::Result<()> {
+    fn page(&mut self, _page: ComposePage<'_>) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -195,10 +186,8 @@ pub enum ComposeStage {
     Headers,
     Geometry,
     Decode,
-    Scratch,
     Pdf,
     Visitor,
-    Cleanup,
 }
 
 #[derive(Debug)]
@@ -207,7 +196,6 @@ pub enum ComposeErrorKind {
     Unsupported(&'static str),
     UnsupportedImageType(u32),
     MissingTable,
-    MissingType3Workspaces,
     NoImages,
     Container(Box<Hnc8Error>),
     Image(Box<Type0Error>),
@@ -218,20 +206,14 @@ pub enum ComposeErrorKind {
     /// A typed failure of one type-3 JBIG2 decoding stage.
     Type3 {
         stage: Type3Stage,
-        source: Box<dyn error::Error>,
+        source: Box<dyn error::Error + Send + Sync>,
     },
     Contexts(Box<ArithmeticError>),
     Io(Error),
-    /// Both failures are preserved; neither makes the partial output valid.
-    Cleanup {
-        primary: Box<ComposeError>,
-        cleanup: Error,
-    },
 }
 
 /// One-based source identity and absolute source offset when known. Every
-/// error requires discarding the PDF. Caller-owned storage must be disposed
-/// by its adapter if a pending conversion future is dropped.
+/// error requires discarding the PDF.
 #[derive(Debug)]
 pub struct ComposeError {
     pub variant: Option<Variant>,
@@ -267,9 +249,6 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::MissingTable => {
                 f.write_str("type-0 image requires a caller QM table")
             }
-            ComposeErrorKind::MissingType3Workspaces => {
-                f.write_str("type-3 image requires MQ table and symbol stores")
-            }
             ComposeErrorKind::Type3Dib(reason) => write!(f, "malformed type-3 DIB: {reason}"),
             ComposeErrorKind::Type3 { stage, source } => write!(f, "type-3 {stage:?}: {source}"),
             ComposeErrorKind::NoImages => f.write_str("image-only output has no image to draw"),
@@ -278,9 +257,6 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::Jpeg(error) => write!(f, "{error}"),
             ComposeErrorKind::Contexts(error) => write!(f, "{error}"),
             ComposeErrorKind::Io(error) => write!(f, "{error}"),
-            ComposeErrorKind::Cleanup { primary, cleanup } => {
-                write!(f, "{primary}; store cleanup also failed: {cleanup}")
-            }
         }
     }
 }
@@ -294,7 +270,6 @@ impl error::Error for ComposeError {
             ComposeErrorKind::Contexts(error) => Some(error),
             ComposeErrorKind::Type3 { source, .. } => Some(source.as_ref()),
             ComposeErrorKind::Io(error) => Some(error),
-            ComposeErrorKind::Cleanup { primary, .. } => Some(primary),
             _ => None,
         }
     }
@@ -361,7 +336,7 @@ impl At {
 /// custom `/CNKI_DOI` key and its URL as `/CNKI_URL`. The observed values are
 /// CNKI identifiers rather than registered DOIs, so they are stored verbatim. A defective package is recorded in the
 /// report and ignored; only cancellation fails.
-async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
+fn finish_document<S: RangedSource, W: Write, C: Cancellation>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: PdfDocument<'_, W, C>,
     report: &mut ComposeReport,
@@ -369,7 +344,6 @@ async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
 ) -> Result<ConversionReport, ComposeError> {
     let read = reader
         .application_info_report()
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?;
     report.application_info = read.status;
     let info = read.info.unwrap_or_default();
@@ -378,7 +352,6 @@ async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
             ("CNKI_DOI", info.doi.as_deref()),
             ("CNKI_URL", info.url.as_deref()),
         ])
-        .await
         .map_err(at.io(ComposeStage::Pdf))
 }
 
@@ -409,8 +382,8 @@ fn type0_decode(at: At) -> impl Fn(Type0Error) -> ComposeError {
 /// decode (top-first) order; the caller's positive-height matrix puts the
 /// first row on top. The PDF writer drops each row's DIB storage padding.
 #[allow(clippy::too_many_arguments)]
-async fn emit_type0<S, W, C>(
-    source: &mut S,
+fn emit_type0<W, C>(
+    payload: Payload<'_>,
     document: &mut PdfDocument<'_, W, C>,
     record: ImageRecord,
     info: Type0Info,
@@ -422,8 +395,7 @@ async fn emit_type0<S, W, C>(
     cancellation: &C,
 ) -> Result<crate::pdf::ImageObject, ComposeError>
 where
-    S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 {
     let mut rows = document
@@ -432,13 +404,12 @@ where
             pixel_height: info.height,
             row_stride: info.dib_stride,
         })
-        .await
         .map_err(at.io(ComposeStage::Pdf))?;
     let span = record
         .type0_span()
         .expect("type-0 record checked by composition preflight");
     let mut decoder = Type0Decoder::new(
-        source,
+        payload,
         span,
         table,
         contexts,
@@ -448,16 +419,15 @@ where
         options.arithmetic,
         options.image,
     )
-    .await
     .map_err(type0_decode(at))?;
-    while decoder.decode_next_row().await.map_err(type0_decode(at))? {}
-    decoder.finish().await.map_err(type0_decode(at))?;
-    rows.finish().await.map_err(at.io(ComposeStage::Pdf))
+    while decoder.decode_next_row().map_err(type0_decode(at))? {}
+    decoder.finish().map_err(type0_decode(at))?;
+    rows.finish().map_err(at.io(ComposeStage::Pdf))
 }
 
 /// Additional descriptor groups are accepted only after a complete byte
 /// comparison. Two fixed 1 KiB buffers avoid per-image hashes or allocations.
-async fn verify_repeated_image<S: RangedSource, C: Cancellation>(
+fn verify_repeated_image<S: RangedSource, C: Cancellation>(
     source: &mut S,
     original: ImageRecord,
     repeated: ImageRecord,
@@ -486,7 +456,6 @@ async fn verify_repeated_image<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .await
         .map_err(at.io(ComposeStage::Headers))?;
         crate::read_exact_at(
             source,
@@ -495,7 +464,6 @@ async fn verify_repeated_image<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .await
         .map_err(at.io(ComposeStage::Headers))?;
         if first[..count] != second[..count] {
             return Err(at.with_offset(repeated.payload.offset + offset).error((
@@ -516,8 +484,6 @@ fn validate(options: ComposeOptions, limits: &Limits) -> Result<(), ComposeError
     if !counters.contains(&options.arithmetic.max_symbols)
         || !counters.contains(&options.arithmetic.max_work)
         || !counters.contains(&options.budget.max_page_metadata_bytes)
-        || !counters.contains(&options.budget.max_type3_store_bytes)
-        || !counters.contains(&options.budget.max_type3_store_io_bytes)
     {
         return Err(At::NONE.error((
             ComposeStage::Preflight,
@@ -600,13 +566,12 @@ fn admit_page_images(
 /// Check one descriptor without decoding it. Native mixed pages and the
 /// image-only path must use the same codec admission, budgets and diagnostics.
 #[allow(clippy::too_many_arguments)]
-async fn preflight_image<S: RangedSource, C: Cancellation>(
+fn preflight_image<S: RangedSource, C: Cancellation>(
     source: &mut S,
     record: ImageRecord,
     variant: Variant,
     image_at: At,
     table: Option<&QmTable>,
-    has_type3_workspaces: bool,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -624,7 +589,6 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
                 options.arithmetic,
                 options.image,
             )
-            .await
             .map_err(image_at.type0(ComposeStage::Headers))?;
             let display_width = info.width;
             (
@@ -636,12 +600,6 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
             )
         }
         3 if variant != Variant::HnB => {
-            if !has_type3_workspaces {
-                return Err(image_at.error((
-                    ComposeStage::Headers,
-                    ComposeErrorKind::MissingType3Workspaces,
-                )));
-            }
             let checked = preflight_type3(
                 source,
                 record,
@@ -649,8 +607,7 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
                 options.type3,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             let page = checked.page();
             let display_width = page.width;
             (
@@ -665,7 +622,6 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
         // HN-A/C8 composition profile; HN-B remains type-2 only.
         1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
             let info = read_type2_jpeg_info(source, record, limits, cancellation, options.jpeg)
-                .await
                 .map_err(image_at.jpeg(ComposeStage::Headers))?;
             let width = u32::from(info.width);
             let height = u32::from(info.height);
@@ -682,16 +638,16 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
 
 /// Decode one preflighted descriptor into the current PDF document. Kept
 /// independent of page placement so native text pages can reuse the same
-/// codec, scratch accounting and cleanup path as image-only composition.
+/// codecs and buffers as image-only composition. A type-0 or type-3 payload
+/// is read into memory once before decoding; JPEG bytes are copied unchanged.
 #[allow(clippy::too_many_arguments)]
-async fn emit_image<S, W, T, C>(
+fn emit_image<S, W, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     image: &mut ComposedImage,
     type3: Option<CheckedType3>,
     image_at: At,
-    contexts: &mut Option<ContextBank>,
-    stores: &mut Option<ComposeType3Workspaces<'_, T>>,
+    buffers: &mut ImageBuffers,
     table: Option<&QmTable>,
     options: ComposeOptions,
     limits: &Limits,
@@ -700,51 +656,68 @@ async fn emit_image<S, W, T, C>(
 ) -> Result<crate::pdf::ImageObject, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
-    T: RandomAccessScratch,
+    W: Write,
     C: Cancellation,
 {
+    let record = image.record;
+    let payload_at = image_at.with_offset(record.payload.offset);
     let object = match image.checked {
         CheckedImage::Type0(info) => {
-            if contexts.is_none() {
-                *contexts = Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
+            if buffers.contexts.is_none() {
+                buffers.contexts =
+                    Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
             }
-            let object = emit_type0(
+            let payload = read_payload(
                 source,
+                record.payload.offset,
+                record.payload.length,
+                &mut buffers.payload,
+                limits,
+                cancellation,
+            )
+            .map_err(payload_at.io(ComposeStage::Decode))?;
+            let object = emit_type0(
+                payload,
                 document,
-                image.record,
+                record,
                 info,
                 table.expect("type-zero table checked"),
-                contexts.as_mut().expect("contexts constructed"),
+                buffers.contexts.as_mut().expect("contexts constructed"),
                 image_at,
                 options,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             report.type0_images += 1;
             object
         }
         CheckedImage::Type3 => {
-            let (object, anomaly) = type3::emit(
+            let payload = read_payload(
                 source,
-                document,
-                image_at,
-                type3.expect("type-3 metadata retained from preflight"),
-                stores.as_mut().expect("type-3 stores checked"),
-                options,
+                record.payload.offset,
+                record.payload.length,
+                &mut buffers.payload,
                 limits,
                 cancellation,
             )
-            .await?;
-            image.type3_text_header_anomaly = anomaly;
+            .map_err(payload_at.io(ComposeStage::Decode))?;
+            let (object, page) = emit_type3(
+                payload,
+                document,
+                &mut buffers.type3,
+                type3.expect("type-3 metadata retained from preflight"),
+                image_at,
+                options.type3,
+                limits,
+                cancellation,
+            )?;
+            image.type3_text_header_anomaly = page.text_header_anomaly;
             report.type3_images += 1;
             object
         }
         CheckedImage::Jpeg(info) => {
             // The checked marker profile is streamed unchanged: /DeviceGray
             // for grayscale, /DeviceRGB with /ColorTransform 1 for YCbCr.
-            let record = image.record;
             let encoding = match info.color {
                 JpegColor::Gray => ImageEncoding::JpegGray8,
                 JpegColor::Ycbcr => ImageEncoding::JpegRgb8,
@@ -756,12 +729,7 @@ where
             };
             let object = document
                 .add_image(source, record.payload.offset, record.payload.length, spec)
-                .await
-                .map_err(
-                    image_at
-                        .with_offset(record.payload.offset)
-                        .io(ComposeStage::Pdf),
-                )?;
+                .map_err(payload_at.io(ComposeStage::Pdf))?;
             report.jpeg_images += 1;
             object
         }
@@ -782,19 +750,15 @@ where
 /// rows stream top-first under a positive-height CTM equivalent to the
 /// reference's negative-height matrix for bottom-first rows. JPEG bytes are
 /// copied unchanged. Only current-page plans/placements and checked type-3
-/// directories are held; the existing PDF writer retains its indexes. Only
-/// type-3 images use the `type3` stores: three symbol stores and the text
-/// scratch are cleared per image; their aggregate size and I/O share the
-/// store budget. Normal completed type-3 paths truncate their stores,
-/// including errors.
-/// A dropped pending future cannot perform async cleanup: the adapter must
-/// dispose of its store and partial output, and never resume that session.
+/// directories are held; the existing PDF writer retains its indexes. One
+/// type-0 or type-3 payload at a time is held in memory, and type-3 images
+/// decode into three in-memory symbol stores and a text region, each a
+/// single allocation within `Limits::max_allocation_bytes`.
 #[allow(clippy::too_many_arguments)]
-pub async fn convert_source_pages_pdf<'a, S, W, T, V, C>(
+pub fn convert_source_pages_pdf<S, W, V, C>(
     source: &mut S,
     sink: &mut W,
     table: Option<&QmTable>,
-    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     visitor: &mut V,
     options: ComposeOptions,
     limits: &Limits,
@@ -802,8 +766,7 @@ pub async fn convert_source_pages_pdf<'a, S, W, T, V, C>(
 ) -> Result<ComposeReport, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
-    T: RandomAccessScratch + 'a,
+    W: Write,
     V: ComposeVisitor,
     C: Cancellation,
 {
@@ -811,7 +774,6 @@ where
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?;
     let header = reader.header();
     let document_at = At {
@@ -819,18 +781,16 @@ where
         offset: Some(0),
         ..At::NONE
     };
-    let mut document = PdfDocument::new(sink, limits, cancellation)
-        .await
-        .map_err(document_at.io(ComposeStage::Pdf))?;
+    let mut document =
+        PdfDocument::new(sink, limits, cancellation).map_err(document_at.io(ComposeStage::Pdf))?;
     let mut report = ComposeReport::new(header);
     // Only HN-A outlines are verified; for C8/HN-B a request writes nothing
     // and is reported rather than failing the whole conversion.
     let include_bookmarks = options.include_bookmarks && header.variant == Variant::HnA;
     report.outline.unverified = options.include_bookmarks && !include_bookmarks;
-    let mut contexts = None;
+    let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?
     {
         let at = At::page(header, page);
@@ -846,7 +806,6 @@ where
                     size: None,
                     images: &[],
                 })
-                .await
                 .map_err(at.io(ComposeStage::Visitor))?;
             continue;
         }
@@ -881,7 +840,6 @@ where
                 cancellation,
                 options.text,
             )
-            .await
             .map_err(|error| container(error, ComposeStage::Text))?;
             page_size = text.page_size.or(page_size);
             coordinates = text.coordinates;
@@ -911,7 +869,6 @@ where
             .map_err(at.io(ComposeStage::Geometry))?;
         while let Some(record) = reader
             .next_image()
-            .await
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
@@ -924,8 +881,7 @@ where
                     image_at,
                     limits,
                     cancellation,
-                )
-                .await?;
+                )?;
                 images.push(ComposedImage {
                     record,
                     duplicate_of: Some(original.record.image_number),
@@ -939,12 +895,10 @@ where
                 header.variant,
                 image_at,
                 table,
-                type3.is_some(),
                 options,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             if let Some(plan) = plan {
                 type3_bytes += plan.retained_bytes();
                 let wanted = capacity_bytes::<CheckedType3>(type3_plans.len() + 1);
@@ -1026,15 +980,13 @@ where
                 image,
                 plan,
                 image_at,
-                &mut contexts,
-                &mut type3,
+                &mut buffers,
                 table,
                 options,
                 limits,
                 cancellation,
                 &mut report,
-            )
-            .await?;
+            )?;
             placements.push(ImagePlacement {
                 image: object,
                 transform: image.transform,
@@ -1045,7 +997,6 @@ where
         // and successful report expose one-based pages and the page count.
         report.output_pages = document
             .add_placed_page(size, &placements)
-            .await
             .map_err(at.io(ComposeStage::Pdf))?
             + 1;
         visitor
@@ -1055,10 +1006,9 @@ where
                 size: Some(size),
                 images: &images,
             })
-            .await
             .map_err(at.io(ComposeStage::Visitor))?;
         // All current-page coordinates, plans and placements drop here before
-        // the next row; only the reusable contexts and PDF indexes persist.
+        // the next row; only the reusable buffers and PDF indexes persist.
     }
     if report.output_pages == 0 {
         return Err(document_at.error((ComposeStage::Preflight, ComposeErrorKind::NoImages)));
@@ -1074,10 +1024,9 @@ where
                 |page| Some(page - 1),
                 &mut OutlineSink(&mut document),
             )
-            .await
             .map_err(|error| container(error, ComposeStage::Container))?;
     }
-    report.conversion = finish_document(&mut reader, document, &mut report, document_at).await?;
+    report.conversion = finish_document(&mut reader, document, &mut report, document_at)?;
     report.conversion.input_bytes_read = input_bytes_read;
     Ok(report)
 }

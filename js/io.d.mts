@@ -8,7 +8,7 @@ export declare const MAX_U64: bigint;
 export declare const MAX_ALLOCATION_LIMIT: bigint;
 export declare const DEFAULT_LIMITS: Readonly<Required<Limits>>;
 
-/** Input format names in WASM code order. HN/C8 conversion requires experimental caller configuration. */
+/** Input format names in WASM code order. Native C8/HN-B text needs caller fonts (`hnc8.fonts`). */
 export type Format = "auto" | "pdf" | "caj" | "kdh" | "hn" | "c8" | "teb" | "nh";
 export type DetectedFormat = Exclude<Format, "auto">;
 export declare const FORMATS: readonly Format[];
@@ -49,16 +49,9 @@ export declare class TruncatedInputError extends Caj2PdfError {
   readonly code: "TRUNCATED_INPUT";
 }
 
-/** A sized random-access input. Each request is at most `MAX_IO_CHUNK` bytes. */
-export interface RangedSource {
-  readonly size: bigint;
-  /** Resolve with at most `length` bytes at `offset`; a short read is allowed. */
-  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
-}
-
-/** An ordered output. `bytes` is valid only until the returned Promise settles. */
+/** An ordered output on the calling thread. Each `bytes` is a fresh copy the sink may keep. */
 export interface SequentialSink {
-  /** Resolve with the number of leading bytes accepted (0..bytes.byteLength). */
+  /** Resolve with the number of leading bytes accepted (1..bytes.byteLength); the rest is offered again. */
   writeChunk(bytes: Uint8Array, signal?: AbortSignal): Promise<number>;
   flush(signal?: AbortSignal): Promise<void>;
 }
@@ -73,8 +66,8 @@ export interface Limits {
   maxBookmarks?: number;
 }
 
-/** A compiled module (fresh instance per call), an instance, or its exports. */
-export type WasmInput = WebAssembly.Module | WebAssembly.Instance | WebAssembly.Exports;
+/** The compiled module from `loadModule()`; each operation instantiates it in a fresh Worker. */
+export type WasmInput = WebAssembly.Module;
 
 export interface OperationOptions {
   /** Defaults to `"auto"`: detect from the leading signature. */
@@ -82,12 +75,19 @@ export interface OperationOptions {
   limits?: Limits;
   /** Bytes per read or write request, 1..MAX_IO_CHUNK. Default 256 KiB. */
   chunkSize?: number;
+  /**
+   * Stops the operation. With cross-origin isolation (SharedArrayBuffer) the
+   * Worker stops at its next checkpoint and closes its inputs before the
+   * promise rejects; otherwise the Worker is terminated at once.
+   */
   signal?: AbortSignal;
+  /** Called with the fraction (0..1) of the input read so far, never decreasing. */
+  progress?: (fraction: number) => void;
 }
 
-export interface ConvertOptions extends OperationOptions {
-  /** Experimental HN/C8 fonts and the four disposable type-3 image stores. */
-  hnc8?: Hnc8Options;
+export interface ConvertOptions<Input> extends OperationOptions {
+  /** Experimental native C8 fonts, given as inputs of the same kinds as the document. */
+  hnc8?: Hnc8Options<Input>;
   /** Write supported CAJ/HN-A outlines. Default `true`; C8/HN-B require `false`. */
   includeBookmarks?: boolean;
   /** Explicitly replace damaged CAJ pages with blanks; inspect omittedPages. */
@@ -134,43 +134,16 @@ export interface SpoolOptions {
   maxSpoolBytes?: bigint | number;
 }
 
-export interface Spooled {
-  readonly source: RangedSource;
+export interface Spooled<Source> {
+  readonly source: Source;
   /** Remove the temporary storage. */
   dispose(): Promise<void>;
 }
 
 export type StreamInput = ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
 
-/** Convert supported PDF/CAJ/KDH and configured HN/C8 sources with bounded I/O. */
-export declare function convert(
-  wasm: WasmInput,
-  source: RangedSource,
-  sink: SequentialSink,
-  options?: ConvertOptions,
-): Promise<ConversionReport>;
-
-/** Read pages and validated CAJ/HN-A bookmark counts without decoding images. */
-export declare function inspect(
-  wasm: WasmInput,
-  source: RangedSource,
-  options?: OperationOptions,
-): Promise<DocumentInfo>;
-
-/** A source over a Blob or File using bounded `slice()` reads. */
-export declare function blobSource(blob: Blob): RangedSource;
-
 /** A sink over a caller-owned writer; it is never closed by this package. */
 export declare function webWritableSink(writer: WritableStreamDefaultWriter<Uint8Array>): SequentialSink;
-
-/** Spool with `spool`, convert, and always dispose the spool. */
-export declare function convertSpooled(
-  spool: (stream: StreamInput, options: { maxBytes: bigint; signal?: AbortSignal }) => Promise<Spooled>,
-  wasm: WasmInput,
-  stream: StreamInput,
-  sink: SequentialSink,
-  options?: ConvertOptions & SpoolOptions,
-): Promise<ConversionReport>;
 
 /** Await `consume` for each chunk; reject after more than `maxBytes`. */
 export declare function pumpChunks(
@@ -181,53 +154,35 @@ export declare function pumpChunks(
 
 export declare function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>;
 export declare function checkAbort(signal?: AbortSignal): void;
-export declare function checkRange(size: bigint, offset: bigint, length: bigint): void;
 export declare function requireU64(value: unknown, name: string): bigint;
 export declare function requireChunkLength(length: number, options?: { allowZero?: boolean }): number;
 export declare function requireSinkChunk(bytes: unknown): void;
 
-/** Bounded caller-owned scratch. Serialize calls and keep exclusive access. */
-export interface RandomAccessScratch {
-  readonly size: bigint;
-  resize(size: bigint, signal?: AbortSignal): Promise<void>;
-  /** May return a short prefix; never more than length bytes. */
-  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
-  /** May accept a short prefix. Keep bytes unchanged until the promise settles. */
-  writeAt(offset: bigint, bytes: Uint8Array, signal?: AbortSignal): Promise<number>;
-  flush(signal?: AbortSignal): Promise<void>;
-}
-
 /** An OpenType font (TrueType or CFF outlines), or one face of a font
  * collection (`.ttc`). */
-export type C8Font = RangedSource | { source: RangedSource; face?: number };
+export type C8Font<Input> = Input | { source: Input; face?: number };
 
-/** Explicit C8 resources. Reuse the same source object across roles to embed once.
- * Sources remain caller-owned and must stay stable until conversion settles.
+/** Explicit C8 resources. Reuse the same input across roles to embed once.
+ * Inputs remain caller-owned and must stay unchanged until conversion settles.
  * Only `cjk` and `latin` are required. An absent optional role, or a role font
  * that does not map a character, falls back to `cjk` for CJK-coded characters
  * and to `latin` otherwise; a glyph missing from that font still fails. */
-
-export interface C8Fonts {
-  cjk: C8Font;
-  latin: C8Font;
-  alternateLatin?: C8Font;
+export interface C8Fonts<Input> {
+  cjk: C8Font<Input>;
+  latin: C8Font<Input>;
+  alternateLatin?: C8Font<Input>;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
-  symbols?: C8Font;
+  symbols?: C8Font<Input>;
   /** Optional explicit font selected by HN-B/C8 state 801d/3. */
-  latinState3?: C8Font;
+  latinState3?: C8Font<Input>;
   /** Distinct caller-supplied resources for verified C8 Latin states. */
-  latinState28?: C8Font;
-  latinState31?: C8Font;
+  latinState28?: C8Font<Input>;
+  latinState31?: C8Font<Input>;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
-  decoration?: { source: C8Font; character: string };
+  decoration?: { source: C8Font<Input>; character: string };
 }
 
-export interface Hnc8Options {
+export interface Hnc8Options<Input> {
   /** Enables the admitted native C8 profile; currently requires includeBookmarks: false. */
-  fonts?: C8Fonts;
-  /**
-   * Four independent stores for type-3 (JBIG2) images; type-0 and JPEG images
-   * use none. Contents are reset on exit; callers retain handle ownership.
-   */
-  scratch?: readonly [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch];
+  fonts?: C8Fonts<Input>;
 }

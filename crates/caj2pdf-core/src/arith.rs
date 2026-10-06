@@ -2,17 +2,12 @@
 
 //! Scaffolding shared by the T.82 QM decoder ([`crate::qm`]) and the T.88 MQ
 //! decoder ([`crate::jbig2::mq`]): the context bank, the coded span, the
-//! located error, the register snapshot, the symbol and work counters, and
-//! the bounded, counted input refill. Each decoder keeps its own interval
-//! arithmetic and probability states.
+//! located error, the register snapshot, and the symbol and work counters.
+//! Each decoder keeps its own interval arithmetic and probability states and
+//! reads its coded bytes from a [`Payload`] in memory.
 
-use crate::{
-    Cancellation, CountingSource, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at,
-};
+use crate::{Error, Limits, MAX_BUDGET_COUNT, Payload};
 use std::{error, fmt, mem};
-
-/// Bytes fetched by one refill of a decoder's fixed input buffer.
-pub(crate) const INPUT_BUFFER_BYTES: usize = 256;
 
 /// One context's probability-state index and more-probable symbol.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -102,9 +97,8 @@ pub enum Coder {
     T88,
 }
 
-/// An arithmetic-decoding error with the next offset in the supplied
-/// `RangedSource` and a context index when those locations exist. The offset
-/// is not automatically an offset in the original document container. A
+/// An arithmetic-decoding error with the next offset in the coded payload's
+/// source coordinates and a context index when those locations exist. A
 /// [`ContextBank`] allocation error names no decoder.
 #[derive(Debug)]
 pub struct ArithmeticError {
@@ -134,9 +128,7 @@ pub enum ArithmeticErrorKind {
         attempted: u64,
     },
     AllocationFailed,
-    Cancelled,
     Source(Error),
-    Poisoned,
 }
 
 pub type ArithmeticResult<T> = std::result::Result<T, ArithmeticError>;
@@ -184,9 +176,7 @@ impl fmt::Display for ArithmeticError {
                 attempted,
             } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
             ArithmeticErrorKind::AllocationFailed => f.write_str("context allocation failed"),
-            ArithmeticErrorKind::Cancelled => f.write_str("cancelled"),
             ArithmeticErrorKind::Source(source) => write!(f, "source error: {source}"),
-            ArithmeticErrorKind::Poisoned => f.write_str("decoder is poisoned after an error"),
         }
     }
 }
@@ -208,16 +198,13 @@ pub struct ArithmeticSnapshot {
     pub code: u32,
     pub bit_counter: u8,
     /// The next coded byte the decoder consumes, in source coordinates.
-    /// Prefetch and the T.88 terminal check can fetch beyond it.
+    /// The T.88 terminal check reads beyond it.
     pub input_offset: u64,
-    /// Bytes returned by source reads, including the fixed-buffer prefetch.
-    pub source_bytes_fetched: u64,
     /// Inputs supplied beyond the coded bytes: T.82 zero bytes after the
     /// span, or T.88 one bits at the terminal marker.
     pub synthesized_inputs: u64,
     pub symbols_decoded: u64,
     pub work_done: u64,
-    pub poisoned: bool,
 }
 
 /// Whether the symbol and work budgets of a decoder are in
@@ -226,14 +213,14 @@ pub(crate) fn valid_counts(max_symbols: u64, max_work: u64) -> bool {
     (1..=MAX_BUDGET_COUNT).contains(&max_symbols) && (1..=MAX_BUDGET_COUNT).contains(&max_work)
 }
 
-/// Check a coded span against the input limit and the source size before
-/// any read, returning its end.
-pub(crate) fn check_span(
+/// Check a coded span against the input limit and the payload, returning
+/// its bytes.
+pub(crate) fn check_span<'a>(
     coder: Coder,
     span: CodedSpan,
-    source_size: u64,
+    input: Payload<'a>,
     limits: &Limits,
-) -> ArithmeticResult<u64> {
+) -> ArithmeticResult<&'a [u8]> {
     let at = |kind| ArithmeticError {
         coder: Some(coder),
         offset: Some(span.offset),
@@ -243,31 +230,25 @@ pub(crate) fn check_span(
     limits
         .check_input_size(span.length)
         .map_err(|source| at(ArithmeticErrorKind::Source(source)))?;
-    let end = span
-        .offset
+    span.offset
         .checked_add(span.length)
         .ok_or_else(|| at(ArithmeticErrorKind::InvalidSpan("end overflows u64")))?;
-    if end > source_size {
-        return Err(at(ArithmeticErrorKind::InvalidSpan("outside source size")));
-    }
-    Ok(end)
+    input
+        .get(span.offset, span.length)
+        .ok_or_else(|| at(ArithmeticErrorKind::InvalidSpan("outside source size")))
 }
 
-/// The counters and poison flag of one coding unit.
+/// The counters of one coding unit.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Counters {
     pub symbols_decoded: u64,
     pub work_done: u64,
-    pub source_bytes_fetched: u64,
     pub synthesized_inputs: u64,
-    /// Set before any register update that awaits input, so that an error or
-    /// a dropped future leaves the coding unit unusable.
-    pub poisoned: bool,
 }
 
 impl Counters {
     /// Check the symbol budget for one more decision, returning the count
-    /// after it. The caller poisons the unit before decoding the symbol.
+    /// after it.
     pub(crate) fn next_symbol(&self, max_symbols: u64) -> Result<u64, ArithmeticErrorKind> {
         // `symbols_decoded <= max_symbols <= MAX_BUDGET_COUNT`.
         let attempted = self.symbols_decoded + 1;
@@ -281,18 +262,10 @@ impl Counters {
         Ok(attempted)
     }
 
-    /// Record a completed symbol and clear the poison set before it.
-    pub(crate) fn complete_symbol(&mut self, symbols: u64) {
-        self.symbols_decoded = symbols;
-        self.poisoned = false;
-    }
-
-    /// Charge `count` units of work. Every charge is at most one input
-    /// refill, so with `work_done <= max_work <= MAX_BUDGET_COUNT` the sum
-    /// cannot overflow.
-    pub(crate) fn charge(&mut self, count: u64, max_work: u64) -> Result<(), ArithmeticErrorKind> {
-        debug_assert!(count <= INPUT_BUFFER_BYTES as u64);
-        let attempted = self.work_done + count;
+    /// Charge one unit of work. With `work_done <= max_work <=
+    /// MAX_BUDGET_COUNT` the sum cannot overflow.
+    pub(crate) fn charge(&mut self, max_work: u64) -> Result<(), ArithmeticErrorKind> {
+        let attempted = self.work_done + 1;
         if attempted > max_work {
             return Err(ArithmeticErrorKind::LimitExceeded {
                 resource: "arithmetic work",
@@ -316,79 +289,10 @@ impl Counters {
             code,
             bit_counter,
             input_offset,
-            source_bytes_fetched: self.source_bytes_fetched,
             synthesized_inputs: self.synthesized_inputs,
             symbols_decoded: self.symbols_decoded,
             work_done: self.work_done,
-            poisoned: self.poisoned,
         }
-    }
-}
-
-/// A fixed window of coded bytes, refilled by bounded positioned reads.
-pub(crate) struct InputBuffer {
-    bytes: [u8; INPUT_BUFFER_BYTES],
-    /// Span-relative offset of `bytes[0]`.
-    start: u64,
-    len: usize,
-}
-
-impl InputBuffer {
-    pub(crate) const fn new() -> Self {
-        Self {
-            bytes: [0; INPUT_BUFFER_BYTES],
-            start: 0,
-            len: 0,
-        }
-    }
-
-    /// The cached byte at span-relative `relative`, if any.
-    pub(crate) fn get(&self, relative: u64) -> Option<u8> {
-        let index = relative.checked_sub(self.start)?;
-        (index < self.len as u64).then(|| self.bytes[index as usize])
-    }
-
-    /// Replace the window with `count` bytes from span-relative `relative`.
-    /// Completed reads stay counted in `fetched` when a later short read or
-    /// a cancellation fails the refill; the error is located at the first
-    /// byte not read.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn refill<S: RangedSource, C: Cancellation>(
-        &mut self,
-        source: &mut S,
-        span: CodedSpan,
-        relative: u64,
-        count: usize,
-        fetched: &mut u64,
-        limits: &Limits,
-        cancellation: &C,
-    ) -> Result<(), (u64, ArithmeticErrorKind)> {
-        let offset = span.offset + relative;
-        let mut counted = CountingSource::new(source, fetched);
-        read_exact_at(
-            &mut counted,
-            offset,
-            &mut self.bytes[..count],
-            limits,
-            cancellation,
-        )
-        .await
-        .map_err(|source| {
-            let failed_at = match source {
-                Error::TruncatedInput {
-                    offset, available, ..
-                } => offset.saturating_add(available),
-                _ => offset,
-            };
-            let kind = match source {
-                Error::Cancelled => ArithmeticErrorKind::Cancelled,
-                other => ArithmeticErrorKind::Source(other),
-            };
-            (failed_at, kind)
-        })?;
-        self.start = relative;
-        self.len = count;
-        Ok(())
     }
 }
 

@@ -18,12 +18,9 @@ use std::{
     env,
     error::Error,
     fs::{self, File, OpenOptions},
-    future::Future,
     io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
-    pin::pin,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
 
 type TestResult<T> = Result<T, Box<dyn Error>>;
@@ -65,15 +62,6 @@ struct Sample {
     size: u64,
     sha: String,
     images: Vec<Image>,
-}
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native file adapter unexpectedly yielded"),
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -341,11 +329,7 @@ impl RangedSource for CountedSource {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         if destination.len() > IO_CHUNK {
             return Err(caj2pdf_core::Error::LimitExceeded {
                 resource: "corpus source request bytes",
@@ -495,12 +479,7 @@ fn run_all() -> TestResult<()> {
     for (index, (sample, path)) in samples.iter().zip(&paths).enumerate() {
         let mut source = CountedSource::open(path, sample.size)?;
         let mut verifier = File::open(path)?;
-        let mut root = ready(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &NeverCancel,
-            Budget::default(),
-        ))?;
+        let mut root = Hnc8Reader::open(&mut source, &limits, &NeverCancel, Budget::default())?;
         let header = root.header();
         let pages = header.page_count;
         let variant_index = match header.variant {
@@ -510,14 +489,14 @@ fn run_all() -> TestResult<()> {
         };
         let mut images = sample.images.iter();
         for page_number in 1..=pages {
-            let mut page = ready(Hnc8Reader::probe_at_page(
+            let mut page = Hnc8Reader::probe_at_page(
                 root.source_mut(),
                 &limits,
                 &NeverCancel,
                 Budget::default(),
                 page_number,
-            ))?;
-            match ready(page.next_page()) {
+            )?;
+            match page.next_page() {
                 Ok(Some(_)) => {}
                 Ok(None) => return Err("declared page disappeared".into()),
                 Err(error) if expected_anomaly(index, &error) => {
@@ -527,7 +506,7 @@ fn run_all() -> TestResult<()> {
                 Err(error) => return Err(error.into()),
             }
             loop {
-                let record = match ready(page.next_image()) {
+                let record = match page.next_image() {
                     Ok(Some(record)) => record,
                     Ok(None) => break,
                     Err(error) if expected_anomaly(index, &error) => {
@@ -568,13 +547,13 @@ fn run_all() -> TestResult<()> {
                     &hash_span(&mut verifier, expected.offset, expected.length)?,
                     &expected.sha,
                 )?;
-                let result = ready(read_type2_jpeg_info(
+                let result = read_type2_jpeg_info(
                     page.source_mut(),
                     record,
                     &limits,
                     &NeverCancel,
                     jpeg_budget,
-                ));
+                );
                 check_hash(
                     "JPEG span after parsing",
                     &hash_span(&mut verifier, expected.offset, expected.length)?,

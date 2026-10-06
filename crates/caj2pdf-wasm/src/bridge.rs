@@ -1,64 +1,137 @@
 // SPDX-License-Identifier: MIT
 
-//! Raw WASM exports over the platform-neutral [`Engine`].
+//! Raw WASM imports and exports over the platform-neutral [`Session`].
 //!
-//! JavaScript starts one operation, polls it until it requests a range read,
-//! write, or flush, awaits that request, completes it, and polls again. The
-//! staging pointer is valid until reset. Each export is a thin wrapper; the
-//! state machine and its tests live in `engine.rs`.
+//! JavaScript registers any C8 fonts, then calls [`caj2pdf_convert`] or
+//! [`caj2pdf_inspect`], which runs to completion. Rust reads and writes
+//! through the imported `caj2pdf` functions: a read fills a Rust-owned
+//! destination in this memory, and a write passes a pointer to Rust-owned
+//! bytes that JavaScript copies before returning. Accessors then describe
+//! the result until [`caj2pdf_reset`].
 
-use crate::engine::{
-    Engine, Operation, Outcome, Request, error_code, format_code, format_from_code,
-};
+use crate::engine::{Host, Operation, Outcome, Session, error_code, format_code, format_from_code};
 use caj2pdf_core::{ConversionOptions, Limits};
-use std::cell::RefCell;
+use std::{cell::RefCell, io};
 
-const START_OK: u32 = 0;
-const START_BUSY: u32 = 1;
-const START_INVALID: u32 = 2;
+#[link(wasm_import_module = "caj2pdf")]
+unsafe extern "C" {
+    /// Copy at most `len` bytes of `resource` at `offset` to `ptr`; returns
+    /// the count, or a negative value after a host failure.
+    fn caj2pdf_read(resource: u32, offset: f64, ptr: *mut u8, len: u32) -> i32;
+    /// Take the `len` bytes at `ptr`; returns the count accepted, or a
+    /// negative value after a host failure.
+    fn caj2pdf_write(ptr: *const u8, len: u32) -> i32;
+    /// The output barrier after the last write; 0, or negative on failure.
+    fn caj2pdf_flush() -> i32;
+    /// `done` of `total` parts of the document have been read.
+    fn caj2pdf_progress(done: u32, total: u32);
+    /// Nonzero once the caller asked to stop.
+    fn caj2pdf_cancelled() -> i32;
+}
 
-const OPERATION_CONVERT: u32 = 1;
-const OPERATION_INSPECT: u32 = 2;
+/// Offsets travel as JavaScript Numbers, exact below 2^53.
+const MAX_EXACT_OFFSET: u64 = 1 << 53;
+
+/// The host behind the imported functions.
+struct Imports;
+
+impl Host for Imports {
+    fn read(&mut self, resource: u32, offset: u64, destination: &mut [u8]) -> io::Result<usize> {
+        if offset > MAX_EXACT_OFFSET {
+            return Err(io::Error::other("offset exceeds the JavaScript safe range"));
+        }
+        // A request never exceeds the configured I/O chunk, which fits u32.
+        let length = u32::try_from(destination.len()).map_err(io::Error::other)?;
+        // SAFETY: `destination` is a live, exclusively borrowed slice of this
+        // module's memory; the host writes at most `length` bytes into it
+        // before returning and keeps no reference to it.
+        let count =
+            unsafe { caj2pdf_read(resource, offset as f64, destination.as_mut_ptr(), length) };
+        usize::try_from(count).map_err(|_| io::Error::other("host read failed"))
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let length = u32::try_from(bytes.len()).map_err(io::Error::other)?;
+        // SAFETY: `bytes` stays borrowed for the call; the host copies them
+        // before returning and keeps no reference to this memory.
+        let count = unsafe { caj2pdf_write(bytes.as_ptr(), length) };
+        usize::try_from(count).map_err(|_| io::Error::other("host write failed"))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // SAFETY: the import takes no pointers.
+        match unsafe { caj2pdf_flush() } {
+            0.. => Ok(()),
+            _ => Err(io::Error::other("host flush failed")),
+        }
+    }
+
+    fn progress(&mut self, done: u32, total: u32) {
+        // SAFETY: the import takes no pointers.
+        unsafe { caj2pdf_progress(done, total) }
+    }
+
+    fn cancelled(&mut self) -> bool {
+        // SAFETY: the import takes no pointers.
+        unsafe { caj2pdf_cancelled() != 0 }
+    }
+}
+
+const STATUS_BUSY: u32 = 3;
+const STATUS_INVALID: u32 = 2;
 
 thread_local! {
-    static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
+    static SESSION: RefCell<Session> = RefCell::new(Session::default());
 }
 
-fn install(source_size: u64, limits: Limits, operation: Operation) -> u32 {
-    ENGINE.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        if slot.is_some() {
-            return START_BUSY;
-        }
-        match Engine::start(source_size, limits, operation) {
-            Ok(engine) => {
-                *slot = Some(engine);
-                START_OK
-            }
-            Err(_) => START_INVALID,
-        }
+/// Run `access` on the session, or return `default` while an operation
+/// holds it (an import called back into an export).
+fn with_session<T>(default: T, access: impl FnOnce(&mut Session) -> T) -> T {
+    SESSION.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut session) => access(&mut session),
+        Err(_) => default,
     })
 }
 
-fn with_engine<T: Copy>(default: T, access: impl FnOnce(&mut Engine) -> T) -> T {
-    ENGINE.with(|cell| cell.borrow_mut().as_mut().map_or(default, access))
-}
-
-fn with_outcome<T: Copy>(default: T, access: impl FnOnce(&Outcome) -> T) -> T {
-    with_engine(default, |engine| match engine.result() {
-        Some(Ok(outcome)) => access(outcome),
-        _ => default,
+fn with_outcome<T>(default: T, access: impl FnOnce(&Outcome) -> T) -> T {
+    SESSION.with(|cell| match cell.try_borrow() {
+        Ok(session) => session.outcome().map_or(default, access),
+        Err(_) => default,
     })
 }
 
-/// Start a conversion (`operation` 1) or inspection (`operation` 2).
-///
-/// `format` 0 detects the input from its leading signature. Limits are
-/// validated before any allocation. Returns 0, 1 (busy), or 2 (invalid).
+#[allow(clippy::too_many_arguments)]
+fn limits(
+    chunk_size: u32,
+    max_input_bytes: u64,
+    max_output_bytes: u64,
+    max_allocation_bytes: u64,
+    max_pages: u32,
+    max_bookmarks: u32,
+) -> Limits {
+    Limits {
+        io_chunk_bytes: chunk_size as usize,
+        max_input_bytes,
+        max_output_bytes,
+        max_allocation_bytes,
+        max_pages,
+        max_bookmarks,
+    }
+}
+
+fn run(source_size: u64, limits: Limits, operation: Operation) -> u32 {
+    with_session(STATUS_BUSY, |session| {
+        session.run(&mut Imports, source_size, limits, operation) as u32
+    })
+}
+
+/// Convert a document of `source_size` bytes. `format` 0 detects it from its
+/// leading signature; `flags` bit 0 writes bookmarks, bit 1 allows damaged
+/// CAJ pages. Returns 0 (done), 1 (failed), 2 (invalid configuration) or 3
+/// (busy: reset first).
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn caj2pdf_start(
-    operation: u32,
+pub extern "C" fn caj2pdf_convert(
     source_size: u64,
     chunk_size: u32,
     format: u32,
@@ -70,98 +143,64 @@ pub extern "C" fn caj2pdf_start(
     max_bookmarks: u32,
 ) -> u32 {
     let Some(format) = format_from_code(format) else {
-        return START_INVALID;
+        return STATUS_INVALID;
     };
-    let operation = match operation {
-        OPERATION_CONVERT => Operation::Convert {
-            format,
-            options: ConversionOptions {
-                include_bookmarks: flags & 1 != 0,
-                allow_damaged: flags & 2 != 0,
-            },
+    let operation = Operation::Convert {
+        format,
+        options: ConversionOptions {
+            include_bookmarks: flags & 1 != 0,
+            allow_damaged: flags & 2 != 0,
         },
-        OPERATION_INSPECT => Operation::Inspect { format },
-        _ => return START_INVALID,
     };
-    let limits = Limits {
-        io_chunk_bytes: chunk_size as usize,
+    let limits = limits(
+        chunk_size,
         max_input_bytes,
         max_output_bytes,
         max_allocation_bytes,
         max_pages,
         max_bookmarks,
+    );
+    run(source_size, limits, operation)
+}
+
+/// Inspect a document without writing; status codes as for
+/// [`caj2pdf_convert`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn caj2pdf_inspect(
+    source_size: u64,
+    chunk_size: u32,
+    format: u32,
+    max_input_bytes: u64,
+    max_output_bytes: u64,
+    max_allocation_bytes: u64,
+    max_pages: u32,
+    max_bookmarks: u32,
+) -> u32 {
+    let Some(format) = format_from_code(format) else {
+        return STATUS_INVALID;
     };
-    install(source_size, limits, operation)
+    let limits = limits(
+        chunk_size,
+        max_input_bytes,
+        max_output_bytes,
+        max_allocation_bytes,
+        max_pages,
+        max_bookmarks,
+    );
+    run(source_size, limits, Operation::Inspect { format })
 }
 
-/// Poll the operation. 0=idle, 1=read, 2=write, 3=flush, 4=done, 5=error.
-/// 6=scratch read, 7=scratch write, 8=resize, 9=scratch flush.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_poll() -> u32 {
-    with_engine(0, |engine| engine.poll() as u32)
-}
-
-/// Byte offset for a read/scratch write, or new scratch extent for a resize.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_request_offset() -> u64 {
-    with_engine(0, |engine| match engine.request() {
-        Some(
-            Request::Read { offset, .. }
-            | Request::ScratchRead { offset, .. }
-            | Request::ScratchWrite { offset, .. },
-        ) => offset,
-        Some(Request::ScratchResize { bytes, .. }) => bytes,
-        _ => 0,
-    })
-}
-
-/// Byte count for the outstanding read or write request.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_request_length() -> u32 {
-    with_engine(0, |engine| match engine.request() {
-        Some(
-            Request::Read { length, .. }
-            | Request::Write { length }
-            | Request::ScratchRead { length, .. }
-            | Request::ScratchWrite { length, .. },
-        ) => length as u32,
-        _ => 0,
-    })
-}
-
-/// Fixed scratch workspace identifier (1..=4), or 0 for ordinary I/O.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_request_store() -> u32 {
-    with_engine(0, |engine| match engine.request() {
-        Some(
-            Request::ScratchRead { store, .. }
-            | Request::ScratchWrite { store, .. }
-            | Request::ScratchResize { store, .. }
-            | Request::ScratchFlush { store },
-        ) => store,
-        _ => 0,
-    })
-}
-
-/// Read resource identifier: 0 for the document, 1..=6 for registered fonts.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_request_resource() -> u32 {
-    with_engine(0, |engine| match engine.request() {
-        Some(Request::Read { resource, .. }) => resource,
-        _ => 0,
-    })
-}
-
-/// Register a stable ranged font source and its collection face (0 for a
-/// standalone font) before polling; returns 1..=8 or 0.
+/// Register a font resource of `size` bytes and its collection face (0 for a
+/// standalone font) before converting; returns its read resource 1..=8, or 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_add_font(size: u64, face: u32) -> u32 {
-    with_engine(0, |engine| engine.add_font_source(size, face))
+    with_session(0, |session| session.add_font_source(size, face))
 }
 
 /// Assign zero-based font indices and the optional decoration alias.
 /// `u32::MAX` marks an absent alternate Latin or decoration role; core then
-/// applies the documented CJK/Latin fallback.
+/// applies the documented CJK/Latin fallback. Returns 1 when accepted.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_fonts(
     cjk: u32,
@@ -170,13 +209,13 @@ pub extern "C" fn caj2pdf_c8_set_fonts(
     decoration: u32,
     alias: u32,
 ) -> u32 {
-    with_engine(0, |engine| {
-        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias, u32::MAX) as u32
+    with_session(0, |session| {
+        session.set_c8_fonts(cjk, latin, alternate, decoration, alias, u32::MAX) as u32
     })
 }
 
-/// Assign font roles including optional semantic symbols (`u32::MAX` if absent).
-/// The original five-argument export continues to select no symbol resource.
+/// As [`caj2pdf_c8_set_fonts`], with an optional semantic symbol font
+/// (`u32::MAX` if absent).
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_fonts_with_symbols(
     cjk: u32,
@@ -186,65 +225,21 @@ pub extern "C" fn caj2pdf_c8_set_fonts_with_symbols(
     alias: u32,
     symbols: u32,
 ) -> u32 {
-    with_engine(0, |engine| {
-        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias, symbols) as u32
+    with_session(0, |session| {
+        session.set_c8_fonts(cjk, latin, alternate, decoration, alias, symbols) as u32
     })
 }
 
-/// Assign an optional verified Latin state (3, 28 or 31) after the base roles.
+/// Assign a verified Latin state (3, 28 or 31) after the base roles.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
-    with_engine(0, |engine| engine.set_c8_latin_state(state, index) as u32)
+    with_session(0, |session| session.set_c8_latin_state(state, index) as u32)
 }
 
+/// Numeric error category of a failed operation (1..=16), else 0.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_c8_set_latin_state3(index: u32) -> u32 {
-    with_engine(0, |engine| engine.set_c8_latin_state3(index) as u32)
-}
-
-/// Complete an awaited scratch resize (the requested extent is a u64).
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_complete_resize() -> u32 {
-    with_engine(0, |engine| engine.complete_resize() as u32)
-}
-
-/// Pointer into exported WASM memory for one bounded staging chunk.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_buffer_ptr() -> u32 {
-    with_engine(0, |engine| {
-        engine.with_staging(|staging| staging.as_mut_ptr() as u32)
-    })
-}
-
-/// Complete the pending read after JavaScript copies bytes into staging.
-/// Returns 1 only for a valid response; a zero-length read is allowed.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_complete_read(length: u32) -> u32 {
-    with_engine(0, |engine| engine.complete_read(length as usize) as u32)
-}
-
-/// Complete a pending write after the sink accepts a prefix of its chunk.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_complete_write(length: u32) -> u32 {
-    with_engine(0, |engine| engine.complete_write(length as usize) as u32)
-}
-
-/// Complete an awaited sink flush.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_complete_flush() -> u32 {
-    with_engine(0, |engine| engine.complete_flush() as u32)
-}
-
-/// Cancel the active operation; the next poll resolves with a typed error.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_cancel() {
-    with_engine((), |engine| engine.cancel());
-}
-
-/// Numeric error category for a failed operation (1..=16), else 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
-    with_engine(0, |engine| match engine.result() {
+pub extern "C" fn caj2pdf_error_kind() -> u32 {
+    with_session(0, |session| match session.result() {
         Some(Err(error)) => error_code(error),
         _ => 0,
     })
@@ -252,57 +247,87 @@ pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
 
 /// Pointer to the UTF-8 message of a failed operation.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_message_ptr() -> u32 {
-    with_engine(0, |engine| engine.message().as_ptr() as u32)
+pub extern "C" fn caj2pdf_message_ptr() -> u32 {
+    with_session(0, |session| session.message().as_ptr() as u32)
 }
 
 /// Byte length of the error message (at most 1 KiB).
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_message_len() -> u32 {
-    with_engine(0, |engine| engine.message().len() as u32)
+pub extern "C" fn caj2pdf_message_len() -> u32 {
+    with_session(0, |session| session.message().len() as u32)
 }
 
 /// Selected or detected format code once known (0 when unknown).
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_format() -> u32 {
-    with_engine(0, |engine| format_code(engine.format()))
+pub extern "C" fn caj2pdf_format() -> u32 {
+    with_session(0, |session| format_code(session.format()))
 }
 
 /// Bytes read by a successful operation; zero when unavailable.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_input_bytes_read() -> u64 {
+pub extern "C" fn caj2pdf_input_bytes_read() -> u64 {
     with_outcome(0, |outcome| outcome.report.input_bytes_read)
 }
 
 /// Bytes written by a successful operation; zero when unavailable.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_output_bytes_written() -> u64 {
+pub extern "C" fn caj2pdf_output_bytes_written() -> u64 {
     with_outcome(0, |outcome| outcome.report.output_bytes_written)
 }
 
 /// Pages converted by a successful operation; zero when unavailable.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_pages_converted() -> u32 {
+pub extern "C" fn caj2pdf_pages_converted() -> u32 {
     with_outcome(0, |outcome| outcome.report.pages_converted)
 }
 
 /// Bookmarks written by a successful operation; zero when unavailable.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_bookmarks_written() -> u32 {
+pub extern "C" fn caj2pdf_bookmarks_written() -> u32 {
     with_outcome(0, |outcome| outcome.report.bookmarks_written)
 }
 
 /// HN-A outline entries skipped or clamped by a successful operation.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_outline_warnings() -> u32 {
+pub extern "C" fn caj2pdf_outline_warnings() -> u32 {
     with_outcome(0, |outcome| outcome.outline_warnings)
 }
 
 /// 1 when requested C8/HN-B bookmarks were not written because their layout
 /// is unverified; 0 otherwise.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_outline_omitted() -> u32 {
+pub extern "C" fn caj2pdf_outline_omitted() -> u32 {
     with_outcome(0, |outcome| u32::from(outcome.outline_omitted))
+}
+
+/// Number of explicitly blanked pages in the completed conversion.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_omitted_pages_count() -> u32 {
+    with_outcome(0, |outcome| outcome.report.omitted_pages.len() as u32)
+}
+
+/// Zero-based source page index; callers must check the count first.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_omitted_page_index(index: u32) -> u32 {
+    with_outcome(0, |outcome| {
+        outcome
+            .report
+            .omitted_pages
+            .get(index as usize)
+            .map_or(0, |page| page.page_index)
+    })
+}
+
+/// Absolute source offset explaining one blank substitution.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_omitted_page_offset(index: u32) -> u64 {
+    with_outcome(0, |outcome| {
+        outcome
+            .report
+            .omitted_pages
+            .get(index as usize)
+            .map_or(0, |page| page.offset)
+    })
 }
 
 /// Page count from a successful inspection; zero when unavailable.
@@ -362,38 +387,8 @@ pub extern "C" fn caj2pdf_info_text_len(field: u32) -> u32 {
     with_outcome(0, |outcome| application_text(outcome, field).len() as u32)
 }
 
-/// Release the operation and its bounded staging allocation.
+/// Drop the registered fonts and the last result, ready for a new operation.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_reset() {
-    ENGINE.with(|cell| *cell.borrow_mut() = None);
-}
-
-/// Number of explicitly blanked pages in the completed conversion.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_omitted_pages_count() -> u32 {
-    with_outcome(0, |outcome| outcome.report.omitted_pages.len() as u32)
-}
-
-/// Zero-based source page index; callers must check the count first.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_omitted_page_index(index: u32) -> u32 {
-    with_outcome(0, |outcome| {
-        outcome
-            .report
-            .omitted_pages
-            .get(index as usize)
-            .map_or(0, |page| page.page_index)
-    })
-}
-
-/// Absolute source offset explaining one blank substitution.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_omitted_page_offset(index: u32) -> u64 {
-    with_outcome(0, |outcome| {
-        outcome
-            .report
-            .omitted_pages
-            .get(index as usize)
-            .map_or(0, |page| page.offset)
-    })
+pub extern "C" fn caj2pdf_reset() {
+    with_session((), |session| *session = Session::default());
 }

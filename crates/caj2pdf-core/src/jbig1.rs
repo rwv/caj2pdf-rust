@@ -4,16 +4,16 @@
 
 use crate::fallible::reserve_exact;
 use crate::qm::{
-    ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticErrorKind, ArithmeticSnapshot,
-    CodedSpan, ContextBank, ContextState, QM_STATE_COUNT, QmState, QmTable,
+    ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticSnapshot, CodedSpan,
+    ContextBank, ContextState, QM_STATE_COUNT, QmState, QmTable,
 };
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
+use crate::{Cancellation, Error, Limits, Payload, RangedSource, read_exact_at, write_counted};
+use std::io::Write;
 use std::{error, fmt, mem};
 
 const DIB_BYTES: u64 = 48;
 const CONTEXT_COUNT: usize = 1024;
 const CONTROL_CONTEXT: usize = 457;
-const QM_BUFFER_BYTES: u64 = 256;
 
 /// Limits for one image in addition to the shared I/O and arithmetic limits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,8 +59,6 @@ pub struct Type0Progress {
     pub rows_written: u32,
     pub output_bytes_written: u64,
     pub arithmetic: ArithmeticSnapshot,
-    /// Set before a row or final flush awaits I/O; a dropped future leaves it set.
-    pub poisoned: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,7 +88,6 @@ pub enum Type0ErrorKind {
     Sink(Error),
     Arithmetic(ArithmeticError),
     Incomplete,
-    Poisoned,
 }
 
 #[derive(Debug)]
@@ -127,7 +124,6 @@ impl fmt::Display for Type0Error {
             Type0ErrorKind::Sink(source) => write!(f, "sink: {source}"),
             Type0ErrorKind::Arithmetic(source) => write!(f, "arithmetic: {source}"),
             Type0ErrorKind::Incomplete => f.write_str("not all rows were decoded"),
-            Type0ErrorKind::Poisoned => f.write_str("decoder is poisoned"),
         }
     }
 }
@@ -148,15 +144,6 @@ fn at(offset: u64, kind: Type0ErrorKind) -> Type0Error {
         rows_written: 0,
         output_bytes_written: 0,
         kind,
-    }
-}
-
-/// Report arithmetic cancellation as image cancellation.
-fn arithmetic_kind(error: ArithmeticError) -> Type0ErrorKind {
-    if matches!(error.kind, ArithmeticErrorKind::Cancelled) {
-        Type0ErrorKind::Cancelled
-    } else {
-        Type0ErrorKind::Arithmetic(error)
     }
 }
 
@@ -339,7 +326,6 @@ fn checked_info(
                     + QM_STATE_COUNT * mem::size_of::<QmState>()) as u64,
             )
         })
-        .and_then(|bytes| bytes.checked_add(QM_BUFFER_BYTES))
         .ok_or(failure)?;
     if allocated > limits.max_allocation_bytes {
         return Err(limit(
@@ -450,7 +436,7 @@ fn check_span(
     Ok(())
 }
 
-async fn read_info<S: RangedSource, C: Cancellation>(
+fn read_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: Type0Span,
     limits: &Limits,
@@ -470,7 +456,6 @@ async fn read_info<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .await
         .map_err(|error| {
             at(
                 absolute,
@@ -492,7 +477,7 @@ async fn read_info<S: RangedSource, C: Cancellation>(
 /// caller can use the returned geometry to prepare a destination (for
 /// example a PDF image dictionary) before constructing the decoder. It reads
 /// only the 48 wrapper bytes, in chunks of at most `Limits::io_chunk_bytes`.
-pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
+pub fn read_type0_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: Type0Span,
     limits: &Limits,
@@ -509,13 +494,12 @@ pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
         arithmetic_budget,
         budget,
     )
-    .await
 }
 
-/// One image with one arithmetic SCD. A failed or dropped row future poisons
-/// this object; the caller must discard any partial sink output.
-pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation> {
-    arithmetic: ArithmeticDecoder<'a, S, C>,
+/// One image with one arithmetic SCD read from memory. After an error the
+/// caller must discard the decoder and any partial sink output.
+pub struct Type0Decoder<'a, W: Write, C: Cancellation> {
+    arithmetic: ArithmeticDecoder<'a>,
     sink: &'a mut W,
     limits: &'a Limits,
     cancellation: &'a C,
@@ -527,13 +511,14 @@ pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation>
     current: Vec<u8>,
     rows_written: u32,
     output_bytes_written: u64,
-    poisoned: bool,
 }
 
-impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S, W, C> {
+impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
+    /// Check the DIB wrapper and start the SCD of `image`, whose bytes must
+    /// all be in `input`.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        source: &'a mut S,
+    pub fn new(
+        input: Payload<'a>,
         image: Type0Span,
         table: &'a QmTable,
         contexts: &'a mut ContextBank,
@@ -543,22 +528,23 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         arithmetic_budget: ArithmeticBudget,
         budget: Type0Budget,
     ) -> Type0Result<Self> {
-        check_span(source.size(), image, limits, cancellation)?;
+        check_span(input.size(), image, limits, cancellation)?;
         if contexts.get(CONTEXT_COUNT - 1).is_none() || contexts.get(CONTEXT_COUNT).is_some() {
             return Err(malformed(
                 image.offset,
                 "expected exactly 1024 arithmetic contexts",
             ));
         }
-        let info = read_info(
-            source,
-            image,
-            limits,
-            cancellation,
-            arithmetic_budget,
-            budget,
-        )
-        .await?;
+        let header = input
+            .get(image.offset, DIB_BYTES)
+            .and_then(|header| <&[u8; DIB_BYTES as usize]>::try_from(header).ok())
+            .ok_or_else(|| {
+                at(
+                    image.offset,
+                    Type0ErrorKind::InvalidSpan("outside source size"),
+                )
+            })?;
+        let info = checked_info(header, image, limits, arithmetic_budget, budget)?;
         let previous_two = blank_row(info.dib_stride, image.offset)?;
         let previous = blank_row(info.dib_stride, image.offset)?;
         let current = blank_row(info.dib_stride, image.offset)?;
@@ -566,17 +552,14 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             offset: image.offset + DIB_BYTES,
             length: image.length - DIB_BYTES,
         };
-        let arithmetic = ArithmeticDecoder::new(
-            source,
-            coded,
-            table,
-            contexts,
-            limits,
-            cancellation,
-            arithmetic_budget,
-        )
-        .await
-        .map_err(|error| at(error.offset.unwrap_or(coded.offset), arithmetic_kind(error)))?;
+        let arithmetic =
+            ArithmeticDecoder::new(input, coded, table, contexts, limits, arithmetic_budget)
+                .map_err(|error| {
+                    at(
+                        error.offset.unwrap_or(coded.offset),
+                        Type0ErrorKind::Arithmetic(error),
+                    )
+                })?;
         Ok(Self {
             arithmetic,
             sink,
@@ -590,7 +573,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             current,
             rows_written: 0,
             output_bytes_written: 0,
-            poisoned: false,
         })
     }
 
@@ -600,7 +582,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             rows_written: self.rows_written,
             output_bytes_written: self.output_bytes_written,
             arithmetic: self.arithmetic.snapshot(),
-            poisoned: self.poisoned,
         }
     }
 
@@ -620,28 +601,21 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
     }
 
     fn arithmetic_failure(&self, error: ArithmeticError) -> Type0Error {
-        self.failed(arithmetic_kind(error))
+        self.failed(Type0ErrorKind::Arithmetic(error))
     }
 
     /// Decode and write exactly one display-order DIB-stride row.
-    pub async fn decode_next_row(&mut self) -> Type0Result<bool> {
-        if self.poisoned {
-            return Err(self.failed(Type0ErrorKind::Poisoned));
-        }
+    pub fn decode_next_row(&mut self) -> Type0Result<bool> {
         if self.rows_written == self.info.height {
             return Ok(false);
         }
         if self.cancellation.is_cancelled() {
             return Err(self.failed(Type0ErrorKind::Cancelled));
         }
-        // Poison before awaiting source or sink; a dropped future cannot resume
-        // an arithmetic register or partially written row.
-        self.poisoned = true;
         self.current.fill(0);
         let copy_previous = self
             .arithmetic
             .decode_symbol(CONTROL_CONTEXT)
-            .await
             .map_err(|error| self.arithmetic_failure(error))?;
         if copy_previous {
             self.current.copy_from_slice(&self.previous);
@@ -657,7 +631,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 let bit = self
                     .arithmetic
                     .decode_symbol(cx)
-                    .await
                     .map_err(|error| self.arithmetic_failure(error))?;
                 if bit {
                     let x = x as usize;
@@ -665,14 +638,13 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 }
             }
         }
-        write_all(
+        write_counted(
             self.sink,
             &self.current,
             &mut self.output_bytes_written,
             self.limits,
             self.cancellation,
         )
-        .await
         .map_err(|error| match error {
             Error::Cancelled => self.failed(Type0ErrorKind::Cancelled),
             other => self.failed(Type0ErrorKind::Sink(other)),
@@ -680,46 +652,43 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         mem::swap(&mut self.previous_two, &mut self.previous);
         mem::swap(&mut self.previous, &mut self.current);
         self.rows_written += 1;
-        self.poisoned = false;
         Ok(true)
     }
 
     /// Validate row count and flush only after all rows were written.
-    pub async fn finish(mut self) -> Type0Result<Type0Report> {
-        if self.poisoned {
-            return Err(self.failed(Type0ErrorKind::Poisoned));
-        }
+    pub fn finish(self) -> Type0Result<Type0Report> {
         if self.rows_written != self.info.height {
             return Err(self.failed(Type0ErrorKind::Incomplete));
         }
         if self.cancellation.is_cancelled() {
             return Err(self.failed(Type0ErrorKind::Cancelled));
         }
-        self.poisoned = true;
         let snapshot = self.arithmetic.snapshot();
         let offset = snapshot.input_offset;
         let rows_written = self.rows_written;
         let output_bytes_written = self.output_bytes_written;
-        // Only cancellation can fail here: the expected count is the
-        // decoder's own, and the arithmetic decoder is poisoned only inside
-        // a row, which leaves this decoder poisoned too.
+        // The expected count is the decoder's own, so this cannot fail.
         self.arithmetic
             .finish(snapshot.symbols_decoded)
             .map_err(|error| Type0Error {
                 offset: error.offset.unwrap_or(offset),
                 rows_written,
                 output_bytes_written,
-                kind: arithmetic_kind(error),
+                kind: Type0ErrorKind::Arithmetic(error),
             })?;
-        self.sink.flush().await.map_err(|error| Type0Error {
-            offset,
-            rows_written,
-            output_bytes_written,
-            kind: match error {
-                Error::Cancelled => Type0ErrorKind::Cancelled,
-                other => Type0ErrorKind::Sink(other),
-            },
-        })?;
+        self.sink
+            .flush()
+            .map_err(Error::from)
+            .map_err(|error| Type0Error {
+                offset,
+                rows_written,
+                output_bytes_written,
+                kind: match error {
+                    Error::Cancelled => Type0ErrorKind::Cancelled,
+                    other => Type0ErrorKind::Sink(other),
+                },
+            })?;
+        // A flush can take long enough for the caller to give up.
         if self.cancellation.is_cancelled() {
             return Err(Type0Error {
                 offset,
@@ -736,7 +705,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 rows_written,
                 output_bytes_written,
                 arithmetic: snapshot,
-                poisoned: false,
             },
         })
     }

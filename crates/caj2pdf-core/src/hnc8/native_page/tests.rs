@@ -3,7 +3,7 @@
 use super::*;
 use crate::Limits;
 use crate::pdf::{BilevelImageSpec, OpenTypeFont};
-use crate::test_support::ready;
+use std::io::Write;
 use std::{cell::Cell, rc::Rc};
 
 struct Source {
@@ -16,7 +16,7 @@ impl RangedSource for Source {
     fn size(&self) -> u64 {
         self.bytes.len() as u64
     }
-    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, out: &mut [u8]) -> crate::Result<usize> {
         if self.fail.get() {
             return Err(invalid("original read failure"));
         }
@@ -44,16 +44,16 @@ struct Sink {
     bytes: Vec<u8>,
     fail: Rc<Cell<bool>>,
 }
-impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.fail.get() {
-            return Err(invalid("original write failure"));
+            return Err(invalid("original write failure").into());
         }
         let count = bytes.len().min(7);
         self.bytes.extend_from_slice(&bytes[..count]);
         Ok(count)
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -190,11 +190,10 @@ fn convert_with_fonts(
         ..Default::default()
     };
     let cancel = Cancel::default();
-    let result = ready(async {
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &cancel, Default::default())
-            .await
-            .unwrap();
-        reader.next_page().await.unwrap();
+    let result = {
+        let mut reader =
+            Hnc8Reader::open(&mut input, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
         match mode {
             1 => reader.header.variant = Variant::HnA,
             2 => reader.current = None,
@@ -210,7 +209,7 @@ fn convert_with_fonts(
             }
             _ => (),
         }
-        let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
+        let mut document = PdfDocument::new(&mut sink, &limits, &cancel).unwrap();
         let mut font_bytes = if mode == 20 {
             crate::pdf::symbol_font()
         } else {
@@ -256,11 +255,7 @@ fn convert_with_fonts(
             .collect();
         let mut readers = Vec::new();
         for font_source in &mut sources {
-            readers.push(
-                OpenTypeFont::read(font_source, 0, &limits, &cancel)
-                    .await
-                    .unwrap(),
-            );
+            readers.push(OpenTypeFont::read(font_source, 0, &limits, &cancel).unwrap());
         }
         let font = document.add_font(&readers[0]).unwrap();
         let mut distinct = Vec::new();
@@ -280,10 +275,9 @@ fn convert_with_fonts(
                     pixel_height: 2,
                     row_stride: 1,
                 })
-                .await
                 .unwrap();
-            image.write(&[0x80, 0x40]).await.unwrap();
-            images.push(image.finish().await.unwrap());
+            image.write_all(&[0x80, 0x40]).unwrap();
+            images.push(image.finish().unwrap());
         }
         if mode == 6 {
             input_fault.set(true);
@@ -306,19 +300,18 @@ fn convert_with_fonts(
             slice,
             top_first,
             TextBudget::default(),
-        )
-        .await;
+        );
         cancel.0.set(false);
         input_fault.set(false);
         output_fault.set(false);
         let handles = std::iter::once(&font).chain(&distinct);
         for (handle, reader) in handles.zip(&mut readers) {
             // A poisoned document also rejects the embedding; finish reports it.
-            let _ = document.embed_font(handle, reader).await;
+            let _ = document.embed_font(handle, reader);
         }
-        let finished = document.finish().await.is_ok();
+        let finished = document.finish().is_ok();
         (outcome, finished)
-    });
+    };
     assert!(input.largest <= 64);
     (result.0, sink.bytes, result.1)
 }

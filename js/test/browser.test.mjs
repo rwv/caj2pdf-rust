@@ -62,8 +62,10 @@ before(async () => {
     "/caj2pdf_wasm.wasm": await readFile(wasmUrl),
     "/index.html": "<!doctype html><meta charset=utf-8><title>caj2pdf browser tests</title>",
   };
-  // Only the package directory is served.
-  server = startServer(fileURLToPath(new URL("..", import.meta.url)), fixtures);
+  // Only the package directory is served, cross-origin isolated so that the
+  // Worker shares its control block; browser-example.test.mjs and
+  // package.test.mjs run without isolation.
+  server = startServer(fileURLToPath(new URL("..", import.meta.url)), fixtures, { isolated: true });
   browser = launchChrome(chrome);
   page = await openPage((await browser).cdp, `${(await server).origin}/index.html`);
 }, { timeout: 90_000 });
@@ -103,7 +105,7 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
       assert.equal(result.report.bookmarksWritten, bookmarks);
       assert.equal(result.pageCount, pages);
       assert.equal(result.report.outputBytesWritten, String(result.output.length));
-      assert.ok(result.maxRead > 0 && result.maxRead <= 4096, `max read ${result.maxRead}`);
+      assert.ok(result.progress.length > 0 && result.progress.at(-1) === 1, JSON.stringify(result.progress));
       assert.ok(result.maxWrite > 0 && result.maxWrite <= 4096, `max write ${result.maxWrite}`);
       await validatePdf(t, decode(result.output), pages);
     });
@@ -154,26 +156,25 @@ test("Chromium: OPFS spool bound, failure, and abort remove the spool", options,
   }
 });
 
+test("Chromium: the page is cross-origin isolated", options, async () => {
+  assert.equal(await page.evaluate("crossOriginIsolated"), true);
+});
+
+test("Chromium: an OPFS file handle is a source", options, async (t) => {
+  const result = await run("convertOpfsHandle", "input.caj");
+  assert.equal(result.report.pagesConverted, 2);
+  assert.deepEqual(result.after, []);
+  await validatePdf(t, decode(result.output), 2);
+});
+
 test("Chromium: the page raised no uncaught exceptions", options, () => {
   assert.deepEqual(page.errors, []);
 });
 
-test("Chromium: Worker OPFS scratch reads current writes and cleans up", options, async () => {
-  const result = await run("scratchInWorker");
-  const expected = [1, 2, 0, 0, 7, 8, 0, 0];
-  assert.deepEqual(result.immediate, expected);
-  assert.deepEqual(result.visible, expected);
-  assert.deepEqual(result.reused, Array(16).fill(0));
-  assert.equal(result.size, "16");
-  assert.equal(result.afterClose, 16);
-  assert.equal(result.rejected, true);
-  assert.equal(result.cleaned, true);
-});
-
-test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", options, async (t) => {
+test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", options, async (t) => {
   const result = await run("hnc8InWorker");
+  assert.equal(result.error, undefined);
   assert.equal(result.pages, 1);
-  assert.equal(result.cleared, true);
   await validateMultiImageHn(t, new Uint8Array(result.pdf));
   assert.equal(result.type1Pages, 1);
   await validateType1Hn(t, new Uint8Array(result.type1Pdf));
@@ -185,7 +186,6 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.ok(late.includes("<0041> Tj"), "late HN-B failure keeps the finished first page");
   assert.ok(!late.includes("%%EOF"), "late HN-B failure must not finalize the PDF");
   assert.equal(result.nativePdfs.length, 10);
-  assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {
     const pdf = Buffer.from(bytes);
     const text = pageText(pdf);

@@ -18,25 +18,7 @@ use caj2pdf_core::{
         },
     },
 };
-use std::{
-    cell::Cell,
-    future::{Future, pending},
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
+use std::{cell::Cell, io, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Fault {
@@ -45,7 +27,6 @@ enum Fault {
     Overreport,
     Fail,
     Cancelled,
-    PendingAt(u64),
 }
 
 struct Source {
@@ -76,11 +57,7 @@ impl RangedSource for Source {
         self.advertised
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
         if let Some((after, flag)) = &self.cancel_after_reads
             && self.reads.len() >= *after
@@ -92,7 +69,6 @@ impl RangedSource for Source {
             Fault::Fail => return Err(Error::Io(io::Error::other("test source failure"))),
             Fault::Cancelled => return Err(Error::Cancelled),
             Fault::ZeroAt(at) if offset >= at => return Ok(0),
-            Fault::PendingAt(at) if offset >= at => pending::<()>().await,
             _ => {}
         }
         let start = offset as usize;
@@ -121,7 +97,7 @@ fn frame(number: u32, kind: u8, references: &[u8], page: u8, data: &[u8]) -> Vec
 
 fn parse_header(bytes: &[u8]) -> SegmentHeader {
     let mut source = Source::new(bytes.to_vec());
-    ready(read_segment_header(
+    read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -130,7 +106,7 @@ fn parse_header(bytes: &[u8]) -> SegmentHeader {
         &Limits::default(),
         HeaderLimits::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap()
 }
 
@@ -205,14 +181,14 @@ fn parse_with(
     cancellation: &impl Cancellation,
 ) -> Result<TextRegionHeader, TextRegionError> {
     let header = parse_header(&source.bytes);
-    ready(read_text_region_header(
+    read_text_region_header(
         source,
         &header,
         &dictionary(2, 1),
         &Limits::default(),
         budget,
         cancellation,
-    ))
+    )
 }
 
 fn parse(region: &Region) -> Result<TextRegionHeader, TextRegionError> {
@@ -233,7 +209,7 @@ fn parse_policy(
 ) -> Result<TextRegionHeader, TextRegionError> {
     let mut source = Source::new(region.segment());
     let header = parse_header(&source.bytes);
-    ready(read_text_region_header_with_policy(
+    read_text_region_header_with_policy(
         &mut source,
         &header,
         &dictionary(2, 1),
@@ -241,7 +217,7 @@ fn parse_policy(
         TextRegionBudget::default(),
         &CancelAfter::Never,
         policy,
-    ))
+    )
 }
 
 const DATA_OFFSET: u64 = 12;
@@ -469,7 +445,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     let mut source = Source::new(bytes.clone());
     let mut segment = parse_header(&bytes);
     segment.referred_to[0] = 1;
-    let error = ready(read_text_region_header_with_policy(
+    let error = read_text_region_header_with_policy(
         &mut source,
         &segment,
         &dictionary(2, 1),
@@ -477,7 +453,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -502,7 +478,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     let mut source = Source::new(bytes.clone());
     let mut segment = parse_header(&bytes);
     segment.segment_type = 7;
-    let error = ready(read_text_region_header_with_policy(
+    let error = read_text_region_header_with_policy(
         &mut source,
         &segment,
         &dictionary(2, 1),
@@ -510,7 +486,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -524,7 +500,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     let mut source = Source::new(bytes.clone());
     let mut segment = parse_header(&bytes);
     segment.page_association = 0;
-    let error = ready(read_text_region_header_with_policy(
+    let error = read_text_region_header_with_policy(
         &mut source,
         &segment,
         &dictionary(2, 1),
@@ -532,7 +508,7 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -837,14 +813,14 @@ fn with_header(
     let mut dict = dictionary(2, 1);
     edit(&mut region, &mut dict);
     let mut source = Source::new(source_bytes);
-    let error = ready(read_text_region_header(
+    let error = read_text_region_header(
         &mut source,
         &region,
         &dict,
         &Limits::default(),
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(source.reads.is_empty(), "framing errors must precede reads");
     assert_eq!(error.bytes_fetched, 0);
@@ -916,14 +892,14 @@ fn segment_type_reference_and_page_are_checked_before_reads() {
     // A global dictionary (page association 0) is accepted.
     let mut source = Source::new(valid.clone());
     let region = parse_header(&valid);
-    ready(read_text_region_header(
+    read_text_region_header(
         &mut source,
         &region,
         &dictionary(2, 0),
         &Limits::default(),
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap();
 }
 
@@ -952,7 +928,7 @@ fn spans_are_checked_before_reads() {
     );
     let mut source = Source::new(valid.clone());
     let region = parse_header(&valid);
-    let error = ready(read_text_region_header(
+    let error = read_text_region_header(
         &mut source,
         &region,
         &dictionary(2, 1),
@@ -962,7 +938,7 @@ fn spans_are_checked_before_reads() {
         },
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -985,14 +961,14 @@ fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
     };
     let mut source = Source::new(bytes);
     source.advertised = u64::MAX;
-    let error = ready(read_text_region_header(
+    let error = read_text_region_header(
         &mut source,
         &region,
         &dictionary(2, 1),
         &Limits::default(),
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -1007,7 +983,7 @@ fn invalid_limits_and_zero_request_bound_are_rejected() {
     let bytes = Region::default().segment();
     let region = parse_header(&bytes);
     let mut source = Source::new(bytes);
-    let error = ready(read_text_region_header(
+    let error = read_text_region_header(
         &mut source,
         &region,
         &dictionary(2, 1),
@@ -1017,7 +993,7 @@ fn invalid_limits_and_zero_request_bound_are_rejected() {
         },
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, TextRegionErrorKind::Source(_)));
     assert!(std::error::Error::source(&error).is_some());
@@ -1063,7 +1039,7 @@ fn requests_are_bounded_and_short_reads_resume() {
     let bytes = Region::default().segment();
     let header = parse_header(&bytes);
     let mut source = Source::new(bytes);
-    ready(read_text_region_header(
+    read_text_region_header(
         &mut source,
         &header,
         &dictionary(2, 1),
@@ -1073,7 +1049,7 @@ fn requests_are_bounded_and_short_reads_resume() {
         },
         TextRegionBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap();
     assert!(source.reads.iter().all(|&(_, length)| length <= 2));
     assert_eq!(source.reads.len(), 12);
@@ -1122,14 +1098,14 @@ fn cancellation_is_checked_before_and_between_reads() {
         let mut source = Source::new(bytes.clone());
         source.cancel_after_reads = Some((after, flag));
         source.max_read = 7;
-        let error = ready(read_text_region_header(
+        let error = read_text_region_header(
             &mut source,
             &region,
             &dictionary(2, 1),
             &Limits::default(),
             TextRegionBudget::default(),
             &cancellation,
-        ))
+        )
         .unwrap_err();
         assert!(
             matches!(error.kind, TextRegionErrorKind::Cancelled),
@@ -1142,44 +1118,6 @@ fn cancellation_is_checked_before_and_between_reads() {
             (fetched, DATA_OFFSET + fetched)
         );
     }
-}
-
-#[test]
-fn dropped_pending_read_leaves_no_partial_result() {
-    let bytes = Region::default().segment();
-    let region = parse_header(&bytes);
-    let dict = dictionary(2, 1);
-    let mut source = Source::new(bytes);
-    source.fault = Fault::PendingAt(DATA_OFFSET + 19);
-    {
-        let limits = Limits::default();
-        let mut future = pin!(read_text_region_header(
-            &mut source,
-            &region,
-            &dict,
-            &limits,
-            TextRegionBudget::default(),
-            &CancelAfter::Never,
-        ));
-        assert!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-    }
-    // The parser holds no state between calls: a fresh call succeeds.
-    source.fault = Fault::None;
-    let parsed = ready(read_text_region_header(
-        &mut source,
-        &region,
-        &dict,
-        &Limits::default(),
-        TextRegionBudget::default(),
-        &CancelAfter::Never,
-    ))
-    .unwrap();
-    assert_eq!(parsed.instances, 6);
 }
 
 #[test]
@@ -1200,14 +1138,14 @@ fn fixed_budget_mutations_never_panic_or_read_past_header() {
             bytes[index] ^= (state >> 24) as u8 | 1;
         }
         let mut source = Source::new(bytes);
-        let result = ready(read_text_region_header(
+        let result = read_text_region_header(
             &mut source,
             &region,
             &dict,
             &Limits::default(),
             TextRegionBudget::default(),
             &CancelAfter::Never,
-        ));
+        );
         outcomes[usize::from(result.is_ok())] += 1;
         let end = source
             .reads

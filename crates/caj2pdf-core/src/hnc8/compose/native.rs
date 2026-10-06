@@ -5,6 +5,7 @@
 use super::*;
 use crate::hnc8::{C8PageFonts, write_c8_native_page};
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
+use std::io::Write;
 
 /// Explicit ranged font sources, embedded once per document.
 /// Multiple roles may reference one source index. At most eight distinct
@@ -26,18 +27,16 @@ pub struct C8FontSource<F> {
 /// Convert every page of the admitted raw C8 or text/vector HN-B profile.
 ///
 /// Fonts are caller-owned stable ranged resources. Images use the same
-/// preflight, codecs and reusable scratch as image-only composition. Only
+/// preflight, codecs and reusable buffers as image-only composition. Only
 /// current-page image handles are retained; native content streams in source
 /// order. Unknown required records and missing glyphs fail explicitly.
-/// The caller must discard partial output on error or a dropped future.
+/// The caller must discard partial output on error.
 /// Bookmarks remain unsupported. CLI/JavaScript transport is separate.
-#[allow(clippy::too_many_arguments)]
-pub async fn convert_c8_native_pdf<'a, S, F, W, T, C>(
+pub fn convert_c8_native_pdf<S, F, W, C>(
     source: &mut S,
     sink: &mut W,
     fonts: C8FontSources<'_, F>,
     table: Option<&QmTable>,
-    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -45,8 +44,7 @@ pub async fn convert_c8_native_pdf<'a, S, F, W, T, C>(
 where
     S: RangedSource,
     F: RangedSource,
-    W: SequentialSink,
-    T: RandomAccessScratch + 'a,
+    W: Write,
     C: Cancellation,
 {
     validate(options, limits)?;
@@ -73,7 +71,6 @@ where
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?;
     let header = reader.header();
     let at = At {
@@ -87,16 +84,14 @@ where
             ComposeErrorKind::Unsupported("native composition requires C8 or HN-B"),
         )));
     }
-    let mut document = PdfDocument::new(sink, limits, cancellation)
-        .await
-        .map_err(at.io(ComposeStage::Pdf))?;
+    let mut document =
+        PdfDocument::new(sink, limits, cancellation).map_err(at.io(ComposeStage::Pdf))?;
     let mut handles: Vec<FontObject> =
         page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
     let mut font_bytes = 0u64;
     for C8FontSource { source, face } in fonts.sources.iter_mut() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .await
             .map_err(at.io(ComposeStage::Preflight))?;
         handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
     }
@@ -124,10 +119,9 @@ where
     let mut report = ComposeReport::new(header);
     // C8/HN-B outlines are unverified; a request writes none and is reported.
     report.outline.unverified = options.include_bookmarks;
-    let mut contexts = None;
+    let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?
     {
         let at = At::page(header, page);
@@ -147,7 +141,6 @@ where
         check_metadata(bytes, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         while let Some(record) = reader
             .next_image()
-            .await
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
@@ -157,12 +150,10 @@ where
                 header.variant,
                 image_at,
                 table,
-                type3.is_some(),
                 options,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             top_first.push(!matches!(checked, CheckedImage::Jpeg(_)));
             // Native placement comes from the record visitor, after resources
             // are emitted. The codec emitter does not consume this transform.
@@ -176,23 +167,19 @@ where
                 duplicate_of: None,
                 type3_text_header_anomaly: None,
             };
-            images.push(
-                emit_image(
-                    reader.source_mut(),
-                    &mut document,
-                    &mut image,
-                    plan,
-                    image_at,
-                    &mut contexts,
-                    &mut type3,
-                    table,
-                    options,
-                    limits,
-                    cancellation,
-                    &mut report,
-                )
-                .await?,
-            );
+            images.push(emit_image(
+                reader.source_mut(),
+                &mut document,
+                &mut image,
+                plan,
+                image_at,
+                &mut buffers,
+                table,
+                options,
+                limits,
+                cancellation,
+                &mut report,
+            )?);
         }
         report.output_pages = write_c8_native_page(
             &mut reader,
@@ -203,7 +190,6 @@ where
             &top_first,
             options.text,
         )
-        .await
         .map_err(|error| container(error, ComposeStage::Text))?
             + 1;
         report.no_image_pages += u32::from(count == 0);
@@ -213,14 +199,12 @@ where
     for (handle, C8FontSource { source, face }) in handles.iter().zip(fonts.sources.iter_mut()) {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .await
             .map_err(at.io(ComposeStage::Pdf))?;
         document
             .embed_font(handle, &mut font)
-            .await
             .map_err(at.io(ComposeStage::Pdf))?;
     }
-    report.conversion = finish_document(&mut reader, document, &mut report, at).await?;
+    report.conversion = finish_document(&mut reader, document, &mut report, at)?;
     report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);
     Ok(report)
 }

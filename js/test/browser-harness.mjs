@@ -64,9 +64,10 @@ function notFound() {
 /**
  * Serve `root` read-only (GET and HEAD) on 127.0.0.1 plus in-memory
  * `routes` (`{ "/path": Uint8Array | string }`). Paths that resolve outside
- * `root`, including through symbolic links, are refused.
+ * `root`, including through symbolic links, are refused. `isolated` adds the
+ * headers that make the pages cross-origin isolated (SharedArrayBuffer).
  */
-export async function startServer(root, routes) {
+export async function startServer(root, routes, { isolated = false } = {}) {
   const base = await realpath(root);
   const server = createServer(async (request, response) => {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -85,6 +86,7 @@ export async function startServer(root, routes) {
       response.writeHead(200, {
         "content-type": TYPES[extname(path)] ?? "application/octet-stream",
         "cache-control": "no-store",
+        ...(isolated ? { "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp" } : {}),
       });
       response.end(request.method === "HEAD" ? undefined : body);
     } catch (error) {

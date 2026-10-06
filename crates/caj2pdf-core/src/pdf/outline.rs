@@ -33,10 +33,10 @@ pub(super) trait ObjectSink {
     type Ref: Copy + Into<PdfRef>;
 
     /// Start the object, writing its `number generation obj` header.
-    async fn begin_object(&mut self, reference: Self::Ref) -> Result<()>;
-    async fn write(&mut self, bytes: &[u8]) -> Result<()>;
+    fn begin_object(&mut self, reference: Self::Ref) -> Result<()>;
+    fn write(&mut self, bytes: &[u8]) -> Result<()>;
     /// End the object with `endobj`.
-    async fn end_object(&mut self) -> Result<()>;
+    fn end_object(&mut self) -> Result<()>;
 }
 
 /// An [`ObjectSink`] that also numbers new objects.
@@ -88,12 +88,12 @@ fn pdf_ref(reference: impl Into<PdfRef>) -> String {
 }
 
 /// Write `text` as UTF-16BE hexadecimal digits in bounded chunks.
-pub(super) async fn write_utf16_hex<O: ObjectSink>(out: &mut O, text: &str) -> Result<()> {
+pub(super) fn write_utf16_hex<O: ObjectSink>(out: &mut O, text: &str) -> Result<()> {
     let mut hex = [0_u8; 4096];
     let mut used = 0;
     for unit in text.encode_utf16() {
         if used == hex.len() {
-            out.write(&hex).await?;
+            out.write(&hex)?;
             used = 0;
         }
         for byte in unit.to_be_bytes() {
@@ -103,20 +103,20 @@ pub(super) async fn write_utf16_hex<O: ObjectSink>(out: &mut O, text: &str) -> R
         }
     }
     if used > 0 {
-        out.write(&hex[..used]).await?;
+        out.write(&hex[..used])?;
     }
     Ok(())
 }
 
 /// Write one outline item dictionary as a whole object.
-pub(super) async fn write_item<O: ObjectSink>(
+pub(super) fn write_item<O: ObjectSink>(
     out: &mut O,
     item: &OutlineItem<O::Ref>,
     title: &str,
 ) -> Result<()> {
-    out.begin_object(item.reference).await?;
-    out.write(b"<< /Title <FEFF").await?;
-    write_utf16_hex(out, title).await?;
+    out.begin_object(item.reference)?;
+    out.write(b"<< /Title <FEFF")?;
+    write_utf16_hex(out, title)?;
     let view = match item.view {
         BookmarkView::Fit => "/Fit",
         BookmarkView::Xyz => "/XYZ null null null",
@@ -143,19 +143,19 @@ pub(super) async fn write_item<O: ObjectSink>(
         );
     }
     text.push_str(" >>");
-    out.write(text.as_bytes()).await?;
-    out.end_object().await
+    out.write(text.as_bytes())?;
+    out.end_object()
 }
 
 /// Write the outline root dictionary as a whole object.
-pub(super) async fn write_root<O: ObjectSink>(
+pub(super) fn write_root<O: ObjectSink>(
     out: &mut O,
     root: O::Ref,
     first: O::Ref,
     last: O::Ref,
     count: u32,
 ) -> Result<()> {
-    out.begin_object(root).await?;
+    out.begin_object(root)?;
     out.write(
         format!(
             "<< /Type /Outlines /First {} /Last {} /Count {count} >>",
@@ -163,9 +163,8 @@ pub(super) async fn write_root<O: ObjectSink>(
             pdf_ref(last)
         )
         .as_bytes(),
-    )
-    .await?;
-    out.end_object().await
+    )?;
+    out.end_object()
 }
 
 struct OpenItem<R> {
@@ -242,7 +241,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
     ///
     /// The depth, retained memory and new object numbers are checked before
     /// anything is closed, so such a refusal leaves the outline usable.
-    pub(super) async fn add<O: ObjectAllocator<Ref = R>>(
+    pub(super) fn add<O: ObjectAllocator<Ref = R>>(
         &mut self,
         out: &mut O,
         limits: &Limits,
@@ -268,7 +267,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
         // Closing pops items before writing them, so a failure from here on
         // can lose an item that the outline already links to.
         self.failed = true;
-        let previous_item = self.close_to(out, depth).await?;
+        let previous_item = self.close_to(out, depth)?;
         let (parent, links) = match self.open.last_mut() {
             Some(active) => (
                 active.item.reference,
@@ -280,7 +279,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
         links.0.get_or_insert(reference);
         *links.1 = Some(reference);
         if let Some(previous_item) = previous_item {
-            self.emit(out, previous_item, Some(reference)).await?;
+            self.emit(out, previous_item, Some(reference))?;
         }
         self.open.push(OpenItem {
             item: OutlineItem::new(reference, parent, previous, page, view),
@@ -301,12 +300,9 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
 
     /// Write every open item and the outline root, returning the root when
     /// any item was added.
-    pub(super) async fn finish<O: ObjectSink<Ref = R>>(
-        &mut self,
-        out: &mut O,
-    ) -> Result<Option<R>> {
-        if let Some(last_root) = self.close_to(out, 0).await? {
-            self.emit(out, last_root, None).await?;
+    pub(super) fn finish<O: ObjectSink<Ref = R>>(&mut self, out: &mut O) -> Result<Option<R>> {
+        if let Some(last_root) = self.close_to(out, 0)? {
+            self.emit(out, last_root, None)?;
         }
         if let Some(root) = self.root {
             let first = self.first.ok_or(Error::InvalidInput {
@@ -315,7 +311,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
             let last = self.last.ok_or(Error::InvalidInput {
                 reason: "outline root has no last child",
             })?;
-            write_root(out, root, first, last, self.written).await?;
+            write_root(out, root, first, last, self.written)?;
         }
         Ok(self.root)
     }
@@ -379,7 +375,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
     /// is known. Because the only unwritten closed item is carried here
     /// rather than stored on its parent's links, a sibling can never be
     /// left unwritten.
-    async fn close_to<O: ObjectSink<Ref = R>>(
+    fn close_to<O: ObjectSink<Ref = R>>(
         &mut self,
         out: &mut O,
         depth: usize,
@@ -390,7 +386,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
                 break;
             };
             if let Some(last_child) = closed.take() {
-                self.emit(out, last_child, None).await?;
+                self.emit(out, last_child, None)?;
             }
             let mut item = open.item;
             item.descendants =
@@ -407,7 +403,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
         Ok(closed)
     }
 
-    async fn emit<O: ObjectSink<Ref = R>>(
+    fn emit<O: ObjectSink<Ref = R>>(
         &mut self,
         out: &mut O,
         closed: ClosedItem<R>,
@@ -415,7 +411,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
     ) -> Result<()> {
         let mut item = closed.item;
         item.next = next;
-        write_item(out, &item, &closed.title).await?;
+        write_item(out, &item, &closed.title)?;
         self.retained_titles = self
             .retained_titles
             .checked_sub(len_u64(closed.title.capacity()))

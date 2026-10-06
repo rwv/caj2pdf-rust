@@ -49,14 +49,14 @@ pub(crate) struct FragmentCandidate {
 /// Collect locally framed candidates from an anchored row. Deferred prefixes
 /// and indirect Length references are proved by the final whole-fragment scan,
 /// never by this index.
-pub(crate) async fn collect_fragment_candidates<S: RangedSource, C: Cancellation>(
+pub(crate) fn collect_fragment_candidates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     start: u64,
     end: u64,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Vec<FragmentObject>> {
-    let scan = scan_fragment(source, start, end, limits, cancellation, Mode::Candidates).await?;
+    let scan = scan_fragment(source, start, end, limits, cancellation, Mode::Candidates)?;
     Ok(if scan.patches.is_empty() {
         scan.objects.iter().map(|scanned| scanned.object).collect()
     } else {
@@ -66,7 +66,7 @@ pub(crate) async fn collect_fragment_candidates<S: RangedSource, C: Cancellation
 
 /// Scan a whole fragment, letting `candidates` from later page-table rows
 /// bound interrupted objects. A used candidate must be a scanned object.
-pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellation>(
+pub(crate) fn scan_fragment_with_candidates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     body_start: u64,
     minimum_end: u64,
@@ -75,12 +75,12 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
     candidates: &mut [FragmentCandidate],
 ) -> Result<FragmentScan> {
     let mode = Mode::Complete(candidates);
-    scan_fragment(source, body_start, minimum_end, limits, cancellation, mode).await
+    scan_fragment(source, body_start, minimum_end, limits, cancellation, mode)
 }
 
 /// Resume only at container page anchors after malformed object syntax.
 /// Objects reachable only through an unvalidated byte search are never admitted.
-pub(crate) async fn scan_damaged_fragment<S: RangedSource, C: Cancellation>(
+pub(crate) fn scan_damaged_fragment<S: RangedSource, C: Cancellation>(
     source: &mut S,
     rows: &[CajPageRow],
     end: u64,
@@ -89,7 +89,7 @@ pub(crate) async fn scan_damaged_fragment<S: RangedSource, C: Cancellation>(
     candidates: &mut [FragmentCandidate],
 ) -> Result<FragmentScan> {
     let mode = Mode::Damaged(rows, candidates);
-    scan_fragment(source, rows[0].offset, end, limits, cancellation, mode).await
+    scan_fragment(source, rows[0].offset, end, limits, cancellation, mode)
 }
 
 enum Mode<'a> {
@@ -210,7 +210,7 @@ enum Outcome {
     Retry(Retry),
 }
 
-async fn scan_fragment<S: RangedSource, C: Cancellation>(
+fn scan_fragment<S: RangedSource, C: Cancellation>(
     source: &mut S,
     body_start: u64,
     minimum_end: u64,
@@ -262,11 +262,11 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
             retries: verify && rows.is_none(),
         };
         let Retry(start, extent, error) =
-            match run_pass(&mut reader, &mut pass, minimum_relative, &hints).await? {
+            match run_pass(&mut reader, &mut pass, minimum_relative, &hints)? {
                 Outcome::Done {
                     end,
                     final_repaired,
-                } => match finish(&mut reader, pass, end, final_repaired, verify).await? {
+                } => match finish(&mut reader, pass, end, final_repaired, verify)? {
                     Ok(scan) => return Ok(scan),
                     Err(retry) => retry,
                 },
@@ -283,7 +283,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
 
 /// Index objects forward from the fragment start until the page table's body
 /// end is reached, recovering what `recovery` can.
-async fn run_pass<S: RangedSource, C: Cancellation>(
+fn run_pass<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &mut Pass<'_>,
     minimum_relative: u64,
@@ -295,7 +295,7 @@ async fn run_pass<S: RangedSource, C: Cancellation>(
     // reaches the page table's body end; `load_head` rejects syntax past it.
     debug_assert!(minimum_relative <= reader.range.length);
     loop {
-        reader.skip_space(&mut cursor).await?;
+        reader.skip_space(&mut cursor)?;
         if cursor >= minimum_relative {
             return Ok(Outcome::Done {
                 end: cursor,
@@ -303,7 +303,7 @@ async fn run_pass<S: RangedSource, C: Cancellation>(
             });
         }
         let start = cursor;
-        let failure = match frame_object(reader, pass, start, hints).await? {
+        let failure = match frame_object(reader, pass, start, hints)? {
             Ok(framed) => {
                 cursor = index_object(pass, framed)?;
                 final_repaired = false;
@@ -317,14 +317,12 @@ async fn run_pass<S: RangedSource, C: Cancellation>(
             }
             Err(failure) => failure,
         };
-        let recovery = match recovery::try_recover(reader, pass, start, &failure).await {
+        let recovery = match recovery::try_recover(reader, pass, start, &failure) {
             Ok(Some(recovery)) => recovery,
             Ok(None) => {
-                return retry(reader, pass, failure.into_error())
-                    .await
-                    .map(Outcome::Retry);
+                return retry(reader, pass, failure.into_error()).map(Outcome::Retry);
             }
-            Err(error) => return retry(reader, pass, error).await.map(Outcome::Retry),
+            Err(error) => return retry(reader, pass, error).map(Outcome::Retry),
         };
         match recovery {
             Recovery::Resume(resume) => cursor = resume,
@@ -399,7 +397,7 @@ fn index_object(pass: &mut Pass<'_>, framed: Framed) -> Result<u64> {
 }
 
 /// Retry the latest stream whose searched end is not confirmed, or fail.
-async fn retry<S: RangedSource, C: Cancellation>(
+fn retry<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &Pass<'_>,
     error: Error,
@@ -411,7 +409,7 @@ async fn retry<S: RangedSource, C: Cancellation>(
         let Some(marker) = pending.marker else {
             continue;
         };
-        if confirms(reader, pending, pass.length_of(pending.target)).await? != Some(true) {
+        if confirms(reader, pending, pass.length_of(pending.target))? != Some(true) {
             return Ok(Retry(pending.start, Extent::After(marker + 1), error));
         }
     }
@@ -419,7 +417,7 @@ async fn retry<S: RangedSource, C: Cancellation>(
 }
 
 /// Whether the resolved `length`, if any, frames this stream at the same end.
-async fn confirms<S: RangedSource, C: Cancellation>(
+fn confirms<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pending: &PendingLength,
     length: Option<u64>,
@@ -433,7 +431,7 @@ async fn confirms<S: RangedSource, C: Cancellation>(
     let Some(after) = pending.data_at.checked_add(length) else {
         return Ok(Some(false));
     };
-    match reader.check_stream_tail(after, None).await {
+    match reader.check_stream_tail(after, None) {
         Ok(end) => Ok(Some(end == pending.end)),
         Err(error) if is_malformed(&error) => Ok(Some(false)),
         Err(error) => Err(error),
@@ -457,13 +455,13 @@ fn object_at<S, C>(
 
 /// Parse and frame the object at `start`. A malformed object is returned as
 /// a `Failure` for recovery; any other error ends the scan.
-async fn frame_object<S: RangedSource, C: Cancellation>(
+fn frame_object<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &Pass<'_>,
     start: u64,
     hints: &[(u64, Extent)],
 ) -> Result<std::result::Result<Framed, Failure>> {
-    let head = match reader.load_head(start, None).await {
+    let head = match reader.load_head(start, None) {
         Ok(head) => head,
         Err(error) if is_malformed(&error) => return Ok(Err(Failure::Syntax(error))),
         Err(error) => return Err(error),
@@ -552,7 +550,7 @@ async fn frame_object<S: RangedSource, C: Cancellation>(
         let Some(after) = data_at.checked_add(length) else {
             return other(reader, data_at, "stream extent overflows");
         };
-        match reader.check_stream_tail(after, Some(reference)).await {
+        match reader.check_stream_tail(after, Some(reference)) {
             Ok(end) => (length, end, None),
             Err(error) if is_malformed(&error) => {
                 return stream_failure(error, Some(length), inspection);
@@ -564,7 +562,7 @@ async fn frame_object<S: RangedSource, C: Cancellation>(
             Some(Extent::After(at)) => at,
             _ => data_at,
         };
-        match next_stream_end(reader, data_at, from, reference).await? {
+        match next_stream_end(reader, data_at, from, reference)? {
             Some((data_end, end, marker)) => (data_end - data_at, end, Some(marker)),
             None => {
                 let error = reader.malformed(data_at, Some(reference), "stream has no endstream");
@@ -593,20 +591,20 @@ async fn frame_object<S: RangedSource, C: Cancellation>(
 
 /// The first `endstream` at or after `from` with a complete tail: the data
 /// end it implies, the object end, and the keyword offset.
-async fn next_stream_end<S: RangedSource, C: Cancellation>(
+fn next_stream_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     data_at: u64,
     from: u64,
     reference: PdfRef,
 ) -> Result<Option<(u64, u64, u64)>> {
     let mut from = from;
-    while let Some(marker) = find_endstream(reader, from, reader.range.length).await? {
+    while let Some(marker) = find_endstream(reader, from, reader.range.length)? {
         from = marker + 1;
-        let data_end = recovery::data_end_before(reader, marker).await?;
+        let data_end = recovery::data_end_before(reader, marker)?;
         if data_end < data_at {
             continue;
         }
-        match reader.check_stream_tail(data_end, Some(reference)).await {
+        match reader.check_stream_tail(data_end, Some(reference)) {
             Ok(end) => return Ok(Some((data_end, end, marker))),
             Err(error) if is_malformed(&error) => {}
             Err(error) => return Err(error),
@@ -617,7 +615,7 @@ async fn next_stream_end<S: RangedSource, C: Cancellation>(
 
 /// Check the complete pass: candidates, replays, deferred prefixes and
 /// indirect lengths. Returns a scan, or a retry with a resolved length.
-async fn finish<S: RangedSource, C: Cancellation>(
+fn finish<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     mut pass: Pass<'_>,
     logical_end: u64,
@@ -632,9 +630,9 @@ async fn finish<S: RangedSource, C: Cancellation>(
         // A repaired final stream could otherwise stop at a fake terminator
         // in its own data. Accept it only as the sole candidate in the scan.
         let mut after = logical_end;
-        reader.skip_space(&mut after).await?;
-        if let Some(marker) = find_endstream(reader, after, reader.range.length).await?
-            && reader.check_stream_tail(marker, None).await.is_ok()
+        reader.skip_space(&mut after)?;
+        if let Some(marker) = find_endstream(reader, after, reader.range.length)?
+            && reader.check_stream_tail(marker, None).is_ok()
         {
             return Err(reader.problem(
                 marker,
@@ -650,7 +648,7 @@ async fn finish<S: RangedSource, C: Cancellation>(
         .map_err(reader.locator(logical_end, None))?;
     if pass.conflicting_lengths {
         let error = reader.malformed(0, None, "conflicting fragment integer objects");
-        return retry(reader, &pass, error).await.map(Err);
+        return retry(reader, &pass, error).map(Err);
     }
     // A candidate reached through a container anchor may actually be inside a
     // stream. Only the complete forward parse establishes its object boundary.
@@ -669,10 +667,10 @@ async fn finish<S: RangedSource, C: Cancellation>(
             ));
         }
     }
-    compact_replays(reader, &mut pass.objects).await?;
+    compact_replays(reader, &mut pass.objects)?;
     if verify {
         for prefix in std::mem::take(&mut pass.pending_prefixes) {
-            match proves_prefix(reader, &pass.objects, prefix).await? {
+            match proves_prefix(reader, &pass.objects, prefix)? {
                 Some(true) => {}
                 None if pass.rows.is_some() => {
                     pass.push_damaged(Some(prefix.reference), prefix.range.offset)?;
@@ -692,7 +690,7 @@ async fn finish<S: RangedSource, C: Cancellation>(
     if verify {
         for pending in std::mem::take(&mut pass.pending_lengths) {
             let resolved = pass.length_of(pending.target);
-            if confirms(reader, &pending, resolved).await? == Some(true) {
+            if confirms(reader, &pending, resolved)? == Some(true) {
                 continue;
             }
             if pass.rows.is_some() {
@@ -727,7 +725,7 @@ async fn finish<S: RangedSource, C: Cancellation>(
 /// Whether `prefix` is an exact proper prefix of the indexed object with the
 /// same number, or `None` when there is no such object. Exact replays were
 /// already compacted.
-async fn proves_prefix<S: RangedSource, C: Cancellation>(
+fn proves_prefix<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     objects: &[ScannedObject],
     prefix: FragmentObject,
@@ -743,18 +741,14 @@ async fn proves_prefix<S: RangedSource, C: Cancellation>(
         return Ok(Some(false));
     }
     let length = prefix.range.length as usize;
-    let partial = reader
-        .bytes(prefix.range.offset - body_start, length)
-        .await?;
-    let complete = reader
-        .bytes(original.range.offset - body_start, length)
-        .await?;
+    let partial = reader.bytes(prefix.range.offset - body_start, length)?;
+    let complete = reader.bytes(original.range.offset - body_start, length)?;
     Ok(Some(partial == complete))
 }
 
 /// Keep the first of identical object replays, comparing them in bounded
 /// chunks; differing replays are ambiguous. Leaves objects sorted by number.
-async fn compact_replays<S: RangedSource, C: Cancellation>(
+fn compact_replays<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     objects: &mut Vec<ScannedObject>,
 ) -> Result<()> {
@@ -771,12 +765,8 @@ async fn compact_replays<S: RangedSource, C: Cancellation>(
                 let amount = (object.range.length - compared)
                     .min(4096)
                     .min(reader.limits.io_chunk_bytes as u64) as usize;
-                let original = reader
-                    .bytes(prior.range.offset - body_start + compared, amount)
-                    .await?;
-                let replay = reader
-                    .bytes(object.range.offset - body_start + compared, amount)
-                    .await?;
+                let original = reader.bytes(prior.range.offset - body_start + compared, amount)?;
+                let replay = reader.bytes(object.range.offset - body_start + compared, amount)?;
                 equal = original == replay;
                 compared += amount as u64;
             }

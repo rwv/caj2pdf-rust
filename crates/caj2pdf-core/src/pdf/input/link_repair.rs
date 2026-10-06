@@ -63,7 +63,7 @@ fn is_link_with_destination(head: &super::parser::ObjectHead) -> bool {
 /// removed; every other original byte is preserved. A standalone destination
 /// array is replaced with a generation-zero `null` object. Both rewrites are
 /// bounded by the existing PDF syntax and allocation limits.
-pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cancellation>(
+pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellation>(
     source: &mut S,
     fragment: FragmentObject,
     limits: &Limits,
@@ -92,12 +92,12 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     limits
         .check_input_size(range.length)
         .map_err(reader.locator(0, Some(reference)))?;
-    let head = reader.load_head(0, Some(reference)).await?;
+    let head = reader.load_head(0, Some(reference))?;
     let ObjectTail::EndObject { end } = head.tail else {
         return Ok(None);
     };
     let mut rest = end as u64;
-    reader.skip_space(&mut rest).await?;
+    reader.skip_space(&mut rest)?;
     if rest != range.length {
         return Err(reader.malformed(
             rest,
@@ -127,7 +127,7 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     }
     // `maximum` is at most the 4 MiB object syntax limit.
     let length = usize::try_from(range.length).expect("object syntax limit fits usize");
-    let complete = reader.bytes(0, length).await?;
+    let complete = reader.bytes(0, length)?;
     if !complete.starts_with(&head.bytes) {
         return Err(reader.malformed(
             0,
@@ -225,7 +225,6 @@ mod tests {
     use super::*;
     use crate::NeverCancel;
     use crate::pdf::PdfRange;
-    use crate::test_support::ready;
 
     /// Serves `first` until `switch(reads, starts)` holds for a read, then
     /// `second`. `reads` counts earlier reads; `starts` counts reads at the
@@ -262,7 +261,7 @@ mod tests {
             self.first.len() as u64
         }
 
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
             self.largest_request = self.largest_request.max(destination.len());
             if offset == 0 {
                 self.starts += 1;
@@ -292,12 +291,7 @@ mod tests {
                 length: bytes.len() as u64,
             },
         };
-        ready(inspect_link_destination_candidate(
-            &mut source,
-            fragment,
-            &Limits::default(),
-            &NeverCancel,
-        ))
+        inspect_link_destination_candidate(&mut source, fragment, &Limits::default(), &NeverCancel)
     }
 
     #[test]
@@ -410,14 +404,10 @@ mod tests {
             io_chunk_bytes: 3,
             ..Limits::default()
         };
-        let candidate = ready(inspect_link_destination_candidate(
-            &mut source,
-            fragment,
-            &limits,
-            &NeverCancel,
-        ))
-        .unwrap()
-        .unwrap();
+        let candidate =
+            inspect_link_destination_candidate(&mut source, fragment, &limits, &NeverCancel)
+                .unwrap()
+                .unwrap();
         assert_eq!(candidate.kind, LinkRepairKind::ScalarDestination);
         assert!(source.largest_request <= 3);
     }
@@ -443,12 +433,7 @@ mod tests {
             ..Limits::default()
         };
         assert!(matches!(
-            ready(inspect_link_destination_candidate(
-                &mut source,
-                fragment,
-                &limits,
-                &NeverCancel
-            )),
+            inspect_link_destination_candidate(&mut source, fragment, &limits, &NeverCancel),
             Err(Error::PdfLimitExceeded {
                 resource: "PDF link repair object bytes",
                 ..
@@ -475,13 +460,9 @@ mod tests {
             max_input_bytes: 8,
             ..Limits::default()
         };
-        let error = ready(inspect_link_destination_candidate(
-            &mut source,
-            fragment,
-            &limits,
-            &NeverCancel,
-        ))
-        .expect_err("an oversized candidate span was read");
+        let error =
+            inspect_link_destination_candidate(&mut source, fragment, &limits, &NeverCancel)
+                .expect_err("an oversized candidate span was read");
         assert!(matches!(
             error,
             Error::PdfLimitExceeded {
@@ -516,12 +497,12 @@ mod tests {
             },
         };
         assert!(matches!(
-            ready(inspect_link_destination_candidate(
+            inspect_link_destination_candidate(
                 &mut source,
                 fragment,
                 &Limits::default(),
                 &NeverCancel
-            )),
+            ),
             Err(Error::Pdf {
                 reason: "link repair source changed while reading",
                 ..
@@ -546,12 +527,12 @@ mod tests {
                 length: object.len() as u64 + 3,
             },
         };
-        let error = ready(inspect_link_destination_candidate(
+        let error = inspect_link_destination_candidate(
             &mut source,
             fragment,
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .expect_err("truncated link object was accepted");
         assert!(matches!(
             error,
@@ -581,12 +562,12 @@ mod tests {
             },
         };
         assert!(
-            ready(inspect_link_destination_candidate(
+            inspect_link_destination_candidate(
                 &mut source,
                 fragment,
                 &Limits::default(),
                 &NeverCancel,
-            ))
+            )
             .unwrap()
             .is_none()
         );
@@ -612,12 +593,12 @@ mod tests {
                 length: (object.len() + tail.len()) as u64,
             },
         };
-        let error = ready(inspect_link_destination_candidate(
+        let error = inspect_link_destination_candidate(
             &mut source,
             fragment,
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .expect_err("object span swallowed the container tail");
         assert!(matches!(
             error,
@@ -652,12 +633,12 @@ mod tests {
             },
         };
         assert!(matches!(
-            ready(inspect_link_destination_candidate(
+            inspect_link_destination_candidate(
                 &mut source,
                 fragment,
                 &Limits::default(),
                 &NeverCancel,
-            )),
+            ),
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 reason: "link repair source changed while reading",
@@ -688,12 +669,12 @@ mod tests {
                 length: source.size(),
             },
         };
-        let error = ready(inspect_link_destination_candidate(
+        let error = inspect_link_destination_candidate(
             &mut source,
             fragment,
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .expect_err("changed trailing bytes were accepted");
         assert!(matches!(
             error,
@@ -755,12 +736,12 @@ mod tests {
                 length: source.size(),
             },
         };
-        let error = ready(inspect_link_destination_candidate(
+        let error = inspect_link_destination_candidate(
             &mut source,
             fragment,
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .expect_err("a glued endobj keyword was accepted");
         assert!(matches!(
             error,

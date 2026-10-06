@@ -2,19 +2,21 @@
 
 //! Bounded bytewise OR of the observed full-page text and generic regions.
 //!
-//! The text bitmap lives in caller-owned random-access scratch. A validated
-//! generic decoder sends its packed rows through this sequential sink; this
-//! module never buffers a whole page or decodes arithmetic data.
+//! The composed text region is a packed bitmap in memory. A validated generic
+//! decoder sends its packed rows through this sequential sink, which ORs each
+//! accepted chunk with the same text bytes and forwards it at once; this
+//! module decodes no arithmetic data.
 
 use super::{
     generic::{GenericRegionHeader, GenericRegionInfo, GenericReport},
     page_info::PageInfo,
     page_profile::PageProfile,
     text::TextHeaderAnomaly,
-    text_composer::{RandomAccessScratch, TextComposeReport, TextComposeStage},
+    text_composer::{TextComposeReport, TextComposeStage},
 };
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, SequentialSink};
-use std::{error, fmt, io};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT};
+use std::io::Write;
+use std::{error, fmt};
 
 /// Independent bounds for a single page OR operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,13 +26,10 @@ pub struct PageComposeBudget {
     pub max_pixels: u64,
     pub max_packed_bytes: u64,
     pub max_generic_bytes: u64,
-    pub max_scratch_read_bytes: u64,
     pub max_output_bytes: u64,
-    pub max_scratch_read_calls: u64,
     pub max_output_write_calls: u64,
     pub max_work_units: u64,
     pub max_generic_request_bytes: usize,
-    pub max_scratch_request_bytes: usize,
     pub max_output_request_bytes: usize,
     pub max_resident_bytes: u64,
 }
@@ -43,35 +42,29 @@ impl Default for PageComposeBudget {
             max_pixels: 12_000_000,
             max_packed_bytes: 128 * 1024 * 1024,
             max_generic_bytes: 128 * 1024 * 1024,
-            max_scratch_read_bytes: 128 * 1024 * 1024,
             max_output_bytes: 128 * 1024 * 1024,
-            max_scratch_read_calls: 10_000_000,
             max_output_write_calls: 10_000_000,
             max_work_units: 400_000_000,
             max_generic_request_bytes: 256 * 1024,
-            max_scratch_request_bytes: 256 * 1024,
             max_output_request_bytes: 256 * 1024,
             max_resident_bytes: 256 * 1024,
         }
     }
 }
 
-/// Physical I/O and semantic progress. A poisoned operation's output is not
-/// a completed page, even when `output_bytes_written` equals `packed_bytes`.
+/// Output and semantic progress. A failed operation's output is not a
+/// completed page, even when `output_bytes_written` equals `packed_bytes`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PageComposeProgress {
     pub generic_bytes_accepted: u64,
-    pub scratch_bytes_read: u64,
     pub output_bytes_written: u64,
     pub rows_written: u32,
-    pub scratch_read_calls: u64,
     pub output_write_calls: u64,
+    /// One unit per ORed byte and per byte written.
     pub work_units: u64,
     pub max_request_bytes: usize,
     pub peak_resident_bytes: u64,
     pub producer_flushed: bool,
-    pub completed: bool,
-    pub poisoned: bool,
 }
 
 /// One validated, fully emitted packed page. No PDF has been created here.
@@ -87,7 +80,7 @@ pub struct PageComposeReport {
 
 #[derive(Debug)]
 pub struct PageComposeError {
-    /// Scratch/output byte coordinate, selected by the error kind.
+    /// Page or output byte coordinate, selected by the error kind.
     pub offset: u64,
     pub progress: Box<PageComposeProgress>,
     pub kind: PageComposeErrorKind,
@@ -105,10 +98,8 @@ pub enum PageComposeErrorKind {
     AllocationFailed,
     Cancelled,
     Limits(Error),
-    Scratch(Error),
     Output(Error),
     Incomplete,
-    Poisoned,
 }
 
 pub type PageComposeResult<T> = Result<T, PageComposeError>;
@@ -127,10 +118,8 @@ impl fmt::Display for PageComposeError {
             PageComposeErrorKind::AllocationFailed => f.write_str("chunk allocation failed"),
             PageComposeErrorKind::Cancelled => f.write_str("cancelled"),
             PageComposeErrorKind::Limits(source) => write!(f, "limits: {source}"),
-            PageComposeErrorKind::Scratch(source) => write!(f, "scratch: {source}"),
             PageComposeErrorKind::Output(source) => write!(f, "output: {source}"),
             PageComposeErrorKind::Incomplete => f.write_str("page rows are incomplete"),
-            PageComposeErrorKind::Poisoned => f.write_str("page operation is poisoned or complete"),
         }
     }
 }
@@ -138,9 +127,9 @@ impl fmt::Display for PageComposeError {
 impl error::Error for PageComposeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match &self.kind {
-            PageComposeErrorKind::Limits(source)
-            | PageComposeErrorKind::Scratch(source)
-            | PageComposeErrorKind::Output(source) => Some(source),
+            PageComposeErrorKind::Limits(source) | PageComposeErrorKind::Output(source) => {
+                Some(source)
+            }
             _ => None,
         }
     }
@@ -183,14 +172,6 @@ fn checked_resident_capacity(
     Ok(actual)
 }
 
-fn scratch_error(error: Error) -> PageComposeErrorKind {
-    if matches!(error, Error::Cancelled) {
-        PageComposeErrorKind::Cancelled
-    } else {
-        PageComposeErrorKind::Scratch(error)
-    }
-}
-
 fn output_error(error: Error) -> PageComposeErrorKind {
     if matches!(error, Error::Cancelled) {
         PageComposeErrorKind::Cancelled
@@ -204,19 +185,19 @@ fn output_error(error: Error) -> PageComposeErrorKind {
 /// Call `GenericRegionDecoder::arm_page_output(profile.generic_header())`
 /// before decoding a row. That method checks the decoder's actual header and
 /// arms this sink only when it matches preflight; writes and flushes before
-/// arming poison it.
+/// arming fail.
 /// `GenericRegionDecoder` may call `write` several times per row. This adapter
 /// accepts at most one row remainder and one bounded chunk per call, so its
-/// caller retries the unaccepted suffix through ordinary `SequentialSink`
-/// backpressure. Every accepted chunk is ORed with the same-position text
-/// scratch bytes and immediately forwarded. `flush` records successful
-/// generic-stream completion; `finish` separately checks `GenericReport` and
-/// flushes the final output. After any failure or dropped pending future,
-/// discard the final output and call `take_failure` for a typed sink error.
-pub struct PageOrSink<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> {
+/// caller retries the unaccepted suffix as `Write::write_all` does. Every
+/// accepted chunk is ORed with the same-position text bytes and immediately
+/// forwarded. `flush` records successful generic-stream completion; `finish`
+/// separately checks `GenericReport` and flushes the final output. After any
+/// failure, discard the final output and call `take_failure` for a typed sink
+/// error.
+pub struct PageOrSink<'a, W: Write, C: Cancellation> {
     profile: PageProfile,
     text: TextComposeReport,
-    scratch: &'a mut T,
+    bitmap: &'a [u8],
     output: &'a mut W,
     cancellation: &'a C,
     budget: PageComposeBudget,
@@ -226,12 +207,13 @@ pub struct PageOrSink<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancella
     armed: bool,
 }
 
-impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<'a, T, W, C> {
+impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
+    /// `bitmap` is the packed text region that `text` reports.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: PageProfile,
         text: TextComposeReport,
-        scratch: &'a mut T,
+        bitmap: &'a [u8],
         output: &'a mut W,
         limits: &Limits,
         cancellation: &'a C,
@@ -244,7 +226,6 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             return Err(at(0, PageComposeErrorKind::Cancelled));
         }
         if budget.max_generic_request_bytes == 0
-            || budget.max_scratch_request_bytes == 0
             || budget.max_output_request_bytes == 0
             || budget.max_resident_bytes == 0
         {
@@ -256,9 +237,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         let counters = [
             budget.max_packed_bytes,
             budget.max_generic_bytes,
-            budget.max_scratch_read_bytes,
             budget.max_output_bytes,
-            budget.max_scratch_read_calls,
             budget.max_output_write_calls,
             budget.max_work_units,
         ];
@@ -287,17 +266,13 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
                 PageComposeErrorKind::Malformed("text report differs from page profile"),
             ));
         }
-        if text.progress.stage != TextComposeStage::Complete
-            || text.progress.poisoned
-            || text.progress.output_rows != page.height
-            || text.progress.output_bytes_written != packed
-        {
+        if text.progress.stage != TextComposeStage::Complete {
             return Err(at(0, PageComposeErrorKind::Incomplete));
         }
         // u32 dimensions make both products fit u64. With packed rows,
-        // packed * 3 stays below 2^63 even at the u32 dimension ceiling.
+        // packed * 2 stays below 2^63 even at the u32 dimension ceiling.
         let pixels = u64::from(page.width) * u64::from(page.height);
-        let work = packed * 3;
+        let work = packed * 2;
         cap(
             "page width",
             u64::from(budget.max_width),
@@ -312,29 +287,20 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         cap("packed page bytes", budget.max_packed_bytes, packed)?;
         cap("generic input bytes", budget.max_generic_bytes, packed)?;
         cap(
-            "scratch read bytes",
-            budget.max_scratch_read_bytes.min(limits.max_input_bytes),
-            packed,
-        )?;
-        cap(
             "page output bytes",
             budget.max_output_bytes.min(limits.max_output_bytes),
             packed,
         )?;
         cap("page work units", budget.max_work_units, work)?;
-        let scratch_size = scratch
-            .size()
-            .map_err(|error| at(0, scratch_error(error)))?;
-        if scratch_size != packed {
+        if bitmap.len() as u64 != packed {
             return Err(at(
                 0,
-                PageComposeErrorKind::InvalidSpan("text scratch size differs"),
+                PageComposeErrorKind::InvalidSpan("text bitmap size differs"),
             ));
         }
         let chunk_size = page
             .row_stride
             .min(budget.max_generic_request_bytes)
-            .min(budget.max_scratch_request_bytes)
             .min(budget.max_output_request_bytes)
             .min(limits.io_chunk_bytes)
             .min(usize::try_from(budget.max_resident_bytes).unwrap_or(usize::MAX));
@@ -349,7 +315,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         Ok(Self {
             profile,
             text,
-            scratch,
+            bitmap,
             output,
             cancellation,
             budget,
@@ -367,16 +333,9 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         self.progress
     }
 
-    /// Retrieve the first typed failure raised through `SequentialSink`.
-    /// A dropped pending future has no I/O error and returns `Poisoned`.
+    /// Retrieve the first typed failure raised through `Write`.
     pub fn take_failure(&mut self) -> Option<PageComposeError> {
-        self.failure.take().or_else(|| {
-            self.progress.poisoned.then_some(PageComposeError {
-                offset: self.progress.output_bytes_written,
-                progress: Box::new(self.progress),
-                kind: PageComposeErrorKind::Poisoned,
-            })
-        })
+        self.failure.take()
     }
 
     fn error(&self, offset: u64, kind: PageComposeErrorKind) -> PageComposeError {
@@ -388,7 +347,6 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     }
 
     fn fail(&mut self, offset: u64, kind: PageComposeErrorKind) -> Error {
-        self.progress.poisoned = true;
         if self.failure.is_none() {
             self.failure = Some(self.error(offset, kind));
         }
@@ -400,27 +358,6 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     fn check_cancelled(&mut self, offset: u64) -> Result<(), Error> {
         if self.cancellation.is_cancelled() {
             Err(self.fail(offset, PageComposeErrorKind::Cancelled))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn check_call_cap(
-        &mut self,
-        resource: &'static str,
-        maximum: u64,
-        attempted: u64,
-        offset: u64,
-    ) -> Result<(), Error> {
-        if attempted > maximum {
-            Err(self.fail(
-                offset,
-                PageComposeErrorKind::LimitExceeded {
-                    resource,
-                    limit: maximum,
-                    attempted,
-                },
-            ))
         } else {
             Ok(())
         }
@@ -450,41 +387,10 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     /// Verify a complete generic-region report, then flush the final output.
     /// The successful report proves neither external corpus parity nor PDF
     /// generation; it proves this bounded bytewise composition only.
-    pub async fn finish(
-        &mut self,
-        generic: &GenericReport,
-    ) -> PageComposeResult<PageComposeReport> {
-        if self.progress.poisoned || self.progress.completed {
-            return Err(self.failure.take().unwrap_or_else(|| {
-                self.error(
-                    self.progress.output_bytes_written,
-                    PageComposeErrorKind::Poisoned,
-                )
-            }));
+    pub fn finish(mut self, generic: &GenericReport) -> PageComposeResult<PageComposeReport> {
+        if let Some(failure) = self.failure.take() {
+            return Err(failure);
         }
-        self.progress.poisoned = true;
-        let result = self.finish_inner(generic).await;
-        match result {
-            Ok(()) => {
-                self.progress.poisoned = false;
-                self.progress.completed = true;
-                Ok(PageComposeReport {
-                    page: self.profile.page(),
-                    text_flags_raw: self.text.text_flags_raw,
-                    text_header_anomaly: self.text.header_anomaly,
-                    text_segment: self.profile.text_segment(),
-                    generic_segment: self.profile.generic_segment(),
-                    progress: self.progress,
-                })
-            }
-            Err(mut error) => {
-                error.progress = Box::new(self.progress);
-                Err(error)
-            }
-        }
-    }
-
-    async fn finish_inner(&mut self, generic: &GenericReport) -> PageComposeResult<()> {
         self.validate_generic_info(generic.progress.info)?;
         if generic.data != self.profile.generic_header().data
             || generic.mq_span != self.profile.generic_header().mq_span
@@ -501,15 +407,12 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         if !self.armed
             || !self.progress.producer_flushed
             || self.progress.generic_bytes_accepted != page.packed_bytes
-            || self.progress.scratch_bytes_read != page.packed_bytes
             || self.progress.output_bytes_written != page.packed_bytes
             || self.progress.rows_written != page.height
             || generic.progress.rows_written != page.height
             || generic.progress.pixels_decoded != pixels
             || generic.progress.output_bytes_written != page.packed_bytes
             || generic.progress.mq.symbols_decoded != pixels
-            || generic.progress.mq.poisoned
-            || generic.progress.poisoned
         {
             return Err(self.error(
                 self.progress.output_bytes_written,
@@ -522,34 +425,33 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
                 PageComposeErrorKind::Cancelled,
             ));
         }
-        self.output
-            .flush()
-            .await
-            .map_err(|error| self.error(self.progress.output_bytes_written, output_error(error)))?;
+        self.output.flush().map_err(|error| {
+            self.error(
+                self.progress.output_bytes_written,
+                output_error(error.into()),
+            )
+        })?;
+        // A flush can take long enough for the caller to give up.
         if self.cancellation.is_cancelled() {
             return Err(self.error(
                 self.progress.output_bytes_written,
                 PageComposeErrorKind::Cancelled,
             ));
         }
-        Ok(())
+        Ok(PageComposeReport {
+            page,
+            text_flags_raw: self.text.text_flags_raw,
+            text_header_anomaly: self.text.header_anomaly,
+            text_segment: self.profile.text_segment(),
+            generic_segment: self.profile.generic_segment(),
+            progress: self.progress,
+        })
     }
 
-    async fn accept_chunk(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+    fn accept_chunk(&mut self, bytes: &[u8]) -> Result<usize, Error> {
         let page = self.profile.page();
         let offset = self.progress.generic_bytes_accepted;
         self.check_cancelled(offset)?;
-        if self
-            .scratch
-            .size()
-            .map_err(|error| self.fail(offset, scratch_error(error)))?
-            != page.packed_bytes
-        {
-            return Err(self.fail(
-                offset,
-                PageComposeErrorKind::InvalidSpan("text scratch size changed"),
-            ));
-        }
         if offset >= page.packed_bytes {
             return Err(self.fail(
                 offset,
@@ -560,54 +462,15 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         let row_remaining = page.row_stride - column;
         let count = bytes.len().min(row_remaining).min(self.chunk.len());
         self.note_request(count);
-        // The exact packed-byte cap was checked in new(). Each accepted
-        // prefix is bounded by the remaining packed row/page bytes.
-        let mut done = 0usize;
-        while done < count {
-            self.check_cancelled(offset + done as u64)?;
-            let requested = count - done;
-            self.check_call_cap(
-                "scratch read calls",
-                self.budget.max_scratch_read_calls,
-                self.progress.scratch_read_calls + 1,
-                offset + done as u64,
-            )?;
-            // Reads cover each accepted byte once; their aggregate cannot
-            // exceed the packed-byte cap checked before opening the sink.
-            self.progress.scratch_read_calls += 1;
-            self.note_request(requested);
-            let read = match self
-                .scratch
-                .read_at(offset + done as u64, &mut self.chunk[done..count])
-                .await
-            {
-                Ok(read) => read,
-                Err(error) => return Err(self.fail(offset + done as u64, scratch_error(error))),
-            };
-            if read > requested {
-                return Err(self.fail(
-                    offset + done as u64,
-                    PageComposeErrorKind::Malformed("scratch overreported read"),
-                ));
-            }
-            self.progress.scratch_bytes_read += read as u64;
-            self.check_cancelled(offset + done as u64 + read as u64)?;
-            if read == 0 {
-                return Err(self.fail(
-                    offset + done as u64,
-                    PageComposeErrorKind::InvalidSpan("short text scratch"),
-                ));
-            }
-            done += read;
-        }
         let mask = if page.width.is_multiple_of(8) {
             0xff
         } else {
             0xff << (8 - page.width % 8)
         };
         let last_column = page.row_stride - 1;
-        for (index, generic) in bytes[..count].iter().copied().enumerate() {
-            let value = self.chunk[index];
+        // `offset < packed_bytes`, the bitmap length, which fits a `usize`.
+        let text = &self.bitmap[offset as usize..offset as usize + count];
+        for (index, (&generic, &value)) in bytes[..count].iter().zip(text).enumerate() {
             if column + index == last_column && ((generic | value) & !mask) != 0 {
                 return Err(self.fail(
                     offset + index as u64,
@@ -617,44 +480,30 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             self.chunk[index] = generic | value;
         }
         self.progress.generic_bytes_accepted += count as u64;
-        self.progress.work_units += (count as u64) * 2;
+        self.progress.work_units += count as u64;
         let mut sent = 0usize;
         while sent < count {
             self.check_cancelled(offset + sent as u64)?;
             let requested = (count - sent).min(self.budget.max_output_request_bytes);
-            self.check_call_cap(
-                "output write calls",
-                self.budget.max_output_write_calls,
-                self.progress.output_write_calls + 1,
-                offset + sent as u64,
-            )?;
-            // Partial writes retry only the unaccepted suffix. Total output
-            // remains within the packed-byte cap checked in new().
-            self.progress.output_write_calls += 1;
+            let attempted = self.progress.output_write_calls + 1;
+            if attempted > self.budget.max_output_write_calls {
+                return Err(self.fail(
+                    offset + sent as u64,
+                    PageComposeErrorKind::LimitExceeded {
+                        resource: "output write calls",
+                        limit: self.budget.max_output_write_calls,
+                        attempted,
+                    },
+                ));
+            }
+            self.progress.output_write_calls = attempted;
             self.note_request(requested);
-            let written = match self.output.write(&self.chunk[sent..sent + requested]).await {
-                Ok(written) => written,
-                Err(error) => return Err(self.fail(offset + sent as u64, output_error(error))),
-            };
-            if written > requested {
-                return Err(self.fail(
-                    offset + sent as u64,
-                    PageComposeErrorKind::Malformed("output overreported write"),
-                ));
+            if let Err(error) = self.output.write_all(&self.chunk[sent..sent + requested]) {
+                return Err(self.fail(offset + sent as u64, output_error(error.into())));
             }
-            self.progress.output_bytes_written += written as u64;
-            self.progress.work_units += written as u64;
-            self.check_cancelled(offset + sent as u64 + written as u64)?;
-            if written == 0 {
-                return Err(self.fail(
-                    offset + sent as u64,
-                    PageComposeErrorKind::Output(Error::Io(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "page output made no progress",
-                    ))),
-                ));
-            }
-            sent += written;
+            self.progress.output_bytes_written += requested as u64;
+            self.progress.work_units += requested as u64;
+            sent += requested;
         }
         if column + count == page.row_stride {
             self.progress.rows_written += 1;
@@ -663,47 +512,42 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     }
 }
 
-impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
-    for PageOrSink<'_, T, W, C>
-{
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        if !self.armed
-            || self.progress.poisoned
-            || self.progress.completed
-            || self.progress.producer_flushed
-        {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Poisoned,
-            ));
+impl<W: Write, C: Cancellation> Write for PageOrSink<'_, W, C> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if !self.armed || self.progress.producer_flushed {
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Malformed("page output is not armed or already flushed"),
+                )
+                .into());
         }
         if bytes.is_empty() {
             return Ok(0);
         }
-        self.progress.poisoned = true;
-        let result = self.accept_chunk(bytes).await;
-        if result.is_ok() {
-            self.progress.poisoned = false;
-        }
-        result
+        Ok(self.accept_chunk(bytes)?)
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
-        if !self.armed || self.progress.poisoned || self.progress.completed {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Poisoned,
-            ));
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.armed {
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Malformed("page output is not armed or already flushed"),
+                )
+                .into());
         }
         let page = self.profile.page();
         if self.progress.generic_bytes_accepted != page.packed_bytes
             || self.progress.output_bytes_written != page.packed_bytes
             || self.progress.rows_written != page.height
         {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Incomplete,
-            ));
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Incomplete,
+                )
+                .into());
         }
         self.check_cancelled(self.progress.generic_bytes_accepted)?;
         self.progress.producer_flushed = true;
@@ -711,13 +555,16 @@ impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
     }
 }
 
-impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<'_, T, W, C> {
+impl<W: Write, C: Cancellation> PageOrSink<'_, W, C> {
     /// Accept rows only after the generic decoder compared the header it
     /// parsed with its caller's preflight header; see
     /// [`GenericRegionDecoder::arm_page_output`](super::generic::GenericRegionDecoder::arm_page_output).
     pub(super) fn arm_checked_header(&mut self, header: GenericRegionHeader) -> crate::Result<()> {
-        if self.armed || self.progress.poisoned || self.progress.completed {
-            return Err(self.fail(0, PageComposeErrorKind::Poisoned));
+        if self.armed {
+            return Err(self.fail(
+                0,
+                PageComposeErrorKind::Malformed("page output is already armed"),
+            ));
         }
         let expected = self.profile.generic_header();
         if header.data != expected.data || header.mq_span != expected.mq_span {

@@ -16,8 +16,9 @@ use super::xref::{Trailer, write_xref};
 use crate::fallible::{reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, Result,
-    SequentialSink, read_exact_at,
+    read_exact_at,
 };
+use std::io::Write;
 use std::mem::size_of;
 
 // The second document ID is a version marker derived from the update's
@@ -38,7 +39,7 @@ struct XrefEntry {
 /// appended revision. A validated opaque tail after the original `%%EOF` is
 /// omitted. A clean PDF is copied byte-for-byte. The returned report is only
 /// produced after the sink flush succeeds.
-pub async fn copy_pdf<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn copy_pdf<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     limits: &Limits,
@@ -54,11 +55,10 @@ pub async fn copy_pdf<R: RangedSource, W: SequentialSink, C: Cancellation>(
         limits,
         cancellation,
     )
-    .await
 }
 
 /// Copy a PDF held in a bounded region of a larger random-access input.
-pub async fn copy_pdf_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn copy_pdf_range<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     range: PdfRange,
@@ -68,11 +68,9 @@ pub async fn copy_pdf_range<R: RangedSource, W: SequentialSink, C: Cancellation>
     let mut input_bytes_read = 0;
     let mut counted =
         CountingSource::new(source, &mut input_bytes_read).rejecting_overread(OVERREAD);
-    let index = PdfIndex::open(&mut counted, range, limits, cancellation).await?;
-    let mut report = PdfOutlineAppender::begin(&mut counted, sink, &index, limits, cancellation)
-        .await?
-        .finish()
-        .await?;
+    let index = PdfIndex::open(&mut counted, range, limits, cancellation)?;
+    let mut report =
+        PdfOutlineAppender::begin(&mut counted, sink, &index, limits, cancellation)?.finish()?;
     report.input_bytes_read = input_bytes_read;
     Ok(report)
 }
@@ -88,7 +86,7 @@ const OVERREAD: &str = "PDF source reported more bytes than requested";
 /// no-op, and a clean PDF is copied byte-for-byte to the distinct sink.
 /// The direct builder report counts bytes read by `begin`; `copy_pdf_range`
 /// also counts its preceding index scan.
-pub struct PdfOutlineAppender<'a, W: SequentialSink, C: Cancellation> {
+pub struct PdfOutlineAppender<'a, W: Write, C: Cancellation> {
     writer: AppendWriter<'a, W, C>,
     index: &'a PdfIndex,
     limits: &'a Limits,
@@ -130,9 +128,9 @@ fn check_append_range(index: &PdfIndex, limits: &Limits, source_size: u64) -> Re
     Ok(())
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     /// Inspect before calling this method, then retain the index until finish.
-    pub async fn begin<R: RangedSource>(
+    pub fn begin<R: RangedSource>(
         source: &mut R,
         sink: &'a mut W,
         index: &'a PdfIndex,
@@ -150,8 +148,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             index,
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         Ok(Self {
             writer,
             index,
@@ -170,7 +167,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     ///
     /// A failure after validation, once earlier items may have been closed,
     /// makes later `add_bookmark` and `finish` calls fail.
-    pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
+    pub fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
         if self.index.has_outlines() {
             return Ok(());
         }
@@ -206,38 +203,36 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
                 reason: "bookmark title is empty",
             });
         }
-        self.outline
-            .add(
-                &mut self.writer,
-                self.limits,
-                depth,
-                page,
-                BookmarkView::Fit,
-                bookmark.title,
-            )
-            .await
+        self.outline.add(
+            &mut self.writer,
+            self.limits,
+            depth,
+            page,
+            BookmarkView::Fit,
+            bookmark.title,
+        )
     }
 
     /// Finish any repair and outline update, then flush the output sink.
     ///
     /// Fails without writing if an earlier `add_bookmark` failed after it
     /// began closing outline items.
-    pub async fn finish(mut self) -> Result<ConversionReport> {
+    pub fn finish(mut self) -> Result<ConversionReport> {
         self.writer.out.ensure_healthy()?;
         self.outline.ensure_intact()?;
-        let outline_root = self.outline.finish(&mut self.writer).await?;
+        let outline_root = self.outline.finish(&mut self.writer)?;
         for repair in self.index.repair_objects() {
-            self.writer.begin_object(repair.reference).await?;
-            self.writer.out.write(&repair.body).await?;
-            self.writer.end_object().await?;
+            self.writer.begin_object(repair.reference)?;
+            self.writer.out.write(&repair.body)?;
+            self.writer.end_object()?;
         }
         if let Some(outline_root) = outline_root {
-            self.write_catalog(outline_root).await?;
+            self.write_catalog(outline_root)?;
         }
         if self.writer.entries.is_empty() {
-            self.writer.finish_copy().await?;
+            self.writer.finish_copy()?;
         } else {
-            self.writer.finish_update().await?;
+            self.writer.finish_update()?;
         }
         Ok(ConversionReport {
             input_bytes_read: self.input_bytes_read,
@@ -250,32 +245,29 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
         })
     }
 
-    async fn write_catalog(&mut self, outline_root: PdfRef) -> Result<()> {
+    fn write_catalog(&mut self, outline_root: PdfRef) -> Result<()> {
         let dictionary = self.index.catalog_dictionary();
-        self.writer.begin_object(self.index.catalog()).await?;
-        self.writer.out.write(b"<<").await?;
+        self.writer.begin_object(self.index.catalog())?;
+        self.writer.out.write(b"<<")?;
         for entry in self.index.catalog_entries() {
             if entry.name() == b"Outlines" {
                 continue;
             }
-            self.writer.out.write(b" ").await?;
-            self.writer.out.write(entry.raw_pair(dictionary)).await?;
+            self.writer.out.write(b" ")?;
+            self.writer.out.write(entry.raw_pair(dictionary))?;
         }
-        self.writer
-            .out
-            .write(
-                format!(
-                    " /Outlines {} {} R >>",
-                    outline_root.number, outline_root.generation
-                )
-                .as_bytes(),
+        self.writer.out.write(
+            format!(
+                " /Outlines {} {} R >>",
+                outline_root.number, outline_root.generation
             )
-            .await?;
-        self.writer.end_object().await
+            .as_bytes(),
+        )?;
+        self.writer.end_object()
     }
 }
 
-async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn copy_prefix<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     writer: &mut AppendWriter<'_, W, C>,
     offset: u64,
@@ -297,9 +289,9 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
         let at = offset.checked_add(done).ok_or(Error::InvalidInput {
             reason: "PDF copy offset overflows",
         })?;
-        read_exact_at(source, at, &mut buffer[..count], limits, cancellation).await?;
+        read_exact_at(source, at, &mut buffer[..count], limits, cancellation)?;
         patches.apply(&mut buffer[..count], done)?;
-        writer.out.write_unbounded(&buffer[..count]).await?;
+        writer.out.write_unbounded(&buffer[..count])?;
         done = done.checked_add(count as u64).ok_or(Error::InvalidInput {
             reason: "PDF copied-byte count overflows",
         })?;
@@ -392,7 +384,7 @@ impl<'a> CopyPatches<'a> {
     }
 }
 
-struct AppendWriter<'a, W: SequentialSink, C: Cancellation> {
+struct AppendWriter<'a, W: Write, C: Cancellation> {
     out: Output<'a, W, C>,
     index: &'a PdfIndex,
     /// The next new object number, once the first one has been reserved.
@@ -401,7 +393,7 @@ struct AppendWriter<'a, W: SequentialSink, C: Cancellation> {
     open: bool,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
     fn new(sink: &'a mut W, index: &'a PdfIndex, limits: &'a Limits, cancellation: &'a C) -> Self {
         Self {
             out: Output::new(sink, limits, cancellation),
@@ -436,7 +428,7 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
         Ok(())
     }
 
-    async fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
+    fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.open || reference.number == 0 {
             return Err(Error::InvalidInput {
@@ -444,23 +436,22 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
             });
         }
         self.reserve_entry()?;
-        self.out.write(b"\n").await?;
+        self.out.write(b"\n")?;
         let offset = self.out.position;
         self.out
-            .write(format!("{} {} obj\n", reference.number, reference.generation).as_bytes())
-            .await?;
+            .write(format!("{} {} obj\n", reference.number, reference.generation).as_bytes())?;
         self.entries.push(XrefEntry { reference, offset });
         self.open = true;
         Ok(())
     }
 
-    async fn end_object(&mut self) -> Result<()> {
+    fn end_object(&mut self) -> Result<()> {
         if !self.open {
             return Err(Error::InvalidInput {
                 reason: "no PDF append object is open",
             });
         }
-        self.out.write(b"\nendobj\n").await?;
+        self.out.write(b"\nendobj\n")?;
         self.open = false;
         Ok(())
     }
@@ -474,12 +465,12 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
         Ok(())
     }
 
-    async fn finish_copy(&mut self) -> Result<()> {
+    fn finish_copy(&mut self) -> Result<()> {
         self.ensure_closed()?;
-        self.out.flush().await
+        self.out.flush()
     }
 
-    async fn finish_update(&mut self) -> Result<()> {
+    fn finish_update(&mut self) -> Result<()> {
         self.ensure_closed()?;
         self.out.ensure_healthy()?;
         self.entries
@@ -524,28 +515,28 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
             .entries
             .iter()
             .map(|entry| (entry.reference, entry.offset));
-        write_xref(&mut self.out, entries, false, &trailer).await?;
-        self.out.flush().await
+        write_xref(&mut self.out, entries, false, &trailer)?;
+        self.out.flush()
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectSink for AppendWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectSink for AppendWriter<'_, W, C> {
     type Ref = PdfRef;
 
-    async fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
-        AppendWriter::begin_object(self, reference).await
+    fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
+        AppendWriter::begin_object(self, reference)
     }
 
-    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        self.out.write(bytes).await
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        self.out.write(bytes)
     }
 
-    async fn end_object(&mut self) -> Result<()> {
-        AppendWriter::end_object(self).await
+    fn end_object(&mut self) -> Result<()> {
+        AppendWriter::end_object(self)
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectAllocator for AppendWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectAllocator for AppendWriter<'_, W, C> {
     /// Number new objects from the input's first free number.
     fn reserve(&mut self) -> Result<PdfRef> {
         let number = match self.next_number {

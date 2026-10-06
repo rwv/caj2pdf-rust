@@ -2,7 +2,7 @@
 use super::*;
 use crate::native::SeekableSource;
 use crate::pdf::input::scan_damaged_fragment;
-use crate::test_support::{CancelAfter, NEVER, run};
+use crate::test_support::{CancelAfter, NEVER};
 use std::io::Cursor;
 
 fn exercise(
@@ -22,14 +22,14 @@ fn exercise(
         bookmarks: Vec::new(),
     };
     let mut source = SeekableSource::new(Cursor::new(body)).unwrap();
-    let mut scan = run(scan_damaged_fragment(
+    let mut scan = scan_damaged_fragment(
         &mut source,
         &metadata.page_rows,
         body.len() as u64,
         &Limits::default(),
         &NEVER,
         &mut [],
-    ))?;
+    )?;
     scan.damaged.push((
         Some(PdfRef {
             number: 999,
@@ -39,13 +39,7 @@ fn exercise(
     ));
     // Deliberately malformed object 7 is structurally indexed before the
     // page-content check. Resource 6 and the page depend on it transitively.
-    run(substitute_damaged_pages(
-        &mut source,
-        &metadata,
-        &mut scan,
-        limits,
-        cancellation,
-    ))
+    substitute_damaged_pages(&mut source, &metadata, &mut scan, limits, cancellation)
 }
 
 const BODY: &[u8] = b"1 0 obj<</Type/Page /Parent 9 0 R /MediaBox[0 0 20 30] /Resources 6 0 R>>endobj\n6 0 obj<</Font<</F1 7 0 R>>>>endobj\n7 0 obj<</Type/Page /Parent 9 0 R /Contents 42>>endobj\n100 0 obj 1 endobj\n101 0 obj<</Length 100 0 R>>stream\nx\nendstream\nendobj\n";

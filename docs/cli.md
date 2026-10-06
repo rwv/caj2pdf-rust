@@ -46,7 +46,7 @@ after leading bytes is read from the header; see the
 [header offset rule](pdf-input.md#header-offset). PDF/KDH
 inspection reports outline presence rather than full outline entries;
 HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
-remains unknown. Inspection needs no scratch storage.
+remains unknown.
 The CLI bounds retained outline records plus title capacities by
 `max_allocation_bytes`. With a ranged input, image payloads are not read;
 stdin still follows the bounded spooling rule below.
@@ -85,12 +85,10 @@ no OCR text layer. General text extraction and semantic reading order remain
 outside the [verified text scope](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
 malformed JBIG2 flags remain errors.
 
-The command creates four private anonymous files in `TMPDIR` (or the system
-temporary directory) for type-3 images, each capped at 64 MiB by the
-composition budget; type-0 and JPEG images stream without them. The
-names are removed before conversion; the OS releases storage when handles
-close, including on process exit. This reuses input spooling's file helper.
-Forward-only document input is separately spooled within its input limit.
+A conversion creates no temporary files (#355): type-3 symbol and text
+bitmaps are held in memory, each capped by `max_allocation_bytes`, and
+type-0 and JPEG images stream. Only forward-only document input (stdin) is
+spooled, within its input limit, to an anonymous file in `TMPDIR`.
 Output remains sequential; a failed conversion never commits a staged path
 output. Stdout can contain a partial PDF on failure, as for other formats.
 
@@ -630,14 +628,15 @@ cargo test --locked -p caj2pdf-cli
 Original tests convert an asymmetric 3×2 type-0 HN-A page from a file and stdin,
 reopen the PDF with qpdf and extract exact packed pixels. They also exercise
 malformed input, HN-B empty-row rejection, input/hardlink overwrite protection,
-scratch creation failure, anonymous-file cleanup and CAJ bookmark omission.
+conversion with an unusable `TMPDIR` and CAJ bookmark omission.
 
 The release CLI converted the external four-page C8 issue-58 document described
 in [the direct-record comparison](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-direct-text.md), using a caller-supplied
 MQ file and `--no-bookmarks`. All four pages passed qpdf; the 3,992,137-byte
 PDF is byte-identical to the native example, Node and Chromium outputs:
 `fffa38e8f2cd675352108488117f13983f959ead7500f9f4ba1cab9a2e74ef1e`.
-The final run took 2.46 seconds and its scratch directory was empty.
+The final run took 2.46 seconds and its scratch directory was empty (that
+build still used scratch files; since #355 the CLI creates none).
 Linux child-process `ru_maxrss` reported 14,844 KiB from a Python
 subprocess harness. That process-lifetime measurement can include pre-exec
 launcher overhead; it is not a precise core-allocation measurement or a
@@ -660,7 +659,7 @@ to stdout cannot be recalled.
 
 An operating-system read or write can remain blocked until it returns. A second
 termination signal forces the normal signal action; forced termination (including
-SIGKILL) can leave a named output temporary file. Anonymous scratch files are
+SIGKILL) can leave a named output temporary file. An anonymous stdin spool is
 released by the operating system. Do not rely on forced termination for cleanup.
 
 
@@ -669,8 +668,8 @@ released by the operating system. Do not rely on forced termination for cleanup.
 The Windows CLI uses the same conversion, argument and report code as Unix.
 Windows identity checks use volume and file indexes, including hard-link
 aliases. Paths remain native OS strings. Temporary files inherit their parent
-directory's ACL; use a private user temp/output directory. Scratch files are
-marked for deletion through their open handles and removed when closed.
+directory's ACL; use a private user temp/output directory. The stdin spool is
+marked for deletion through its open handle and removed when closed.
 
 On Windows, Ctrl-C/Ctrl-Break request cooperative cancellation; a second
 interrupt exits with status 130 immediately and may leave staged output.

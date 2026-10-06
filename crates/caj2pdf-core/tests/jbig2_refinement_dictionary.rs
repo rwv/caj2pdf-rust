@@ -19,123 +19,29 @@ use caj2pdf_core::jbig2::{
     read_segment_header,
     refinement::{RefinementBudget, RefinementErrorKind},
 };
-use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
-};
-use std::{
-    cell::{Cell, RefCell},
-    future::{Future, pending},
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending I/O"),
-    }
-}
+use caj2pdf_core::{Cancellation, Limits, NeverCancel, Payload, RangedSource};
 
 struct Bytes {
     bytes: Vec<u8>,
-    advertised_size: Option<u64>,
-    calls: usize,
-    max_read: usize,
-    fail_after_calls: Option<usize>,
 }
 
 impl Bytes {
     fn new(bytes: Vec<u8>) -> Self {
-        Self {
-            bytes,
-            advertised_size: None,
-            calls: 0,
-            max_read: usize::MAX,
-            fail_after_calls: None,
-        }
+        Self { bytes }
+    }
+
+    fn payload(&self) -> Payload<'_> {
+        Payload::from(&self.bytes[..])
     }
 }
 
 impl RangedSource for Bytes {
     fn size(&self) -> u64 {
-        self.advertised_size.unwrap_or(self.bytes.len() as u64)
+        self.bytes.len() as u64
     }
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        if self
-            .fail_after_calls
-            .is_some_and(|limit| self.calls >= limit)
-        {
-            self.calls += 1;
-            return Err(Error::Io(io::Error::other("injected source failure")));
-        }
-        self.calls += 1;
-        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = self
-            .bytes
-            .len()
-            .saturating_sub(offset)
-            .min(destination.len())
-            .min(self.max_read);
-        if count > 0 {
-            destination[..count].copy_from_slice(&self.bytes[offset..offset + count]);
-        }
-        Ok(count)
-    }
-}
-
-struct SharedSource {
-    bytes: Rc<RefCell<Vec<u8>>>,
-    calls: usize,
-    advertised_size: Option<u64>,
-}
-impl SharedSource {
-    fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
-        Self {
-            bytes,
-            calls: 0,
-            advertised_size: None,
-        }
-    }
-}
-impl RangedSource for SharedSource {
-    fn size(&self) -> u64 {
-        self.advertised_size
-            .unwrap_or_else(|| self.bytes.borrow().len() as u64)
-    }
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.calls += 1;
-        let bytes = self.bytes.borrow();
-        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = bytes.len().saturating_sub(offset).min(destination.len());
-        if count > 0 {
-            destination[..count].copy_from_slice(&bytes[offset..offset + count]);
-        }
-        Ok(count)
-    }
-}
-
-struct SharedSink(Rc<RefCell<Vec<u8>>>);
-impl SequentialSink for SharedSink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        self.0.borrow_mut().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        Ok(())
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
+        let mut bytes = &self.bytes[..];
+        bytes.read_at(offset, destination)
     }
 }
 
@@ -178,13 +84,13 @@ fn segment_on_page(
         offset: 0,
         length: source.size(),
     };
-    let header = ready(read_segment_header(
+    let header = read_segment_header(
         &mut source,
         span,
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     (source, header)
 }
@@ -201,13 +107,12 @@ fn coding_unit(code_len: u32, limits: &Limits, budget: &MqBudget) -> ContextBank
 }
 
 fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<IntegerValue>> {
-    let mut source = Bytes::new(body.to_vec());
     let limits = Limits::default();
     let budget = MqBudget::default();
     let table = table();
     let mut contexts = coding_unit(1, &limits, &budget);
-    let mut mq = ready(MqDecoder::new(
-        &mut source,
+    let mut mq = MqDecoder::new(
+        Payload::from(body),
         CodedSpan {
             offset: 0,
             length: body.len() as u64,
@@ -215,26 +120,25 @@ fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<In
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         budget,
-    ))
+    )
     .ok()?;
     procedures
         .iter()
-        .map(|&procedure| ready(decode_integer(&mut mq, procedure)).ok())
+        .map(|&procedure| decode_integer(&mut mq, procedure).ok())
         .collect()
 }
 
 fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryReport, Bytes) {
     assert_eq!(row.len(), width.div_ceil(8) as usize);
     let (mut source, header) = segment(1, None, 0x0800, count, count, &[0x97, 0xff, 0xac]);
-    let data = ready(read_dictionary_data_header(
+    let data = read_dictionary_data_header(
         &mut source,
         &header,
         &Limits::default(),
         DictionaryBudget::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     let symbols: Vec<_> = (0..count)
         .map(|index| SymbolDescriptor {
@@ -265,11 +169,9 @@ fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryRep
                 code: 0,
                 bit_counter: 0,
                 input_offset: data.body.offset,
-                source_bytes_fetched: 2,
                 synthesized_inputs: 0,
                 symbols_decoded: 0,
                 work_done: 0,
-                poisoned: false,
             }),
             ..DictionaryProgress::default()
         },
@@ -280,9 +182,6 @@ fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryRep
 struct Observation {
     result: Result<DictionaryReport, DictionaryError>,
     output: Vec<u8>,
-    source_calls: usize,
-    imported_calls: usize,
-    new_calls: usize,
     gr_contexts: Vec<usize>,
     gr_state_zero: u8,
 }
@@ -300,16 +199,11 @@ fn run_with_imported_io(
     second_budget: RefinementDictionaryBudget,
     cancellation: &impl Cancellation,
     mq_budget: MqBudget,
-    max_read: usize,
 ) -> Observation {
-    let (imported_header, imported_report, mut imported_source) =
+    let (imported_header, imported_report, imported_source) =
         imported(imported_count, imported_width, imported_row);
-    imported_source.max_read = max_read;
-    let (mut source, header) = segment(2, Some(1), 0x1802, exported, new, body);
-    source.max_read = max_read;
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    let mut new_sink = SharedSink(store.clone());
+    let (source, header) = segment(2, Some(1), 0x1802, exported, new, body);
+    let mut store = Vec::new();
     let table = table();
     let limits = Limits::default();
     let total = imported_count + new;
@@ -319,18 +213,17 @@ fn run_with_imported_io(
         32 - (total - 1).leading_zeros()
     };
     let mut contexts = coding_unit(width, &limits, &mq_budget);
-    let created = ready(SymbolDictionaryDecoder::new(
-        &mut source,
+    let result = SymbolDictionaryDecoder::new(
+        source.payload(),
         &header,
         Some(ImportedDictionary {
             segment: &imported_header,
             report: &imported_report,
         }),
         DictionaryStores {
-            imported: &mut imported_source,
+            imported: &imported_source.bytes,
             imported_base: 0,
-            new_reader: &mut new_source,
-            new_writer: &mut new_sink,
+            new: &mut store,
             new_base: 0,
         },
         &table,
@@ -341,12 +234,9 @@ fn run_with_imported_io(
         dict_budget,
         refinement_budget,
         second_budget,
-    ));
-    let result = match created {
-        Ok(mut decoder) => ready(decoder.decode()),
-        Err(error) => Err(error),
-    };
-    let output = store.borrow().clone();
+    )
+    .and_then(|decoder| decoder.decode());
+    let output = store;
     let base = BITMAP_BASE;
     let gr_contexts: Vec<_> = (0..1024)
         .filter(|&local| contexts.get(base + local) != Some(ContextState::default()))
@@ -355,9 +245,6 @@ fn run_with_imported_io(
     Observation {
         result,
         output,
-        source_calls: source.calls,
-        imported_calls: imported_source.calls,
-        new_calls: new_source.calls,
         gr_contexts,
         gr_state_zero,
     }
@@ -387,7 +274,6 @@ fn run_with_imported(
         second_budget,
         &NeverCancel,
         MqBudget::default(),
-        usize::MAX,
     )
 }
 
@@ -440,7 +326,6 @@ fn zero_new_and_zero_imported_still_consumes_one_iaex() {
     assert!(report.catalog.exported_symbols.is_empty());
     assert_eq!(report.progress.export_runs, 1);
     assert_eq!(report.progress.mq.unwrap().symbols_decoded, 4);
-    assert!(!report.progress.poisoned);
     assert_eq!(observed.output, Vec::<u8>::new());
 }
 
@@ -465,7 +350,6 @@ fn iaai_zero_and_aggregation_are_located_typed_refusals() {
     );
     assert_eq!(error.progress.iaai.zero, 1);
     assert_eq!(error.progress.iaai.single_reference, 0);
-    assert!(error.progress.poisoned);
     assert!(zero.output.is_empty());
 
     let many = run(
@@ -537,7 +421,6 @@ fn one_reference_complete_stream_stores_one_packed_symbol_and_checks_tail() {
     assert_eq!(report.progress.height_classes, 1);
     assert_eq!(report.progress.export_runs, 1);
     assert_eq!(report.progress.mq.unwrap().symbols_decoded, 47);
-    assert_eq!(report.progress.refinement.reference_reads, 0);
     assert_eq!(
         report.catalog.new_symbols,
         vec![SymbolDescriptor {
@@ -550,7 +433,6 @@ fn one_reference_complete_stream_stores_one_packed_symbol_and_checks_tail() {
     );
     assert!(report.catalog.exported_symbols.is_empty());
     assert_eq!(observed.output, vec![0x80]);
-    assert!(!report.progress.poisoned);
 }
 
 #[test]
@@ -570,8 +452,6 @@ fn imported_rows_change_gr_context_before_one_refined_bitmap() {
     );
     let report = set.result.unwrap();
     assert_eq!(report.progress.completed_symbols, 1);
-    assert_eq!(report.progress.refinement.reference_reads, 1);
-    assert_eq!(report.progress.refinement.reference_bytes_fetched, 3);
     assert_eq!(set.gr_contexts, vec![2]);
     assert_eq!(set.output, vec![0x80]);
 
@@ -586,38 +466,8 @@ fn imported_rows_change_gr_context_before_one_refined_bitmap() {
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
     );
-    let report = clear.result.unwrap();
-    assert_eq!(report.progress.refinement.reference_reads, 1);
+    assert_eq!(clear.result.unwrap().progress.completed_symbols, 1);
     assert_eq!(clear.gr_contexts, vec![0]);
-}
-
-#[test]
-fn short_framing_body_and_imported_row_reads_preserve_physical_counters() {
-    let observed = run_with_imported_io(
-        &READ_REFERENCE_PIXEL,
-        1,
-        18,
-        &[0, 0, 0x80],
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-        &NeverCancel,
-        MqBudget::default(),
-        1,
-    );
-    let report = observed.result.unwrap();
-    assert_eq!(report.progress.completed_symbols, 1);
-    assert_eq!(report.progress.refinement.reference_reads, 3);
-    assert_eq!(report.progress.refinement.reference_bytes_fetched, 3);
-    assert_eq!(
-        report.progress.source_bytes_fetched(),
-        12 + READ_REFERENCE_PIXEL.len() as u64
-    );
-    assert_eq!(observed.imported_calls, 3);
-    // Every fetched byte took its own one-byte read.
-    assert!(observed.source_calls as u64 >= report.progress.source_bytes_fetched());
 }
 
 #[test]
@@ -644,83 +494,6 @@ fn a_new_export_retains_the_new_store_identity() {
 }
 
 #[test]
-fn new_store_absolute_end_overflow_is_rejected_before_writing() {
-    let (imported_header, imported_report, mut imported_source) = imported(1, 1, &[0x80]);
-    let (mut source, header) = segment(2, Some(1), 0x1802, 1, 1, &READ_REFERENCE_AND_EXPORT_NEW);
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    new_source.advertised_size = Some(u64::MAX);
-    let mut new_sink = SharedSink(store.clone());
-    let table = table();
-    let limits = Limits::default();
-    let mut contexts = coding_unit(1, &limits, &MqBudget::default());
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
-        &mut source,
-        &header,
-        Some(ImportedDictionary {
-            segment: &imported_header,
-            report: &imported_report,
-        }),
-        DictionaryStores {
-            imported: &mut imported_source,
-            imported_base: 0,
-            new_reader: &mut new_source,
-            new_writer: &mut new_sink,
-            new_base: u64::MAX,
-        },
-        &table,
-        &mut contexts,
-        &limits,
-        &NeverCancel,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ))
-    .unwrap();
-    let error = ready(decoder.decode()).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::InvalidSpan("new store absolute end overflow")
-    ));
-    assert_eq!(error.progress.iaai.single_reference, 0);
-    assert_eq!(error.progress.completed_symbols, 0);
-    assert!(error.progress.poisoned);
-    assert_eq!(error.segment, 2);
-    assert!(error.offset >= header.data.offset);
-    assert!(store.borrow().is_empty());
-}
-
-#[test]
-fn invalid_refinement_work_budget_is_located_before_bitmap_output() {
-    let budget = RefinementBudget {
-        max_reference_reads: MAX_BUDGET_COUNT + 1,
-        ..RefinementBudget::default()
-    };
-    let observed = run(
-        &COMPLETE_ONE,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        budget,
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Refinement(ref nested)
-            if matches!(nested.kind, RefinementErrorKind::LimitExceeded {
-                resource: "reference reads budget",
-                limit: MAX_BUDGET_COUNT,
-                attempted,
-            } if attempted == MAX_BUDGET_COUNT + 1)
-    ));
-    assert!(error.progress.poisoned);
-    assert!(observed.output.is_empty());
-}
-
-#[test]
 fn one_mq_symbol_budget_covers_integer_and_iaid_decisions() {
     let mut integer_limit = false;
     let mut iaid_limit = false;
@@ -740,7 +513,6 @@ fn one_mq_symbol_budget_covers_integer_and_iaid_decisions() {
                 max_symbols,
                 ..MqBudget::default()
             },
-            usize::MAX,
         );
         let Err(error) = observed.result else {
             continue;
@@ -846,7 +618,6 @@ fn two_refined_symbols_retain_one_gr_context_bank_until_dictionary_failure() {
     assert_eq!(observed.output.len(), 2);
     assert_eq!(observed.gr_contexts, vec![0]);
     assert_eq!(observed.gr_state_zero, 2);
-    assert!(error.progress.poisoned);
 }
 
 #[test]
@@ -902,7 +673,6 @@ fn imported_descriptor_and_count_limits_fail_before_mq_or_reference_reads() {
         }
     ));
     assert!(error.progress.mq.is_none());
-    assert_eq!(observed.imported_calls, 0);
     assert!(observed.output.is_empty());
 }
 
@@ -917,7 +687,6 @@ fn header_and_contexts_are_read_through_public_decoder() {
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
     );
-    assert!(observed.source_calls > 0);
     if let Ok(report) = observed.result {
         assert!(
             report
@@ -931,11 +700,9 @@ fn header_and_contexts_are_read_through_public_decoder() {
 
 #[test]
 fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
-    let (imported_header, imported_report, mut imported_source) = imported(1, 1, &[0x80]);
-    let (mut source, header) = segment(2, Some(1), 0x1802, 1, 0, &[0x7f, 0xff, 0xac]);
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    let mut new_sink = SharedSink(store);
+    let (imported_header, imported_report, imported_source) = imported(1, 1, &[0x80]);
+    let (source, header) = segment(2, Some(1), 0x1802, 1, 0, &[0x7f, 0xff, 0xac]);
+    let mut store = Vec::new();
     let limits = Limits::default();
     let table = table();
     let mut contexts = coding_unit(0, &limits, &MqBudget::default());
@@ -943,9 +710,8 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
     // context: the first decision in a context always leaves state zero.
     let touched = [0, BITMAP_BASE, IAID_BASE];
     let earlier = [0, 0, 0xff, 0xac];
-    let mut earlier_source = Bytes::new(earlier.to_vec());
-    let mut mq = ready(MqDecoder::new(
-        &mut earlier_source,
+    let mut mq = MqDecoder::new(
+        Payload::from(&earlier[..]),
         CodedSpan {
             offset: 0,
             length: earlier.len() as u64,
@@ -953,28 +719,26 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
     for index in touched {
-        ready(mq.decode_bit(index)).unwrap();
+        mq.decode_bit(index).unwrap();
     }
     for index in touched {
         assert_ne!(contexts.get(index), Some(ContextState::default()));
     }
-    let decoder = ready(SymbolDictionaryDecoder::new(
-        &mut source,
+    let decoder = SymbolDictionaryDecoder::new(
+        source.payload(),
         &header,
         Some(ImportedDictionary {
             segment: &imported_header,
             report: &imported_report,
         }),
         DictionaryStores {
-            imported: &mut imported_source,
+            imported: &imported_source.bytes,
             imported_base: 0,
-            new_reader: &mut new_source,
-            new_writer: &mut new_sink,
+            new: &mut store,
             new_base: 0,
         },
         &table,
@@ -985,7 +749,7 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
     drop(decoder);
     for index in touched {
@@ -1017,7 +781,6 @@ fn resource_caps_reject_before_or_during_one_coding_unit() {
         }
     ));
     assert!(error.progress.mq.is_none());
-    assert_eq!(observed.imported_calls, 0);
 
     let dictionary = DictionaryBudget {
         max_height_classes: 0,
@@ -1041,10 +804,9 @@ fn resource_caps_reject_before_or_during_one_coding_unit() {
         }
     ));
     assert_eq!(error.progress.completed_symbols, 0);
-    assert!(error.progress.poisoned);
 
     let refinement = RefinementBudget {
-        max_reference_reads: 0,
+        max_mq_decisions: 0,
         ..RefinementBudget::default()
     };
     let observed = run_with_imported(
@@ -1060,7 +822,7 @@ fn resource_caps_reject_before_or_during_one_coding_unit() {
     );
     let error = observed.result.unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Refinement(_)));
-    assert_eq!(error.progress.refinement.reference_reads, 0);
+    assert_eq!(error.progress.refinement.pixels_decoded, 0);
     assert!(observed.output.is_empty());
 
     let dictionary = DictionaryBudget {
@@ -1122,7 +884,7 @@ fn fixed_budget_body_mutations_have_bounded_output_and_progress() {
                 Ok(report) => report.progress,
                 Err(error) => error.progress.as_ref().to_owned(),
             };
-            assert!(progress.source_bytes_fetched() <= 12 + body.len() as u64);
+            assert!(progress.header_bytes_fetched <= 12);
             assert!(progress.completed_symbols <= 1);
             assert!(progress.export_runs <= 8);
         }
@@ -1134,12 +896,10 @@ fn forged_error(
     mutate: impl FnOnce(&mut DictionaryReport),
     budget: RefinementDictionaryBudget,
 ) -> DictionaryError {
-    let (imported_header, mut report, mut imported_source) = imported(count, 1, &[0x80]);
+    let (imported_header, mut report, imported_source) = imported(count, 1, &[0x80]);
     mutate(&mut report);
-    let (mut source, header) = segment(2, Some(1), 0x1802, 0, 0, &[0x97, 0xff, 0xac]);
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    let mut new_sink = SharedSink(store);
+    let (source, header) = segment(2, Some(1), 0x1802, 0, 0, &[0x97, 0xff, 0xac]);
+    let mut store = Vec::new();
     let limits = Limits::default();
     let table = table();
     let width = if count <= 1 {
@@ -1148,18 +908,17 @@ fn forged_error(
         32 - (count - 1).leading_zeros()
     };
     let mut contexts = coding_unit(width, &limits, &MqBudget::default());
-    let result = ready(SymbolDictionaryDecoder::new(
-        &mut source,
+    let result = SymbolDictionaryDecoder::new(
+        source.payload(),
         &header,
         Some(ImportedDictionary {
             segment: &imported_header,
             report: &report,
         }),
         DictionaryStores {
-            imported: &mut imported_source,
+            imported: &imported_source.bytes,
             imported_base: 0,
-            new_reader: &mut new_source,
-            new_writer: &mut new_sink,
+            new: &mut store,
             new_base: 0,
         },
         &table,
@@ -1170,12 +929,11 @@ fn forged_error(
         DictionaryBudget::default(),
         RefinementBudget::default(),
         budget,
-    ));
+    );
     let error = match result {
         Ok(_) => panic!("forged report was accepted"),
         Err(error) => error,
     };
-    assert_eq!(imported_source.calls, 0);
     assert!(error.progress.mq.is_none());
     error
 }
@@ -1185,11 +943,9 @@ struct PreflightCase {
     reference: Option<u8>,
     page: u8,
     body: &'static [u8],
-    fail_after_additional_reads: Option<usize>,
     new: u32,
     exported: u32,
     imported_base: u64,
-    imported_size: Option<u64>,
     new_base: u64,
     bank_width: Option<u32>,
     dictionary_budget: DictionaryBudget,
@@ -1205,11 +961,9 @@ impl Default for PreflightCase {
             reference: Some(1),
             page: 1,
             body: &[0x97, 0xff, 0xac],
-            fail_after_additional_reads: None,
             new: 0,
             exported: 0,
             imported_base: 0,
-            imported_size: None,
             new_base: 0,
             bank_width: None,
             dictionary_budget: DictionaryBudget::default(),
@@ -1233,13 +987,12 @@ fn preflight_result(
     setup: PreflightCase,
     mutate_imported: impl FnOnce(&mut SegmentHeader, &mut DictionaryReport),
 ) -> Result<(), DictionaryError> {
-    let (mut imported_source, mut imported_header, mut report) = {
+    let (imported_source, mut imported_header, mut report) = {
         let (header, report, source) = imported(1, 1, &[0x80]);
         (source, header, report)
     };
-    imported_source.advertised_size = setup.imported_size;
     mutate_imported(&mut imported_header, &mut report);
-    let (mut source, header) = segment_on_page(
+    let (source, header) = segment_on_page(
         2,
         setup.reference,
         setup.flags,
@@ -1248,12 +1001,7 @@ fn preflight_result(
         setup.body,
         setup.page,
     );
-    source.fail_after_calls = setup
-        .fail_after_additional_reads
-        .map(|additional| source.calls + additional);
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    let mut new_sink = SharedSink(store);
+    let mut store = Vec::new();
     let limits = setup.limits;
     let table = table();
     let total = setup.new + 1;
@@ -1263,18 +1011,17 @@ fn preflight_result(
         32 - (total - 1).leading_zeros()
     });
     let mut contexts = coding_unit(width, &limits, &MqBudget::default());
-    let result = ready(SymbolDictionaryDecoder::new(
-        &mut source,
+    SymbolDictionaryDecoder::new(
+        source.payload(),
         &header,
         Some(ImportedDictionary {
             segment: &imported_header,
             report: &report,
         }),
         DictionaryStores {
-            imported: &mut imported_source,
+            imported: &imported_source.bytes,
             imported_base: setup.imported_base,
-            new_reader: &mut new_source,
-            new_writer: &mut new_sink,
+            new: &mut store,
             new_base: setup.new_base,
         },
         &table,
@@ -1285,10 +1032,8 @@ fn preflight_result(
         setup.dictionary_budget,
         setup.refinement_budget,
         setup.second_budget,
-    ))
-    .map(drop);
-    assert_eq!(imported_source.calls, 0);
-    result
+    )
+    .map(drop)
 }
 
 #[test]
@@ -1341,7 +1086,7 @@ fn forged_imported_reports_fail_before_mq_and_store_access() {
     let error = forged_error(
         1,
         |report| {
-            report.progress.poisoned = true;
+            report.progress.mq = None;
         },
         RefinementDictionaryBudget::default(),
     );
@@ -1398,14 +1143,13 @@ fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
     let error = preflight_error(
         PreflightCase {
             imported_base: u64::MAX,
-            imported_size: Some(u64::MAX),
             ..PreflightCase::default()
         },
         |_, _| {},
     );
     assert!(matches!(
         error.kind,
-        DictionaryErrorKind::Malformed("imported store absolute end overflow")
+        DictionaryErrorKind::Malformed("imported store base outside the store")
     ));
 }
 
@@ -1426,7 +1170,7 @@ fn imported_bitmap_metadata_and_store_bounds_are_checked_before_mq() {
                     .symbol
                     .relative_store_offset = 1;
             },
-            "imported descriptor outside ranged source",
+            "imported descriptor outside the store",
         ),
     ] {
         let error = forged_error(1, mutate, RefinementDictionaryBudget::default());
@@ -1672,7 +1416,7 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
     );
     assert!(matches!(
         error.kind,
-        DictionaryErrorKind::Malformed("imported store base outside source")
+        DictionaryErrorKind::Malformed("imported store base outside the store")
     ));
 
     let error = preflight_error(
@@ -1684,7 +1428,7 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
     );
     assert!(matches!(
         error.kind,
-        DictionaryErrorKind::InvalidSpan("new store base outside ranged source")
+        DictionaryErrorKind::InvalidSpan("new store base differs from the store length")
     ));
 }
 
@@ -1712,21 +1456,6 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("IAID width or GR context layout mismatch")
-    ));
-
-    let error = preflight_error(
-        PreflightCase {
-            refinement_budget: RefinementBudget {
-                max_source_request_bytes: 0,
-                ..RefinementBudget::default()
-            },
-            ..PreflightCase::default()
-        },
-        |_, _| {},
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("zero refinement I/O request bound")
     ));
 
     let error = preflight_error(
@@ -1769,24 +1498,6 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
 
     let error = preflight_error(
         PreflightCase {
-            dictionary_budget: DictionaryBudget {
-                max_source_request_bytes: 1,
-                ..DictionaryBudget::default()
-            },
-            ..PreflightCase::default()
-        },
-        |_, _| {},
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "MQ source request bytes",
-            ..
-        }
-    ));
-
-    let error = preflight_error(
-        PreflightCase {
             body: &[],
             ..PreflightCase::default()
         },
@@ -1799,37 +1510,6 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
         ),
         "{error}"
     );
-    assert_eq!(error.progress.mq_initialization_bytes_fetched, 0);
-}
-
-#[test]
-fn source_failure_during_mq_initialization_has_a_located_cause() {
-    // Try adjacent read boundaries rather than depending on the parser's
-    // batching. A failure after header validation must remain an MQ error.
-    let mut mq_error = None;
-    for additional in 0..16 {
-        let outcome = preflight_result(
-            PreflightCase {
-                fail_after_additional_reads: Some(additional),
-                ..PreflightCase::default()
-            },
-            |_, _| {},
-        );
-        match outcome {
-            Err(error) if matches!(error.kind, DictionaryErrorKind::Mq(_)) => {
-                mq_error = Some(error);
-                break;
-            }
-            Ok(()) => break,
-            _ => {}
-        }
-    }
-    let error = mq_error.expect("one boundary must fail MQ initialization");
-    assert_eq!(error.segment, 2);
-    assert!(error.offset >= 24);
-    assert!(error.progress.header_bytes_fetched >= 12);
-    assert!(error.progress.mq.is_none());
-    assert!(std::error::Error::source(&error).is_some());
 }
 
 #[test]
@@ -1887,10 +1567,6 @@ fn public_error_messages_keep_locations_and_nested_sources() {
     )
     .result
     .unwrap_err();
-    let refinement = sink_fault(SinkFault::Io, &NeverCancel, false).0.unwrap();
-    let sink = sink_fault(SinkFault::FlushIo, &NeverCancel, false)
-        .0
-        .unwrap();
     let fabricate = |kind| DictionaryError {
         segment: 2,
         offset: 23,
@@ -1904,11 +1580,8 @@ fn public_error_messages_keep_locations_and_nested_sources() {
         (limit, false),
         (invalid, false),
         (mq, true),
-        (refinement, true),
-        (sink, true),
         (fabricate(DictionaryErrorKind::AllocationFailed), false),
         (fabricate(DictionaryErrorKind::Cancelled), false),
-        (fabricate(DictionaryErrorKind::Poisoned), false),
     ];
     for (error, has_source) in cases {
         let display = error.to_string();
@@ -2005,14 +1678,13 @@ fn bounded_synthetic_control_witnesses_keep_typed_locations() {
         assert_eq!(label, expected);
         assert_eq!(error.segment, 2);
         assert!(error.offset > 0, "{expected}");
-        assert!(error.progress.poisoned, "{expected}");
         assert!(error.progress.completed_symbols <= 1);
         assert!(observed.output.len() <= 8);
     }
 }
 
 #[test]
-fn later_symbol_reads_the_new_store_only_after_an_explicit_flush() {
+fn a_later_symbol_refines_an_earlier_new_symbol() {
     // A two-refinement prefix that selects active IAID 1 (the first new
     // symbol) for the second target and an in-range reference row. The later
     // malformed width control is outside this prefix check.
@@ -2029,239 +1701,7 @@ fn later_symbol_reads_the_new_store_only_after_an_explicit_flush() {
     let error = observed.result.unwrap_err();
     assert_eq!(error.progress.completed_symbols, 2, "{error}");
     assert_eq!(error.progress.iaai.single_reference, 2);
-    assert_eq!(observed.new_calls, 1);
     assert_eq!(observed.output.len(), 2);
-
-    let observed = run(
-        &body,
-        1,
-        2,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget {
-            max_flushes: 0,
-            ..RefinementBudget::default()
-        },
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Refinement(ref nested)
-            if matches!(nested.kind, RefinementErrorKind::LimitExceeded { resource: "store flushes", .. })
-    ));
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(observed.new_calls, 0);
-    assert_eq!(observed.output.len(), 1);
-}
-
-struct Flag(Rc<Cell<bool>>);
-
-impl Cancellation for Flag {
-    fn is_cancelled(&self) -> bool {
-        self.0.get()
-    }
-}
-
-enum SinkFault {
-    Zero,
-    Overreport,
-    Io,
-    Pending,
-    CancelAfterWrite(Rc<Cell<bool>>),
-    CancelAfterFlush(Rc<Cell<bool>>),
-    FlushCancelled,
-    FlushIo,
-}
-
-struct FaultSink {
-    bytes: Rc<RefCell<Vec<u8>>>,
-    fault: SinkFault,
-}
-
-impl SequentialSink for FaultSink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        match &self.fault {
-            SinkFault::Zero => Ok(0),
-            SinkFault::Overreport => Ok(bytes.len() + 1),
-            SinkFault::Io => Err(Error::Io(io::Error::other("injected sink failure"))),
-            SinkFault::Pending => {
-                pending::<()>().await;
-                unreachable!()
-            }
-            SinkFault::CancelAfterWrite(flag) => {
-                self.bytes.borrow_mut().extend_from_slice(bytes);
-                flag.set(true);
-                Ok(bytes.len())
-            }
-            SinkFault::CancelAfterFlush(_) => {
-                self.bytes.borrow_mut().extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-            SinkFault::FlushCancelled | SinkFault::FlushIo => {
-                self.bytes.borrow_mut().extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-        }
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        match &self.fault {
-            SinkFault::FlushIo => Err(Error::Io(io::Error::other("injected flush failure"))),
-            SinkFault::FlushCancelled => Err(Error::Cancelled),
-            SinkFault::CancelAfterFlush(flag) => {
-                flag.set(true);
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-}
-
-fn sink_fault<C: Cancellation>(
-    fault: SinkFault,
-    cancellation: &C,
-    pending_expected: bool,
-) -> (Option<DictionaryError>, DictionaryProgress, Vec<u8>) {
-    let (imported_header, imported_report, mut imported_source) = imported(1, 1, &[0x80]);
-    let (mut source, header) = segment(2, Some(1), 0x1802, 0, 1, &COMPLETE_ONE);
-    let store = Rc::new(RefCell::new(Vec::new()));
-    let mut new_source = SharedSource::new(store.clone());
-    let mut sink = FaultSink {
-        bytes: store.clone(),
-        fault,
-    };
-    let limits = Limits::default();
-    let table = table();
-    let mut contexts = coding_unit(1, &limits, &MqBudget::default());
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
-        &mut source,
-        &header,
-        Some(ImportedDictionary {
-            segment: &imported_header,
-            report: &imported_report,
-        }),
-        DictionaryStores {
-            imported: &mut imported_source,
-            imported_base: 0,
-            new_reader: &mut new_source,
-            new_writer: &mut sink,
-            new_base: 0,
-        },
-        &table,
-        &mut contexts,
-        &limits,
-        cancellation,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ))
-    .unwrap();
-    let error = if pending_expected {
-        {
-            let future = decoder.decode();
-            let mut future = pin!(future);
-            assert!(matches!(
-                future
-                    .as_mut()
-                    .poll(&mut Context::from_waker(Waker::noop())),
-                Poll::Pending
-            ));
-        }
-        None
-    } else {
-        Some(ready(decoder.decode()).unwrap_err())
-    };
-    let progress = decoder.progress();
-    assert!(matches!(
-        ready(decoder.decode()).unwrap_err().kind,
-        DictionaryErrorKind::Poisoned
-    ));
-    drop(decoder);
-    let output = store.borrow().clone();
-    (error, progress, output)
-}
-
-#[test]
-fn zero_overreported_and_failed_sink_writes_poison_partial_dictionary() {
-    for fault in [SinkFault::Zero, SinkFault::Overreport, SinkFault::Io] {
-        let (error, progress, bytes) = sink_fault(fault, &NeverCancel, false);
-        let error = error.unwrap();
-        assert!(matches!(error.kind, DictionaryErrorKind::Refinement(_)));
-        assert!(progress.poisoned);
-        assert_eq!(progress.refinement.sink_writes, 1);
-        assert_eq!(progress.completed_symbols, 0);
-        assert!(bytes.is_empty());
-    }
-}
-
-#[test]
-fn cancellation_after_partial_output_reports_fetched_and_semantic_positions() {
-    let flag = Rc::new(Cell::new(false));
-    let token = Flag(flag.clone());
-    let (error, progress, bytes) = sink_fault(SinkFault::CancelAfterWrite(flag), &token, false);
-    let error = error.unwrap();
-    assert!(
-        matches!(error.kind, DictionaryErrorKind::Refinement(ref nested)
-        if matches!(nested.kind, RefinementErrorKind::Cancelled))
-    );
-    assert!(progress.poisoned);
-    assert_eq!(progress.refinement.output_bytes_written, 1);
-    assert_eq!(progress.refinement.sink_writes, 1);
-    assert_eq!(bytes, vec![0x80]);
-    assert!(progress.source_bytes_fetched() >= 12 + COMPLETE_ONE.len() as u64);
-    assert!(progress.mq.unwrap().symbols_decoded > 0);
-}
-
-#[test]
-fn dropping_a_pending_bitmap_write_preserves_observed_progress_and_poison() {
-    let (error, progress, bytes) = sink_fault(SinkFault::Pending, &NeverCancel, true);
-    assert!(error.is_none());
-    assert!(progress.poisoned);
-    assert_eq!(progress.refinement.sink_writes, 1);
-    assert_eq!(progress.refinement.output_bytes_written, 0);
-    assert!(progress.mq.unwrap().symbols_decoded > 0);
-    assert!(bytes.is_empty());
-}
-
-#[test]
-fn final_flush_failure_poison_after_terminal_validation() {
-    let (error, progress, bytes) = sink_fault(SinkFault::FlushIo, &NeverCancel, false);
-    let error = error.unwrap();
-    assert!(matches!(error.kind, DictionaryErrorKind::Sink(_)));
-    assert_eq!(progress.completed_symbols, 1);
-    assert_eq!(progress.export_runs, 1);
-    assert!(progress.poisoned);
-    assert_eq!(bytes, vec![0x80]);
-}
-
-#[test]
-fn cancellation_after_final_flush_preserves_completed_bitmap_progress() {
-    let flag = Rc::new(Cell::new(false));
-    let token = Flag(flag.clone());
-    let (error, progress, bytes) = sink_fault(SinkFault::CancelAfterFlush(flag), &token, false);
-    assert!(matches!(
-        error.unwrap().kind,
-        DictionaryErrorKind::Cancelled
-    ));
-    assert_eq!(progress.completed_symbols, 1);
-    assert_eq!(progress.export_runs, 1);
-    assert!(progress.poisoned);
-    assert_eq!(bytes, vec![0x80]);
-}
-
-#[test]
-fn sink_cancelled_flush_maps_to_dictionary_cancellation() {
-    let (error, progress, bytes) = sink_fault(SinkFault::FlushCancelled, &NeverCancel, false);
-    assert!(matches!(
-        error.unwrap().kind,
-        DictionaryErrorKind::Cancelled
-    ));
-    assert_eq!(progress.completed_symbols, 1);
-    assert_eq!(progress.export_runs, 1);
-    assert!(progress.poisoned);
-    assert_eq!(bytes, vec![0x80]);
 }
 
 #[test]
@@ -2284,7 +1724,6 @@ fn export_count_mismatch_refuses_partial_cross_store_catalog() {
     ));
     assert_eq!(error.progress.completed_symbols, 1);
     assert_eq!(error.progress.export_runs, 2);
-    assert!(error.progress.poisoned);
     assert_eq!(observed.output.len(), 1);
 }
 
@@ -2324,7 +1763,7 @@ fn malformed_iaex_mutations_remain_bounded_and_expose_overshoot() {
 }
 
 #[test]
-fn truncated_terminal_after_complete_exports_is_located_and_poisoned() {
+fn truncated_terminal_after_complete_exports_is_located() {
     let observed = run(
         &COMPLETE_BOTH_EXPORTS[..COMPLETE_BOTH_EXPORTS.len() - 1],
         1,
@@ -2338,7 +1777,6 @@ fn truncated_terminal_after_complete_exports_is_located_and_poisoned() {
     assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)));
     assert_eq!(error.progress.completed_symbols, 1);
     assert_eq!(error.progress.export_runs, 2);
-    assert!(error.progress.poisoned);
     assert!(error.offset > 0);
     assert_eq!(observed.output.len(), 1);
 }
@@ -2379,7 +1817,6 @@ fn signed_height_class_deltas_reach_the_next_symbol_control() {
         let error = observed.result.unwrap_err();
         assert_eq!(error.progress.height_classes, 2);
         assert_eq!(error.progress.completed_symbols, 0);
-        assert!(error.progress.poisoned);
         assert!(observed.output.is_empty());
         match expected_delta {
             IntegerValue::Signed(-1) => assert!(matches!(
@@ -2401,7 +1838,6 @@ fn signed_height_class_deltas_reach_the_next_symbol_control() {
 #[test]
 fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
     let mut saw_host = false;
-    let mut saw_mq = false;
     let mut saw_completed_prefix = false;
     for allowed in 0..180 {
         let cancellation = common::CancelAfter::new(allowed);
@@ -2417,18 +1853,11 @@ fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
             RefinementDictionaryBudget::default(),
             &cancellation,
             MqBudget::default(),
-            usize::MAX,
         );
         if let Err(error) = observed.result {
             assert!(observed.output.len() <= 1);
             match &error.kind {
                 DictionaryErrorKind::Cancelled => {
-                    // Only a cancellation before the coding unit starts
-                    // leaves the decoder unpoisoned.
-                    assert!(
-                        error.progress.poisoned || error.progress.mq.is_none(),
-                        "allowed {allowed}"
-                    );
                     saw_completed_prefix |=
                         error.progress.completed_symbols == 1 && error.progress.export_runs == 1;
                 }
@@ -2437,20 +1866,11 @@ fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
                 {
                     saw_host = true
                 }
-                DictionaryErrorKind::Mq(mq)
-                    if matches!(
-                        mq.kind,
-                        caj2pdf_core::jbig2::mq::ArithmeticErrorKind::Cancelled
-                    ) =>
-                {
-                    saw_mq = true;
-                }
                 _ => {}
             }
         }
     }
     assert!(saw_host);
-    assert!(saw_mq);
     assert!(saw_completed_prefix);
 }
 
@@ -2636,6 +2056,5 @@ fn final_iaex_count_mismatch_rejects_an_underexported_import() {
         DictionaryErrorKind::Malformed("exported symbol total")
     ));
     assert_eq!(error.progress.export_runs, 1);
-    assert!(error.progress.poisoned);
     assert!(observed.output.is_empty());
 }

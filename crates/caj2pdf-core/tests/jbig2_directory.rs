@@ -7,22 +7,7 @@ use caj2pdf_core::{
         SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
     },
 };
-use std::{
-    cell::Cell,
-    future::Future,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("in-memory source unexpectedly yielded"),
-    }
-}
+use std::{cell::Cell, rc::Rc};
 
 struct SpySource {
     bytes: Vec<u8>,
@@ -49,11 +34,7 @@ impl RangedSource for SpySource {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads.set(self.reads.get() + 1);
         self.ranges.push((offset, destination.len()));
         let start = usize::try_from(offset).unwrap_or(usize::MAX);
@@ -72,7 +53,7 @@ impl RangedSource for SpySource {
 
 fn parse(bytes: &[u8]) -> Result<SegmentDirectory, caj2pdf_core::jbig2::DirectoryError> {
     let mut source = SpySource::new(bytes);
-    run(read_embedded_directory(
+    read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -82,7 +63,7 @@ fn parse(bytes: &[u8]) -> Result<SegmentDirectory, caj2pdf_core::jbig2::Director
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &NeverCancel,
-    ))
+    )
 }
 
 // Original synthetic headers. Their one- and two-byte payloads are invented.
@@ -191,7 +172,7 @@ fn accepts_embedded_physical_reordering_and_zero_data() {
 #[test]
 fn an_empty_embedded_span_has_no_segments_or_source_reads() {
     let mut source = SpySource::new(&[0xaa, 0xbb]);
-    let directory = run(read_embedded_directory(
+    let directory = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 1,
@@ -201,7 +182,7 @@ fn an_empty_embedded_span_has_no_segments_or_source_reads() {
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(directory.span.offset, 1);
     assert!(directory.segments.is_empty());
@@ -223,7 +204,7 @@ fn skips_payload_bytes_and_never_reads_outside_the_given_span() {
     bytes.extend([0xbb; 4]);
     let mut source = SpySource::new(&bytes);
     source.max_read = 1;
-    let directory = run(read_embedded_directory(
+    let directory = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 7,
@@ -236,7 +217,7 @@ fn skips_payload_bytes_and_never_reads_outside_the_given_span() {
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(directory.segments[0].data.offset, 18);
     assert_eq!(directory.segments[4].data.offset, 68);
@@ -292,7 +273,7 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
     ));
 
     let mut source = SpySource::new(PAGE);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -301,11 +282,11 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::InvalidSpan(_)));
     let mut source = SpySource::new(&[PAGE, &[0xee]].concat());
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -314,7 +295,7 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -323,7 +304,7 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
 
     // The enclosing span is checked against the input limit before any read.
     let mut source = SpySource::new(PAGE);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -335,7 +316,7 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
         },
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!((error.offset, error.segment), (0, None));
     assert!(source.ranges.is_empty());
@@ -477,7 +458,7 @@ fn duplicate_reference_scratch_obeys_the_combined_metadata_cap() {
     // reference scratch does not. This does not depend on struct layout.
     let scratch_failure = (1..=4096).find_map(|cap| {
         let mut source = SpySource::new(&bytes);
-        let result = run(read_embedded_directory(
+        let result = read_embedded_directory(
             &mut source,
             SegmentSpan {
                 offset: 0,
@@ -490,7 +471,7 @@ fn duplicate_reference_scratch_obeys_the_combined_metadata_cap() {
                 ..DirectoryLimits::default()
             },
             &NeverCancel,
-        ));
+        );
         match result {
             Err(error)
                 if error.segment == Some(2)
@@ -540,7 +521,7 @@ fn checks_retention_across_number_order() {
 fn preflights_span_count_reference_and_metadata_caps() {
     let bytes = observed_shape();
     let mut source = SpySource::new(&bytes);
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -553,7 +534,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
             ..DirectoryLimits::default()
         },
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(source.ranges.is_empty());
     assert!(matches!(
@@ -565,7 +546,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
     ));
 
     let mut source = SpySource::new(&bytes);
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -578,7 +559,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
             ..DirectoryLimits::default()
         },
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, 25);
     assert!(source.ranges.iter().all(|(offset, _)| *offset < 25));
@@ -591,7 +572,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
     ));
 
     let mut source = SpySource::new(&bytes);
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -604,7 +585,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
             ..DirectoryLimits::default()
         },
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -618,7 +599,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
     ));
 
     let mut source = SpySource::new(&bytes);
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -631,7 +612,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
             ..DirectoryLimits::default()
         },
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(source.ranges.is_empty());
     assert!(matches!(
@@ -644,7 +625,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
 
     let mut source = SpySource::new(PAGE);
     source.size = u64::MAX;
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: u64::MAX - 2,
@@ -654,7 +635,7 @@ fn preflights_span_count_reference_and_metadata_caps() {
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(source.ranges.is_empty());
     assert!(matches!(
@@ -689,7 +670,7 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
     let bytes = observed_shape();
     let mut baseline = SpySource::new(&bytes);
     baseline.max_read = 1;
-    run(read_embedded_directory(
+    read_embedded_directory(
         &mut baseline,
         SegmentSpan {
             offset: 0,
@@ -702,7 +683,7 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     let mut source = SpySource::new(&bytes);
     source.max_read = 1;
@@ -711,7 +692,7 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
         expected_reads: baseline.ranges.len(),
         checks_after_reads: Cell::new(0),
     };
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -724,7 +705,7 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
         HeaderLimits::default(),
         DirectoryLimits::default(),
         &cancellation,
-    ))
+    )
     .unwrap_err();
     assert_eq!(source.ranges.len(), baseline.ranges.len());
     assert!(cancellation.checks_after_reads.get() >= 5);
@@ -814,7 +795,7 @@ fn directory_wide_errors_render_without_a_segment_number() {
         segment(1, 0, 0, &[], true, &[]),
     ]);
     let mut source = SpySource::new(&bytes);
-    let error = run(read_embedded_directory(
+    let error = read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -827,7 +808,7 @@ fn directory_wide_errors_render_without_a_segment_number() {
             ..DirectoryLimits::default()
         },
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!((error.offset, error.segment), (11, None));
     assert_eq!(

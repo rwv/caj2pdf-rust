@@ -57,8 +57,8 @@ original-font pixel parity or unrestricted copy/search fidelity.
 Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
 state overrides remain supported. The owner-directed adoption and upstream
 practice are recorded in [provenance](provenance.md); #189 completed #30/#44.
-JS type-3 (JBIG2) image decoding needs bounded scratch stores; `withHnc8Scratch`
-can manage their lifetime for Node or browser Workers.
+Type-3 (JBIG2) bitmaps are held in memory, capped by the allocation limit;
+since #355 no interface needs scratch storage.
 
 [Viewer results](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-fixtures.md) record the pinned application and
 selected-page scope. [Complete HN/C8 checks](js-validation.md#source-geometry-correction-repeat)
@@ -389,7 +389,9 @@ both write SHA-256
 11,583,746 `lseek`) and 13,517,464 after (7 `statx`, 60,966 `lseek`, all
 from input reads). Wall time fell from 69–74 s to 57–58 s over two runs each
 on a shared, loaded 4-vCPU host. Scratch traffic remains row-sized
-read-modify-write pairs; no write buffer was added.
+read-modify-write pairs; no write buffer was added. #355 later removed
+`FileScratch`: type-3 bitmaps are held in memory and the CLI creates no
+scratch files.
 
 ### Known Python-reference differences
 

@@ -4,12 +4,7 @@
 
 use crate::Cancellation;
 pub(crate) use arith_encoder::{MqEncoder, QmEncoder};
-use std::{
-    future::Future,
-    pin::pin,
-    sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) mod arith_encoder;
 
@@ -27,27 +22,6 @@ pub(crate) fn qm_encoder() -> QmEncoder {
         &crate::qm::STANDARD_STATES
             .map(|state| (state.qe, state.next_mps, state.next_lps, state.switch_mps)),
     )
-}
-
-/// Polls an in-memory future once and returns its output.
-///
-/// Test sources and sinks never wait, so a pending poll is a test bug.
-pub(crate) fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    let poll = future.as_mut().poll(&mut context);
-    let Poll::Ready(output) = poll else { yielded() };
-    output
-}
-
-/// Not generic, so every `ready` instantiation shares this failure path.
-fn yielded() -> ! {
-    panic!("in-memory test future unexpectedly yielded")
-}
-
-/// Alias of [`ready`] for tests that read as "run this operation".
-pub(crate) fn run<F: Future>(future: F) -> F::Output {
-    ready(future)
 }
 
 /// Allows the first `allowed` cancellation queries and reports cancellation
@@ -91,12 +65,6 @@ impl Cancellation for CancelAfter {
     fn is_cancelled(&self) -> bool {
         self.queries.fetch_add(1, Ordering::Relaxed) as u64 >= self.allowed
     }
-}
-
-#[test]
-#[should_panic(expected = "in-memory test future unexpectedly yielded")]
-fn ready_rejects_a_future_that_yields() {
-    ready(std::future::pending::<()>());
 }
 
 /// Decode the bilevel XObjects in small, generated test PDFs. JPEG streams are
@@ -194,8 +162,8 @@ fn trace(seed: u64, contexts: usize, length: usize) -> Vec<(usize, bool)> {
 
 #[test]
 fn encoded_mq_traces_decode_back_with_the_standard_states() {
+    use crate::Limits;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable};
-    use crate::{Limits, NeverCancel, native::SeekableSource};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -212,10 +180,9 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
         let limits = Limits::default();
         let budget = MqBudget::default();
         let mut bank = ContextBank::new(contexts, &limits).unwrap();
-        let mut source = SeekableSource::new(std::io::Cursor::new(bytes.clone())).unwrap();
         let table = MqTable::standard();
-        let mut decoder = ready(MqDecoder::new(
-            &mut source,
+        let mut decoder = MqDecoder::new(
+            (&bytes[..]).into(),
             CodedSpan {
                 offset: 0,
                 length: bytes.len() as u64,
@@ -223,21 +190,20 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             budget,
-        ))
+        )
         .unwrap();
         for &(context, bit) in &decisions {
-            assert_eq!(ready(decoder.decode_bit(context)).unwrap(), bit);
+            assert_eq!(decoder.decode_bit(context).unwrap(), bit);
         }
-        ready(decoder.finish(length as u64)).unwrap();
+        decoder.finish(length as u64).unwrap();
     }
 }
 
 #[test]
 fn encoded_qm_traces_decode_back_with_the_standard_states() {
+    use crate::Limits;
     use crate::qm::{ArithmeticBudget, ArithmeticDecoder, CodedSpan, ContextBank, QmTable};
-    use crate::{Limits, NeverCancel, native::SeekableSource};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -254,10 +220,9 @@ fn encoded_qm_traces_decode_back_with_the_standard_states() {
         let bytes = encoder.finish();
         let limits = Limits::default();
         let mut bank = ContextBank::new(contexts, &limits).unwrap();
-        let mut source = SeekableSource::new(std::io::Cursor::new(bytes.clone())).unwrap();
         let table = QmTable::standard();
-        let mut decoder = ready(ArithmeticDecoder::new(
-            &mut source,
+        let mut decoder = ArithmeticDecoder::new(
+            (&bytes[..]).into(),
             CodedSpan {
                 offset: 0,
                 length: bytes.len() as u64,
@@ -265,15 +230,14 @@ fn encoded_qm_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             ArithmeticBudget {
                 max_symbols: 10_000,
                 max_work: 1_000_000,
             },
-        ))
+        )
         .unwrap();
         for &(context, bit) in &decisions {
-            assert_eq!(ready(decoder.decode_symbol(context)).unwrap(), bit);
+            assert_eq!(decoder.decode_symbol(context).unwrap(), bit);
         }
         decoder.finish(length as u64).unwrap();
     }

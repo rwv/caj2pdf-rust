@@ -14,27 +14,12 @@ use caj2pdf_core::{
         ApplicationInfoReport, ApplicationInfoStatus, ApplicationInfoTail, Header, OutlineReport,
     },
     kdh::{HEADER_SIGNATURE, KdhPdfSource, convert_kdh},
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
     read_exact_at,
 };
 use std::fs::File;
-use std::future::Future;
 use std::io::Write;
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
-
-/// Drive a core future. The native adapters never suspend, so the first
-/// poll completes; the loop only guards against a spurious `Pending`.
-pub fn block_on<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    loop {
-        if let Poll::Ready(value) = future.as_mut().poll(&mut context) {
-            return value;
-        }
-    }
-}
 
 pub fn format_name(format: InputFormat) -> &'static str {
     match format {
@@ -61,10 +46,8 @@ fn text(error: Error) -> String {
     error.to_string()
 }
 
-async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Detection, String> {
-    let detection = detect_source(source, limits, &ProcessCancellation)
-        .await
-        .map_err(text)?;
+fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Detection, String> {
+    let detection = detect_source(source, limits, &ProcessCancellation).map_err(text)?;
     if source.size() == 0 {
         return Err("input is empty".to_owned());
     }
@@ -123,44 +106,42 @@ pub fn convert<W: Write>(
     options: ConversionOptions,
     progress: Option<&mut dyn Write>,
 ) -> Result<Warnings, CliError> {
-    let result = block_on(async {
+    let result = (|| {
         let mut source = Progress::new(ranged(&mut input.file)?, progress);
-        let result = convert_source(&mut source, writer, limits, resources, options).await;
+        let result = convert_source(&mut source, writer, limits, resources, options);
         source.finish();
         result
-    });
+    })();
     result.map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
 }
 
-async fn convert_source<S: RangedSource, W: Write>(
+fn convert_source<S: RangedSource, W: Write>(
     source: &mut S,
     writer: W,
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
     options: ConversionOptions,
 ) -> Result<Warnings, String> {
-    let mut sink = WriteSink::new(writer);
+    let mut sink = writer;
     let Detection {
         format,
         header_offset,
         ..
-    } = detect(source, limits).await?;
+    } = detect(source, limits)?;
     let pdf = pdf_range(source.size(), header_offset);
     if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
         return Err("explicit native fonts require a C8 or HN-B document".into());
     }
     match format {
-        InputFormat::Pdf => copy_pdf_range(source, &mut sink, pdf, limits, &ProcessCancellation)
-            .await
-            .map_err(text),
-        InputFormat::Caj => {
-            caj::convert_caj(source, &mut sink, options, limits, &ProcessCancellation)
-                .await
-                .map_err(text)
+        InputFormat::Pdf => {
+            copy_pdf_range(source, &mut sink, pdf, limits, &ProcessCancellation).map_err(text)
         }
-        InputFormat::Kdh => convert_kdh(source, &mut sink, limits, &ProcessCancellation)
-            .await
-            .map_err(text),
+        InputFormat::Caj => {
+            caj::convert_caj(source, &mut sink, options, limits, &ProcessCancellation).map_err(text)
+        }
+        InputFormat::Kdh => {
+            convert_kdh(source, &mut sink, limits, &ProcessCancellation).map_err(text)
+        }
         InputFormat::Hn | InputFormat::C8 => {
             return crate::hnc8::convert(
                 source,
@@ -169,7 +150,6 @@ async fn convert_source<S: RangedSource, W: Write>(
                 options.include_bookmarks,
                 limits,
             )
-            .await
             .map(|(outline, application_info)| Warnings {
                 outline,
                 application_info,
@@ -188,9 +168,9 @@ async fn convert_source<S: RangedSource, W: Write>(
 /// composition and therefore needs fonts. Other and unrecognized formats
 /// return `false`; conversion then reports its own errors.
 pub fn uses_native_text(input: &mut Input, limits: &Limits) -> Result<bool, CliError> {
-    block_on(async {
+    (|| {
         let mut source = ranged(&mut input.file)?;
-        match detect(&mut source, limits).await {
+        match detect(&mut source, limits) {
             Ok(Detection {
                 format: InputFormat::Hn | InputFormat::C8,
                 ..
@@ -200,11 +180,10 @@ pub fn uses_native_text(input: &mut Input, limits: &Limits) -> Result<bool, CliE
                 limits,
                 &ProcessCancellation,
             )
-            .await
             .map_err(|e| e.to_string()),
             _ => Ok(false),
         }
-    })
+    })()
     .map_err(read_error(&input.name))
 }
 
@@ -240,15 +219,13 @@ pub enum Structure {
     },
 }
 
-async fn index_pdf<S: RangedSource>(
+fn index_pdf<S: RangedSource>(
     source: &mut S,
     header_offset: u64,
     limits: &Limits,
 ) -> Result<PdfIndex, String> {
     let range = pdf_range(source.size(), header_offset);
-    PdfIndex::open(source, range, limits, &ProcessCancellation)
-        .await
-        .map_err(text)
+    PdfIndex::open(source, range, limits, &ProcessCancellation).map_err(text)
 }
 
 /// Page count and outline presence from an indexed PDF; unknown without one.
@@ -267,14 +244,12 @@ fn pdf_inspection(format: InputFormat, index: Option<&PdfIndex>) -> Inspection {
 
 /// Read the KDH wrapper signature. A different signature is reported as an
 /// unknown-page document instead of an error, so it can be diagnosed.
-async fn kdh_signature<S: RangedSource>(
+fn kdh_signature<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
 ) -> Result<Option<Inspection>, String> {
     let mut signature = vec![0; source.size().min(HEADER_SIGNATURE.len() as u64) as usize];
-    read_exact_at(source, 0, &mut signature, limits, &ProcessCancellation)
-        .await
-        .map_err(text)?;
+    read_exact_at(source, 0, &mut signature, limits, &ProcessCancellation).map_err(text)?;
     if signature == HEADER_SIGNATURE {
         return Ok(None);
     }
@@ -287,7 +262,7 @@ async fn kdh_signature<S: RangedSource>(
     }))
 }
 
-async fn inspect_source<S: RangedSource>(
+fn inspect_source<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
     pages: bool,
@@ -296,31 +271,28 @@ async fn inspect_source<S: RangedSource>(
         format,
         header_offset,
         ..
-    } = detect(source, limits).await?;
+    } = detect(source, limits)?;
     Ok(match format {
-        InputFormat::Pdf => pdf_inspection(
-            format,
-            Some(&index_pdf(source, header_offset, limits).await?),
-        ),
+        InputFormat::Pdf => {
+            pdf_inspection(format, Some(&index_pdf(source, header_offset, limits)?))
+        }
         InputFormat::Kdh => {
-            if pages && let Some(mismatch) = kdh_signature(source, limits).await? {
+            if pages && let Some(mismatch) = kdh_signature(source, limits)? {
                 return Ok(mismatch);
             }
-            let mut decoded = KdhPdfSource::open(source, limits, &ProcessCancellation)
-                .await
-                .map_err(text)?;
+            let mut decoded =
+                KdhPdfSource::open(source, limits, &ProcessCancellation).map_err(text)?;
             Inspection {
                 structure: pages.then(|| Structure::Kdh {
                     signature: HEADER_SIGNATURE.to_vec(),
                     supported: true,
                 }),
-                ..pdf_inspection(format, Some(&index_pdf(&mut decoded, 0, limits).await?))
+                ..pdf_inspection(format, Some(&index_pdf(&mut decoded, 0, limits)?))
             }
         }
         InputFormat::Caj => {
-            let metadata = caj::parse_metadata(source, limits, &ProcessCancellation)
-                .await
-                .map_err(text)?;
+            let metadata =
+                caj::parse_metadata(source, limits, &ProcessCancellation).map_err(text)?;
             Inspection {
                 format,
                 variant: None,
@@ -333,7 +305,7 @@ async fn inspect_source<S: RangedSource>(
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let inspected = crate::hnc8::inspect(source, limits, pages).await?;
+            let inspected = crate::hnc8::inspect(source, limits, pages)?;
             Inspection {
                 format,
                 variant: Some(inspected.header.variant.as_str()),
@@ -351,7 +323,7 @@ async fn inspect_source<S: RangedSource>(
 
 /// Inspect `input`; `pages` also reads the document-level structure.
 pub fn inspect(input: &mut Input, limits: &Limits, pages: bool) -> Result<Inspection, CliError> {
-    block_on(async { inspect_source(&mut ranged(&mut input.file)?, limits, pages).await })
+    (|| inspect_source(&mut ranged(&mut input.file)?, limits, pages))()
         .map_err(|message| inspect_error(input, message))
 }
 
@@ -371,10 +343,10 @@ pub fn write_pages<W: Write>(
         return pages.unavailable(info.format).map_err(stdout_error);
     }
     let page_count = info.page_count.expect("HN/C8 inspection has a page count");
-    block_on(async {
+    (|| {
         let mut source = ranged(&mut input.file).map_err(crate::hnc8::PagesError::Input)?;
-        crate::hnc8::write_pages(&mut source, limits, page_count, pages).await
-    })
+        crate::hnc8::write_pages(&mut source, limits, page_count, pages)
+    })()
     .map_err(|error| match error {
         crate::hnc8::PagesError::Output(error) => stdout_error(error),
         crate::hnc8::PagesError::Input(message) => inspect_error(input, message),
@@ -394,11 +366,10 @@ pub fn add_bookmarks<W: Write>(
     limits: &Limits,
 ) -> Result<(), CliError> {
     let outline_file = &mut outline.file;
-    let bookmarks = block_on(async {
+    let bookmarks = (|| {
         let mut source = ranged(outline_file)?;
-        match detect(&mut source, limits).await?.format {
+        match detect(&mut source, limits)?.format {
             InputFormat::Caj => caj::parse_metadata(&mut source, limits, &ProcessCancellation)
-                .await
                 .map(|metadata| metadata.bookmarks)
                 .map_err(text),
             other => Err(format!(
@@ -406,7 +377,7 @@ pub fn add_bookmarks<W: Write>(
                 format_name(other)
             )),
         }
-    })
+    })()
     .map_err(read_error(&outline.name))?;
     if bookmarks.is_empty() {
         return Err(CliError::runtime(format!(
@@ -415,13 +386,13 @@ pub fn add_bookmarks<W: Write>(
         )));
     }
     let mut source = ranged(&mut pdf.file).map_err(read_error(&pdf.name))?;
-    let index = block_on(async {
-        let detection = detect(&mut source, limits).await?;
+    let index = (|| {
+        let detection = detect(&mut source, limits)?;
         match detection.format {
-            InputFormat::Pdf => index_pdf(&mut source, detection.header_offset, limits).await,
+            InputFormat::Pdf => index_pdf(&mut source, detection.header_offset, limits),
             other => Err(format!("expected a PDF, found {}", format_name(other))),
         }
-    })
+    })()
     .map_err(read_error(&pdf.name))?;
     if index.has_outlines() {
         return Err(CliError::runtime(format!(
@@ -429,16 +400,20 @@ pub fn add_bookmarks<W: Write>(
             pdf.name
         )));
     }
-    let mut sink = WriteSink::new(writer);
-    block_on(async {
-        let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut sink, &index, limits, &ProcessCancellation)
-                .await?;
+    let mut sink = writer;
+    (|| {
+        let mut appender = PdfOutlineAppender::begin(
+            &mut source,
+            &mut sink,
+            &index,
+            limits,
+            &ProcessCancellation,
+        )?;
         for bookmark in bookmarks {
-            appender.add_bookmark(bookmark).await?;
+            appender.add_bookmark(bookmark)?;
         }
-        appender.finish().await
-    })
+        appender.finish()
+    })()
     .map(drop)
     .map_err(|error| {
         CliError::runtime(format!(

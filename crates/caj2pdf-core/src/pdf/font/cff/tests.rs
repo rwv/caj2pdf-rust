@@ -6,7 +6,7 @@ use crate::pdf::font::tests::{
     CALLSUBR, CffOptions as Options, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, build, charstrings,
     entry, get32, num, ops, otf, table, tables,
 };
-use crate::test_support::{NEVER, run};
+use crate::test_support::NEVER;
 use std::io::Cursor;
 use xberg_ttf_parser::{Face, GlyphId, OutlineBuilder};
 
@@ -50,14 +50,12 @@ fn plan(font: &[u8], characters: &[char]) -> Result<(CffSubset, u64)> {
 
 fn plan_within(font: &[u8], characters: &[char], limits: &Limits) -> Result<(CffSubset, u64)> {
     let mut source = SeekableSource::new(Cursor::new(font.to_vec())).unwrap();
-    run(async {
-        let mut font = OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER).await?;
+    (|| {
+        let mut font = OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER)?;
         let cff = font.cff.clone().unwrap();
-        let subset = font
-            .plan_cff(&cff, &used(characters), u64::MAX, limits, &NEVER)
-            .await?;
+        let subset = font.plan_cff(&cff, &used(characters), u64::MAX, limits, &NEVER)?;
         Ok((subset, font.subset_bytes_read))
-    })
+    })()
 }
 
 fn subset(font: &[u8], characters: &[char]) -> Result<Vec<u8>> {
@@ -83,7 +81,7 @@ type TopDict = Vec<(u16, Vec<i64>)>;
 fn structure(program: &[u8]) -> (TopDict, Vec<u16>, Vec<u8>) {
     let mut source = SeekableSource::new(Cursor::new(program.to_vec())).unwrap();
     let limits = Limits::default();
-    run(async {
+    {
         let mut reader = Reader {
             source: &mut source,
             limits: &limits,
@@ -92,16 +90,16 @@ fn structure(program: &[u8]) -> (TopDict, Vec<u16>, Vec<u8>) {
             end: program.len() as u64,
             read: 0,
         };
-        let names = reader.index(4).await.unwrap();
-        let tops = reader.index(names.end).await.unwrap();
-        let top = reader.object_bytes(&tops, 0, MAX_DICT_BYTES).await.unwrap();
+        let names = reader.index(4).unwrap();
+        let tops = reader.index(names.end).unwrap();
+        let top = reader.object_bytes(&tops, 0, MAX_DICT_BYTES).unwrap();
         let top: TopDict = dict(&top)
             .unwrap()
             .into_iter()
             .map(|entry| (entry.op, entry.values))
             .collect();
         let at = |op| top.iter().find(|(entry, _)| *entry == op).unwrap().1[0] as usize;
-        let charstrings = reader.index(at(OP_CHARSTRINGS) as u64).await.unwrap();
+        let charstrings = reader.index(at(OP_CHARSTRINGS) as u64).unwrap();
         let count = charstrings.count as usize;
         let charset = program[at(15)..at(15) + 1 + 2 * (count - 1)].to_vec();
         assert_eq!(charset[0], 0);
@@ -111,7 +109,7 @@ fn structure(program: &[u8]) -> (TopDict, Vec<u16>, Vec<u8>) {
             .collect();
         let select = program[at(OP_FD_SELECT)..].to_vec();
         (top, cids, select)
-    })
+    }
 }
 
 #[test]
@@ -317,12 +315,7 @@ fn top_edit(edit: impl Fn(&mut Options)) -> Vec<u8> {
 fn malformed_structures_fail_when_the_font_is_read() {
     let read = |font: Vec<u8>| -> &'static str {
         let mut source = SeekableSource::new(Cursor::new(font)).unwrap();
-        match run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NEVER,
-        )) {
+        match OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER) {
             Err(Error::InvalidInput { reason }) => reason,
             Err(Error::LimitExceeded { resource, .. }) => resource,
             Err(other) => panic!("unexpected {other:?}"),

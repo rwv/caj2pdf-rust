@@ -5,30 +5,18 @@
 
 use caj2pdf_core::{
     Bookmark, Limits, NeverCancel, RangedSource,
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument, PdfWriter},
 };
 use std::{
     fs::{File, OpenOptions, read, read_dir, remove_file},
-    future::Future,
     io::{Cursor, Write},
     path::{Path, PathBuf},
-    pin::pin,
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
 
 static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
-
-fn run_native<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native PDF adapters unexpectedly yielded"),
-    }
-}
 
 struct TempPdf {
     path: PathBuf,
@@ -144,30 +132,27 @@ fn compact_whitespace(text: &str) -> String {
 fn an_empty_stream_pdf_passes_independent_reopen_checks() {
     let mut output = TempPdf::new("empty-stream");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
-    let bytes_written = run_native(async {
-        let mut writer = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+    let mut sink = &mut output.file;
+    let bytes_written = (|| {
+        let mut writer = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
         let catalog = writer.reserve_object()?;
         let pages = writer.reserve_object()?;
         let page = writer.reserve_object()?;
         let content = writer.reserve_object()?;
         let length = writer.reserve_object()?;
         writer
-            .write_object(catalog, b"<< /Type /Catalog /Pages 2 0 R >>")
-            .await?;
+            .write_object(catalog, b"<< /Type /Catalog /Pages 2 0 R >>")?;
         writer
-            .write_object(pages, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-            .await?;
+            .write_object(pages, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")?;
         writer
             .write_object(
                 page,
                 b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R >>",
-            )
-            .await?;
-        writer.begin_stream(content, length, b"").await?;
-        writer.end_stream().await?;
-        writer.finish(catalog).await
-    })
+            )?;
+        writer.begin_stream(content, length, b"")?;
+        writer.end_stream()?;
+        writer.finish(catalog)
+    })()
     .unwrap();
     output.file.flush().unwrap();
     assert_eq!(bytes_written, output.file.metadata().unwrap().len());
@@ -189,67 +174,57 @@ fn image_pages_and_unicode_outlines_reopen_with_correct_order_and_dimensions() {
 
     let mut output = TempPdf::new("image-outlines");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut gray_source = SeekableSource::new(Cursor::new(BINARY_GRAY)).unwrap();
     let mut rgb_source = SeekableSource::new(Cursor::new(RGB.as_slice())).unwrap();
-    let report = run_native(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        let first = document
-            .add_image_page(
-                &mut gray_source,
-                0,
-                BINARY_GRAY.len() as u64,
-                PageSpec {
-                    width_points: 200.0,
-                    height_points: 300.0,
-                },
-                ImageSpec {
-                    pixel_width: BINARY_GRAY.len() as u32,
-                    pixel_height: 1,
-                    encoding: ImageEncoding::Gray8,
-                },
-            )
-            .await?;
-        let second = document
-            .add_image_page(
-                &mut rgb_source,
-                0,
-                RGB.len() as u64,
-                PageSpec {
-                    width_points: 400.0,
-                    height_points: 250.0,
-                },
-                ImageSpec {
-                    pixel_width: 2,
-                    pixel_height: 3,
-                    encoding: ImageEncoding::Rgb8,
-                },
-            )
-            .await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        let first = document.add_image_page(
+            &mut gray_source,
+            0,
+            BINARY_GRAY.len() as u64,
+            PageSpec {
+                width_points: 200.0,
+                height_points: 300.0,
+            },
+            ImageSpec {
+                pixel_width: BINARY_GRAY.len() as u32,
+                pixel_height: 1,
+                encoding: ImageEncoding::Gray8,
+            },
+        )?;
+        let second = document.add_image_page(
+            &mut rgb_source,
+            0,
+            RGB.len() as u64,
+            PageSpec {
+                width_points: 400.0,
+                height_points: 250.0,
+            },
+            ImageSpec {
+                pixel_width: 2,
+                pixel_height: 3,
+                encoding: ImageEncoding::Rgb8,
+            },
+        )?;
         assert_eq!((first, second), (0, 1));
-        document
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "First".into(),
-                page_index: first,
-            })
-            .await?;
-        document
-            .add_bookmark(Bookmark {
-                depth: 1,
-                title: "章节😀".into(),
-                page_index: second,
-            })
-            .await?;
-        document
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "Last".into(),
-                page_index: second,
-            })
-            .await?;
-        document.finish().await
-    })
+        document.add_bookmark(Bookmark {
+            depth: 0,
+            title: "First".into(),
+            page_index: first,
+        })?;
+        document.add_bookmark(Bookmark {
+            depth: 1,
+            title: "章节😀".into(),
+            page_index: second,
+        })?;
+        document.add_bookmark(Bookmark {
+            depth: 0,
+            title: "Last".into(),
+            page_index: second,
+        })?;
+        document.finish()
+    })()
     .unwrap();
     output.file.flush().unwrap();
     assert_eq!(report.pages_converted, 2);
@@ -356,28 +331,26 @@ fn jpeg_gray_image_is_passed_through_and_renders() {
 
     let mut output = TempPdf::new("jpeg-gray");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut source = SeekableSource::new(Cursor::new(jpeg.as_slice())).unwrap();
-    let report = run_native(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(
-                &mut source,
-                0,
-                jpeg.len() as u64,
-                PageSpec {
-                    width_points: 8.0,
-                    height_points: 8.0,
-                },
-                ImageSpec {
-                    pixel_width: 8,
-                    pixel_height: 8,
-                    encoding: ImageEncoding::JpegGray8,
-                },
-            )
-            .await?;
-        document.finish().await
-    })
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        document.add_image_page(
+            &mut source,
+            0,
+            jpeg.len() as u64,
+            PageSpec {
+                width_points: 8.0,
+                height_points: 8.0,
+            },
+            ImageSpec {
+                pixel_width: 8,
+                pixel_height: 8,
+                encoding: ImageEncoding::JpegGray8,
+            },
+        )?;
+        document.finish()
+    })()
     .unwrap();
     output.file.flush().unwrap();
     assert_eq!(report.input_bytes_read, jpeg.len() as u64);
@@ -445,11 +418,7 @@ impl RangedSource for GeneratedGrayImage {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         self.reads += 1;
         let count = (self.size.saturating_sub(offset)).min(destination.len() as u64) as usize;
@@ -478,27 +447,25 @@ fn a_large_image_stream_reopens_without_whole_image_input_allocation() {
     };
     let mut output = TempPdf::new("large-image");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
-    let report = run_native(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(
-                &mut source,
-                0,
-                BYTES,
-                PageSpec {
-                    width_points: 1024.0,
-                    height_points: 1025.0,
-                },
-                ImageSpec {
-                    pixel_width: WIDTH,
-                    pixel_height: HEIGHT,
-                    encoding: ImageEncoding::Gray8,
-                },
-            )
-            .await?;
-        document.finish().await
-    })
+    let mut sink = &mut output.file;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        document.add_image_page(
+            &mut source,
+            0,
+            BYTES,
+            PageSpec {
+                width_points: 1024.0,
+                height_points: 1025.0,
+            },
+            ImageSpec {
+                pixel_width: WIDTH,
+                pixel_height: HEIGHT,
+                encoding: ImageEncoding::Gray8,
+            },
+        )?;
+        document.finish()
+    })()
     .unwrap();
     output.file.flush().unwrap();
     assert_eq!(report.input_bytes_read, BYTES);
@@ -520,31 +487,29 @@ fn a_large_image_stream_reopens_without_whole_image_input_allocation() {
 fn page_tree_rollover_preserves_page_order_at_257_pages() {
     let mut output = TempPdf::new("page-tree-rollover");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut pixel = SeekableSource::new(Cursor::new([0x7f_u8])).unwrap();
-    let report = run_native(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
         for page_index in 0..257_u32 {
-            let index = document
-                .add_image_page(
-                    &mut pixel,
-                    0,
-                    1,
-                    PageSpec {
-                        width_points: 100.0 + f64::from(page_index),
-                        height_points: 200.0,
-                    },
-                    ImageSpec {
-                        pixel_width: 1,
-                        pixel_height: 1,
-                        encoding: ImageEncoding::Gray8,
-                    },
-                )
-                .await?;
+            let index = document.add_image_page(
+                &mut pixel,
+                0,
+                1,
+                PageSpec {
+                    width_points: 100.0 + f64::from(page_index),
+                    height_points: 200.0,
+                },
+                ImageSpec {
+                    pixel_width: 1,
+                    pixel_height: 1,
+                    encoding: ImageEncoding::Gray8,
+                },
+            )?;
             assert_eq!(index, page_index);
         }
-        document.finish().await
-    })
+        document.finish()
+    })()
     .unwrap();
     output.file.flush().unwrap();
     assert_eq!(report.pages_converted, 257);

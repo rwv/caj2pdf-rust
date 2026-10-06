@@ -6,16 +6,9 @@
 //! The normal test run reports this test as ignored, never as a compatibility
 //! pass. When explicitly requested, a missing or malformed fixture fails.
 
-use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource};
+use caj2pdf_core::{Limits, Payload};
 use sha2::{Digest, Sha256};
-use std::{
-    env,
-    fs::File,
-    future::Future,
-    io::{Cursor, Read},
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
+use std::{env, fs::File, io::Read};
 
 const OFFICIAL_FIXTURE_SHA256: &str =
     "11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7";
@@ -130,15 +123,6 @@ fn bit_at(bytes: &[u8], index: usize) -> bool {
     bytes[index / 8] & (0x80 >> (index % 8)) != 0
 }
 
-fn run_ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut task = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut task) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("local native source unexpectedly yielded"),
-    }
-}
-
 #[test]
 #[ignore = "requires CAJ2PDF_T82_VECTOR_FILE with external official T.82 data"]
 fn official_1993_vector_and_register_checkpoints() {
@@ -165,9 +149,8 @@ fn official_1993_vector_and_register_checkpoints() {
     let table = QmTable::standard();
     let limits = Limits::default();
     let mut contexts = ContextBank::new(2, &limits).expect("context bank allocation failed");
-    let mut source = SeekableSource::new(Cursor::new(fixture.scd.clone())).unwrap();
-    let mut decoder = run_ready(ArithmeticDecoder::new(
-        &mut source,
+    let mut decoder = ArithmeticDecoder::new(
+        Payload::from(&fixture.scd[..]),
         CodedSpan {
             offset: 0,
             length: fixture.scd.len() as u64,
@@ -175,12 +158,11 @@ fn official_1993_vector_and_register_checkpoints() {
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         ArithmeticBudget {
             max_symbols: 256,
             max_work: 100_000,
         },
-    ))
+    )
     .expect("standard stripe initialization failed");
 
     for symbol in 0..256 {
@@ -199,7 +181,8 @@ fn official_1993_vector_and_register_checkpoints() {
             }
         }
         let context = usize::from(bit_at(&fixture.contexts, symbol));
-        let actual = run_ready(decoder.decode_symbol(context))
+        let actual = decoder
+            .decode_symbol(context)
             .unwrap_or_else(|error| panic!("standard decode failed at symbol {symbol}: {error}"));
         assert_eq!(actual, bit_at(&fixture.expected, symbol), "symbol {symbol}");
     }

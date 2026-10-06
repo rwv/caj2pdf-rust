@@ -27,8 +27,8 @@ pub use appinfo::{
 };
 pub use compose::{
     C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
-    ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
-    ComposedImage, convert_document_pdf, convert_source_pages_pdf, uses_native_text,
+    ComposePage, ComposeReport, ComposeStage, ComposeVisitor, ComposedImage, convert_document_pdf,
+    convert_source_pages_pdf, uses_native_text,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{
@@ -225,7 +225,6 @@ pub enum ErrorKind {
     Cancelled,
     IncompletePage,
     NoCurrentPage,
-    Poisoned,
 }
 
 impl ErrorKind {
@@ -240,7 +239,6 @@ impl ErrorKind {
             Self::Cancelled => "cancellation",
             Self::IncompletePage => "image count",
             Self::NoCurrentPage => "page cursor",
-            Self::Poisoned => "reader state",
         }
     }
 
@@ -254,7 +252,6 @@ impl ErrorKind {
             Self::Cancelled => "cancelled",
             Self::IncompletePage => "incomplete_page",
             Self::NoCurrentPage => "no_current_page",
-            Self::Poisoned => "poisoned",
         }
     }
 }
@@ -309,7 +306,6 @@ impl fmt::Display for ErrorKind {
             Self::Cancelled => f.write_str("cancelled"),
             Self::IncompletePage => f.write_str("page has unread image records"),
             Self::NoCurrentPage => f.write_str("no current page"),
-            Self::Poisoned => f.write_str("reader is poisoned after an interrupted or failed read"),
         }
     }
 }
@@ -392,7 +388,7 @@ fn nonnegative32(value: i32, loc: Location, field: &'static str) -> Result<u64> 
     u64::try_from(value).map_err(|_| loc.malformed(field, "negative signed value"))
 }
 
-async fn read_fixed<S: RangedSource, C: Cancellation>(
+fn read_fixed<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
@@ -413,7 +409,6 @@ async fn read_fixed<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .await
         .map_err(|error| match error {
             Error::Cancelled => loc.at(current).error(ErrorKind::Cancelled),
             Error::TruncatedInput { available, .. } => {
@@ -444,8 +439,8 @@ struct CurrentPage {
     next_descriptor: u64,
 }
 
-/// A one-page-at-a-time cursor. A failed or dropped read poisons the cursor.
-/// The source remains borrowable for type-0 decoding between records.
+/// A one-page-at-a-time cursor. A failed read leaves the cursor where it was;
+/// the caller abandons it. The source remains borrowable between records.
 pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     source: &'a mut S,
     limits: &'a Limits,
@@ -456,17 +451,16 @@ pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     next_page: u32,
     current: Option<CurrentPage>,
     declared_images: u64,
-    poisoned: bool,
 }
 
 impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
-    pub async fn open(
+    pub fn open(
         source: &'a mut S,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: Budget,
     ) -> Result<Self> {
-        Self::open_starting_at(source, limits, cancellation, budget, 1).await
+        Self::open_starting_at(source, limits, cancellation, budget, 1)
     }
 
     /// Open a fresh diagnostic cursor at one page-index row.
@@ -475,17 +469,17 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
     /// inspected independently. Its total-image budget covers only the
     /// selected suffix, not the whole document. Full-document conversion
     /// must use `open`; the CLI's per-page structure report uses this cursor.
-    pub async fn probe_at_page(
+    pub fn probe_at_page(
         source: &'a mut S,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: Budget,
         start_page: u32,
     ) -> Result<Self> {
-        Self::open_starting_at(source, limits, cancellation, budget, start_page).await
+        Self::open_starting_at(source, limits, cancellation, budget, start_page)
     }
 
-    async fn open_starting_at(
+    fn open_starting_at(
         source: &'a mut S,
         limits: &'a Limits,
         cancellation: &'a C,
@@ -519,8 +513,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             &mut magic,
             base,
             "signature",
-        )
-        .await?;
+        )?;
         let (variant, count_offset, index_start): (Variant, u64, u64) = match magic {
             [0xc8, 0, 0, 0] => (Variant::C8, 0x08, 0x50),
             [b'H', b'N', 0, 0] => {
@@ -533,8 +526,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                     &mut marker,
                     base.at(4),
                     "HN marker",
-                )
-                .await?;
+                )?;
                 match marker {
                     [0x90, 0x01, 0, 0] => (Variant::HnA, 0x90, 0x15c),
                     [0xc8, 0, 0, 0] => (Variant::HnB, 0x90, 0xd8),
@@ -566,8 +558,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             &mut count,
             loc.at(count_offset),
             "page count",
-        )
-        .await?;
+        )?;
         let signed_count = signed32(&count);
         if signed_count <= 0 {
             return Err(loc
@@ -593,8 +584,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 &mut mode,
                 loc.at(offset),
                 "native mode",
-            )
-            .await?;
+            )?;
             Some(u32::from_le_bytes(mode))
         } else {
             None
@@ -610,8 +600,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 &mut origin,
                 loc.at(offset),
                 "native coordinate origin",
-            )
-            .await?;
+            )?;
             Some([
                 u16::from_le_bytes([origin[0], origin[1]]),
                 u16::from_le_bytes([origin[2], origin[3]]),
@@ -630,8 +619,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 &mut size,
                 loc.at(offset),
                 "page dimensions",
-            )
-            .await?;
+            )?;
             Some([
                 u16::from_le_bytes([size[0], size[1]]),
                 u16::from_le_bytes([size[2], size[3]]),
@@ -647,8 +635,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 &mut outline,
                 loc.at(0x158),
                 "outline count",
-            )
-            .await?;
+            )?;
             let outline_count = nonnegative32(signed32(&outline), loc.at(0x158), "outline count")?;
             if outline_count > u64::from(budget.max_outline_records) {
                 return Err(loc.at(0x158).limit(
@@ -673,8 +660,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 &mut marker,
                 loc.at(0x88),
                 "HN-B page-index layout",
-            )
-            .await?;
+            )?;
             match u32::from_le_bytes(marker) {
                 0 => 12,
                 0xc8 => PAGE_ROW_BYTES,
@@ -718,7 +704,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_page: start_page,
             current: None,
             declared_images: 0,
-            poisoned: false,
         })
     }
 
@@ -730,16 +715,13 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         self.source
     }
 
-    pub async fn next_page(&mut self) -> Result<Option<PageRecord>> {
+    pub fn next_page(&mut self) -> Result<Option<PageRecord>> {
         let loc = Location {
             variant: Some(self.header.variant),
             offset: self.header.page_index.offset,
             page: Some(self.next_page),
             image: None,
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
         if let Some(current) = self
             .current
             .filter(|page| page.next_image <= page.page.image_count)
@@ -762,7 +744,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         let row_offset =
             self.header.page_index.offset + u64::from(page_number - 1) * self.page_row_bytes;
         let loc = loc.at(row_offset);
-        self.poisoned = true;
         let mut row = [0; PAGE_ROW_BYTES as usize];
         read_fixed(
             self.source,
@@ -772,8 +753,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             &mut row[..self.page_row_bytes as usize],
             loc,
             "page row",
-        )
-        .await?;
+        )?;
         let text_offset = nonnegative32(signed32(&row[..4]), loc, "text offset")?;
         let text_length =
             nonnegative32(signed32(&row[4..8]), loc.at(row_offset + 4), "text length")?;
@@ -843,20 +823,16 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_descriptor: text.checked_end().expect("checked text span"),
         });
         self.next_page += 1;
-        self.poisoned = false;
         Ok(Some(page))
     }
 
-    pub async fn next_image(&mut self) -> Result<Option<ImageRecord>> {
+    pub fn next_image(&mut self) -> Result<Option<ImageRecord>> {
         let loc = Location {
             variant: Some(self.header.variant),
             offset: self.header.page_index.offset,
             page: self.current.map(|current| current.page.page_number),
             image: self.current.map(|current| current.next_image),
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
         let current = self
             .current
             .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?;
@@ -868,7 +844,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         }
         let descriptor_offset = current.next_descriptor;
         let loc = loc.at(descriptor_offset);
-        self.poisoned = true;
         let descriptor = checked_span(
             self.source.size(),
             descriptor_offset,
@@ -894,8 +869,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             &mut bytes,
             loc,
             "image descriptor",
-        )
-        .await?;
+        )?;
         let signed_type = signed32(&bytes[..4]);
         if signed_type < 0 {
             return Err(loc.malformed("image type", "negative signed value"));
@@ -964,7 +938,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_descriptor: payload.checked_end().expect("checked image span"),
             ..current
         });
-        self.poisoned = false;
         Ok(Some(record))
     }
 }

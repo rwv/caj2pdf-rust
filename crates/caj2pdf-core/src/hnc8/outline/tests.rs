@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::hnc8::{Budget, Hnc8Error};
-use crate::{Limits, NeverCancel, native::SeekableSource, test_support::ready};
+use crate::{Limits, NeverCancel, native::SeekableSource};
 use std::io::Cursor;
 
 const RECORDS: u64 = 0x15c;
@@ -29,7 +29,7 @@ fn source(records: &[(&[u8], &[u8], u32)]) -> Vec<u8> {
 #[derive(Default)]
 struct Entries(Vec<(u32, String, u32)>);
 impl BookmarkVisitor for Entries {
-    async fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
+    fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
         self.0
             .push((bookmark.depth, bookmark.title, bookmark.page_index));
         Ok(())
@@ -43,15 +43,14 @@ fn visit(
     depth: u32,
     map: impl FnMut(u32) -> Option<u32>,
 ) -> std::result::Result<(Written, OutlineReport), Hnc8Error> {
-    ready(async {
+    (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let limits = Limits::default();
-        let mut reader =
-            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).await?;
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())?;
         let mut entries = Entries::default();
-        let report = reader.visit_bookmarks(depth, 3, map, &mut entries).await?;
+        let report = reader.visit_bookmarks(depth, 3, map, &mut entries)?;
         Ok((entries.0, report))
-    })
+    })()
 }
 
 fn identity(page: u32) -> Option<u32> {

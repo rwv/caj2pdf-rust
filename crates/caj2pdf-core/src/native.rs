@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! Borrowable adapters for `std::io` handles.
+//! A positioned source over a `std::io` handle.
 //!
-//! `SeekableSource::new(&mut input)` and `WriteSink::new(&mut output)` leave
-//! ownership with the caller. The output handle needs only `Write`, not `Seek`.
+//! `SeekableSource::new(&mut input)` leaves ownership with the caller. Output
+//! needs no adapter: the core writes to any `std::io::Write`.
 
-use crate::{Error, MAX_IO_CHUNK, RangedSource, Result, SequentialSink};
-use std::io::{Read, Seek, SeekFrom, Write};
-
-mod scratch;
-pub use scratch::FileScratch;
+use crate::{Error, MAX_IO_CHUNK, RangedSource, Result};
+use std::io::{Read, Seek, SeekFrom};
 
 /// A positioned source backed by a caller-supplied `Read + Seek` handle.
 pub struct SeekableSource<R> {
@@ -36,7 +33,7 @@ impl<R: Read + Seek> RangedSource for SeekableSource<R> {
         self.size
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if destination.len() > MAX_IO_CHUNK {
             return Err(Error::LimitExceeded {
                 resource: "I/O request bytes",
@@ -56,37 +53,5 @@ impl<R: Read + Seek> RangedSource for SeekableSource<R> {
             })?;
         self.inner.seek(SeekFrom::Start(offset))?;
         Ok(self.inner.read(destination)?)
-    }
-}
-
-/// A sequential sink backed by a caller-supplied `Write` handle.
-pub struct WriteSink<W> {
-    inner: W,
-}
-
-impl<W: Write> WriteSink<W> {
-    pub fn new(inner: W) -> Self {
-        Self { inner }
-    }
-
-    pub fn into_inner(self) -> W {
-        self.inner
-    }
-}
-
-impl<W: Write> SequentialSink for WriteSink<W> {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        if bytes.len() > MAX_IO_CHUNK {
-            return Err(Error::LimitExceeded {
-                resource: "I/O request bytes",
-                limit: MAX_IO_CHUNK as u64,
-                attempted: bytes.len() as u64,
-            });
-        }
-        Ok(self.inner.write(bytes)?)
-    }
-
-    async fn flush(&mut self) -> Result<()> {
-        Ok(self.inner.flush()?)
     }
 }

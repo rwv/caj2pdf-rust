@@ -1,16 +1,17 @@
 # caj2pdf JavaScript package
 
 Streaming CAJ-family to PDF conversion for browsers and Node.js 22+.
-The package drives the same Rust core as the native crate through a raw,
-dependency-free WebAssembly ABI. It has no npm dependencies, and all
-project-owned JavaScript and TypeScript declarations are MIT-licensed.
+The package runs the same synchronous Rust core as the native crate in a
+Worker, through a raw, dependency-free WebAssembly ABI. It has no npm
+dependencies, and all project-owned JavaScript and TypeScript declarations
+are MIT-licensed.
 
 | Input | Conversion |
 | --- | --- |
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8 | Experimental complete-page conversion with built-in standard codec tables and caller-owned scratch stores (below). `inspect` reads page counts and validated HN-A bookmark counts without codec tables. |
+| HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text needs caller fonts (below). `inspect` reads page counts and validated HN-A bookmark counts. |
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
@@ -38,31 +39,33 @@ removes `private`, and publishes.
 // Node.js
 import { open } from "node:fs/promises";
 import { finished } from "node:stream/promises";
-import { convert, fileHandleSource, loadModule, nodeWritableSink } from "caj2pdf-rust";
+import { convert, loadModule, nodeWritableSink } from "caj2pdf-rust";
 
 const module = await loadModule();
-const input = await open("paper.caj", "r");
 let output;
 try {
   output = (await open("paper.pdf", "wx")).createWriteStream();
-  const report = await convert(module, await fileHandleSource(input), nodeWritableSink(output));
+  // A path, file: URL, descriptor or Blob; the Worker reads a path itself.
+  const report = await convert(module, "paper.caj", nodeWritableSink(output));
   output.end();
   await finished(output);
   console.log(report.format, report.pagesConverted);
 } finally {
   output?.destroy();
   if (output) await finished(output).catch(() => {});
-  await input.close();
 }
 ```
 
 ```js
-// Browser
-import { blobSource, convert, loadModule, webWritableSink } from "caj2pdf-rust";
+// Browser: `file` is a File from an <input type="file">.
+import { convert, loadModule, webWritableSink } from "caj2pdf-rust";
 
 const module = await loadModule();
 const writer = (await (await showSaveFilePicker()).createWritable()).getWriter();
-await convert(module, blobSource(file), webWritableSink(writer), { signal });
+await convert(module, file, webWritableSink(writer), {
+  signal,
+  progress: (fraction) => console.log(`${Math.round(fraction * 100)}%`),
+});
 await writer.close();
 ```
 
@@ -90,13 +93,12 @@ to the file you choose.
   leading bytes, or 1,024 when looking for a displaced `%PDF-` header
   ([header offset rule](../docs/pdf-input.md#header-offset)), or uses
   `options.format`, and resolves with
-  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten, outlineWarnings }`.
+  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten, omittedPages, outlineWarnings, outlineOmitted }`.
 - `inspect(wasm, source, options)` resolves with
   `{ format, pageCount, bookmarkCount, outlineWarnings, applicationInfo, inputBytesRead }` without output.
   `bookmarkCount` is validated/countable for CAJ and HN-A; it is `null`
   for PDF, KDH, C8 and HN-B (unknown, not zero). HN-A validation streams
-  one outline record at a time and reads no image payloads. No codec tables
-  or scratch stores are required for HN/C8 inspection.
+  one outline record at a time and reads no image payloads.
 - `outlineWarnings` counts HN-A bookmark defects. An entry with an invalid
   title, page or zero level is skipped and its children are re-parented; a
   level that skips a parent is clamped. The rest of the outline and every page
@@ -111,42 +113,51 @@ to the file you choose.
   field is `null`. The DOI is a CNKI identifier, not a verified DOI, and the
   URL is never followed. Detecting the package reads only the last 32 bytes
   of the source.
-- `wasm` is a `WebAssembly.Module` (each call instantiates its own instance,
-  so calls may run concurrently), an `Instance`, or its exports. An instance
-  runs one operation at a time and rejects a second concurrent one.
+- `wasm` is the `WebAssembly.Module` from `loadModule()`. Each call starts its
+  own Worker and instance, so calls may run concurrently.
 - Options: `format` (`"auto"` by default), `limits`, `chunkSize` (bytes per
-  request, default 256 KiB, at most 1 MiB), `signal`, and
-  `includeBookmarks` (default `true`).
+  request, default 256 KiB, at most 1 MiB), `signal`, `progress` (called with
+  the fraction of the input read, 0 to 1, never decreasing), and for
+  `convert` `includeBookmarks` (default `true`), `allowDamaged` and `hnc8`.
 - `limits`: `maxInputBytes` (8 GiB), `maxOutputBytes` (16 GiB),
   `maxAllocationBytes` (64 MiB; at most 256 MiB and at least `chunkSize`; a single allocation limit, not a total memory budget),
   `maxPages` and `maxBookmarks` (100,000). JavaScript validates them and the
   Rust engine enforces them.
 - Errors are `Caj2PdfError` with a stable `code` (for example
   `MALFORMED_CAJ`, `PDF_LIMIT_EXCEEDED`, `TRUNCATED_INPUT`) and the core's
-  located message. `UnsupportedFormatError` adds `format`. Source and sink
-  errors and abort reasons propagate unchanged.
+  located message. `UnsupportedFormatError` adds `format`. Sink errors,
+  abort reasons and errors from inputs read on the calling thread (Node
+  Blobs) propagate unchanged; a read that fails inside the Worker rejects
+  with an `Error` of the same `name` and `message`.
 
-## Sources and sinks
+## Inputs and sinks
+
+| Entry | Accepted inputs (documents and fonts) | How they are read |
+| --- | --- | --- |
+| Browser | `Blob` or `File`; OPFS `FileSystemFileHandle` | In the Worker: `FileReaderSync` over one `slice()` per request; a synchronous access handle the Worker opens and closes. |
+| Node.js | File path (string or `file:` URL); open file descriptor (for a `FileHandle`, its `fd`); `Blob` | In the Worker with `fs.readSync` (a path is opened and closed by the Worker; a descriptor stays open); a Blob is sliced on the calling thread and handed over through shared memory. |
+
+Inputs are caller-owned and must stay unchanged until the operation settles.
+A size is taken once, before the Worker starts; a file that shrinks later
+fails with `TRUNCATED_INPUT`. A path or descriptor must name a regular file.
 
 ```ts
-interface RangedSource {
-  size: bigint; // stable snapshot, unsigned 64-bit
-  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
-}
 interface SequentialSink {
   writeChunk(bytes: Uint8Array, signal?: AbortSignal): Promise<number>; // bytes accepted
   flush(signal?: AbortSignal): Promise<void>;
 }
 ```
 
+The sink runs on the calling thread. Each `bytes` is a fresh copy from the
+Worker, so a sink may keep it. `writeChunk` may accept a prefix; the rest is
+offered again.
+
 | Adapter | Entry | Behavior |
 | --- | --- | --- |
-| `blobSource(blob)` | both | Awaits `blob.slice(start, end).arrayBuffer()` for one range only; never reads the whole Blob. Sizes above `Number.MAX_SAFE_INTEGER` are rejected. |
-| `fileHandleSource(handle)` | Node | BigInt positioned reads on a caller-owned `FileHandle`; never closes it or moves its cursor. |
-| `webWritableSink(writer)` | both | Awaits each `writer.write()` of a copied chunk; `flush` awaits `writer.ready`. Never closes the writer. |
+| `webWritableSink(writer)` | both | Awaits each `writer.write()`; `flush` awaits `writer.ready`. Never closes the writer. |
 | `nodeWritableSink(writable)` | Node | Awaits each write callback, so at most one chunk is queued. Never ends the stream. |
-| `convertReadable(wasm, stream, sink, options)` / `spoolToTempFile` | Node | Spools a Node `Readable`, Web `ReadableStream`, or async iterable to a private file (mode `0600`) in a fresh `mkdtemp` directory under `os.tmpdir()` (or `options.tempDirectory`). |
-| `convertReadableStream(wasm, stream, sink, options)` / `spoolToOpfs` | Browser | Spools a `ReadableStream` to a uniquely named Origin Private File System file, then reads it as a disk-backed `File`. |
+| `convertReadable(wasm, stream, sink, options)` / `spoolToTempFile` | Node | Spools a Node `Readable`, Web `ReadableStream`, or async iterable to a private file (mode `0600`) in a fresh `mkdtemp` directory under `os.tmpdir()` (or `options.tempDirectory`); the spool's `source` is its path. |
+| `convertReadableStream(wasm, stream, sink, options)` / `spoolToOpfs` | Browser | Spools a `ReadableStream` to a uniquely named Origin Private File System file; the spool's `source` is its file handle. |
 
 A plain stream has no size or random access, so it is never converted
 directly and never buffered whole in memory. The spool accepts at most
@@ -166,12 +177,12 @@ The browser spool needs `navigator.storage.getDirectory()` and
 localhost). Chromium-based browsers and Firefox provide both on the main
 thread; Safari's support for `createWritable()` depends on its version. The
 automated tests confirm the spool, its bound, and its cleanup against the
-real OPFS of headless Chromium on the main thread; Firefox, Safari, and
-workers are not tested automatically.
+real OPFS of headless Chromium on the main thread and in a Dedicated Worker;
+Firefox and Safari are not tested automatically.
 When either API is missing, the spool
 rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
-a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
-source. OPFS writes count against the origin's storage quota.
+a `Blob`/`File` (which browsers keep disk-backed). OPFS writes count against
+the origin's storage quota.
 
 ## Bilevel output compression
 
@@ -182,108 +193,51 @@ For bilevel conversion, `limits.maxAllocationBytes` must be at least `512n *
 this). This is a per-allocation requirement, not a whole-process memory budget.
 See the [compression measurements](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/bilevel-compression.md).
 
-## Scoped HN/C8 scratch
+## Workers and cross-origin isolation
 
-Both platform entry points export `withHnc8Scratch`. It creates four stores,
-awaits your callback, then closes their handles and removes their private
-folder on success, failure, or cancellation. Await all conversion work inside
-the callback; the stores must not escape it. The default cap is 64 MiB **per
-store** (up to 256 MiB of scratch), separate from WASM allocation limits.
+Every `convert` and `inspect` call runs in a fresh Worker: a module
+`Worker` in browsers (the package's `internal/worker.mjs`, so serve the
+package directory as is) and `node:worker_threads` in Node.js. The calling
+thread only awaits the sink and reports progress, so a page stays responsive.
+The API also works from a caller's own Dedicated Worker, which then starts a
+nested Worker.
 
-```js
-import { convert, withHnc8Scratch } from "caj2pdf-rust/node";
-// Use "caj2pdf-rust/browser" inside a Dedicated Worker for OPFS storage.
-const report = await withHnc8Scratch(
-  (scratch) => convert(module, source, sink, { signal, hnc8: { scratch } }),
-  { maxBytes: 64n * 1024n * 1024n },
-);
+A shared control block (`SharedArrayBuffer`) carries cancellation and sink
+acknowledgements: the Worker pauses after eight chunks the sink has not yet
+taken, and an abort stops it at its next checkpoint, after which it closes
+its inputs (an OPFS file is free again when the promise rejects). Node.js
+always has shared memory. Browsers provide it only to cross-origin isolated
+pages; serve the page with
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
-Node optionally accepts `directory`; browser optionally accepts `storage`.
-The caller still owns input/output and must abort or discard partial output
-on failure. Cleanup failures reject the operation. Existing adapters below
-remain available when you want to own scratch handles yourself.
+Without isolation, conversion still works, but output is not throttled by the
+sink (the Worker may run ahead and queue chunks in memory) and an abort
+terminates the Worker at once. Node Blob inputs always use shared memory.
 
-The Node example now uses this scope for HN/C8 as well as CAJ/KDH/PDF.
-The browser example transfers a backpressured output stream to
-[`examples/browser-worker.mjs`](examples/browser-worker.mjs), performs
-conversion and OPFS scratch work there, and forwards cancellation as a message.
-It waits for cleanup before reporting completion; do not replace cancellation
-with `worker.terminate()`. Browser use requires OPFS and Dedicated Workers.
-HN/C8 rendering remains experimental with the documented layout limitations.
-C8/HN-B outline layouts are unverified: with bookmarks requested they convert
-with no outline and the report's `outlineOmitted` is `true`. Pass
-`includeBookmarks: false` (`--no-bookmarks` in the Node example) to skip it.
-
-## Random-access scratch for HN/C8 integration
-
-`fileHandleScratch(handle, { maxBytes })` (Node, async) and
-`syncAccessHandleScratch(handle, { maxBytes })` (browser, synchronous construction)
-wrap caller-owned read/write storage. Both return the same async methods:
-`resize(size, signal)`, `readAt(offset, length, signal)`,
-`writeAt(offset, bytes, signal)`, and `flush(signal)`, plus a current `size`
-BigInt. Reads/writes may complete a short prefix. Each request is at most
-1 MiB and stays inside the explicitly resized extent. `maxBytes` is required
-and must not exceed `Number.MAX_SAFE_INTEGER`; file truncation and browser
-positions use exact Numbers. There is no whole-image allocation.
-
-Grant the adapter exclusive access and await each operation before issuing
-another. Keep write bytes unchanged until the promise settles. Node cancellation
-waits for pending file I/O to finish before rejecting, so cleanup cannot race an
-abandoned write or resize. Completed resize updates `size` even if cancellation
-arrives during that operation. Node `flush` is an ordering barrier; it does not
-fsync disposable storage. Closing and deleting files belong to the caller.
-
-Browser scratch requires an OPFS access handle in a **Dedicated Worker**:
-
-```js
-import { syncAccessHandleScratch } from "caj2pdf-rust/browser";
-
-// `file` is a caller-created OPFS FileSystemFileHandle in this worker.
-const handle = await file.createSyncAccessHandle();
-try {
-  const scratch = syncAccessHandleScratch(handle, { maxBytes: 64n * 1024n ** 2n });
-  await scratch.resize(4096n);
-  await scratch.writeAt(0n, new Uint8Array([1, 2]));
-  const bytes = await scratch.readAt(0n, 2);
-  await scratch.flush();
-} finally {
-  handle.close(); // The caller also removes its temporary file.
-}
-```
-
-The [File System standard](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle)
-defines this worker-only handle. It permits reads and writes against the same
-live file; an unclosed `createWritable()` stream and a `getFile()` snapshot do
-not provide that contract. Pass four independent adapters to `convert` as shown below.
+The browser example calls `convert` from the page; the HTML file needs no
+Worker of its own. HN/C8 rendering remains experimental with the documented
+layout limitations. C8/HN-B outline layouts are unverified: with bookmarks
+requested they convert with no outline and the report's `outlineOmitted` is
+`true`. Pass `includeBookmarks: false` (`--no-bookmarks` in the Node example)
+to skip it.
 
 ## Experimental HN/C8 conversion
 
-`convert` uses the built-in standard QM/MQ states. Provide `hnc8: { scratch }`
-for type-3 (JBIG2) image decoding: three symbol stores and the full-page text
-scratch. Type-0 (JBIG1) rows stream straight to the PDF, so documents without
-type-3 images convert without scratch; supplied stores are still validated and
-cleared. A type-3 image without stores fails with `RANDOM_ACCESS_REQUIRED`.
+`convert` uses the built-in standard QM/MQ states and needs no HN/C8 options
+for image pages. Type-0 (JBIG1) rows stream straight to the PDF; type-3
+(JBIG2) symbol and text bitmaps are held in WASM memory, each allocation
+capped by `limits.maxAllocationBytes`. No temporary storage is created.
 
 ```js
-// `source`, `sink`, `wasm` use the ordinary streaming API.
-// `scratch` is a tuple of four distinct caller-owned adapters described above.
-// No external state-table files are needed.
+// No external state-table files or scratch storage are needed.
 const result = await convert(wasm, source, sink, {
   includeBookmarks: false, // C8/HN-B outlines are unverified and would be omitted anyway.
-  hnc8: { scratch },
 });
 ```
-
-Use Node file handles or live OPFS sync access handles in a Dedicated Worker.
-Grant exclusive ownership of all four disposable stores for the operation.
-Each store is capped at 64 MiB by the Rust composition budget; an adapter may
-impose a smaller cap. Buffers remain bounded and output is sequential.
-On success, failure or cancellation, the driver resets the Rust operation and
-attempts to resize every supplied store to zero, without the cancelled signal.
-If cleanup fails, `AggregateError.errors` preserves the conversion error first
-(if any) and all cleanup errors. The caller must still close handles and remove
-files in its own `finally`; cleanup cannot guarantee removal after host failure.
 
 HN-A/C8 type-1 and type-2 JPEG images share the bounded validation/emission
 path. The HN/C8 adapter also selects the documented unused-refinement-template
@@ -309,64 +263,68 @@ Zero extents are rejected. The physical unit remains empirical; see the
 [geometry correction](../docs/cli.md#source-geometry-correction-breaking-v0x).
 
 HN/C8 conversion no longer always throws `UnsupportedFormatError`: callers must
-handle `HNC8`, invalid configuration and missing scratch errors. Existing
+handle `HNC8` and invalid configuration errors. Existing
 PDF/CAJ/KDH calls do not need `hnc8`. Rust users must handle the new
-`Error::Hnc8`, `Error::Hnc8Metadata`, `Status` and `Request` variants when matching exhaustively.
+`Error::Hnc8` and `Error::Hnc8Metadata` variants when matching exhaustively.
 HN/C8 inspection now succeeds for valid metadata; malformed headers/outlines
 use `HNC8` instead of a blanket unsupported-format error. C8/HN-B unknown
 bookmark counts remain `null`, while validated empty HN-A outlines return zero.
-Raw WASM hosts must implement statuses 6–9 (scratch read/write/resize/flush),
-use `caj2pdf_io_request_store()` (1–4), and acknowledge resize through
-`caj2pdf_io_complete_resize()`. The request offset holds the new extent for
-resize; read/write reuse the staging buffer and completion exports.
-The raw host owns cleanup if it cancels or drops a pending operation.
+
+### Migration to the Worker API (#355)
+
+- `convert`/`inspect` take the `WebAssembly.Module` from `loadModule()` and an
+  input from the table above instead of a `{ size, readAt }` source. Replace
+  `blobSource(file)` with `file`; in Node.js replace
+  `fileHandleSource(handle)` with `handle.fd` or the path.
+- `withHnc8Scratch`, `fileHandleScratch`, `syncAccessHandleScratch`, the
+  `hnc8.scratch` option and `checkRange` are removed; drop them.
+- Spooled `source`s are now a file path (Node.js) or an OPFS file handle
+  (browser); pass them to `convert` unchanged.
+- A browser page that needs prompt cancellation or sink backpressure must be
+  cross-origin isolated (above). Custom JavaScript `readAt` sources are no
+  longer accepted; wrap such data in a `Blob` or spool it.
+- The raw WASM ABI changed completely: see
+  [the I/O architecture](../docs/io-architecture.md#worker-model).
 
 ## Bounded memory and I/O
 
-Rust requests one range or one write at a time. JavaScript awaits the source,
-copies only that chunk into the fixed WASM staging buffer, and resumes Rust;
-for output it passes a view of staging memory and awaits the sink before
-resuming. A view is valid only until `writeChunk()` settles, so a custom sink
-that retains bytes must copy them; the supplied sinks do. Requests never
-exceed `chunkSize`. No API accepts or returns a whole-document byte array.
-Format indexes (page tables, bookmarks, object offsets) are held in WASM
-memory under `limits`.
+Rust requests one range or writes one chunk at a time, at most `chunkSize`
+bytes. A read lands directly in Rust memory; a write is copied once by the
+Worker and transferred to the calling thread. No API accepts or returns a
+whole-document byte array. Format indexes (page tables, bookmarks, object
+offsets) and HN/C8 bitmaps are held in WASM memory under `limits`.
 
-Measured on Node 22.22.2 with the release build (the
-`a larger PDF converts...` test prints these numbers): converting a
-25,186,757-byte one-page PDF with the default 256 KiB chunk grew WASM memory
-from 1,179,648 bytes after instantiation to a peak of 1,966,080 bytes
-(+768 KiB, independent of the document length). The largest read request and
-the largest write were each 262,144 bytes, over 97 writes. WASM memory never
-shrinks, so the final `memory.buffer.byteLength` is the peak.
-
-Current browser/Node small/large measurements, temporary-storage results,
-and reproduction commands are in [JavaScript validation](../docs/js-validation.md).
+Converting a 25,186,757-byte one-page PDF with the default 256 KiB chunk grew
+WASM memory from 1,245,184 bytes after instantiation to a peak of 1,769,472
+bytes, independent of the document length; the largest read and write were
+each 262,144 bytes. Current browser/Node measurements, temporary-storage
+results, and reproduction commands are in
+[JavaScript validation](../docs/js-validation.md).
 
 ## Cancellation
 
-`AbortSignal` is checked before every poll and after every awaited read,
-write, and flush. The supplied adapters also race their pending I/O against
-the signal, so a stalled Blob read, file read, or backpressured write stops
-waiting as soon as the signal aborts. The abandoned operation may still
-finish in the background; it only touches its own copied buffer. The
-conversion rejects with `signal.reason` (an `AbortError` by default), the
-Rust future is cancelled, and the instance is reset for reuse. Bytes a sink
-already accepted are not withdrawn: callers own their output and should
-delete or discard it after a rejection (the examples do). A custom source or
-sink should honor its `signal` argument for prompt cancellation.
+The core checks for cancellation between rows, pages and I/O chunks. On abort,
+the promise rejects with `signal.reason` (an `AbortError` by default). With
+shared memory the Worker stops at its next checkpoint and closes its inputs
+first (a Worker that has not stopped after 10 seconds is terminated);
+without it the Worker is terminated at once. A sink write already in progress
+is not awaited. Bytes a sink already accepted are not withdrawn: callers own
+their output and should delete or discard it after a rejection (the examples
+do).
 
 ## Tests
 
 `js/test/*.test.mjs` run with `node --test` against the real WASM build:
 
-- `convert.test.mjs` converts synthetic CAJ, KDH, and PDF inputs with Blob
-  sources plus Web sinks and FileHandle sources plus Node sinks, asserting
-  every request is within the chunk size and validating each output with
+- `convert.test.mjs` converts synthetic CAJ, KDH, and PDF inputs from Blobs
+  into Web sinks and from paths, `file:` URLs and descriptors into Node sinks,
+  asserting every write is within the chunk size and validating each output with
   `qpdf --check` and `qpdf --show-npages` when `qpdf` is installed (otherwise
   a diagnostic reports the skip; the CI WASM job installs it). It
   also covers `inspect`, TEB rejection, typed errors, limits,
-  cancellation, sink and source errors, and the memory measurement above.
+  cancellation, progress, sink and source errors.
+- `hnc8-convert.test.mjs` and `c8-fonts.test.mjs` cover HN/C8 images,
+  inspection and native C8/HN-B fonts from Blobs, paths and spools.
 - `spool.test.mjs` covers Node temp-file spooling from Node and Web streams,
   the spool bound, cleanup after success, failure, and abort, and the OPFS
   spool against an in-memory OPFS test double.
@@ -384,7 +342,9 @@ sink should honor its `signal` argument for prompt cancellation.
 - `examples.test.mjs` runs the Node example as a subprocess for CAJ/KDH/PDF/HN
   files and stdin, validates output PDFs, and checks missing/malformed inputs,
   existing-output preservation and usage errors.
-- `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
+- `adapters.test.mjs` covers input validation and the sinks; `wasm.test.mjs`
+  calls the raw ABI directly (short I/O, typed host failures, cancellation,
+  re-entry and configuration checks).
 - `corpus.test.mjs` runs the optional corpus runner (below) against a
   synthetic corpus and matrix built at test time.
 
@@ -412,7 +372,7 @@ expectation comes from the API's format contract and the matrix's
 
 | Entry | `expectation` | Requirement | Outcome when met |
 | --- | --- | --- | --- |
-| HN/C8 in the corpus runner | `not_run` | Runner has no caller-table/scratch configuration; conversion is not attempted | `NOT_RUN` |
+| HN/C8 in the corpus runner | `not_run` | Runner has no font configuration; conversion is not attempted | `NOT_RUN` |
 | TEB | `unsupported` | `UnsupportedFormatError` | `unsupported` |
 | CAJ, KDH, or PDF; reference `success` | `convert` | Output validated with the reference output page count | `passed` |
 | CAJ, KDH, or PDF; reference `error` or `unsupported` | `excluded` | None recorded; conversion runs and is reported as `observed` | `excluded` |
@@ -425,7 +385,7 @@ For each matrix entry, in order, it:
    opens the file without following links, and requires the inode it
    checked. It then streams the file once through SHA-256 and the Git blob
    SHA-1 with one 1 MiB buffer and compares both and the size with the matrix.
-2. Converts the same handle with `fileHandleSource` into `nodeWritableSink`
+2. Converts the same handle, by descriptor, into `nodeWritableSink`
    over a private file (mode `0600`) in a fresh `mkdtemp` directory, which is
    removed after success, failure, timeout, or interruption. Each conversion
    has a 10-minute `AbortSignal.timeout` and a 4 GiB output limit.
@@ -473,7 +433,7 @@ counts.
 `browser.test.mjs` needs no npm packages. It serves the `js/` directory
 read-only (GET and HEAD, no paths outside it, including through symbolic
 links) on an ephemeral `http://127.0.0.1` port with `node:http` (a secure
-context), starts
+context) with cross-origin isolation headers, starts
 headless Chromium with a throwaway profile and `--remote-debugging-port=0`,
 and drives it over the Chrome DevTools Protocol with Node's global
 `WebSocket` ([`browser-harness.mjs`](test/browser-harness.mjs)). The page
@@ -482,9 +442,12 @@ and runs
 [`browser-cases.mjs`](test/browser-cases.mjs):
 
 - `File` sources to real `WritableStream` sinks for synthetic CAJ, KDH, and
-  PDF inputs, with every read and write at most the 4 KiB chunk size. The
+  PDF inputs, with every write at most the 4 KiB chunk size and progress
+  reaching 1, and an OPFS file handle as the source. The
   outputs return to Node (base64 plus a SHA-256 computed with
   `crypto.subtle`) for `qpdf --check` and page counts.
+- HN/C8 conversion from the page's own Dedicated Worker, with fonts from OPFS
+  file handles and Blobs.
 - HN/C8 inspection validates source metadata; conversion uses the experimental image-page path.
 - `AbortSignal` cancellation while a `WritableStream` write is stalled.
 - `convertReadableStream` through the real OPFS: one `caj2pdf-spool-*` file
@@ -505,8 +468,10 @@ DevTools command has a 30-second timeout. After the run, or when the test
 process exits early or receives `SIGINT` or `SIGTERM`, the Chromium process
 group is killed and its throwaway profile removed. The CI WASM job runs
 these tests with the runner's preinstalled Google Chrome on Node 22 and 24.
-Firefox, Safari, and Web Workers are not covered, and native file-picker/save dialogs are not automated. The example
-page's OPFS fallback is tested through actual Chromium File and storage APIs.
+Firefox and Safari are not covered, and native file-picker/save dialogs are not automated. The example
+page and the packed-package check run without cross-origin isolation, so
+both Worker modes are exercised. The example page's OPFS fallback is tested
+through actual Chromium File and storage APIs.
 
 An OPFS spool failure normally preserves the original error. Cleanup retries
 only a transient `NoModificationAllowedError` (at most three attempts, with
@@ -517,13 +482,13 @@ is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
 ### Fonts for native C8 and HN-B pages
 
 The admitted native C8 and HN-B text/vector profiles accept caller-owned
-ranged font sources. Only `cjk` and `latin` are required:
+fonts, given as inputs of the same kinds as the document. Only `cjk` and
+`latin` are required:
 
 ```js
 await convert(wasm, documentSource, outputSink, {
   includeBookmarks: false, // C8/HN-B bookmarks are not supported yet.
   hnc8: {
-    scratch, // Existing four reusable stores for type-3 image decoding, when needed.
     fonts: {
       cjk: cjkFontSource,
       latin: latinFontSource,
@@ -559,40 +524,33 @@ never bundled. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
 for the installation command and the supported font formats:
 
 ```js
-import { open } from "node:fs/promises";
-import { convert, fileHandleSource, withHnc8Scratch } from "caj2pdf-rust";
+import { convert } from "caj2pdf-rust";
 
-const cjk = await open("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", "r");
-const latin = await open("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "r");
-try {
-  const fonts = { cjk: await fileHandleSource(cjk), latin: await fileHandleSource(latin) };
-  await withHnc8Scratch((scratch) => convert(module, documentSource, outputSink, {
-    includeBookmarks: false,
-    hnc8: { scratch, fonts },
-  }));
-} finally {
-  await cjk.close();
-  await latin.close();
-}
+await convert(module, "paper.c8", outputSink, {
+  includeBookmarks: false,
+  hnc8: {
+    fonts: {
+      cjk: "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+      latin: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    },
+  },
+});
 ```
 
-Each font uses the same `size: bigint` / `readAt(offset, length, signal)`
-contract as the document. Fonts may have TrueType or CFF outlines. A role
-may instead be `{ source, face }` to use face `face` of a collection
-(`.ttc`); a plain source is face 0. Browser `blobSource` and Node `fileHandleSource`
-work for fonts too. Reuse the same source object across roles to embed it
-once. Character coverage alone does not guarantee compatible widths or
+Fonts may have TrueType or CFF outlines. A role may instead be
+`{ source, face }` to use face `face` of a collection (`.ttc`); a plain input
+is face 0. Reuse the same input (the same string, number or object) across
+roles to embed it once; two different inputs are two resources even when
+they hold the same bytes. Character coverage alone does not guarantee compatible widths or
 bearings, or prevent overlap at fixed source positions. See the
 [same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).
 The optional decoration character is a nonsemantic BMP alias, not document
 text. Roles exist because source role selection differs from Unicode/script
 selection.
 
-Keep sources stable and open until conversion settles; the converter does
-not close caller-owned resources. Forward-only fonts can use the existing
-bounded spooling helpers; dispose their returned handles in `finally`.
-Reads share one WASM staging buffer with document and scratch I/O. Errors
-and cancellation use the existing cleanup path. The caller must discard
+Keep fonts unchanged until conversion settles; the converter does not close
+caller-owned descriptors. Forward-only fonts can use the existing bounded
+spooling helpers; dispose the spool in `finally`. The caller must discard
 partial output after failure, including a final flush failure.
 
 This enables only the independently admitted native profiles. HN-B mixed

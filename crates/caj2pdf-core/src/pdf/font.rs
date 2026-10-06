@@ -80,7 +80,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
     /// Read face `face` of a TrueType font or TrueType collection (`ttcf`).
     /// A standalone font has only face 0. Collection table offsets are
     /// file-relative, so faces may share tables.
-    pub async fn read<C: Cancellation>(
+    pub fn read<C: Cancellation>(
         source: &'a mut S,
         face: u32,
         limits: &Limits,
@@ -89,7 +89,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         limits.validate()?;
         limits.check_input_size(source.size())?;
         let mut header = [0; 12];
-        read(source, 0, &mut header, limits, cancellation).await?;
+        read(source, 0, &mut header, limits, cancellation)?;
         // The collection header and this face's directory hold no tables.
         let (base, collection_end) = if let Some((faces, dsig)) = collection(&header)? {
             if face >= faces {
@@ -102,10 +102,9 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
                 &mut offset,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             let base = u64::from(u32::from_be_bytes(offset));
-            read(source, base, &mut header, limits, cancellation).await?;
+            read(source, base, &mut header, limits, cancellation)?;
             (base, 12 + 4 * u64::from(faces) + dsig)
         } else if face != 0 {
             return Err(invalid("a standalone font has only face 0"));
@@ -130,8 +129,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
                 &mut directory[i],
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             let entry = directory[i];
             let tag = &entry[..4];
             if i != 0 && directory[i - 1][..4] >= *tag {
@@ -184,7 +182,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
             let refused = limits.allocation_refused("font metadata bytes", length);
             reserve_exact(table, length as usize, refused)?;
             table.resize(length as usize, 0);
-            read(source, offset, table, limits, cancellation).await?;
+            read(source, offset, table, limits, cancellation)?;
         }
         let mut font = Self {
             source,
@@ -230,9 +228,13 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         }
         if let Some(span) = font.outlines[CFF] {
             let glyphs = face.number_of_glyphs();
-            font.cff = Some(Rc::new(
-                cff::Cff::read(font.source, span, glyphs, limits, cancellation).await?,
-            ));
+            font.cff = Some(Rc::new(cff::Cff::read(
+                font.source,
+                span,
+                glyphs,
+                limits,
+                cancellation,
+            )?));
         }
         Ok(font)
     }
@@ -240,7 +242,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
     /// The number of faces in `source`: a collection's declared face count,
     /// or 1 for a standalone font. Only the 12-byte header is read, so the
     /// faces themselves are not validated; [`Self::read`] validates one.
-    pub async fn face_count<C: Cancellation>(
+    pub fn face_count<C: Cancellation>(
         source: &mut S,
         limits: &Limits,
         cancellation: &C,
@@ -248,7 +250,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         limits.validate()?;
         limits.check_input_size(source.size())?;
         let mut header = [0; 12];
-        read(source, 0, &mut header, limits, cancellation).await?;
+        read(source, 0, &mut header, limits, cancellation)?;
         match collection(&header)? {
             Some((faces, _)) => Ok(faces),
             None if is_font_tag(&header) => Ok(1),
@@ -387,7 +389,7 @@ fn invalid(reason: &'static str) -> Error {
     Error::InvalidInput { reason }
 }
 
-async fn read<S: RangedSource, C: Cancellation>(
+fn read<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
     bytes: &mut [u8],
@@ -401,8 +403,7 @@ async fn read<S: RangedSource, C: Cancellation>(
             chunk,
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
     }
     Ok(())
 }

@@ -37,15 +37,15 @@ pub(super) enum Recovery {
 
 /// Recover from `failure` at `start`, or return `None` to report its error.
 /// An error raised while recovering is reported instead.
-pub(super) async fn try_recover<S: RangedSource, C: Cancellation>(
+pub(super) fn try_recover<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &mut Pass<'_>,
     start: u64,
     failure: &Failure,
 ) -> Result<Option<Recovery>> {
     let attempt = match failure {
-        Failure::Syntax(error) => syntax_recovery(reader, pass, start, error).await,
-        Failure::Stream(_, stream) => stream_recovery(reader, pass, start, stream).await,
+        Failure::Syntax(error) => syntax_recovery(reader, pass, start, error),
+        Failure::Stream(_, stream) => stream_recovery(reader, pass, start, stream),
         Failure::Other(_) => Ok(None),
     };
     let error = match attempt {
@@ -66,38 +66,36 @@ pub(super) async fn try_recover<S: RangedSource, C: Cancellation>(
     else {
         return error.map_or(Ok(None), Err);
     };
-    salvage(reader, pass, rows, start, (object, offset))
-        .await
-        .map(Some)
+    salvage(reader, pass, rows, start, (object, offset)).map(Some)
 }
 
 /// Lossless rules for an object whose header or value does not parse.
-async fn syntax_recovery<S: RangedSource, C: Cancellation>(
+fn syntax_recovery<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &mut Pass<'_>,
     start: u64,
     error: &Error,
 ) -> Result<Option<Recovery>> {
-    if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths).await? {
+    if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
         return Ok(Some(Recovery::Resume(end)));
     }
     let expected = pass
         .pending_lengths
         .last()
         .map(|pending| (pending.target, pending.length));
-    if let Some(end) = orphan_length_end(reader, start, expected).await? {
+    if let Some(end) = orphan_length_end(reader, start, expected)? {
         return Ok(Some(Recovery::Resume(end)));
     }
-    if let Some(end) = known_prefix_end(reader, start, error, &pass.objects).await? {
+    if let Some(end) = known_prefix_end(reader, start, error, &pass.objects)? {
         return Ok(Some(Recovery::Resume(end)));
     }
-    if let Some(end) = adjacent_header_end(reader, start, error, &pass.objects).await? {
+    if let Some(end) = adjacent_header_end(reader, start, error, &pass.objects)? {
         return Ok(Some(Recovery::Resume(end)));
     }
-    if let Some(end) = candidate_prefix_end(reader, start, pass.candidates).await? {
+    if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
         return Ok(Some(Recovery::Resume(end)));
     }
-    let Some((resume, prefix)) = interrupted_syntax_prefix(reader, start, error).await? else {
+    let Some((resume, prefix)) = interrupted_syntax_prefix(reader, start, error)? else {
         return Ok(None);
     };
     // A prefix of an object indexed or offered twice has no unique original.
@@ -111,29 +109,29 @@ async fn syntax_recovery<S: RangedSource, C: Cancellation>(
 }
 
 /// Lossless rules for a parsed stream whose extent is not confirmed.
-async fn stream_recovery<S: RangedSource, C: Cancellation>(
+fn stream_recovery<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &mut Pass<'_>,
     start: u64,
     stream: &StreamFailure,
 ) -> Result<Option<Recovery>> {
     let Some((patch_offset, original)) = &stream.direct else {
-        if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths).await? {
+        if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
             return Ok(Some(Recovery::Resume(end)));
         }
-        if let Some(end) = candidate_prefix_end(reader, start, pass.candidates).await? {
+        if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
             return Ok(Some(Recovery::Resume(end)));
         }
-        return Ok(match stream_replay(reader, start, stream).await? {
+        return Ok(match stream_replay(reader, start, stream)? {
             Replay::Found(recovery) => Some(recovery),
             Replay::Absent | Replay::Unproven => None,
         });
     };
-    match stream_replay(reader, start, stream).await? {
+    match stream_replay(reader, start, stream)? {
         Replay::Found(recovery) => return Ok(Some(recovery)),
         // A replayed header is no understated Length: never repair it.
         Replay::Unproven => {
-            let end = candidate_prefix_end(reader, start, pass.candidates).await?;
+            let end = candidate_prefix_end(reader, start, pass.candidates)?;
             return Ok(end.map(Recovery::Resume));
         }
         Replay::Absent => {}
@@ -141,7 +139,7 @@ async fn stream_recovery<S: RangedSource, C: Cancellation>(
     let length = stream.length.expect("a direct Length is always known");
     let data_at = start + stream.data_start;
     let (corrected, end) =
-        match repair_stream_length(reader, data_at + length, data_at, stream.reference).await {
+        match repair_stream_length(reader, data_at + length, data_at, stream.reference) {
             Ok(repair) => repair,
             Err(
                 error @ Error::Pdf {
@@ -149,7 +147,7 @@ async fn stream_recovery<S: RangedSource, C: Cancellation>(
                     ..
                 },
             ) => {
-                if let Some(end) = candidate_prefix_end(reader, start, pass.candidates).await? {
+                if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
                     return Ok(Some(Recovery::Resume(end)));
                 }
                 return Err(error);
@@ -181,7 +179,7 @@ async fn stream_recovery<S: RangedSource, C: Cancellation>(
 /// starts; it must repeat this stream's header. The replay is framed when the
 /// scan reaches it, and the interrupted bytes are deferred until the complete
 /// scan proves them an exact prefix of the indexed replay. No codec is decoded.
-async fn stream_replay<S: RangedSource, C: Cancellation>(
+fn stream_replay<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     stream: &StreamFailure,
@@ -198,9 +196,9 @@ async fn stream_replay<S: RangedSource, C: Cancellation>(
         return Ok(Replay::Absent);
     };
     let last = first.saturating_add(MAX_REPLAY_DISTANCE).saturating_add(2);
-    let original = reader.bytes(start, header as usize).await?;
+    let original = reader.bytes(start, header as usize)?;
     let mut from = first;
-    while let Some(marker) = find_endstream(reader, from, last.saturating_add(9)).await? {
+    while let Some(marker) = find_endstream(reader, from, last.saturating_add(9))? {
         from = marker + 1;
         for eol in [2, 1, 0] {
             let Some(copy) = marker
@@ -211,8 +209,8 @@ async fn stream_replay<S: RangedSource, C: Cancellation>(
             else {
                 continue;
             };
-            if reader.bytes(copy, header as usize).await? == original {
-                return Ok(match deferred_replay(reader, start, copy, stream).await? {
+            if reader.bytes(copy, header as usize)? == original {
+                return Ok(match deferred_replay(reader, start, copy, stream)? {
                     Some(recovery) => Replay::Found(recovery),
                     None => Replay::Unproven,
                 });
@@ -233,16 +231,16 @@ enum Replay {
 
 /// Defer the bytes that `start` shares with the replay at `copy`, resuming at
 /// the next object after them. They must include at least one payload byte.
-async fn deferred_replay<S: RangedSource, C: Cancellation>(
+fn deferred_replay<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     copy: u64,
     stream: &StreamFailure,
 ) -> Result<Option<Recovery>> {
     let span = copy - start;
-    let interrupted = reader.bytes(start, span as usize).await?;
+    let interrupted = reader.bytes(start, span as usize)?;
     let available = span.min(reader.range.length - copy);
-    let replay = reader.bytes(copy, available as usize).await?;
+    let replay = reader.bytes(copy, available as usize)?;
     let shared = interrupted
         .iter()
         .zip(&replay)
@@ -272,7 +270,7 @@ async fn deferred_replay<S: RangedSource, C: Cancellation>(
 
 /// The next `endstream` keyword starting at or after `from` and ending by
 /// `limit`, both within the reader's range.
-pub(super) async fn find_endstream<S: RangedSource, C: Cancellation>(
+pub(super) fn find_endstream<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     from: u64,
     limit: u64,
@@ -283,7 +281,7 @@ pub(super) async fn find_endstream<S: RangedSource, C: Cancellation>(
     while at.saturating_add(KEYWORD.len() as u64) <= limit {
         // Search the reader's window in place; only a keyword that crosses
         // the window end is compared byte by byte.
-        reader.byte(at).await?;
+        reader.byte(at)?;
         let first = (at - reader.window_offset) as usize;
         let window = &reader.window[first..reader.window_len];
         if window.len() >= KEYWORD.len() {
@@ -299,7 +297,7 @@ pub(super) async fn find_endstream<S: RangedSource, C: Cancellation>(
         }
         let mut matched = true;
         for (index, &expected) in KEYWORD.iter().enumerate() {
-            if reader.byte(at + index as u64).await? != Some(expected) {
+            if reader.byte(at + index as u64)? != Some(expected) {
                 matched = false;
                 break;
             }
@@ -313,17 +311,17 @@ pub(super) async fn find_endstream<S: RangedSource, C: Cancellation>(
 }
 
 /// The data end that a `endstream` at `marker` implies, excluding one EOL.
-pub(super) async fn data_end_before<S: RangedSource, C: Cancellation>(
+pub(super) fn data_end_before<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     marker: u64,
 ) -> Result<u64> {
     Ok(
         if marker >= 2
-            && reader.byte(marker - 2).await? == Some(b'\r')
-            && reader.byte(marker - 1).await? == Some(b'\n')
+            && reader.byte(marker - 2)? == Some(b'\r')
+            && reader.byte(marker - 1)? == Some(b'\n')
         {
             marker - 2
-        } else if marker >= 1 && matches!(reader.byte(marker - 1).await?, Some(b'\r' | b'\n')) {
+        } else if marker >= 1 && matches!(reader.byte(marker - 1)?, Some(b'\r' | b'\n')) {
             marker - 1
         } else {
             marker
@@ -333,7 +331,7 @@ pub(super) async fn data_end_before<S: RangedSource, C: Cancellation>(
 
 /// Find the one complete terminator shortly after an understated direct
 /// `/Length`. Two candidates are an ambiguous repair.
-async fn repair_stream_length<S: RangedSource, C: Cancellation>(
+fn repair_stream_length<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     declared_after: u64,
     data_at: u64,
@@ -344,13 +342,13 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
         .min(reader.range.length.saturating_sub(9));
     let mut found = None;
     let mut from = declared_after.saturating_add(1);
-    while let Some(marker) = find_endstream(reader, from, last.saturating_add(9)).await? {
+    while let Some(marker) = find_endstream(reader, from, last.saturating_add(9))? {
         from = marker + 1;
-        let after = data_end_before(reader, marker).await?;
+        let after = data_end_before(reader, marker)?;
         if after <= declared_after || after < data_at {
             continue;
         }
-        let tail = reader.check_stream_tail(after, Some(reference)).await;
+        let tail = reader.check_stream_tail(after, Some(reference));
         if matches!(
             tail,
             Err(Error::Pdf {
@@ -380,7 +378,7 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
 
 /// Partial mode: record the damage, then resume after an independently
 /// framed stream or at the page table's next page dictionary.
-async fn salvage<S: RangedSource, C: Cancellation>(
+fn salvage<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     pass: &mut Pass<'_>,
     rows: &[CajPageRow],
@@ -389,7 +387,7 @@ async fn salvage<S: RangedSource, C: Cancellation>(
 ) -> Result<Recovery> {
     let reference = object.map(|(number, generation)| PdfRef { number, generation });
     pass.push_damaged(reference, offset)?;
-    if let Some(end) = damaged_stream_end(reader, start, &pass.lengths).await? {
+    if let Some(end) = damaged_stream_end(reader, start, &pass.lengths)? {
         return Ok(Recovery::Discarded(Some(end)));
     }
     let body_start = reader.range.offset;
@@ -397,20 +395,20 @@ async fn salvage<S: RangedSource, C: Cancellation>(
         .iter()
         .find(|row| row.offset > body_start + start && row.length != 0);
     Ok(Recovery::Discarded(match next {
-        Some(row) => Some(damaged_page_anchor(reader, row).await?),
+        Some(row) => Some(damaged_page_anchor(reader, row)?),
         None => None,
     }))
 }
 
 /// A codec failure need not discard later objects: a parsed Length and exact
 /// terminator can still establish where the discarded stream ends.
-pub(super) async fn damaged_stream_end<S: RangedSource, C: Cancellation>(
+pub(super) fn damaged_stream_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     lengths: &BTreeMap<PdfRef, u64>,
 ) -> Result<Option<u64>> {
-    let attempt = async {
-        let head = reader.load_head(start, None).await?;
+    let attempt = (|| {
+        let head = reader.load_head(start, None)?;
         let ObjectTail::Stream { data_start } = head.tail else {
             return Ok(None);
         };
@@ -431,18 +429,16 @@ pub(super) async fn damaged_stream_end<S: RangedSource, C: Cancellation>(
         else {
             return Ok(None);
         };
-        match reader.check_stream_tail(end, Some(head.reference)).await {
+        match reader.check_stream_tail(end, Some(head.reference)) {
             Ok(end) => Ok(Some(end)),
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 ..
             }) => repair_stream_length(reader, end, start + data_start as u64, head.reference)
-                .await
                 .map(|(_, end)| Some(end)),
             Err(error) => Err(error),
         }
-    }
-    .await;
+    })();
     match attempt {
         Err(Error::Pdf {
             kind: PdfErrorKind::Malformed,
@@ -456,15 +452,13 @@ pub(super) async fn damaged_stream_end<S: RangedSource, C: Cancellation>(
 /// the previous object. Admit only the table's exact page ID, with one complete
 /// Page dictionary in this bounded prefix. This is used solely after explicitly
 /// dropping damaged content, never as evidence for lossless repair.
-pub(super) async fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
+pub(super) fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     row: &CajPageRow,
 ) -> Result<u64> {
     let relative = row.offset - reader.range.offset;
     let header = format!("{} 0 obj", row.page_object_id);
-    let bytes = reader
-        .bytes(relative, row.length.min(64 + header.len() as u64) as usize)
-        .await?;
+    let bytes = reader.bytes(relative, row.length.min(64 + header.len() as u64) as usize)?;
     let mut found = None;
     for (index, window) in bytes.windows(header.len()).enumerate() {
         if window != header.as_bytes()
@@ -477,10 +471,7 @@ pub(super) async fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
             number: row.page_object_id,
             generation: 0,
         };
-        let head = match reader
-            .load_head(relative + index as u64, Some(expected))
-            .await
-        {
+        let head = match reader.load_head(relative + index as u64, Some(expected)) {
             Ok(head) => head,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
@@ -510,7 +501,7 @@ pub(super) async fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
 
 /// Defer a short syntax interruption until the complete scan can prove its
 /// exact counterpart. The parser supplies the sole boundary; no marker search.
-pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
+pub(super) fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     error: &Error,
@@ -534,19 +525,19 @@ pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     }
     // A cut inside `obj` leaves only `o` or `ob` at the parser error.
     // Consume that fixed keyword prefix, never an arbitrary token.
-    if header_error && reader.byte(end).await? == Some(b'o') {
+    if header_error && reader.byte(end)? == Some(b'o') {
         end += 1;
-        if reader.byte(end).await? == Some(b'b') {
+        if reader.byte(end)? == Some(b'b') {
             end += 1;
         }
-        if !skip_bounded_space(reader, start, &mut end, 64).await? {
+        if !skip_bounded_space(reader, start, &mut end, 64)? {
             return Ok(None);
         }
     }
     // After a complete value, accept only a proper prefix of the two legal
     // tail keywords. The later full scan must still prove the entire prefix.
     if *reason == "PDF object lacks endobj or stream" {
-        let keyword: &[u8] = match reader.byte(end).await? {
+        let keyword: &[u8] = match reader.byte(end)? {
             Some(b's') => b"stream",
             Some(b'e') => b"endobj",
             _ => b"",
@@ -554,17 +545,14 @@ pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
         if !keyword.is_empty() {
             let begin = end;
             for &byte in keyword {
-                if reader.byte(end).await? != Some(byte) {
+                if reader.byte(end)? != Some(byte) {
                     break;
                 }
                 end += 1;
             }
             if end - begin == keyword.len() as u64
-                || !reader
-                    .byte(end)
-                    .await?
-                    .is_some_and(|b| b.is_ascii_whitespace())
-                || !skip_bounded_space(reader, start, &mut end, 256).await?
+                || !reader.byte(end)?.is_some_and(|b| b.is_ascii_whitespace())
+                || !skip_bounded_space(reader, start, &mut end, 256)?
             {
                 return Ok(None);
             }
@@ -573,26 +561,25 @@ pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     // A cut before the R in an indirect reference leaves generation zero
     // where the dictionary parser expects its next key. The complete-copy
     // proof below must confirm this byte as part of the original value.
-    if *reason == "expected PDF name" && reader.byte(end).await? == Some(b'0') {
+    if *reason == "expected PDF name" && reader.byte(end)? == Some(b'0') {
         end += 1;
         if !reader
-            .byte(end)
-            .await?
+            .byte(end)?
             .is_some_and(|byte| byte.is_ascii_whitespace())
-            || !skip_bounded_space(reader, start, &mut end, 256).await?
+            || !skip_bounded_space(reader, start, &mut end, 256)?
         {
             return Ok(None);
         }
     }
     // A dictionary cut between the two closing brackets reports its first
     // bracket as the invalid name. Retain that byte in the exact prefix proof.
-    if reader.byte(end).await? == Some(b'>') {
+    if reader.byte(end)? == Some(b'>') {
         end += 1;
-        if !skip_bounded_space(reader, start, &mut end, 256).await? {
+        if !skip_bounded_space(reader, start, &mut end, 256)? {
             return Ok(None);
         }
     }
-    let bytes = reader.bytes(start, (end - start) as usize).await?;
+    let bytes = reader.bytes(start, (end - start) as usize)?;
     let Some((reference, _)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
@@ -605,7 +592,7 @@ pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
             break;
         }
         let prefix = bytes[..boundary].trim_ascii_end();
-        match reader.load_head(start + boundary as u64, None).await {
+        match reader.load_head(start + boundary as u64, None) {
             Ok(_) => {
                 if header_error {
                     let mut fields = prefix
@@ -650,7 +637,7 @@ pub(super) async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
 
 /// Skip whitespace at `end`, failing once it passes `budget` bytes after
 /// `start`.
-async fn skip_bounded_space<S: RangedSource, C: Cancellation>(
+fn skip_bounded_space<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     end: &mut u64,
@@ -658,8 +645,7 @@ async fn skip_bounded_space<S: RangedSource, C: Cancellation>(
 ) -> Result<bool> {
     while *end - start <= budget
         && reader
-            .byte(*end)
-            .await?
+            .byte(*end)?
             .is_some_and(|byte| byte.is_ascii_whitespace())
     {
         *end += 1;
@@ -670,7 +656,7 @@ async fn skip_bounded_space<S: RangedSource, C: Cancellation>(
 /// Compare an interrupted object with a uniquely indexed later copy. A
 /// mismatch defines the only possible boundary; never search a payload for
 /// markers. The caller subsequently proves the copy is reached by the full scan.
-pub(super) async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
+pub(super) fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     candidates: &mut [FragmentCandidate],
@@ -678,9 +664,7 @@ pub(super) async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     if candidates.is_empty() {
         return Ok(None);
     }
-    let bytes = reader
-        .bytes(start, 256.min(reader.range.length - start) as usize)
-        .await?;
+    let bytes = reader.bytes(start, 256.min(reader.range.length - start) as usize)?;
     let Some((reference, header_end)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
@@ -700,12 +684,10 @@ pub(super) async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     if relative <= start || original.range.length > reader.range.length.saturating_sub(relative) {
         return Ok(None);
     }
-    let original_bytes = reader
-        .bytes(
-            relative,
-            original.range.length.min(bytes.len() as u64) as usize,
-        )
-        .await?;
+    let original_bytes = reader.bytes(
+        relative,
+        original.range.length.min(bytes.len() as u64) as usize,
+    )?;
     let shared = bytes
         .iter()
         .zip(&original_bytes)
@@ -721,7 +703,7 @@ pub(super) async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     if !bytes.get(boundary).is_some_and(u8::is_ascii_digit) {
         return Ok(None);
     }
-    match reader.load_head(start + boundary as u64, None).await {
+    match reader.load_head(start + boundary as u64, None) {
         Ok(_) => {
             candidate.used = true;
             Ok(Some(start + boundary as u64))
@@ -747,7 +729,7 @@ fn unique(objects: &[ScannedObject], matches: impl Fn(PdfRef) -> bool) -> Option
 /// Admit only an unfinished `number 0` header immediately followed by its
 /// complete same-reference object, or exactly repeating an already indexed
 /// header. No object body is discarded or searched.
-async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
+fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     error: &Error,
@@ -767,7 +749,7 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     if end <= start || end - start > 64 {
         return Ok(None);
     }
-    let bytes = reader.bytes(start, (end - start) as usize).await?;
+    let bytes = reader.bytes(start, (end - start) as usize)?;
     let prefix = bytes.trim_ascii_end();
     let mut fields = prefix
         .split(u8::is_ascii_whitespace)
@@ -776,7 +758,7 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     if fields.next() != Some(b"0".as_slice()) || fields.next().is_some() {
         return Ok(None);
     }
-    let head = match reader.load_head(end, None).await {
+    let head = match reader.load_head(end, None) {
         Ok(head) => head,
         Err(Error::Pdf {
             kind: PdfErrorKind::Malformed,
@@ -795,9 +777,8 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     }) else {
         return Ok(None);
     };
-    let original_prefix = reader
-        .bytes(original.range.offset - reader.range.offset, prefix.len())
-        .await?;
+    let original_prefix =
+        reader.bytes(original.range.offset - reader.range.offset, prefix.len())?;
     Ok((original_prefix == prefix).then_some(end))
 }
 
@@ -806,7 +787,7 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
 /// including stream dictionaries before their payload. The exact shared prefix
 /// and trailing whitespace define the boundary without a marker search. The
 /// main loop must then parse a complete next object and validate all links.
-async fn known_prefix_end<S: RangedSource, C: Cancellation>(
+fn known_prefix_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     error: &Error,
@@ -828,7 +809,7 @@ async fn known_prefix_end<S: RangedSource, C: Cancellation>(
         return Ok(None);
     }
     let amount = 256.min(reader.range.length - start) as usize;
-    let bytes = reader.bytes(start, amount).await?;
+    let bytes = reader.bytes(start, amount)?;
     let Some((reference, _)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
@@ -836,7 +817,7 @@ async fn known_prefix_end<S: RangedSource, C: Cancellation>(
         return Ok(None);
     };
     let original_start = original.range.offset - reader.range.offset;
-    let original_head = reader.load_head(original_start, Some(reference)).await?;
+    let original_head = reader.load_head(original_start, Some(reference))?;
     let integer = original_head
         .scalar
         .as_ref()
@@ -868,7 +849,7 @@ async fn known_prefix_end<S: RangedSource, C: Cancellation>(
 
 /// A partial integer-object header may precede its complete copy. Require
 /// the same reference and measured length as the most recently framed stream.
-async fn orphan_length_end<S: RangedSource, C: Cancellation>(
+fn orphan_length_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     expected: Option<(PdfRef, u64)>,
@@ -877,7 +858,7 @@ async fn orphan_length_end<S: RangedSource, C: Cancellation>(
         return Ok(None);
     };
     let amount = 256.min(reader.range.length - start) as usize;
-    let bytes = reader.bytes(start, amount).await?;
+    let bytes = reader.bytes(start, amount)?;
     for split in 1..bytes.len() {
         if !bytes[split - 1].is_ascii_whitespace() || !bytes[split].is_ascii_digit() {
             continue;
@@ -912,26 +893,24 @@ async fn orphan_length_end<S: RangedSource, C: Cancellation>(
 /// Recognize a partial known object followed by an exact copy of a
 /// previously indexed integer. Only inspect the bounded malformed-object
 /// boundary; never search inside a successfully framed stream payload.
-pub(super) async fn replay_end<S: RangedSource, C: Cancellation>(
+pub(super) fn replay_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     objects: &[ScannedObject],
     lengths: &BTreeMap<PdfRef, u64>,
 ) -> Result<Option<u64>> {
     let amount = 256.min(reader.range.length - start) as usize;
-    let bytes = reader.bytes(start, amount).await?;
+    let bytes = reader.bytes(start, amount)?;
     let Some((reference, header_end)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
     let Some(original) = unique(objects, |item| item == reference) else {
         return Ok(None);
     };
-    let original_bytes = reader
-        .bytes(
-            original.range.offset - reader.range.offset,
-            original.range.length.min(amount as u64) as usize,
-        )
-        .await?;
+    let original_bytes = reader.bytes(
+        original.range.offset - reader.range.offset,
+        original.range.length.min(amount as u64) as usize,
+    )?;
     let mut result = None;
     for split in header_end + 1..bytes.len() {
         if !bytes[split - 1].is_ascii_whitespace() || !bytes[split].is_ascii_digit() {
@@ -961,9 +940,7 @@ pub(super) async fn replay_end<S: RangedSource, C: Cancellation>(
         if scalar.range.length != end as u64 {
             continue;
         }
-        let scalar_bytes = reader
-            .bytes(scalar.range.offset - reader.range.offset, end)
-            .await?;
+        let scalar_bytes = reader.bytes(scalar.range.offset - reader.range.offset, end)?;
         if bytes[split..split + end] != scalar_bytes {
             continue;
         }
@@ -1017,8 +994,8 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
         self.source.size()
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let count = self.source.read_at(offset, destination).await?;
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let count = self.source.read_at(offset, destination)?;
         let count = checked_read_count(count, destination.len(), OVERREAD)?;
         let end = offset.saturating_add(count as u64);
         // The fragment scan records patches in ascending source order. Most
@@ -1057,14 +1034,14 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
 
 /// Preserve page geometry and parentage while removing all rendering
 /// dependencies. Only valid page boxes, rotation and user unit are kept.
-pub(super) async fn blank_fragment_page<S: RangedSource, C: Cancellation>(
+pub(super) fn blank_fragment_page<S: RangedSource, C: Cancellation>(
     source: &mut S,
     object: FragmentObject,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Vec<u8>> {
     let mut reader = Reader::new(source, object.range, limits, cancellation)?;
-    let head = reader.load_head(0, Some(object.reference)).await?;
+    let head = reader.load_head(0, Some(object.reference))?;
     let failure = || {
         reader.malformed(
             0,
@@ -1129,7 +1106,7 @@ pub(super) async fn blank_fragment_page<S: RangedSource, C: Cancellation>(
 /// dependencies were damaged or are missing, keeping its geometry, and drop
 /// the damaged objects. Returns the appended page bodies, which start at
 /// `source.size()`, and the omitted pages in table order.
-pub(crate) async fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
+pub(crate) fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
     source: &mut S,
     metadata: &CajMetadata,
     scan: &mut super::FragmentScan,
@@ -1250,8 +1227,7 @@ pub(crate) async fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
         let Some(&offset) = failed.get(&reference) else {
             continue;
         };
-        let replacement =
-            blank_fragment_page(&mut patched, scanned.object, limits, cancellation).await?;
+        let replacement = blank_fragment_page(&mut patched, scanned.object, limits, cancellation)?;
         scanned.object.range = crate::pdf::append_replacement(&mut suffix, base, &replacement)?;
         scanned.inspection = super::inspect_generated_object(&replacement, limits);
         omitted.push(OmittedPage {

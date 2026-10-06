@@ -20,12 +20,13 @@ docker run --rm --read-only \
   ghcr.io/rwv/caj2pdf-rust:v0.4.0 input.caj -o output.pdf
 ```
 
-The mounted directory must be writable by the selected user. Choose temporary
-storage large enough for forward-only input and bounded HN/C8 scratch. A tmpfs
-counts against container/host memory; for large inputs, bind-mount a private disk
-directory at `/tmp` instead. Container termination or a second interrupt can
-prevent cooperative cleanup; remove abandoned host scratch files when the
-container no longer owns them.
+The mounted directory must be writable by the selected user. Temporary storage
+holds only spooled forward-only input (stdin); conversions create no other
+temporary files. A tmpfs counts against container/host memory; for large stdin
+inputs, bind-mount a private disk directory at `/tmp` instead. Container
+termination or a second interrupt can prevent cooperative cleanup; remove
+abandoned host spool or staged output files when the container no longer owns
+them.
 
 For stdin/stdout (binary output stays on stdout):
 

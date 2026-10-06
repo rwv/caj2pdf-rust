@@ -1,244 +1,131 @@
 # Bounded I/O architecture
 
-This note records the I/O contract chosen in
-[issue #4](https://github.com/rwv/caj2pdf-rust/issues/4). It is the contract
-for later format parsers and PDF writers. Issue #4 provides adapters and a
-bounded read/write proof of concept; it does not implement document conversion.
+The I/O contract was first chosen in
+[issue #4](https://github.com/rwv/caj2pdf-rust/issues/4) and made synchronous
+in [issue #355](https://github.com/rwv/caj2pdf-rust/issues/355).
 
-## Decision
+## Contract
 
-The core accepts a **sized random-access source** and a **sequential output
-sink**. Bounded means capped by `Limits`, not spooled: the core never reads a
-document whole, but one image payload, one symbol dictionary or one page
-bitmap may be held in memory. Spooling to temporary storage is a platform
-adapter's job for forward-only input, not a core requirement for decoding
-(issue #346 records the change from the earlier stricter reading). Input records can refer to earlier or later offsets, while PDF bytes
-can be emitted in order. A source read names an absolute byte offset and
-returns only the requested range. The sink writes in order and does not expose
-seek. The adapters accept borrowed handles, so callers can retain ownership.
+The core is synchronous. It reads a **sized random-access source** and writes
+to any [`std::io::Write`](https://doc.rust-lang.org/std/io/trait.Write.html):
 
-`RangedSource::size()` is a stable `u64` snapshot for one operation, and its
-async `read_at(offset, destination)` may return a short read. The async
-`SequentialSink::write(bytes)` may make partial progress; `flush()` completes
-the operation. `Cancellation::is_cancelled()` is polled between I/O calls.
-The native `SeekableSource` snapshots the size of a `Read + Seek` handle and
-restores its original position during construction. `WriteSink` wraps any
-`Write`, including a caller-owned borrowed handle.
+- `RangedSource::size()` is a stable `u64` snapshot for one operation;
+  `read_at(offset, destination)` reads at an absolute offset and may return a
+  short read. A zero-byte read before the known end is a truncated-input
+  error. The core never reads a document whole.
+- Output bytes are written in order; the core never seeks its output. A
+  writer may accept fewer bytes than offered. The core flushes once, after
+  the last byte.
+- `Cancellation::is_cancelled()` is checked between rows, pages and I/O
+  chunks. Cancellation returns a distinct error; it does not undo bytes
+  already written. Callers that need atomic path output stage it outside the
+  core and commit it only after success (the CLI does).
 
-The core contract is asynchronous. On native Rust, adapters implement it over
-`Read + Seek` and `Write` without a browser or Node.js dependency. JavaScript
-drives a pinned Rust future through a dependency-free raw WASM ABI: it polls
-until Rust requests a read, write, or flush, awaits that operation, supplies
-its bounded result, and polls again. The platform-neutral
-[`engine`](../crates/caj2pdf-wasm/src/engine.rs) owns that future: it detects
-the input format from its leading signature with the core's
-`detect_source` (shared with the CLI) and runs the core PDF, CAJ, or
-KDH engine (issue #13). A native caller
-can drive its future with an executor of its choice; the core does not choose
-an executor.
+Bounded means capped by `Limits`, not spooled. One image payload, one symbol
+dictionary or one page bitmap may be held in memory, each read once and
+capped by `max_allocation_bytes`; HN/C8 bitmaps live in memory and no
+conversion creates a temporary file. The default limits are 8 GiB input,
+16 GiB output, 64 MiB for any single allocation (at most 256 MiB), and
+100,000 pages or bookmarks. Reads and writes are at most 1 MiB per call; the
+default chunk is 256 KiB. Memory budgets also include retained indexes,
+bookmarks and decoder state.
 
-For native HN/C8 bitmap storage, `native::FileScratch::new(file, max_bytes)`
-adopts a caller-created regular file and implements `RandomAccessScratch`.
-The caller supplies a read/write handle and grants exclusive access during
-conversion. Resizing is capped; positioned requests must fit both the declared
-file extent and `MAX_IO_CHUNK`. The adapter allocates no image buffer and
-preserves short I/O and OS errors. `into_inner()` returns the handle.
-Dropping closes it but does not delete its path: the CLI or embedding caller
-owns temporary-file creation/unlinking. These blocking operations suit native
-file adapters; the asynchronous browser/Node bridge remains separate.
-The CLI uses this adapter for its four reusable type-3 stores (three symbol
-stores and the text scratch); type-0 and JPEG images stream without a store.
-This storage API does not resolve codec-state distribution or enable HN/C8
-CLI/JS routing on its own; those remain #10 work.
+Format engines are plain functions over `RangedSource`, `Write` and
+`Cancellation`. Bookmark visits use a `BookmarkVisitor` rather than a
+whole-outline vector. Conversion returns a `ConversionReport` with byte, page
+and bookmark counts; inspection returns a bounded `DocumentInfo`. The core
+`Error` distinguishes unsupported format, invalid input, truncated input,
+resource limit, I/O failure, cancellation and located format errors.
 
-The WASM instance permits one active operation. A fixed staging allocation
-holds at most one configured chunk. The JS driver reads the requested range,
-copies only that chunk to WASM memory, and resumes the future. On output, it
-awaits the sink's accepted bytes or flush before resuming. The Rust future
-owns its source and sink adapters, so it can remain pinned across polls
-without a self-referential struct or unsafe Rust code. The ABI also exposes
-cancellation, a typed error category, byte counters, and reset. Each caller
-using the raw ABI must reset the engine after completion or failure; the
-JavaScript driver in [`js/io.mjs`](../js/io.mjs) does this in a `finally`
-block.
-
-## Bounds and progress
-
-The initial I/O target is at most **1 MiB per read or write call**. The
-default working chunk is 256 KiB. The core checks source ranges using checked
-arithmetic and enforces configured limits before allocating or requesting
-data. The default limits are 8 GiB input, 16 GiB output, 64 MiB for any single
-allocation, and 100,000 pages or bookmarks. Callers can set lower limits.
-A source may return fewer bytes than requested; a zero-byte read before the
-known end is a truncated-input error. A sink may accept fewer bytes than
-offered; writing continues until the chunk is complete or returns an error.
-The core copy helper requests the next chunk only after the previous write
-has completed. It reuses one Rust chunk buffer; JavaScript and WASM boundary
-copies can temporarily hold additional copies of that same bounded chunk.
-Later conversion memory also includes format-specific indexes and decoder
-state.
-
-Cancellation is checked at I/O boundaries. A caller can stop before another
-read or write. The JavaScript source and sink adapters check for an aborted
-operation before and after their awaited calls. Cancellation returns a
-distinct error; it does not promise to undo bytes already written.
-Callers that need atomic path output must stage it outside the core and commit
-it only after success.
-
-## Platform adapters
+## Adapters
 
 | Environment | Input | Output | Forward-only input |
 | --- | --- | --- | --- |
-| Native Rust | Borrowed or owned `Read + Seek` with a known size | Borrowed or owned `Write`; no output seek | Must be spooled by a caller to seekable temporary storage or rejected explicitly. |
-| Browser | `blobSource(blob)` uses `slice(start, end)` and awaits `arrayBuffer()` for that slice only | `webWritableSink(writer)` awaits each `WritableStream` write and leaves the writer open | `convertReadableStream` spools to a bounded Origin Private File System file and removes it; without OPFS writes it rejects with `RANDOM_ACCESS_REQUIRED`. |
-| Node.js 22+ | `fileHandleSource(handle)` snapshots size and uses BigInt positioned reads on a caller-owned file handle | `nodeWritableSink(writable)` awaits each write callback and leaves the stream open | `convertReadable` spools a Node or Web stream to a bounded private temporary file and removes it. |
+| Native Rust | `SeekableSource` over any `Read + Seek` (`File`, `Cursor<Vec<u8>>`), or `&[u8]` | Any `Write` (`File`, `BufWriter`, `Vec<u8>`) | The caller spools it (the CLI spools standard input to an anonymous temporary file) or rejects it. |
+| Browser | `Blob`/`File`, read in the Worker with `FileReaderSync`; OPFS `FileSystemFileHandle`, read through a synchronous access handle | `webWritableSink(writer)` or any `{ writeChunk, flush }` sink on the calling thread | `convertReadableStream` spools to a bounded OPFS file and removes it; without OPFS writes it rejects with `RANDOM_ACCESS_REQUIRED`. |
+| Node.js 22+ | File path, `file:` URL or descriptor, read in the Worker with `fs.readSync`; `Blob`, read on the calling thread | `nodeWritableSink(writable)` or any sink | `convertReadable` spools to a bounded private temporary file and removes it. |
 
-Browser `Blob.slice()` produces a subset of the input; it does not require a
-whole-Blob `arrayBuffer()` call. A Blob's numeric size must fit JavaScript's
-safe integer range before it can be represented exactly. Node.js 22 or newer
-supports `FileHandle.read({ position: bigint, ... })`, allowing positioned
-reads without converting a `u64` offset to a JavaScript number. The Node
-adapter leaves the caller's handle open. JavaScript adapters belong outside
-the core crate.
+`SeekableSource` snapshots the size of its handle. Adapters borrow or own
+their handles; JavaScript inputs stay caller-owned and must stay unchanged
+until the operation settles.
 
-`convert` in [`js/io.mjs`](../js/io.mjs) drives the raw WASM bridge against
-a source exposing `{ size: bigint, readAt(offset, length, signal) }` and a
-sink exposing `writeChunk(bytes, signal)` and `flush(signal)`. It awaits each
-bounded read and write; no whole-document byte array crosses the WASM
-boundary. `js/node.mjs` and `js/browser.mjs` add platform adapters and
-spools. A plain forward-only stream lacks the required size and `readAt`
-method, so it is converted only through a bounded spool on durable
-temporary storage and is never buffered whole in memory. The
-[package guide](../js/README.md) documents the API, limits, and browser
-storage support.
+## Worker model
 
-`AbortSignal` is checked before and after each awaited JavaScript operation,
-and the supplied adapters race pending reads and writes against it, so a
-stalled operation stops waiting at once. The abandoned operation may still
-finish, but only into its own copied buffer. The driver then cancels and
-resets the Rust engine without starting another I/O request. Partial output
-remains the caller's responsibility.
+The WASM module exports synchronous operations. Each JavaScript `convert` or
+`inspect` call starts a fresh Worker (`node:worker_threads` in Node.js), which
+instantiates the compiled `WebAssembly.Module` and calls one export to
+completion. The module imports five host functions:
 
-## Error and operation contract
+| Import | Meaning |
+| --- | --- |
+| `caj2pdf_read(resource, offset, ptr, len) -> i32` | Copy at most `len` bytes of resource 0 (the document) or 1–8 (C8 fonts) into Rust memory; count or negative failure. Offsets are exact below 2^53. |
+| `caj2pdf_write(ptr, len) -> i32` | Take Rust-owned bytes; the Worker copies them and returns the count. |
+| `caj2pdf_flush() -> i32` | Output barrier after the last write. |
+| `caj2pdf_progress(done, total)` | Thousandths of the document read so far. |
+| `caj2pdf_cancelled() -> i32` | Nonzero once the caller aborted. |
 
-The core `Error` distinguishes unsupported format, invalid input, truncated
-input, resource limit, I/O failure, cancellation, and located format errors.
-Format engines are plain async functions over `RangedSource` and
-`SequentialSink`. Bookmark visits use a `BookmarkVisitor` recipient rather than
-a whole-outline vector. Conversion returns a `ConversionReport` with
-input/output byte counts and page/bookmark counts; inspection returns a bounded
-`DocumentInfo`. No operation accepts a whole-document byte array as its
-primary interface. The native `SeekableSource` and `WriteSink` adapters borrow
-`Read + Seek` and `Write` handles and require no output seek.
+The exports are `caj2pdf_convert` and `caj2pdf_inspect` (status 0 done,
+1 failed, 2 invalid configuration, 3 busy), C8 font registration, the error
+kind and message, report and inspection getters, and `caj2pdf_reset`. A
+session holds one operation and its result until reset. No staging buffer or
+allocator export is needed: reads land directly in Rust-owned slices and
+writes pass pointers that the Worker copies before returning.
+
+The Worker posts each output chunk (a transferable copy), each flush and
+progress report to the calling thread, which awaits the caller's sink in
+order; the operation settles after the final flush. When
+`SharedArrayBuffer` is available (always in Node.js; in browsers when the
+page is cross-origin isolated), a shared `Int32Array` carries cancellation,
+sink acknowledgements (the Worker pauses after eight unacknowledged chunks)
+and reads the calling thread serves. An abort then stops the Worker at its
+next checkpoint; it closes its inputs before the promise rejects. Without
+shared memory, progress and output still flow, but an abort terminates the
+Worker at once and output is not throttled by the sink.
+
+## Native C8 font resources
+
+`C8FontSources` gives the core up to eight explicit ranged resources and role
+indices; repeated roles can share an embedded font. Each source is read for
+metadata before the first page and again, with only the drawn glyphs'
+outlines, after the last page. JavaScript exposes named roles under
+`hnc8.fonts` (inputs of the same kinds as the document) and deduplicates
+identical inputs; it never discovers fonts or buffers a whole font.
+
+Before converting, a raw host registers each font with
+`caj2pdf_c8_add_font(size, face)` (read resource 1–8, 0 on rejection), assigns
+zero-based role indices with `caj2pdf_c8_set_fonts(cjk, latin, alternate,
+decoration, alias)` or `caj2pdf_c8_set_fonts_with_symbols(..., symbols)`
+(`0xffffffff` marks an absent optional role), and supplies the optional
+state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
+index)`. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
+glyph missing from that font fails with its location.
+
+The CLI and the WASM engine both call `hnc8::convert_document_pdf`, which
+chooses the composer once per document: `uses_native_text` reads the header
+and walks page rows and image descriptors to the first page with text, never
+reading image payloads. When image composition is chosen, the fonts stay
+unread.
 
 ## Verification
 
 ```sh
-cargo test --locked -p caj2pdf-core -p caj2pdf-wasm
-cargo check --locked -p caj2pdf-core --tests --examples --target wasm32-unknown-unknown
+cargo test --locked --workspace
 cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+node js/scripts/copy-wasm.mjs
 node --test js/test/*.test.mjs
 ```
 
-The Rust engine tests drive the same poll/resume state machine natively.
-The JavaScript tests instantiate the actual WASM module. They convert
-synthetic PDF, CAJ, and KDH inputs through bounded `Blob.slice()` reads and a
-real Node file handle, and exercise partial I/O, backpressure, spooling,
-cancellation, and typed errors. The browser adapters run on Node's Blob and
-Web Streams implementations, and `js/test/browser.test.mjs` also runs the
-browser entry point in headless Chromium, including the real OPFS spool (see
-[the JavaScript package guide](../js/README.md)). Firefox and Safari are not
-tested automatically. No fixture here is an external CAJ document.
-
-Memory budgets for format engines must include retained indexes, bookmarks,
-and decoder state in addition to the I/O chunk.
+The WASM engine tests call the session directly with an in-memory host. The
+JavaScript tests run the actual module through the raw ABI and through the
+public Worker API over paths, descriptors, Blobs and real OPFS handles, in
+Node.js and headless Chromium (cross-origin isolated and not), including
+short I/O, cancellation, spooling and typed errors. Firefox and Safari are
+not tested automatically.
 
 ## References
 
 - [Rust `Read`, `Seek`, and `Write`](https://doc.rust-lang.org/std/io/)
-- [Browser `Blob.slice()`](https://developer.mozilla.org/en-US/docs/Web/API/Blob/slice)
-- [Node.js positioned `FileHandle.read`](https://nodejs.org/api/fs.html#filehandlereadbuffer-options)
-- [Browser writable-stream writer](https://developer.mozilla.org/en-US/docs/Web/API/WritableStreamDefaultWriter/write)
-
-## Native C8 font resources
-
-`C8FontSources` gives the core up to eight explicit ranged resources and
-role indices. Repeated roles can share an embedded font. Each source is read
-for metadata before the first page and again, with only the drawn glyphs'
-outlines, after the last page, so it must stay readable and unchanged until
-conversion completes. JavaScript exposes
-named roles under `hnc8.fonts` and deduplicates identical source objects.
-It does not discover fonts, collect a whole font in a JavaScript buffer,
-or create another scheduler. Existing spool helpers can turn a forward-only
-font into a caller-owned ranged source with bounded temporary storage.
-
-The CLI and the WASM engine both call `hnc8::convert_document_pdf`, which
-chooses the composer once per document. With fonts, `uses_native_text`
-reads the header (a document outside native composition's variants and
-rendering modes stops there), then walks page rows and image descriptors
-with one cursor to the first page with text. HN-B text selects native
-composition; C8 text is classified with the bounded `inspect_text` readers
-(the default `TextBudget`). Image payloads are never read and no text is
-retained. When image composition is chosen, the fonts stay unread.
-
-The WASM host registers resource sizes before the first poll using
-`caj2pdf_c8_add_font(size, face)` (`face` selects a TrueType collection face, 0 otherwise; returns IDs 1–8; 0 means rejection), then assigns zero-based role
-indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
-A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
-identifies each ordinary read: 0 is the document, 1–8 are registered fonts.
-The staging buffer, pending-request slot, completion and cancellation rules
-are shared with existing I/O. Register all sources before assigning roles. Registration is rejected after
-roles are assigned or polling starts,
-excess resources are rejected, and sizes/roles are validated.
-
-**Unstable Rust API change:** `engine::Request::Read` now includes a
-`resource: u32` field. Native hosts matching or constructing that variant
-must handle it. Raw hosts using fonts must route reads by the new resource
-getter; older hosts that register no fonts continue receiving document reads.
-Use matching JS/WASM artifacts for the new font API. This does not change
-the core `RangedSource` trait or existing image-only conversion options.
-
-HN-B mode 0 can additionally use a semantic `symbols` font for spaces
-and punctuation. It is optional. Absent optional roles, including the
-alternate Latin role (`0xffffffff` in `caj2pdf_c8_set_fonts*`), use the
-documented CJK/Latin fallback of `C8PageFonts`; a glyph missing from the
-fallback font still fails with its location.
-Raw WASM hosts supplying it call
-`caj2pdf_c8_set_fonts_with_symbols(cjk, latin, alternate, decoration, alias, symbols)`.
-The final argument is a zero-based resource index, or `0xffffffff` for absent.
-The original five-argument export remains available and marks symbols absent.
-JavaScript selects the new export only when `hnc8.fonts.symbols` is supplied.
-
-**Unstable Rust API change:** `C8PageFonts` gains `symbols: Option<usize>`;
-existing struct literals should set `None` unless supplying the resource.
-`Engine::set_c8_fonts` gains a final symbol index (`u32::MAX` for absent).
-Font resource capacity is eight; the four type-3 scratch stores are unchanged.
-
-HN-B/C8 state `801d/3` selects an explicitly supplied `latinState3` resource.
-Register it with `caj2pdf_c8_set_latin_state3(index)` after the base roles and
-before polling. The index is zero-based; omit the call when absent. Invalid,
-duplicate or late registration fails. Existing font exports remain unchanged.
-The state fails explicitly when its resource is absent. Original controls
-establish the Latin resource change and matching bounds for the tested style;
-they do not identify a vendor font or establish every punctuation mapping.
-
-**Unstable Rust API change:** `C8PageFonts` also gains
-`latin_state3: Option<usize>`; existing literals should use `None` unless
-supplying that role. `Engine::set_c8_fonts` retains its current signature;
-`Engine::set_c8_latin_state3` supplies the optional additional role.
-
-### C8 extended Latin resources
-
-The optional `latin_state28` and `latin_state31` Rust roles, JS `latinState28`
-and `latinState31`, and CLI `--font-latin-state28` / `--font-latin-state31`
-carry distinct caller-supplied ranged fonts for verified C8 states 28 and 31.
-Register these after base WASM roles with
-`caj2pdf_c8_set_latin_state(state, index)`; only states 3, 28 and 31 are
-accepted, once each, before polling. The existing state-3 and base registration
-exports retain their signatures. Missing required roles fail explicitly.
-
-This unstable Rust API adds two `Option<usize>` fields to `C8PageFonts`.
-Existing literal initializers should add `latin_state28: None` and
-`latin_state31: None` unless those resources are supplied. The resource limit
-is eight; shared source identities reuse existing embedding/spooling. Font
-selection never opens an embedded filename or performs system discovery.
+- [`FileReaderSync`](https://developer.mozilla.org/en-US/docs/Web/API/FileReaderSync)
+- [`FileSystemSyncAccessHandle`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemSyncAccessHandle)
+- [Node.js `worker_threads`](https://nodejs.org/api/worker_threads.html)
+- [Cross-origin isolation and `SharedArrayBuffer`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements)

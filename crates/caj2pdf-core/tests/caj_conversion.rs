@@ -5,33 +5,21 @@
 //! public observations registered in `docs/research/caj-format.md`.
 
 use caj2pdf_core::{
-    ConversionOptions, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    ConversionOptions, Error, Limits, NeverCancel, RangedSource,
     caj::convert_caj,
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{PdfIndex, PdfRange, PdfRef},
 };
 use std::{
     fs::{OpenOptions, remove_file},
-    future::Future,
     io::{Cursor, Write},
     path::PathBuf,
-    pin::pin,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
 
 static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 type CajFieldCase = (&'static str, Vec<u8>, u64, Option<u32>, &'static str);
-
-fn run_native<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native I/O unexpectedly yielded"),
-    }
-}
 
 struct TempPdf(PathBuf);
 
@@ -295,13 +283,7 @@ fn convert(
 ) -> Result<(Vec<u8>, caj2pdf_core::ConversionReport), Error> {
     let mut source = SeekableSource::new(Cursor::new(input))?;
     let mut output = Vec::new();
-    let report = run_native(convert_caj(
-        &mut source,
-        &mut WriteSink::new(&mut output),
-        options,
-        limits,
-        &NeverCancel,
-    ))?;
+    let report = convert_caj(&mut source, &mut &mut output, options, limits, &NeverCancel)?;
     Ok((output, report))
 }
 
@@ -317,11 +299,7 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
             self.bytes.len() as u64
         }
 
-        async fn read_at(
-            &mut self,
-            offset: u64,
-            destination: &mut [u8],
-        ) -> caj2pdf_core::Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
             self.largest_request = self.largest_request.max(destination.len());
             let start = offset as usize;
             let count = destination
@@ -340,15 +318,15 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
         flushed: bool,
     }
 
-    impl SequentialSink for ShortSink {
-        async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    impl Write for ShortSink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             self.largest_request = self.largest_request.max(bytes.len());
             let count = bytes.len().min(2);
             self.bytes.extend_from_slice(&bytes[..count]);
             Ok(count)
         }
 
-        async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        fn flush(&mut self) -> std::io::Result<()> {
             self.flushed = true;
             Ok(())
         }
@@ -363,13 +341,13 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
         io_chunk_bytes: 3,
         ..Limits::default()
     };
-    let report = run_native(convert_caj(
+    let report = convert_caj(
         &mut source,
         &mut sink,
         ConversionOptions::default(),
         &limits,
         &NeverCancel,
-    ))
+    )
     .expect("short ranged reads and sequential writes must convert CAJ");
     assert!(source.largest_request <= 3);
     assert!(sink.largest_request <= 3);
@@ -382,13 +360,13 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
 fn rejected_without_output(input: &[u8], limits: &Limits) -> Error {
     let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
     let mut output = Vec::new();
-    let error = run_native(convert_caj(
+    let error = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         limits,
         &NeverCancel,
-    ))
+    )
     .expect_err("invalid input must be rejected");
     assert!(output.is_empty(), "partial PDF was written before: {error}");
     error
@@ -403,11 +381,7 @@ impl RangedSource for OverreportingSource {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        _offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, _offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         Ok(destination.len() + 1)
     }
 }
@@ -432,7 +406,7 @@ fn assert_caj_error(
 fn inspect(output: &[u8]) -> PdfIndex {
     let mut source = SeekableSource::new(Cursor::new(output)).unwrap();
     let size = source.size();
-    run_native(PdfIndex::open(
+    PdfIndex::open(
         &mut source,
         PdfRange {
             offset: 0,
@@ -440,7 +414,7 @@ fn inspect(output: &[u8]) -> PdfIndex {
         },
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap()
 }
 
@@ -562,13 +536,13 @@ fn missing_page_object_is_reported_before_writing() {
     put_u32(&mut tiny.bytes, tiny.table_start + 2 * 12 + 8, 777);
     let mut source = SeekableSource::new(Cursor::new(tiny.bytes.as_slice())).unwrap();
     let mut output = Vec::new();
-    let result = run_native(convert_caj(
+    let result = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ));
+    );
     assert!(
         matches!(&result, Err(Error::Caj { offset, .. }) if *offset == tiny.bytes.len() as u64),
         "{result:?}"
@@ -835,13 +809,13 @@ fn unrelated_missing_resource_reference_fails_before_sink_output() {
     let input = fragment_caj(&body, &[9]);
     let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
     let mut output = Vec::new();
-    let result = run_native(convert_caj(
+    let result = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ));
+    );
     assert!(
         matches!(
             &result,
@@ -1095,13 +1069,13 @@ fn bounded_page_tree_repair_leaves_sink_empty() {
 fn rejects_a_ranged_source_that_reports_more_bytes_than_requested() {
     let mut source = OverreportingSource { size: 4096 };
     let mut output = Vec::new();
-    let error = run_native(convert_caj(
+    let error = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .expect_err("overreporting source must be rejected");
     assert!(
         matches!(&error, Error::InvalidInput { reason } if reason.contains("more bytes than requested")),
@@ -1875,27 +1849,27 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
     let bytes = fragment_caj(&body, &[1, 2, 3]);
     let mut rejected = Vec::new();
     assert!(
-        run_native(convert_caj(
+        convert_caj(
             &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
-            &mut WriteSink::new(&mut rejected),
+            &mut &mut rejected,
             ConversionOptions::default(),
             &Limits::default(),
             &NeverCancel
-        ))
+        )
         .is_err()
     );
     assert!(rejected.is_empty());
     let mut pdf = Vec::new();
-    let report = run_native(convert_caj(
+    let report = convert_caj(
         &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
-        &mut WriteSink::new(&mut pdf),
+        &mut &mut pdf,
         ConversionOptions {
             allow_damaged: true,
             ..ConversionOptions::default()
         },
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(report.pages_converted, 3);
     assert_eq!(
@@ -1922,16 +1896,16 @@ fn allow_damaged_leaves_valid_caj_bytes_identical() {
     let mut outputs = Vec::new();
     for allow_damaged in [false, true] {
         let mut output = Vec::new();
-        let report = run_native(convert_caj(
+        let report = convert_caj(
             &mut SeekableSource::new(Cursor::new(&input.bytes)).unwrap(),
-            &mut WriteSink::new(&mut output),
+            &mut &mut output,
             ConversionOptions {
                 allow_damaged,
                 ..ConversionOptions::default()
             },
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert!(report.omitted_pages.is_empty());
         outputs.push(output);

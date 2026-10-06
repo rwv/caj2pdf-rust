@@ -10,10 +10,11 @@ use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    RangedSource, Result, SequentialSink, read_exact_at,
+    RangedSource, Result, read_exact_at,
 };
 use flate2::{Compress, Compression, FlushCompress, Status};
 use std::fmt::Write as _;
+use std::io::Write;
 
 // Conservative reservation for flate2's locked miniz_oxide Rust backend:
 // fixed dictionary, code buffer, local output buffer and Huffman tables.
@@ -136,13 +137,13 @@ impl PageImages<'_> {
 /// Streams one bilevel image's rows into an open PDF image stream.
 ///
 /// Obtain it from [`PdfDocument::begin_bilevel_image`], write exactly
-/// `row_stride * pixel_height` bytes through [`SequentialSink::write`], then
+/// `row_stride * pixel_height` bytes through [`Write::write`], then
 /// call [`BilevelImageWriter::finish`]. Writes may split or join rows. Only
 /// row-position state and a fixed-size zlib encoder are retained. Visible row
 /// bytes are compressed incrementally; storage padding is omitted. Dropping
 /// the writer before `finish` leaves the document's stream open, so every
 /// later document operation fails.
-pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
+pub struct BilevelImageWriter<'d, 'a, W: Write, C: Cancellation> {
     document: &'d mut PdfDocument<'a, W, C>,
     object: ObjectId,
     visible: usize,
@@ -176,8 +177,8 @@ impl Zlib {
 
     /// Compress `input`, and with `finish` end the zlib stream. Compression
     /// can consume input before a later output write fails, so a failed call
-    /// cannot be retried; callers must poison their stream.
-    pub(super) async fn write<W: SequentialSink, C: Cancellation>(
+    /// cannot be retried; callers must abandon their stream.
+    pub(super) fn write<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
         mut input: &[u8],
@@ -190,7 +191,7 @@ impl Zlib {
         };
         loop {
             // Also checks cancellation for empty writes and while draining.
-            writer.write_stream_bytes(&[]).await?;
+            writer.write_stream_bytes(&[])?;
             if input.is_empty() && !finish {
                 return Ok(());
             }
@@ -205,7 +206,7 @@ impl Zlib {
                 })?;
             let consumed = (self.encoder.total_in() - before_in) as usize;
             let produced = (self.encoder.total_out() - before_out) as usize;
-            writer.write_stream_bytes(&self.encoded[..produced]).await?;
+            writer.write_stream_bytes(&self.encoded[..produced])?;
             input = &input[consumed..];
             if status == Status::StreamEnd || (!finish && input.is_empty()) {
                 return Ok(());
@@ -219,21 +220,22 @@ impl Zlib {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'_, '_, W, C> {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl<W: Write, C: Cancellation> Write for BilevelImageWriter<'_, '_, W, C> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if len_u64(bytes.len()) > self.remaining {
             return Err(Error::InvalidInput {
                 reason: "bilevel image rows exceed the declared height",
-            });
+            }
+            .into());
         }
         let mut done = 0;
         while done < bytes.len() {
             let row_left = self.stride - self.column;
             let count = row_left.min(bytes.len() - done);
             let kept = count.min(self.visible.saturating_sub(self.column));
-            // Padding-only chunks still pass an empty slice, so a poisoned
+            // Padding-only chunks still pass an empty slice, so a failed
             // writer or cancellation is reported for them too.
-            self.encode(&bytes[done..done + kept], false).await?;
+            self.encode(&bytes[done..done + kept], false)?;
             // Account for the bytes only after the document accepted them.
             self.column = (self.column + count) % self.stride;
             self.remaining -= len_u64(count);
@@ -244,7 +246,7 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
 
     /// Does not force a deflate boundary. `finish` drains the encoder, and
     /// [`PdfDocument::finish`] flushes the document sink.
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -270,7 +272,7 @@ impl Deflate {
 
     /// Gather `bytes`, compressing whenever the buffer fills. Output errors
     /// are therefore reported by a later call, at the latest by `finish`.
-    pub(super) async fn put<W: SequentialSink, C: Cancellation>(
+    pub(super) fn put<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
         mut bytes: &[u8],
@@ -280,7 +282,7 @@ impl Deflate {
             self.pending.extend_from_slice(&bytes[..count]);
             bytes = &bytes[count..];
             if self.pending.len() == DEFLATE_PENDING_BYTES {
-                self.zlib.write(writer, &self.pending, false).await?;
+                self.zlib.write(writer, &self.pending, false)?;
                 self.pending.clear();
             }
         }
@@ -288,11 +290,11 @@ impl Deflate {
     }
 
     /// Compress gathered bytes, end the zlib stream and reset for another.
-    pub(super) async fn finish<W: SequentialSink, C: Cancellation>(
+    pub(super) fn finish<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
     ) -> Result<()> {
-        self.zlib.write(writer, &self.pending, true).await?;
+        self.zlib.write(writer, &self.pending, true)?;
         // Ready for the next stream; a failed stream drops its Deflate.
         self.zlib.encoder.reset();
         self.pending.clear();
@@ -300,30 +302,28 @@ impl Deflate {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
-    async fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
+impl<W: Write, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
+    fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
                 reason: "bilevel image cannot continue after compression or output failure",
             });
         }
         self.failed = true;
-        self.zlib
-            .write(&mut self.document.writer, input, finish)
-            .await?;
+        self.zlib.write(&mut self.document.writer, input, finish)?;
         self.failed = false;
         Ok(())
     }
 
     /// Close the image stream after exactly the declared rows were written.
-    pub async fn finish(mut self) -> Result<ImageObject> {
+    pub fn finish(mut self) -> Result<ImageObject> {
         if self.remaining != 0 {
             return Err(Error::InvalidInput {
                 reason: "bilevel image ended before its declared height",
             });
         }
-        self.encode(&[], true).await?;
-        self.document.writer.end_stream().await?;
+        self.encode(&[], true)?;
+        self.document.writer.end_stream()?;
         Ok(ImageObject {
             object: self.object,
         })
@@ -339,7 +339,7 @@ const OVERREAD: &str = "image source reported more bytes than requested";
 /// level, and one open outline item per active outline depth. A caller may
 /// add a bookmark only after its destination page has been emitted. A document
 /// with no pages is rejected by `finish`.
-pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
+pub struct PdfDocument<'a, W: Write, C: Cancellation> {
     writer: PdfWriter<'a, W, C>,
     limits: &'a Limits,
     cancellation: &'a C,
@@ -364,11 +364,11 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     image_page_failed: bool,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// Write the PDF header and reserve the catalog and Pages root.
-    pub async fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
+    pub fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
-        let mut writer = PdfWriter::new(sink, limits, cancellation).await?;
+        let mut writer = PdfWriter::new(sink, limits, cancellation)?;
         let catalog_id = writer.reserve_object()?;
         let pages_root_id = writer.reserve_object()?;
         Ok(Self {
@@ -397,7 +397,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// The input is read by checked ranges and never collected into a complete
     /// image buffer. For reuse and explicit transforms, use [`Self::add_image`]
     /// followed by [`Self::add_placed_page`].
-    pub async fn add_image_page<R: RangedSource>(
+    pub fn add_image_page<R: RangedSource>(
         &mut self,
         source: &mut R,
         offset: u64,
@@ -418,17 +418,14 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         )?;
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
-        self.ensure_leaf().await?;
+        self.ensure_leaf()?;
 
-        let image_id = self
-            .emit_image_xobject(source, offset, length, image)
-            .await?;
+        let image_id = self.emit_image_xobject(source, offset, length, image)?;
         self.push_page(
             &width,
             &height,
             PageImages::Full(&[ImageObject { object: image_id }]),
         )
-        .await
     }
 
     /// Stream one raw/JPEG image XObject without adding a page.
@@ -444,7 +441,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// A preflight refusal leaves the output unchanged and permits a corrected
     /// request. A failure once emission starts requires discarding the partial
     /// PDF; every subsequent document operation, including `finish`, refuses.
-    pub async fn add_image<R: RangedSource>(
+    pub fn add_image<R: RangedSource>(
         &mut self,
         source: &mut R,
         offset: u64,
@@ -466,9 +463,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer.ensure_idle()?;
         self.writer.prepare_objects(2)?;
         self.image_page_failed = true;
-        let object = self
-            .emit_image_xobject(source, offset, length, image)
-            .await?;
+        let object = self.emit_image_xobject(source, offset, length, image)?;
         self.image_page_failed = false;
         Ok(ImageObject { object })
     }
@@ -480,7 +475,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// sequentially with an indirect stream length. No page is added; place it with
     /// [`PdfDocument::add_page`]. The image must be finished before any other
     /// document operation.
-    pub async fn begin_bilevel_image(
+    pub fn begin_bilevel_image(
         &mut self,
         image: BilevelImageSpec,
     ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
@@ -494,8 +489,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             image.pixel_width, image.pixel_height
         );
         self.writer
-            .begin_stream(object, length_id, dictionary.as_bytes())
-            .await?;
+            .begin_stream(object, length_id, dictionary.as_bytes())?;
         Ok(BilevelImageWriter {
             document: self,
             object,
@@ -511,7 +505,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Add a page showing previously finished images and return its zero-based
     /// page index. Each image is scaled to fill the whole page, drawn in
     /// slice order, so a later image paints over an earlier one.
-    pub async fn add_page(&mut self, page: PageSpec, images: &[ImageObject]) -> Result<u32> {
+    pub fn add_page(&mut self, page: PageSpec, images: &[ImageObject]) -> Result<u32> {
         self.ensure_image_page_intact()?;
         if images.is_empty() {
             return Err(Error::InvalidInput {
@@ -522,9 +516,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let height = pdf_page_number(page.height_points)?;
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
-        self.ensure_leaf().await?;
+        self.ensure_leaf()?;
         self.push_page(&width, &height, PageImages::Full(images))
-            .await
     }
 
     /// Add a page drawing reusable images in slice order with explicit CTMs.
@@ -543,7 +536,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// copying the caller's placement slice. Retained metadata is the same as
     /// for [`Self::add_page`]. Actual allocation, I/O, sink or cancellation
     /// failures after emission starts require discarding the partial PDF.
-    pub async fn add_placed_page(
+    pub fn add_placed_page(
         &mut self,
         page: PageSpec,
         placements: &[ImagePlacement],
@@ -571,10 +564,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.reserve_page_index_slot()?;
         self.prepare_page_objects()?;
         self.image_page_failed = true;
-        self.ensure_leaf().await?;
-        let index = self
-            .push_page(&width, &height, PageImages::Placed(placements))
-            .await?;
+        self.ensure_leaf()?;
+        let index = self.push_page(&width, &height, PageImages::Placed(placements))?;
         self.image_page_failed = false;
         Ok(index)
     }
@@ -605,12 +596,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
-    async fn push_page(
-        &mut self,
-        width: &str,
-        height: &str,
-        images: PageImages<'_>,
-    ) -> Result<u32> {
+    fn push_page(&mut self, width: &str, height: &str, images: PageImages<'_>) -> Result<u32> {
         let parent = self
             .leaf
             .as_ref()
@@ -618,7 +604,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 reason: "PDF page-tree leaf is missing",
             })?
             .id;
-        let page_id = self.emit_page(parent, width, height, images).await?;
+        let page_id = self.emit_page(parent, width, height, images)?;
         self.register_page(page_id)
     }
 
@@ -659,17 +645,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ///
     /// A failure after validation, once earlier items may have been closed,
     /// makes later `add_bookmark` and `finish` calls fail.
-    pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
+    pub fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
         self.add_bookmark_with_view(bookmark, BookmarkView::Fit)
-            .await
     }
 
     /// Add an entry with an explicit view, retaining the same bounded outline state.
-    pub async fn add_bookmark_with_view(
-        &mut self,
-        bookmark: Bookmark,
-        view: BookmarkView,
-    ) -> Result<()> {
+    pub fn add_bookmark_with_view(&mut self, bookmark: Bookmark, view: BookmarkView) -> Result<()> {
         self.ensure_image_page_intact()?;
         self.outline.ensure_intact()?;
         let destination = self
@@ -685,31 +666,29 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                     reason: "bookmark count overflows",
                 },
             )?)?;
-        self.outline
-            .add(
-                &mut self.writer,
-                self.limits,
-                usize_from_u32(bookmark.depth),
-                destination,
-                view,
-                bookmark.title,
-            )
-            .await
+        self.outline.add(
+            &mut self.writer,
+            self.limits,
+            usize_from_u32(bookmark.depth),
+            destination,
+            view,
+            bookmark.title,
+        )
     }
 
     /// Write the remaining page tree, outlines, catalog, xref, and trailer.
     ///
     /// Fails without writing if an earlier `add_bookmark` failed after it
     /// began closing outline items.
-    pub async fn finish(self) -> Result<ConversionReport> {
-        self.finish_with_info(&[]).await
+    pub fn finish(self) -> Result<ConversionReport> {
+        self.finish_with_info(&[])
     }
 
     /// Like [`Self::finish`], also writing a document information dictionary
     /// with each present `(key, value)` as a UTF-16BE text string. Keys are
     /// plain names of ASCII letters, digits and `_`. Without a present value,
     /// no dictionary or trailer `/Info` entry is written.
-    pub async fn finish_with_info(
+    pub fn finish_with_info(
         mut self,
         info: &[(&'static str, Option<&str>)],
     ) -> Result<ConversionReport> {
@@ -731,56 +710,48 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 reason: "PDF document requires at least one page",
             });
         }
-        self.close_page_tree().await?;
-        let outline_root = self.outline.finish(&mut self.writer).await?;
+        self.close_page_tree()?;
+        let outline_root = self.outline.finish(&mut self.writer)?;
 
-        self.writer.begin_object(self.catalog_id).await?;
-        self.writer
-            .write_bytes(
+        self.writer.begin_object(self.catalog_id)?;
+        self.writer.write_bytes(
+            format!(
+                "<< /Type /Catalog /Pages {} 0 R",
+                self.pages_root_id.number()
+            )
+            .as_bytes(),
+        )?;
+        if let Some(outline_root) = outline_root {
+            self.writer.write_bytes(
                 format!(
-                    "<< /Type /Catalog /Pages {} 0 R",
-                    self.pages_root_id.number()
+                    " /Outlines {} 0 R /PageMode /UseOutlines",
+                    outline_root.number()
                 )
                 .as_bytes(),
-            )
-            .await?;
-        if let Some(outline_root) = outline_root {
-            self.writer
-                .write_bytes(
-                    format!(
-                        " /Outlines {} 0 R /PageMode /UseOutlines",
-                        outline_root.number()
-                    )
-                    .as_bytes(),
-                )
-                .await?;
+            )?;
         }
-        self.writer.write_bytes(b" >>").await?;
-        self.writer.end_object().await?;
+        self.writer.write_bytes(b" >>")?;
+        self.writer.end_object()?;
 
         let info_id = if info.iter().any(|(_, value)| value.is_some()) {
             let id = self.writer.reserve_object()?;
-            self.writer.begin_object(id).await?;
-            self.writer.write_bytes(b"<<").await?;
+            self.writer.begin_object(id)?;
+            self.writer.write_bytes(b"<<")?;
             for (key, value) in info {
                 if let Some(value) = value {
                     self.writer
-                        .write_bytes(format!(" /{key} <FEFF").as_bytes())
-                        .await?;
-                    write_utf16_hex(&mut self.writer, value).await?;
-                    self.writer.write_bytes(b">").await?;
+                        .write_bytes(format!(" /{key} <FEFF").as_bytes())?;
+                    write_utf16_hex(&mut self.writer, value)?;
+                    self.writer.write_bytes(b">")?;
                 }
             }
-            self.writer.write_bytes(b" >>").await?;
-            self.writer.end_object().await?;
+            self.writer.write_bytes(b" >>")?;
+            self.writer.end_object()?;
             Some(id)
         } else {
             None
         };
-        let output_bytes_written = self
-            .writer
-            .finish_with_info(self.catalog_id, info_id)
-            .await?;
+        let output_bytes_written = self.writer.finish_with_info(self.catalog_id, info_id)?;
         Ok(ConversionReport {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written,
@@ -817,7 +788,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         )
     }
 
-    async fn ensure_leaf(&mut self) -> Result<()> {
+    fn ensure_leaf(&mut self) -> Result<()> {
         if self
             .leaf
             .as_ref()
@@ -826,7 +797,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             return Ok(());
         }
         if let Some(leaf) = self.leaf.take() {
-            self.emit_page_node(leaf).await?;
+            self.emit_page_node(leaf)?;
         }
         if self
             .middle
@@ -835,7 +806,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         {
             if let Some(middle) = self.middle.take() {
                 let id = middle.id;
-                self.emit_page_node(middle).await?;
+                self.emit_page_node(middle)?;
                 push_child(&mut self.root_children, id, self.limits, ROOT_CHILDREN)?;
             }
             let id = self.writer.reserve_object()?;
@@ -860,52 +831,46 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
-    async fn close_page_tree(&mut self) -> Result<()> {
+    fn close_page_tree(&mut self) -> Result<()> {
         if let Some(leaf) = self.leaf.take() {
-            self.emit_page_node(leaf).await?;
+            self.emit_page_node(leaf)?;
         }
         if let Some(middle) = self.middle.take() {
             let id = middle.id;
-            self.emit_page_node(middle).await?;
+            self.emit_page_node(middle)?;
             push_child(&mut self.root_children, id, self.limits, ROOT_CHILDREN)?;
         }
-        self.writer.begin_object(self.pages_root_id).await?;
-        self.writer
-            .write_bytes(
-                format!("<< /Type /Pages /Count {} /Kids [", self.pages_written).as_bytes(),
-            )
-            .await?;
+        self.writer.begin_object(self.pages_root_id)?;
+        self.writer.write_bytes(
+            format!("<< /Type /Pages /Count {} /Kids [", self.pages_written).as_bytes(),
+        )?;
         for child in &self.root_children {
             self.writer
-                .write_bytes(format!(" {} 0 R", child.number()).as_bytes())
-                .await?;
+                .write_bytes(format!(" {} 0 R", child.number()).as_bytes())?;
         }
-        self.writer.write_bytes(b" ] >>").await?;
-        self.writer.end_object().await
+        self.writer.write_bytes(b" ] >>")?;
+        self.writer.end_object()
     }
 
-    async fn emit_page_node(&mut self, node: PageNode) -> Result<()> {
-        self.writer.begin_object(node.id).await?;
-        self.writer
-            .write_bytes(
-                format!(
-                    "<< /Type /Pages /Parent {} 0 R /Count {} /Kids [",
-                    node.parent.number(),
-                    node.page_count
-                )
-                .as_bytes(),
+    fn emit_page_node(&mut self, node: PageNode) -> Result<()> {
+        self.writer.begin_object(node.id)?;
+        self.writer.write_bytes(
+            format!(
+                "<< /Type /Pages /Parent {} 0 R /Count {} /Kids [",
+                node.parent.number(),
+                node.page_count
             )
-            .await?;
+            .as_bytes(),
+        )?;
         for child in node.children {
             self.writer
-                .write_bytes(format!(" {} 0 R", child.number()).as_bytes())
-                .await?;
+                .write_bytes(format!(" {} 0 R", child.number()).as_bytes())?;
         }
-        self.writer.write_bytes(b" ] >>").await?;
-        self.writer.end_object().await
+        self.writer.write_bytes(b" ] >>")?;
+        self.writer.end_object()
     }
 
-    async fn emit_image_xobject<R: RangedSource>(
+    fn emit_image_xobject<R: RangedSource>(
         &mut self,
         source: &mut R,
         offset: u64,
@@ -916,14 +881,13 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let length_id = self.writer.reserve_object()?;
         let dictionary = image.dictionary();
         self.writer
-            .begin_stream(image_id, length_id, dictionary.as_bytes())
-            .await?;
-        self.copy_resource(source, offset, length).await?;
-        self.writer.end_stream().await?;
+            .begin_stream(image_id, length_id, dictionary.as_bytes())?;
+        self.copy_resource(source, offset, length)?;
+        self.writer.end_stream()?;
         Ok(image_id)
     }
 
-    async fn copy_resource<R: RangedSource>(
+    fn copy_resource<R: RangedSource>(
         &mut self,
         source: &mut R,
         offset: u64,
@@ -952,11 +916,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 &mut self.image_buffer[..chunk],
                 self.limits,
                 self.cancellation,
-            )
-            .await?;
+            )?;
             self.writer
-                .write_stream_bytes(&self.image_buffer[..chunk])
-                .await?;
+                .write_stream_bytes(&self.image_buffer[..chunk])?;
             done = done.checked_add(chunk as u64).ok_or(Error::InvalidInput {
                 reason: "resource input byte count overflows",
             })?;
@@ -964,7 +926,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
-    async fn emit_page(
+    fn emit_page(
         &mut self,
         parent: ObjectId,
         width: &str,
@@ -976,42 +938,34 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let page_id = self.writer.reserve_object()?;
 
         self.writer
-            .begin_stream(content_id, content_length_id, b"")
-            .await?;
+            .begin_stream(content_id, content_length_id, b"")?;
         for index in 0..images.len() {
             match images {
                 PageImages::Full(_) => {
-                    self.writer
-                        .write_stream_bytes(
-                            format!("q\n{width} 0 0 {height} 0 0 cm\n/Im{index} Do\nQ\n")
-                                .as_bytes(),
-                        )
-                        .await?;
+                    self.writer.write_stream_bytes(
+                        format!("q\n{width} 0 0 {height} 0 0 cm\n/Im{index} Do\nQ\n").as_bytes(),
+                    )?;
                 }
                 PageImages::Placed(placements) => {
                     let matrix = decimals(&placements[index].transform)?;
-                    self.writer
-                        .write_stream_bytes(
-                            format!("q\n{matrix} cm\n/Im{index} Do\nQ\n").as_bytes(),
-                        )
-                        .await?;
+                    self.writer.write_stream_bytes(
+                        format!("q\n{matrix} cm\n/Im{index} Do\nQ\n").as_bytes(),
+                    )?;
                 }
             }
         }
-        self.writer.end_stream().await?;
+        self.writer.end_stream()?;
 
-        self.writer.begin_object(page_id).await?;
-        self.writer.write_bytes(format!("<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {width} {height}] /Resources << /XObject <<", parent.number()).as_bytes()).await?;
+        self.writer.begin_object(page_id)?;
+        self.writer.write_bytes(format!("<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {width} {height}] /Resources << /XObject <<", parent.number()).as_bytes())?;
         for index in 0..images.len() {
             let image = images.image(index);
             self.writer
-                .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())
-                .await?;
+                .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())?;
         }
         self.writer
-            .write_bytes(format!(" >> >> /Contents {} 0 R >>", content_id.number()).as_bytes())
-            .await?;
-        self.writer.end_object().await?;
+            .write_bytes(format!(" >> >> /Contents {} 0 R >>", content_id.number()).as_bytes())?;
+        self.writer.end_object()?;
         Ok(page_id)
     }
 }
@@ -1053,9 +1007,9 @@ fn validate_image_range(
     Ok(())
 }
 
-impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, C> {
-    async fn visit(&mut self, bookmark: Bookmark) -> Result<()> {
-        self.add_bookmark(bookmark).await
+impl<W: Write, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, C> {
+    fn visit(&mut self, bookmark: Bookmark) -> Result<()> {
+        self.add_bookmark(bookmark)
     }
 }
 

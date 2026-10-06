@@ -1,160 +1,124 @@
 // SPDX-License-Identifier: MIT
 
+// The raw WASM ABI, called directly on this thread with plain imports. The
+// public API makes the same calls from its Worker.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blobSource, convert, DEFAULT_LIMITS, MAX_IO_CHUNK } from "../io.mjs";
-import { fixture, newInstance } from "./helpers.mjs";
+import { DEFAULT_LIMITS, MAX_IO_CHUNK } from "../io.mjs";
+import { fixture, wasmModule } from "./helpers.mjs";
 
 const PDF = "valid_out_of_order_objects.pdf";
+const LIMITS = [
+  DEFAULT_LIMITS.maxInputBytes,
+  DEFAULT_LIMITS.maxOutputBytes,
+  DEFAULT_LIMITS.maxAllocationBytes,
+  DEFAULT_LIMITS.maxPages,
+  DEFAULT_LIMITS.maxBookmarks,
+];
 
-function bytesSource(bytes, reads = []) {
-  return {
-    size: BigInt(bytes.length),
-    async readAt(offset, length) {
-      reads.push([offset, length]);
-      return bytes.subarray(Number(offset), Number(offset) + length);
+/** Instantiate the module with imports serving `bytes`; `hooks` override them. */
+async function rawInstance(bytes, hooks = {}) {
+  const state = { output: [], flushes: 0, progress: [] };
+  let memory;
+  const imports = {
+    caj2pdf_read(resource, offset, pointer, length) {
+      const chunk = bytes.subarray(offset, offset + length);
+      new Uint8Array(memory.buffer, pointer, length).set(chunk);
+      return chunk.length;
+    },
+    caj2pdf_write(pointer, length) {
+      state.output.push(...new Uint8Array(memory.buffer, pointer, length));
+      return length;
+    },
+    caj2pdf_flush() {
+      state.flushes += 1;
+      return 0;
+    },
+    caj2pdf_progress(done, total) {
+      state.progress.push([done, total]);
+    },
+    caj2pdf_cancelled() {
+      return 0;
     },
   };
+  const wrapped = {};
+  for (const [name, original] of Object.entries(imports)) {
+    wrapped[name] = (...args) => (hooks[name] ?? original)(...args, { original });
+  }
+  const { exports } = await WebAssembly.instantiate(await wasmModule(), { caj2pdf: wrapped });
+  memory = exports.memory;
+  return { exports, state };
 }
 
-test("WASM does not request another read while a write is pending", async () => {
+function message(exports) {
+  return new TextDecoder().decode(
+    new Uint8Array(exports.memory.buffer, exports.caj2pdf_message_ptr(), exports.caj2pdf_message_len()),
+  );
+}
+
+test("raw ABI converts with short reads and short writes, then reports", async () => {
   const pdf = await fixture(PDF);
-  const reads = [];
-  let release;
-  let readsAtWrite;
-  const sink = {
-    async writeChunk(bytes) {
-      if (release == null) {
-        readsAtWrite = reads.length;
-        await new Promise((resolve) => { release = resolve; });
-      }
-      return bytes.byteLength;
-    },
-    async flush() {},
-  };
-  const pending = convert(await newInstance(), bytesSource(pdf, reads), sink, { chunkSize: 64 });
-  while (release == null) await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(reads.length, readsAtWrite);
-  release();
-  assert.equal((await pending).outputBytesWritten, BigInt(pdf.length));
-  assert.ok(reads.length > readsAtWrite);
+  const { exports, state } = await rawInstance(pdf, {
+    caj2pdf_read: (resource, offset, pointer, length, { original }) => original(resource, offset, pointer, Math.min(length, 1)),
+    caj2pdf_write: (pointer, length, { original }) => original(pointer, Math.min(length, 1)),
+  });
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 3, 0, 1, ...LIMITS), 0);
+  assert.deepEqual(state.output, [...pdf]);
+  assert.equal(state.flushes, 1);
+  assert.equal(exports.caj2pdf_format(), 1);
+  assert.equal(exports.caj2pdf_output_bytes_written(), BigInt(pdf.length));
+  assert.ok(exports.caj2pdf_input_bytes_read() >= BigInt(pdf.length));
+  // Progress counts thousandths of the document read and ends complete.
+  for (const [index, [done, total]] of state.progress.entries()) {
+    assert.equal(total, 1000);
+    assert.ok(done <= 1000 && (index === 0 || done > state.progress[index - 1][0]));
+  }
+  assert.deepEqual(state.progress.at(-1), [1000, 1000]);
+  // The result stays readable until a reset frees the session.
+  assert.equal(exports.caj2pdf_inspect(BigInt(pdf.length), 64, 0, ...LIMITS), 3);
+  exports.caj2pdf_reset();
+  assert.equal(exports.caj2pdf_inspect(BigInt(pdf.length), 64, 0, ...LIMITS), 0);
+  assert.equal(exports.caj2pdf_info_page_count(), 2);
 });
 
-test("a busy WASM instance rejects a second operation without cancelling the first", async () => {
+test("raw ABI types host failures, overlong counts and cancellation", async () => {
   const pdf = await fixture(PDF);
-  const instance = await newInstance();
-  let release;
-  const sink = {
-    async writeChunk(bytes) {
-      if (release == null) await new Promise((resolve) => { release = resolve; });
-      return bytes.byteLength;
-    },
-    async flush() {},
-  };
-  const first = convert(instance, bytesSource(pdf), sink);
-  while (release == null) await new Promise((resolve) => setImmediate(resolve));
-  await assert.rejects(convert(instance, bytesSource(pdf), sink), /already has an active/);
-  release();
-  assert.equal((await first).outputBytesWritten, BigInt(pdf.length));
-});
-
-test("WASM handles short source reads and short sink writes", async () => {
-  const pdf = await fixture(PDF);
-  const source = {
-    size: BigInt(pdf.length),
-    async readAt(offset, length) {
-      return pdf.subarray(Number(offset), Number(offset) + Math.min(length, 1));
-    },
-  };
-  const output = [];
-  const report = await convert(await newInstance(), source, {
-    async writeChunk(bytes) {
-      output.push(bytes[0]);
-      return 1;
-    },
-    async flush() {},
-  }, { chunkSize: 3 });
-  assert.deepEqual(output, [...pdf]);
-  assert.equal(report.outputBytesWritten, BigInt(pdf.length));
-});
-
-test("WASM returns typed resource and truncation errors without panicking", async () => {
-  const sink = { async writeChunk(bytes) { return bytes.length; }, async flush() {} };
-  await assert.rejects(
-    convert(await newInstance(), { size: DEFAULT_LIMITS.maxInputBytes + 1n, async readAt() {} }, sink),
-    { code: "LIMIT_EXCEEDED" },
-  );
-  await assert.rejects(
-    convert(await newInstance(), { size: 2n, async readAt() { return new Uint8Array(); } }, sink),
-    { code: "TRUNCATED_INPUT" },
-  );
-  await assert.rejects(
-    convert(await newInstance(), blobSource(new Blob([Uint8Array.of(1)])), sink, { chunkSize: MAX_IO_CHUNK + 1 }),
-    RangeError,
-  );
-});
-
-test("the JS bridge names an error category without a Rust message", async () => {
-  const wasm = { exports: {
-    memory: new WebAssembly.Memory({ initial: 1 }),
-    caj2pdf_start: () => 0,
-    caj2pdf_io_poll: () => 5,
-    caj2pdf_io_error_kind: () => 15,
-    caj2pdf_io_message_ptr: () => 0,
-    caj2pdf_io_message_len: () => 0,
-    caj2pdf_io_cancel: () => {},
-    caj2pdf_io_reset: () => {},
-  } };
-  await assert.rejects(
-    convert(
-      wasm,
-      { size: 0n, async readAt() { throw new Error("unused"); } },
-      { async writeChunk() { throw new Error("unused"); }, async flush() {} },
-    ),
-    { code: "MALFORMED_KDH", message: "conversion failed: MALFORMED_KDH" },
-  );
-});
-
-test("raw WASM ABI rejects oversized completions without corrupting the future", async () => {
-  const { exports } = await newInstance();
-  const limits = [
-    DEFAULT_LIMITS.maxInputBytes,
-    DEFAULT_LIMITS.maxOutputBytes,
-    DEFAULT_LIMITS.maxAllocationBytes,
-    DEFAULT_LIMITS.maxPages,
-    DEFAULT_LIMITS.maxBookmarks,
+  const cases = [
+    ["read failure", { caj2pdf_read: () => -1 }, 5, /host read failed/],
+    ["overlong read", { caj2pdf_read: (resource, offset, pointer, length) => length + 1 }, 2, /more bytes than requested/],
+    ["write failure", { caj2pdf_write: () => -1 }, 5, /host write failed/],
+    ["overlong write", { caj2pdf_write: (pointer, length) => length + 1 }, 5, /accepted more bytes than offered/],
+    ["flush failure", { caj2pdf_flush: () => -1 }, 5, /./],
+    ["cancellation", { caj2pdf_cancelled: () => 1 }, 6, /cancel/i],
   ];
-  assert.equal(exports.caj2pdf_start(1, 4n, 2, 0, 1, ...limits), 0);
-  try {
-    assert.equal(exports.caj2pdf_io_poll(), 1);
-    assert.equal(exports.caj2pdf_io_request_length(), 2);
-    assert.equal(exports.caj2pdf_io_complete_read(3), 0);
-    assert.equal(exports.caj2pdf_io_complete_write(2), 0);
-    assert.equal(exports.caj2pdf_io_poll(), 1);
-    new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), 2).set([0x25, 0x50]);
-    assert.equal(exports.caj2pdf_io_complete_read(2), 1);
-    assert.equal(exports.caj2pdf_io_complete_read(2), 0);
-    assert.equal(exports.caj2pdf_io_poll(), 1);
-  } finally {
-    exports.caj2pdf_io_reset();
+  for (const [name, hooks, kind, pattern] of cases) {
+    const { exports } = await rawInstance(pdf, hooks);
+    assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 64, 0, 1, ...LIMITS), 1, name);
+    assert.equal(exports.caj2pdf_error_kind(), kind, name);
+    assert.match(message(exports), pattern, name);
   }
 });
 
-test("WASM conversion rejects cancellation after an awaited source read", async () => {
-  const controller = new AbortController();
-  const source = {
-    size: 1n,
-    async readAt() {
-      controller.abort();
-      return Uint8Array.of(1);
+test("raw ABI refuses re-entry, invalid configuration and oversized inputs", async () => {
+  const pdf = await fixture(PDF);
+  const nested = [];
+  let exports;
+  ({ exports } = await rawInstance(pdf, {
+    caj2pdf_write(pointer, length, { original }) {
+      nested.push([exports.caj2pdf_convert(BigInt(pdf.length), 64, 0, 1, ...LIMITS), exports.caj2pdf_c8_add_font(1n, 0)]);
+      return original(pointer, length);
     },
-  };
-  await assert.rejects(
-    convert(await newInstance(), source, {
-      async writeChunk() { throw new Error("must not write"); },
-      async flush() {},
-    }, { signal: controller.signal }),
-    { name: "AbortError" },
-  );
+  }));
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 64, 0, 1, ...LIMITS), 0);
+  assert.ok(nested.length > 0);
+  assert.ok(nested.every(([status, font]) => status === 3 && font === 0));
+  exports.caj2pdf_reset();
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 64, 99, 1, ...LIMITS), 2);
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 0, 0, 1, ...LIMITS), 2);
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), MAX_IO_CHUNK + 1, 0, 1, ...LIMITS), 2);
+  assert.equal(exports.caj2pdf_convert(BigInt(pdf.length), 64, 0, 1, DEFAULT_LIMITS.maxInputBytes, DEFAULT_LIMITS.maxOutputBytes, 1n << 40n, DEFAULT_LIMITS.maxPages, DEFAULT_LIMITS.maxBookmarks), 2);
+  assert.equal(exports.caj2pdf_convert(DEFAULT_LIMITS.maxInputBytes + 1n, 64, 0, 1, ...LIMITS), 1);
+  assert.equal(exports.caj2pdf_error_kind(), 4);
+  exports.caj2pdf_reset();
+  assert.equal(exports.caj2pdf_error_kind(), 0);
 });

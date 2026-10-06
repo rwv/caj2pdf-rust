@@ -6,30 +6,15 @@
 mod common;
 
 use caj2pdf_core::{
-    Error, Limits, RangedSource, Result, SequentialSink,
+    Error, Limits, RangedSource, Result,
     pdf::{
         ImageEncoding, ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
         PdfDocument,
     },
 };
 use common::CancelAfter;
-use std::{
-    cell::Cell,
-    future::Future,
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("synthetic adapters must complete immediately"),
-    }
-}
+use std::io::Write;
+use std::{cell::Cell, io, rc::Rc};
 
 fn assert_document_refusal<T>(result: Result<T>) {
     assert!(matches!(result, Err(Error::InvalidInput { .. })));
@@ -95,7 +80,7 @@ impl RangedSource for GeneratedSource {
         self.size
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
         if let Some((allowed, fault)) = self.fault_after_calls
@@ -160,8 +145,8 @@ impl CountingSink {
     }
 }
 
-impl SequentialSink for CountingSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for CountingSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let state = &self.state;
         state.calls.set(state.calls.get() + 1);
         state
@@ -169,17 +154,14 @@ impl SequentialSink for CountingSink {
             .set(state.max_request.get().max(bytes.len()));
         let mut count = bytes.len().min(self.max_return);
         if let Some(threshold) = state.pending_at.get() {
-            if state.bytes.get() >= threshold {
-                return std::future::pending().await;
-            }
             count = count.min((threshold - state.bytes.get()) as usize);
         }
         if let Some((threshold, fault)) = state.fault_at.get() {
             if state.bytes.get() >= threshold {
                 return match fault {
                     Fault::Zero => Ok(0),
-                    Fault::Overreport => Ok(bytes.len() + 1),
-                    Fault::Io => Err(Error::Io(io::Error::other("synthetic sink failure"))),
+                    Fault::Io => Err(io::Error::other("synthetic sink failure")),
+                    Fault::Overreport => unreachable!("an io::Write sink cannot over-report"),
                 };
             }
             count = count.min((threshold - state.bytes.get()) as usize);
@@ -195,10 +177,10 @@ impl SequentialSink for CountingSink {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         self.state.flushes.set(self.state.flushes.get() + 1);
         if self.state.fail_flush.get() {
-            Err(Error::Io(io::Error::other("synthetic flush failure")))
+            Err(io::Error::other("synthetic flush failure"))
         } else {
             Ok(())
         }
@@ -216,9 +198,9 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
     let limits = Limits::default();
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
         let good = placed(image);
         for component in 0..6 {
             for value in [
@@ -231,23 +213,17 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
                 let mut bad = good;
                 bad.transform[component] = value;
                 let before = state.bytes.get();
-                let error = document
-                    .add_placed_page(page(), &[good, bad])
-                    .await
-                    .unwrap_err();
+                let error = document.add_placed_page(page(), &[good, bad]).unwrap_err();
                 assert!(matches!(error, Error::InvalidInput { .. }), "{error:?}");
                 assert_eq!(state.bytes.get(), before, "later component {component}");
             }
         }
         let before = state.bytes.get();
-        let error = document.add_placed_page(page(), &[]).await.unwrap_err();
+        let error = document.add_placed_page(page(), &[]).unwrap_err();
         assert!(matches!(error, Error::InvalidInput { .. }));
         assert_eq!(state.bytes.get(), before);
         let too_many = vec![good; MAX_PAGE_IMAGE_PLACEMENTS + 1];
-        let error = document
-            .add_placed_page(page(), &too_many)
-            .await
-            .unwrap_err();
+        let error = document.add_placed_page(page(), &too_many).unwrap_err();
         assert!(matches!(
             error,
             Error::LimitExceeded {
@@ -269,17 +245,14 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
                     ..page()
                 },
             ] {
-                let error = document
-                    .add_placed_page(bad_page, &[good])
-                    .await
-                    .unwrap_err();
+                let error = document.add_placed_page(bad_page, &[good]).unwrap_err();
                 assert!(matches!(error, Error::InvalidInput { .. }));
                 assert_eq!(state.bytes.get(), before);
             }
         }
-        assert_eq!(document.add_placed_page(page(), &[good]).await?, 0);
-        document.finish().await
-    })?;
+        assert_eq!(document.add_placed_page(page(), &[good])?, 0);
+        document.finish()
+    })()?;
     assert_eq!(report.pages_converted, 1);
     assert_eq!(report.input_bytes_read, 1);
     assert_eq!(report.output_bytes_written, state.bytes.get());
@@ -291,13 +264,13 @@ fn old_and_placed_page_methods_share_one_image_handle() -> Result<()> {
     let limits = Limits::default();
     let (mut sink, _) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        assert_eq!(document.add_page(page(), &[image]).await?, 0);
-        assert_eq!(document.add_placed_page(page(), &[placed(image)]).await?, 1);
-        document.finish().await
-    })?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
+        assert_eq!(document.add_page(page(), &[image])?, 0);
+        assert_eq!(document.add_placed_page(page(), &[placed(image)])?, 1);
+        document.finish()
+    })()?;
     assert_eq!(report.pages_converted, 2);
     assert_eq!(source.calls, 1);
     Ok(())
@@ -312,14 +285,14 @@ fn maximum_placement_count_uses_bounded_allocations_and_reuses_image() -> Result
     };
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
         let placements = vec![placed(image); MAX_PAGE_IMAGE_PLACEMENTS];
-        assert_eq!(document.add_placed_page(page(), &placements).await?, 0);
-        assert_eq!(document.add_placed_page(page(), &[placed(image)]).await?, 1);
-        document.finish().await
-    })?;
+        assert_eq!(document.add_placed_page(page(), &placements)?, 0);
+        assert_eq!(document.add_placed_page(page(), &[placed(image)])?, 1);
+        document.finish()
+    })()?;
     assert_eq!(report.pages_converted, 2);
     assert_eq!(report.input_bytes_read, 1);
     assert_eq!(source.calls, 1);
@@ -336,14 +309,13 @@ fn page_cap_refusal_leaves_existing_page_finishable() -> Result<()> {
     };
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
         let before = state.bytes.get();
         let error = document
             .add_placed_page(page(), &[placed(image)])
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -354,8 +326,8 @@ fn page_cap_refusal_leaves_existing_page_finishable() -> Result<()> {
             }
         ));
         assert_eq!(state.bytes.get(), before);
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     assert_eq!(report.pages_converted, 1);
     Ok(())
 }
@@ -371,19 +343,18 @@ fn object_index_budget_refusal_reserves_no_unwritten_page_objects() -> Result<()
     };
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
         let before = state.bytes.get();
         let error = document
             .add_placed_page(page(), &[placed(image)])
-            .await
             .unwrap_err();
         assert!(matches!(error, Error::LimitExceeded { .. }), "{error:?}");
         assert_eq!(state.bytes.get(), before);
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     assert_eq!(report.pages_converted, 1);
     Ok(())
 }
@@ -393,8 +364,8 @@ fn invalid_image_specs_and_unavailable_ranges_are_refused_before_emission() -> R
     let limits = Limits::default();
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(10);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
         let before = state.bytes.get();
         for (offset, length, spec) in [
             (0, 1, gray(0)),
@@ -427,15 +398,11 @@ fn invalid_image_specs_and_unavailable_ranges_are_refused_before_emission() -> R
         ] {
             let error = document
                 .add_image(&mut source, offset, length, spec)
-                .await
                 .unwrap_err();
             assert!(matches!(error, Error::InvalidInput { .. }), "{error:?}");
             assert_eq!(state.bytes.get(), before);
         }
-        let error = document
-            .add_image(&mut source, 9, 2, gray(2))
-            .await
-            .unwrap_err();
+        let error = document.add_image(&mut source, 9, 2, gray(2)).unwrap_err();
         assert!(matches!(
             error,
             Error::TruncatedInput {
@@ -458,16 +425,16 @@ fn invalid_image_specs_and_unavailable_ranges_are_refused_before_emission() -> R
             },
         ] {
             assert!(matches!(
-                document.add_image(&mut source, 0, 1, spec).await,
+                document.add_image(&mut source, 0, 1, spec),
                 Err(Error::LimitExceeded { .. })
             ));
             assert_eq!(state.bytes.get(), before);
         }
         assert_eq!(source.calls, 0);
-        let image = document.add_image(&mut source, 4, 3, gray(3)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
-        document.finish().await
-    })?;
+        let image = document.add_image(&mut source, 4, 3, gray(3))?;
+        document.add_placed_page(page(), &[placed(image)])?;
+        document.finish()
+    })()?;
     assert_eq!(report.input_bytes_read, 3);
     Ok(())
 }
@@ -480,8 +447,8 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
     };
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(u64::MAX);
-    run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
         let before = state.bytes.get();
         let jpeg = ImageSpec {
             encoding: ImageEncoding::JpegGray8,
@@ -489,7 +456,6 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
         };
         let error = document
             .add_image(&mut source, 0, 2_147_483_648, jpeg)
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -502,7 +468,6 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
         assert_eq!(state.bytes.get(), before);
         let error = document
             .add_image(&mut source, u64::MAX, 1, gray(1))
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -514,12 +479,10 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
         ));
         assert_eq!(state.bytes.get(), before);
         assert_eq!(source.calls, 0);
-        let image = document
-            .add_image(&mut source, u64::MAX - 1, 1, gray(1))
-            .await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
-        document.finish().await
-    })?;
+        let image = document.add_image(&mut source, u64::MAX - 1, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
+        document.finish()
+    })()?;
     assert_eq!(source.bytes, 1);
     Ok(())
 }
@@ -535,14 +498,11 @@ fn total_input_budget_is_checked_before_second_image_and_remains_recoverable() -
     let mut first = GeneratedSource::new(3);
     let mut refused = GeneratedSource::new(3);
     let mut last = GeneratedSource::new(2);
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut first, 0, 3, gray(3)).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut first, 0, 3, gray(3))?;
         let before = state.bytes.get();
-        let error = document
-            .add_image(&mut refused, 0, 3, gray(3))
-            .await
-            .unwrap_err();
+        let error = document.add_image(&mut refused, 0, 3, gray(3)).unwrap_err();
         assert!(matches!(
             error,
             Error::LimitExceeded {
@@ -553,12 +513,10 @@ fn total_input_budget_is_checked_before_second_image_and_remains_recoverable() -
         ));
         assert_eq!(state.bytes.get(), before);
         assert_eq!(refused.calls, 0);
-        let last_image = document.add_image(&mut last, 0, 2, gray(2)).await?;
-        document
-            .add_placed_page(page(), &[placed(image), placed(last_image)])
-            .await?;
-        document.finish().await
-    })?;
+        let last_image = document.add_image(&mut last, 0, 2, gray(2))?;
+        document.add_placed_page(page(), &[placed(image), placed(last_image)])?;
+        document.finish()
+    })()?;
     assert_eq!(report.input_bytes_read, 5);
     Ok(())
 }
@@ -575,17 +533,13 @@ fn large_ranged_image_short_reads_and_writes_reuse_one_stream_on_multiple_pages(
     source.max_return = 43;
     let (mut sink, state) = CountingSink::new();
     sink.max_return = 127;
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document
-            .add_image(&mut source, 13, LENGTH, gray(LENGTH as u32))
-            .await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 13, LENGTH, gray(LENGTH as u32))?;
         let read_calls = source.calls;
         for expected in 0..3 {
             assert_eq!(
-                document
-                    .add_placed_page(page(), &[placed(image), placed(image)])
-                    .await?,
+                document.add_placed_page(page(), &[placed(image), placed(image)])?,
                 expected
             );
             assert_eq!(
@@ -593,8 +547,8 @@ fn large_ranged_image_short_reads_and_writes_reuse_one_stream_on_multiple_pages(
                 "placing an object must not reread it"
             );
         }
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     assert_eq!(report.input_bytes_read, LENGTH);
     assert_eq!(source.bytes, LENGTH);
     assert_eq!(source.next_offset, Some(13 + LENGTH));
@@ -623,14 +577,13 @@ fn source_failure_after_partial_image_prevents_any_later_success() -> Result<()>
         let mut valid = GeneratedSource::new(1);
         let mut source = GeneratedSource::new(12);
         source.fault_after_calls = Some((1, fault));
-        run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-            let image = document.add_image(&mut valid, 0, 1, gray(1)).await?;
-            document.add_placed_page(page(), &[placed(image)]).await?;
+        (|| {
+            let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+            let image = document.add_image(&mut valid, 0, 1, gray(1))?;
+            document.add_placed_page(page(), &[placed(image)])?;
             let before = state.bytes.get();
             let error = document
                 .add_image(&mut source, 0, 12, gray(12))
-                .await
                 .unwrap_err();
             match fault {
                 Fault::Zero => assert!(matches!(error, Error::TruncatedInput { .. })),
@@ -644,12 +597,12 @@ fn source_failure_after_partial_image_prevents_any_later_success() -> Result<()>
             assert_eq!(source.calls, 2);
             assert_eq!(source.bytes, 4);
             let stopped = state.bytes.get();
-            assert_document_refusal(document.add_placed_page(page(), &[placed(image)]).await);
-            assert_document_refusal(document.add_image(&mut valid, 0, 1, gray(1)).await);
-            assert_document_refusal(document.finish().await);
+            assert_document_refusal(document.add_placed_page(page(), &[placed(image)]));
+            assert_document_refusal(document.add_image(&mut valid, 0, 1, gray(1)));
+            assert_document_refusal(document.finish());
             assert_eq!(state.bytes.get(), stopped);
             Ok::<_, Error>(())
-        })?;
+        })()?;
     }
     Ok(())
 }
@@ -666,13 +619,13 @@ fn cancellation_after_source_read_prevents_completion_after_signal_is_reset() ->
     let mut valid = GeneratedSource::new(1);
     let mut source = GeneratedSource::new(12);
     source.cancel_after_bytes = Some((4, flag.clone()));
-    run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &cancellation).await?;
-        let image = document.add_image(&mut valid, 0, 1, gray(1)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &cancellation)?;
+        let image = document.add_image(&mut valid, 0, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
         let before = state.bytes.get();
         assert!(matches!(
-            document.add_image(&mut source, 0, 12, gray(12)).await,
+            document.add_image(&mut source, 0, 12, gray(12)),
             Err(Error::Cancelled)
         ));
         assert!(state.bytes.get() > before);
@@ -680,11 +633,11 @@ fn cancellation_after_source_read_prevents_completion_after_signal_is_reset() ->
         assert_eq!(source.bytes, 4);
         flag.set(false);
         let stopped = state.bytes.get();
-        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]).await);
-        assert_document_refusal(document.finish().await);
+        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]));
+        assert_document_refusal(document.finish());
         assert_eq!(state.bytes.get(), stopped);
         Ok::<_, Error>(())
-    })
+    })()
 }
 
 #[test]
@@ -693,34 +646,33 @@ fn sink_failures_during_page_emission_poison_document_even_after_sink_recovers()
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    for fault in [Fault::Zero, Fault::Overreport, Fault::Io] {
+    for fault in [Fault::Zero, Fault::Io] {
         let (mut sink, state) = CountingSink::new();
         let mut source = GeneratedSource::new(1);
-        run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-            let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-            document.add_placed_page(page(), &[placed(image)]).await?;
+        (|| {
+            let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+            let image = document.add_image(&mut source, 0, 1, gray(1))?;
+            document.add_placed_page(page(), &[placed(image)])?;
             let before = state.bytes.get();
             state.fault_at.set(Some((before + 5, fault)));
             let error = document
                 .add_placed_page(page(), &[placed(image)])
-                .await
                 .unwrap_err();
             match fault {
                 Fault::Zero => assert!(
                     matches!(error, Error::Io(ref e) if e.kind() == io::ErrorKind::WriteZero)
                 ),
-                Fault::Overreport => assert!(matches!(error, Error::InvalidInput { .. })),
                 Fault::Io => assert!(matches!(error, Error::Io(_))),
+                Fault::Overreport => unreachable!(),
             }
             assert_eq!(state.bytes.get(), before + 5);
             state.fault_at.set(None);
             let stopped = state.bytes.get();
-            assert_document_refusal(document.add_placed_page(page(), &[placed(image)]).await);
-            assert_document_refusal(document.finish().await);
+            assert_document_refusal(document.add_placed_page(page(), &[placed(image)]));
+            assert_document_refusal(document.finish());
             assert_eq!(state.bytes.get(), stopped);
             Ok::<_, Error>(())
-        })?;
+        })()?;
     }
     Ok(())
 }
@@ -734,25 +686,25 @@ fn cancellation_between_short_sink_writes_poison_document_after_partial_page() -
     let (mut sink, state) = CountingSink::new();
     sink.max_return = 2;
     let mut source = GeneratedSource::new(1);
-    run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, state.as_ref()).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, state.as_ref())?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
         let before = state.bytes.get();
         state.cancel_after_bytes.set(Some(before + 5));
         assert!(matches!(
-            document.add_placed_page(page(), &[placed(image)]).await,
+            document.add_placed_page(page(), &[placed(image)]),
             Err(Error::Cancelled)
         ));
         assert!(state.bytes.get() >= before + 5);
         state.cancel_after_bytes.set(None);
         state.cancelled.set(false);
         let stopped = state.bytes.get();
-        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]).await);
-        assert_document_refusal(document.finish().await);
+        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]));
+        assert_document_refusal(document.finish());
         assert_eq!(state.bytes.get(), stopped);
         Ok::<_, Error>(())
-    })
+    })()
 }
 
 #[test]
@@ -764,13 +716,12 @@ fn output_budget_failure_during_placed_page_prevents_any_later_success() -> Resu
     };
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(256);
-    run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 256, gray(256)).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 256, gray(256))?;
         let before = state.bytes.get();
         let error = document
             .add_placed_page(page(), &[placed(image)])
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -786,84 +737,11 @@ fn output_budget_failure_during_placed_page_prevents_any_later_success() -> Resu
         );
         assert!(state.bytes.get() <= limits.max_output_bytes);
         let stopped = state.bytes.get();
-        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]).await);
-        assert_document_refusal(document.finish().await);
+        assert_document_refusal(document.add_placed_page(page(), &[placed(image)]));
+        assert_document_refusal(document.finish());
         assert_eq!(state.bytes.get(), stopped);
         Ok::<_, Error>(())
-    })
-}
-
-#[test]
-fn dropping_an_image_future_waiting_for_source_data_refuses_later_operations() -> Result<()> {
-    struct PendingSource {
-        reads: usize,
-    }
-
-    impl RangedSource for PendingSource {
-        fn size(&self) -> u64 {
-            4
-        }
-
-        async fn read_at(&mut self, _: u64, _: &mut [u8]) -> Result<usize> {
-            self.reads += 1;
-            std::future::pending().await
-        }
-    }
-
-    let limits = Limits::default();
-    let (mut sink, state) = CountingSink::new();
-    let mut valid = GeneratedSource::new(1);
-    let mut source = PendingSource { reads: 0 };
-    let mut document = run(PdfDocument::new(&mut sink, &limits, &CancelAfter::Never))?;
-    let image = run(document.add_image(&mut valid, 0, 1, gray(1)))?;
-    run(document.add_placed_page(page(), &[placed(image)]))?;
-    let before = state.bytes.get();
-    {
-        let mut future = pin!(document.add_image(&mut source, 0, 4, gray(4)));
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(matches!(future.as_mut().poll(&mut context), Poll::Pending));
-        assert!(
-            state.bytes.get() > before,
-            "image header was already emitted"
-        );
-    }
-    assert_eq!(source.reads, 1);
-    let stopped = state.bytes.get();
-    assert_document_refusal(run(document.add_placed_page(page(), &[placed(image)])));
-    assert_document_refusal(run(document.add_page(page(), &[image])));
-    assert_document_refusal(run(document.finish()));
-    assert_eq!(state.bytes.get(), stopped);
-    Ok(())
-}
-
-#[test]
-fn dropping_a_page_future_waiting_for_sink_backpressure_refuses_later_operations() -> Result<()> {
-    let limits = Limits {
-        io_chunk_bytes: 4,
-        ..Limits::default()
-    };
-    let (mut sink, state) = CountingSink::new();
-    let mut source = GeneratedSource::new(1);
-    let mut document = run(PdfDocument::new(&mut sink, &limits, &CancelAfter::Never))?;
-    let image = run(document.add_image(&mut source, 0, 1, gray(1)))?;
-    run(document.add_placed_page(page(), &[placed(image)]))?;
-    let before = state.bytes.get();
-    state.pending_at.set(Some(before + 5));
-    {
-        let placements = [placed(image)];
-        let mut future = pin!(document.add_placed_page(page(), &placements));
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(matches!(future.as_mut().poll(&mut context), Poll::Pending));
-        assert_eq!(state.bytes.get(), before + 5);
-    }
-    // Make the sink writable again. Refusal must come from the document.
-    state.pending_at.set(None);
-    let stopped = state.bytes.get();
-    assert_document_refusal(run(document.add_placed_page(page(), &[placed(image)])));
-    assert_document_refusal(run(document.add_page(page(), &[image])));
-    assert_document_refusal(run(document.finish()));
-    assert_eq!(state.bytes.get(), stopped);
-    Ok(())
+    })()
 }
 
 #[test]
@@ -871,13 +749,13 @@ fn flush_failure_cannot_return_a_successful_conversion_report() -> Result<()> {
     let limits = Limits::default();
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
-    let error = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
-        let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        document.add_placed_page(page(), &[placed(image)]).await?;
+    let error = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never)?;
+        let image = document.add_image(&mut source, 0, 1, gray(1))?;
+        document.add_placed_page(page(), &[placed(image)])?;
         state.fail_flush.set(true);
-        document.finish().await
-    })
+        document.finish()
+    })()
     .unwrap_err();
     assert!(matches!(error, Error::Io(_)));
     assert_eq!(state.flushes.get(), 1);

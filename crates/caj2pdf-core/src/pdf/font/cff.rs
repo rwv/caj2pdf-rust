@@ -201,7 +201,7 @@ struct Reader<'s, 'l, S, C> {
 }
 
 impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
-    async fn bytes(&mut self, offset: u64, length: usize, limit: usize) -> Result<Vec<u8>> {
+    fn bytes(&mut self, offset: u64, length: usize, limit: usize) -> Result<Vec<u8>> {
         if length > limit {
             return Err(Error::LimitExceeded {
                 resource: "CFF structure bytes",
@@ -225,14 +225,13 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
             &mut bytes,
             self.limits,
             self.cancellation,
-        )
-        .await?;
+        )?;
         self.read += length as u64;
         Ok(bytes)
     }
 
-    async fn index(&mut self, offset: u64) -> Result<Index> {
-        let head = self.bytes(offset, 2, 2).await?;
+    fn index(&mut self, offset: u64) -> Result<Index> {
+        let head = self.bytes(offset, 2, 2)?;
         let count = u32::from(u16::from_be_bytes([head[0], head[1]]));
         if count == 0 {
             return Ok(Index {
@@ -240,7 +239,7 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
                 ..Index::default()
             });
         }
-        let off_size = self.bytes(offset + 2, 1, 1).await?[0];
+        let off_size = self.bytes(offset + 2, 1, 1)?[0];
         if !(1..=4).contains(&off_size) {
             return Err(invalid("invalid CFF INDEX offset size"));
         }
@@ -253,19 +252,19 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
             data,
             end: 0,
         };
-        let (_, end) = self.object(&index, count - 1).await?;
+        let (_, end) = self.object(&index, count - 1)?;
         index.end = end;
         Ok(index)
     }
 
     /// Absolute byte range of object `item` of `index`.
-    async fn object(&mut self, index: &Index, item: u32) -> Result<(u64, u64)> {
+    fn object(&mut self, index: &Index, item: u32) -> Result<(u64, u64)> {
         if item >= index.count {
             return Err(invalid("CFF INDEX object is out of range"));
         }
         let size = usize::from(index.off_size);
         let at = index.offsets + u64::from(item) * size as u64;
-        let bytes = self.bytes(at, 2 * size, 8).await?;
+        let bytes = self.bytes(at, 2 * size, 8)?;
         let offset = |bytes: &[u8]| {
             bytes
                 .iter()
@@ -278,25 +277,25 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
         Ok((index.data + start, index.data + end))
     }
 
-    async fn object_bytes(&mut self, index: &Index, item: u32, limit: usize) -> Result<Vec<u8>> {
-        let (start, end) = self.object(index, item).await?;
-        self.bytes(start, (end - start) as usize, limit).await
+    fn object_bytes(&mut self, index: &Index, item: u32, limit: usize) -> Result<Vec<u8>> {
+        let (start, end) = self.object(index, item)?;
+        self.bytes(start, (end - start) as usize, limit)
     }
 
     /// The Private DICT a font DICT's entries reference, without its `Subrs`
     /// entry, and its local Subr INDEX.
-    async fn private(&mut self, font: &[Entry]) -> Result<(Vec<u8>, Option<Index>)> {
+    fn private(&mut self, font: &[Entry]) -> Result<(Vec<u8>, Option<Index>)> {
         let [size, offset] =
             operands(find(font, OP_PRIVATE).ok_or(invalid("CFF font has no Private DICT"))?)?;
         let start = self.start + offset;
-        let bytes = self.bytes(start, size as usize, MAX_DICT_BYTES).await?;
+        let bytes = self.bytes(start, size as usize, MAX_DICT_BYTES)?;
         let entries = dict(&bytes)?;
         let mut private = Vec::new();
         let mut subrs = None;
         for entry in &entries {
             if entry.op == OP_SUBRS {
                 let [relative] = operands(entry)?;
-                subrs = Some(self.index(start + relative).await?);
+                subrs = Some(self.index(start + relative)?);
             } else {
                 private.extend_from_slice(&bytes[entry.start..entry.end]);
             }
@@ -308,7 +307,7 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
 impl Cff {
     /// Parse the CFF table at `offset` with `length` bytes for a font of
     /// `glyphs` glyphs.
-    pub(crate) async fn read<S: RangedSource, C: Cancellation>(
+    pub(crate) fn read<S: RangedSource, C: Cancellation>(
         source: &mut S,
         (offset, length): (u64, u64),
         glyphs: u16,
@@ -323,18 +322,18 @@ impl Cff {
             end: offset + length,
             read: 0,
         };
-        let header = reader.bytes(offset, 4, 4).await?;
+        let header = reader.bytes(offset, 4, 4)?;
         if header[0] != 1 || header[2] < 4 {
             return Err(invalid("unsupported CFF header"));
         }
-        let names = reader.index(offset + u64::from(header[2])).await?;
-        let tops = reader.index(names.end).await?;
+        let names = reader.index(offset + u64::from(header[2]))?;
+        let tops = reader.index(names.end)?;
         if tops.count != 1 {
             return Err(invalid("a CFF table must hold exactly one font"));
         }
-        let strings = reader.index(tops.end).await?;
-        let global_subrs = reader.index(strings.end).await?;
-        let top_bytes = reader.object_bytes(&tops, 0, MAX_DICT_BYTES).await?;
+        let strings = reader.index(tops.end)?;
+        let global_subrs = reader.index(strings.end)?;
+        let top_bytes = reader.object_bytes(&tops, 0, MAX_DICT_BYTES)?;
         let top = dict(&top_bytes)?;
         if find(&top, OP_CHARSTRING_TYPE).is_some_and(|entry| entry.values != [2]) {
             return Err(invalid("only Type 2 CFF charstrings are supported"));
@@ -342,7 +341,7 @@ impl Cff {
         let matrix = raw(&top, &top_bytes, OP_FONT_MATRIX);
         let [charstrings] =
             operands(find(&top, OP_CHARSTRINGS).ok_or(invalid("CFF font has no CharStrings"))?)?;
-        let charstrings = reader.index(offset + charstrings).await?;
+        let charstrings = reader.index(offset + charstrings)?;
         if charstrings.count != u32::from(glyphs) {
             return Err(invalid(
                 "CFF CharStrings count differs from the glyph count",
@@ -355,13 +354,13 @@ impl Cff {
                 return Err(invalid("CID-keyed CFF needs an FDArray and FDSelect"));
             };
             let ([array], [select]) = (operands(array)?, operands(select)?);
-            let array = reader.index(offset + array).await?;
+            let array = reader.index(offset + array)?;
             // FDSelect stores one-byte FD indices: later font DICTs are
             // unreachable, and FDSelect checks that each FD exists.
             for item in 0..array.count.min(MAX_FONT_DICTS as u32) {
-                let bytes = reader.object_bytes(&array, item, MAX_DICT_BYTES).await?;
+                let bytes = reader.object_bytes(&array, item, MAX_DICT_BYTES)?;
                 let entries = dict(&bytes)?;
-                let (private, subrs) = reader.private(&entries).await?;
+                let (private, subrs) = reader.private(&entries)?;
                 let matrix = raw(&entries, &bytes, OP_FONT_MATRIX);
                 fonts.push(FontDict {
                     private,
@@ -370,7 +369,7 @@ impl Cff {
                 });
             }
             let at = offset + select;
-            let format = reader.bytes(at, 1, 1).await?[0];
+            let format = reader.bytes(at, 1, 1)?[0];
             let mut ranges: Vec<(u16, u8)> = Vec::new();
             let mut reserve_ranges = |count: usize| {
                 let refused = limits.allocation_refused(
@@ -381,9 +380,7 @@ impl Cff {
             };
             let sentinel = match format {
                 0 => {
-                    let fds = reader
-                        .bytes(at + 1, usize::from(glyphs), usize::from(glyphs))
-                        .await?;
+                    let fds = reader.bytes(at + 1, usize::from(glyphs), usize::from(glyphs))?;
                     reserve_ranges(fds.len())?;
                     for (glyph, fd) in fds.into_iter().enumerate() {
                         push_range(&mut ranges, glyph, fd);
@@ -391,9 +388,9 @@ impl Cff {
                     glyphs
                 }
                 3 => {
-                    let head = reader.bytes(at + 1, 2, 2).await?;
+                    let head = reader.bytes(at + 1, 2, 2)?;
                     let count = usize::from(u16::from_be_bytes([head[0], head[1]]));
-                    let bytes = reader.bytes(at + 3, 3 * count + 2, 3 * 65536 + 2).await?;
+                    let bytes = reader.bytes(at + 3, 3 * count + 2, 3 * 65536 + 2)?;
                     reserve_ranges(count)?;
                     let (entries, sentinel) = bytes.as_chunks::<3>();
                     ranges.extend(
@@ -414,7 +411,7 @@ impl Cff {
             }
             ranges
         } else {
-            let (private, subrs) = reader.private(&top).await?;
+            let (private, subrs) = reader.private(&top)?;
             fonts.push(FontDict {
                 private,
                 subrs,
@@ -434,7 +431,7 @@ impl Cff {
 
     /// Desubroutinize the charstring of `glyph` with the subroutine bodies
     /// in `cache`, and return it with its FD.
-    async fn glyph<S: RangedSource, C: Cancellation>(
+    fn glyph<S: RangedSource, C: Cancellation>(
         &self,
         reader: &mut Reader<'_, '_, S, C>,
         cache: &mut SubrCache,
@@ -442,9 +439,8 @@ impl Cff {
     ) -> Result<(Vec<u8>, usize)> {
         let range = self.select.partition_point(|(first, _)| *first <= glyph) - 1;
         let fd = usize::from(self.select[range].1);
-        let body = reader
-            .object_bytes(&self.charstrings, u32::from(glyph), MAX_CHARSTRING_BYTES)
-            .await?;
+        let body =
+            reader.object_bytes(&self.charstrings, u32::from(glyph), MAX_CHARSTRING_BYTES)?;
         let mut frames: Vec<(Rc<[u8]>, usize)> = vec![(body.into(), 0)];
         let mut out = Vec::new();
         // Each operand's start in `out` and its integer value, if any.
@@ -510,8 +506,7 @@ impl Cff {
                         Some(body) => Rc::clone(body),
                         None => {
                             let body: Rc<[u8]> = reader
-                                .object_bytes(&subrs, number, MAX_CHARSTRING_BYTES)
-                                .await?
+                                .object_bytes(&subrs, number, MAX_CHARSTRING_BYTES)?
                                 .into();
                             cache.bytes += body.len() as u64;
                             reader.limits.check_allocation(cache.bytes)?;
@@ -575,7 +570,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
     /// Build the CFF subset of the characters set in `used`, at most
     /// `max_length` bytes. Each charstring and subroutine is read once, and
     /// the charstrings and subroutines held count as one allocation.
-    pub(crate) async fn plan_cff<C: Cancellation>(
+    pub(crate) fn plan_cff<C: Cancellation>(
         &mut self,
         cff: &Cff,
         used: &[u8],
@@ -601,7 +596,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         let mut lengths = Vec::new();
         let mut fds = Vec::new();
         for (glyph, _) in &glyphs {
-            let (charstring, fd) = cff.glyph(&mut reader, &mut cache, *glyph).await?;
+            let (charstring, fd) = cff.glyph(&mut reader, &mut cache, *glyph)?;
             super::subset::too_long((charstrings.len() + charstring.len()) as u64, max_length)?;
             limits.check_allocation(cache.bytes + (charstrings.len() + charstring.len()) as u64)?;
             let refused =

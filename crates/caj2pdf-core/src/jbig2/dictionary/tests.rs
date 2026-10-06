@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::NeverCancel;
-use crate::test_support::ready;
+use crate::{NeverCancel, Payload};
 
 #[test]
 fn every_symbol_size_budget_is_checked_before_bitmap_work() {
@@ -98,52 +97,21 @@ fn fallible_catalog_reservation_preserves_preflight_location() {
     assert!(error.progress.mq.is_none());
 }
 
-struct TinySource;
-
-impl RangedSource for TinySource {
-    fn size(&self) -> u64 {
-        2
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let source = [0xff, 0xac];
-        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = source.len().saturating_sub(offset).min(destination.len());
-        if count != 0 {
-            destination[..count].copy_from_slice(&source[offset..offset + count]);
-        }
-        Ok(count)
-    }
-}
-
-struct DiscardSink;
-
-impl SequentialSink for DiscardSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        Ok(bytes.len())
-    }
-    async fn flush(&mut self) -> crate::Result<()> {
-        Ok(())
-    }
-}
-
 #[test]
-fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
+fn corrupted_internal_counters_refuse_overflow_with_located_progress() {
     for (refine, new_symbols, height_classes, export_runs, field) in [
         (false, 1, u32::MAX, 0, "height class count overflow"),
         (true, 1, u32::MAX, 0, "height class count overflow"),
         (false, 0, 0, u32::MAX, "export run count overflow"),
         (true, 0, 0, u32::MAX, "export run count overflow"),
     ] {
-        let mut source = TinySource;
-        let mut imported = TinySource;
-        let mut new_reader = TinySource;
-        let mut new_writer = DiscardSink;
+        let source = [0xff, 0xac];
+        let mut new = Vec::new();
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(IAID_BASE + 1, &limits).unwrap();
-        let mq = ready(MqDecoder::new(
-            &mut source,
+        let mq = MqDecoder::new(
+            Payload::from(&source[..]),
             CodedSpan {
                 offset: 0,
                 length: 2,
@@ -151,9 +119,8 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
             &table,
             &mut contexts,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         let header = DictionaryDataHeader {
             flags: if refine { 0x1802 } else { 0x0800 },
@@ -178,13 +145,12 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
                 length: 2,
             },
         };
-        let mut decoder = SymbolDictionaryDecoder {
+        let decoder = SymbolDictionaryDecoder {
             mq,
             stores: DictionaryStores {
-                imported: &mut imported,
+                imported: &source,
                 imported_base: 0,
-                new_reader: &mut new_reader,
-                new_writer: &mut new_writer,
+                new: &mut new,
                 new_base: 0,
             },
             imported: &[],
@@ -205,21 +171,17 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
                 export_runs,
                 ..DictionaryProgress::default()
             },
-            refinement_observer: RefinementProgress::default(),
             catalog: DictionaryCatalog {
                 new_symbols: Vec::new(),
                 exported_symbols: Vec::new(),
             },
-            poisoned: false,
-            complete: false,
         };
-        let error = ready(decoder.decode()).unwrap_err();
+        let error = decoder.decode().unwrap_err();
         assert!(
             matches!(error.kind, DictionaryErrorKind::InvalidSpan(reason) if reason == field),
             "{error}"
         );
         assert_eq!(error.segment, 7);
-        assert!(error.progress.poisoned);
         assert_eq!(error.progress.height_classes, height_classes);
         assert_eq!(error.progress.export_runs, export_runs);
     }

@@ -28,7 +28,7 @@ const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080;
 
 /// Receives subset font program bytes in order.
 pub(crate) trait SubsetOutput {
-    async fn put(&mut self, bytes: &[u8]) -> Result<()>;
+    fn put(&mut self, bytes: &[u8]) -> Result<()>;
 }
 
 /// Length and checksum of a table, as if zero-padded to a 4-byte boundary.
@@ -66,7 +66,7 @@ impl Measure {
 }
 
 impl SubsetOutput for Measure {
-    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
+    fn put(&mut self, bytes: &[u8]) -> Result<()> {
         self.add(bytes);
         Ok(())
     }
@@ -200,7 +200,7 @@ fn components(data: &mut [u8], mut visit: impl FnMut(&mut [u8]) -> Result<()>) -
 impl<S: RangedSource> OpenTypeFont<'_, S> {
     /// Plan the subset of the characters set in `used`, a BMP bitmap, whose
     /// program is at most `max_length` bytes, in the font's outline format.
-    pub(crate) async fn subset<C: Cancellation>(
+    pub(crate) fn subset<C: Cancellation>(
         &mut self,
         used: &[u8],
         max_length: u64,
@@ -208,19 +208,15 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         cancellation: &C,
     ) -> Result<Subset> {
         if let Some(cff) = self.cff.clone() {
-            let subset = self
-                .plan_cff(&cff, used, max_length, limits, cancellation)
-                .await?;
+            let subset = self.plan_cff(&cff, used, max_length, limits, cancellation)?;
             return Ok(Subset::Cff(subset));
         }
-        let plan = self
-            .plan_subset(used, max_length, limits, cancellation)
-            .await?;
+        let plan = self.plan_subset(used, max_length, limits, cancellation)?;
         Ok(Subset::TrueType(plan))
     }
 
     /// Write a planned subset program to `output`.
-    pub(crate) async fn write<O: SubsetOutput, C: Cancellation>(
+    pub(crate) fn write<O: SubsetOutput, C: Cancellation>(
         &mut self,
         subset: &Subset,
         output: &mut O,
@@ -228,10 +224,10 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         cancellation: &C,
     ) -> Result<()> {
         match subset {
-            Subset::TrueType(plan) => self.write_subset(plan, output, limits, cancellation).await,
+            Subset::TrueType(plan) => self.write_subset(plan, output, limits, cancellation),
             Subset::Cff(subset) => {
                 for part in subset.parts() {
-                    output.put(part).await?;
+                    output.put(part)?;
                 }
                 Ok(())
             }
@@ -248,14 +244,14 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         self.subset_bytes_read
     }
 
-    async fn fetch<C: Cancellation>(
+    fn fetch<C: Cancellation>(
         &mut self,
         offset: u64,
         bytes: &mut [u8],
         limits: &Limits,
         cancellation: &C,
     ) -> Result<()> {
-        read(self.source, offset, bytes, limits, cancellation).await?;
+        read(self.source, offset, bytes, limits, cancellation)?;
         self.subset_bytes_read += bytes.len() as u64;
         Ok(())
     }
@@ -266,7 +262,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
     /// Every used character must still map to a glyph. Composite glyphs add
     /// their components. Retained state is two bytes per source glyph plus
     /// twelve per subset glyph; each selected outline is read once here.
-    pub(crate) async fn plan_subset<C: Cancellation>(
+    pub(crate) fn plan_subset<C: Cancellation>(
         &mut self,
         used: &[u8],
         max_length: u64,
@@ -317,7 +313,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
             let mut location = [0; 8];
             let location = &mut location[..2 * entry as usize];
             let at = self.table(LOCA).0 + u64::from(glyphs[index].source) * entry;
-            self.fetch(at, location, limits, cancellation).await?;
+            self.fetch(at, location, limits, cancellation)?;
             let (start, end) = if long {
                 (
                     u32::from_be_bytes(location[..4].try_into().unwrap()),
@@ -336,9 +332,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
             too_long(total, max_length)?;
             glyphs[index].offset = start;
             glyphs[index].length = end - start;
-            let data = self
-                .glyph_data(glyphs[index], &mut scratch, limits, cancellation)
-                .await?;
+            let data = self.glyph_data(glyphs[index], &mut scratch, limits, cancellation)?;
             if is_composite(data) {
                 components(data, |id| {
                     let source = u16::from_be_bytes([id[0], id[1]]);
@@ -403,15 +397,14 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
                 &mut scratch,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             plan.tables[index].2 = measure;
         }
         Ok(plan)
     }
 
     /// Write the planned subset font program to `output`.
-    pub(crate) async fn write_subset<O: SubsetOutput, C: Cancellation>(
+    pub(crate) fn write_subset<O: SubsetOutput, C: Cancellation>(
         &mut self,
         plan: &SubsetPlan,
         output: &mut O,
@@ -444,7 +437,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         }
         let length = directory.length as usize;
         let adjustment = 0xb1b0_afba_u32.wrapping_sub(sum.wrapping_add(directory.sum));
-        output.put(&header[..length]).await?;
+        output.put(&header[..length])?;
         let mut scratch = Vec::new();
         for (_, table, measure) in &plan.tables {
             self.emit(
@@ -455,15 +448,14 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
                 &mut scratch,
                 limits,
                 cancellation,
-            )
-            .await?;
-            output.put(&[0; 3][..measure.padding()]).await?;
+            )?;
+            output.put(&[0; 3][..measure.padding()])?;
         }
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn emit<O: SubsetOutput, C: Cancellation>(
+    fn emit<O: SubsetOutput, C: Cancellation>(
         &mut self,
         table: Table,
         plan: &SubsetPlan,
@@ -477,14 +469,11 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         match table {
             Table::Copy(slot) => {
                 let (offset, length) = self.table(slot);
-                self.copy(offset, length, output, scratch, limits, cancellation)
-                    .await?;
+                self.copy(offset, length, output, scratch, limits, cancellation)?;
             }
             Table::Glyf => {
                 for glyph in &plan.glyphs {
-                    let data = self
-                        .glyph_data(*glyph, scratch, limits, cancellation)
-                        .await?;
+                    let data = self.glyph_data(*glyph, scratch, limits, cancellation)?;
                     if is_composite(data) {
                         components(data, |id| {
                             let source = u16::from_be_bytes([id[0], id[1]]);
@@ -496,17 +485,17 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
                             Ok(())
                         })?;
                     }
-                    output.put(data).await?;
+                    output.put(data)?;
                     let padding = glyph.length.next_multiple_of(4) - glyph.length;
-                    output.put(&[0; 3][..padding as usize]).await?;
+                    output.put(&[0; 3][..padding as usize])?;
                 }
             }
             Table::Loca => {
                 let mut offset = 0_u32;
-                output.put(&offset.to_be_bytes()).await?;
+                output.put(&offset.to_be_bytes())?;
                 for glyph in &plan.glyphs {
                     offset += glyph.length.next_multiple_of(4);
-                    output.put(&offset.to_be_bytes()).await?;
+                    output.put(&offset.to_be_bytes())?;
                 }
             }
             Table::Hmtx => {
@@ -516,8 +505,8 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
                     // Reading validated `hmtx`; every glyph ID has a metric.
                     let advance = face.glyph_hor_advance(id).unwrap_or(0);
                     let bearing = face.glyph_hor_side_bearing(id).unwrap_or(0);
-                    output.put(&advance.to_be_bytes()).await?;
-                    output.put(&bearing.to_be_bytes()).await?;
+                    output.put(&advance.to_be_bytes())?;
+                    output.put(&bearing.to_be_bytes())?;
                 }
             }
             Table::Head | Table::Hhea | Table::Maxp => {
@@ -536,14 +525,14 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
                 if table == Table::Head {
                     bytes[8..12].copy_from_slice(&adjustment.to_be_bytes());
                 }
-                output.put(&bytes[..length]).await?;
+                output.put(&bytes[..length])?;
             }
         }
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn copy<O: SubsetOutput, C: Cancellation>(
+    fn copy<O: SubsetOutput, C: Cancellation>(
         &mut self,
         offset: u64,
         length: u64,
@@ -556,15 +545,14 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         while done < length {
             let size = (length - done).min(limits.io_chunk_bytes as u64) as usize;
             grow(scratch, size, limits)?;
-            self.fetch(offset + done, &mut scratch[..size], limits, cancellation)
-                .await?;
-            output.put(&scratch[..size]).await?;
+            self.fetch(offset + done, &mut scratch[..size], limits, cancellation)?;
+            output.put(&scratch[..size])?;
             done += size as u64;
         }
         Ok(())
     }
 
-    async fn glyph_data<'b, C: Cancellation>(
+    fn glyph_data<'b, C: Cancellation>(
         &mut self,
         glyph: Glyph,
         scratch: &'b mut Vec<u8>,
@@ -575,7 +563,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         grow(scratch, length, limits)?;
         let data = &mut scratch[..length];
         let offset = self.table(GLYF).0 + u64::from(glyph.offset);
-        self.fetch(offset, data, limits, cancellation).await?;
+        self.fetch(offset, data, limits, cancellation)?;
         Ok(data)
     }
 }

@@ -1,116 +1,96 @@
 // SPDX-License-Identifier: MIT
 
-/** Node.js entry point: the shared API plus file, stream, and spool adapters. Requires Node 22+. */
-import { mkdtemp, open, readFile, rm } from "node:fs/promises";
+/**
+ * Node.js entry point: the shared API plus file, stream, and spool adapters.
+ * Each operation runs in a `node:worker_threads` Worker that reads a file
+ * path or descriptor directly; a Blob is read on the calling thread and
+ * handed to the Worker through shared memory. Requires Node 22+.
+ */
+import { fstat } from "node:fs";
+import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  abortable,
-  checkAbort,
-  checkRange,
-  convertSpooled,
-  pumpChunks,
-  requireChunkLength,
-  requireSinkChunk,
-  requireU64,
-  TruncatedInputError,
-} from "./io.mjs";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { Worker } from "node:worker_threads";
+import { abortable, pumpChunks, requireSinkChunk, requireU64 } from "./io.mjs";
 import { writeSpoolChunk } from "./internal/spool-write.mjs";
-import { scratchCount, scratchSize } from "./internal/scratch.mjs";
+import { convertSpooledWith, runOperation } from "./internal/run.mjs";
 
 export * from "./io.mjs";
+
+const fstatAsync = promisify(fstat);
 
 /** Compile the packaged WASM module (or the file at `url`) once for reuse. */
 export async function loadModule(url = new URL("./caj2pdf_wasm.wasm", import.meta.url)) {
   return WebAssembly.compile(await readFile(url));
 }
 
-/** A positioned source over a caller-owned `node:fs/promises` FileHandle. */
-export async function fileHandleSource(handle) {
-  if (handle == null || typeof handle.stat !== "function" || typeof handle.read !== "function") {
-    throw new TypeError("a readable FileHandle is required");
-  }
-  const stats = await handle.stat({ bigint: true });
-  const size = requireU64(stats.size, "file size");
-  return Object.freeze({
-    size,
-    async readAt(offset, length, signal) {
-      requireChunkLength(length, { allowZero: true });
-      checkRange(size, offset, BigInt(length));
-      // A fresh buffer per read, so an abandoned (aborted) read owns its memory.
-      const bytes = new Uint8Array(length);
-      let done = 0;
-      while (done < length) {
-        const result = await abortable(handle.read({
-          buffer: bytes,
-          offset: done,
-          length: length - done,
-          position: offset + BigInt(done),
-        }), signal);
-        const count = result?.bytesRead;
-        if (!Number.isSafeInteger(count) || count < 0 || count > length - done) {
-          throw new RangeError("FileHandle returned an invalid read count");
-        }
-        if (count === 0) {
-          throw new TruncatedInputError("file changed or ended before the requested range");
-        }
-        done += count;
-      }
-      return bytes;
-    },
-  });
+function size(stats) {
+  if (!stats.isFile()) throw new TypeError("the input must be a regular file");
+  return Number(requireU64(stats.size, "file size"));
 }
 
 /**
- * Bounded random-access scratch over a caller-owned read/write FileHandle.
- * Serialize calls and grant exclusive access; close/unlink remain caller-owned.
- * Cancellation waits for an outstanding operation to settle before rejecting,
- * so no abandoned write or truncate can race with cleanup or store reuse.
+ * The Worker runs the package's own module and needs none of the caller's
+ * Node options. Passing an explicit list also keeps the Worker from
+ * inheriting `--input-type`/`--eval`, which a Worker started from a file
+ * rejects, and skips the strict validation that an inherited process-level
+ * flag such as `--secure-heap` fails when it is passed back explicitly.
  */
-export async function fileHandleScratch(handle, { maxBytes } = {}) {
-  scratchSize(0n, maxBytes);
-  if (["stat", "truncate", "read", "write"].some((key) => typeof handle?.[key] !== "function")) {
-    throw new TypeError("a read/write FileHandle is required");
-  }
-  const stats = await handle.stat({ bigint: true });
-  if (!stats.isFile()) throw new TypeError("scratch backing must be a regular file");
-  let size = stats.size;
-  scratchSize(size, maxBytes);
-  return Object.freeze({
-    get size() { return size; },
-    async resize(bytes, signal) {
-      const length = scratchSize(bytes, maxBytes);
-      checkAbort(signal);
-      await handle.truncate(length);
-      size = bytes;
-      checkAbort(signal);
-    },
-    async readAt(offset, length, signal) {
-      requireChunkLength(length, { allowZero: true });
-      checkRange(size, offset, BigInt(length));
-      checkAbort(signal);
-      const bytes = new Uint8Array(length);
-      const result = await handle.read({ buffer: bytes, offset: 0, length, position: Number(offset) });
-      checkAbort(signal);
-      return bytes.subarray(0, scratchCount(result?.bytesRead, length));
-    },
-    async writeAt(offset, bytes, signal) {
-      requireSinkChunk(bytes);
-      checkRange(size, offset, BigInt(bytes.byteLength));
-      checkAbort(signal);
-      const result = await handle.write(bytes, 0, bytes.byteLength, Number(offset));
-      checkAbort(signal);
-      return scratchCount(result?.bytesWritten, bytes.byteLength);
-    },
-    async flush(signal) {
-      checkAbort(signal);
-      // Completed FileHandle writes are already visible to subsequent reads.
-      // Durability (fsync) belongs to the owner, not disposable scratch.
-    },
-  });
+const WORKER_EXEC_ARGV = Object.freeze([]);
+
+const platform = Object.freeze({
+  async createWorker() {
+    const worker = new Worker(new URL("./internal/worker.mjs", import.meta.url), { execArgv: WORKER_EXEC_ARGV });
+    return {
+      post: (message) => worker.postMessage(message),
+      onMessage: (listener) => worker.on("message", listener),
+      onError: (listener) => worker.on("error", listener),
+      terminate: () => {
+        worker.terminate();
+      },
+    };
+  },
+  async describe(input, role) {
+    if (typeof input === "string" || input instanceof URL) {
+      const path = input instanceof URL ? fileURLToPath(input) : input;
+      return { kind: "path", path, size: size(await stat(path, { bigint: true })) };
+    }
+    if (Number.isSafeInteger(input) && input >= 0) {
+      return { kind: "fd", fd: input, size: size(await fstatAsync(input, { bigint: true })) };
+    }
+    if (input instanceof Blob) {
+      return { kind: "served", blob: input, size: input.size };
+    }
+    throw new TypeError(`${role} must be a file path, a file descriptor, or a Blob`);
+  },
+  async read(input, offset, length) {
+    const buffer = await input.blob.slice(offset, offset + length).arrayBuffer();
+    return new Uint8Array(buffer);
+  },
+});
+
+/**
+ * Convert PDF, CAJ, KDH or HN/C8 to PDF. `source` is a file path (string
+ * or `file:` URL), an open file descriptor, or a Blob; the format is detected
+ * from its leading signature unless `format` is set.
+ */
+export function convert(wasm, source, sink, options = {}) {
+  return runOperation(platform, "convert", wasm, source, sink, options);
 }
 
-/** Await each write callback before sending another bounded chunk. */
+/** Read format, pages and validated CAJ/HN-A bookmark counts. No image decoding. */
+export function inspect(wasm, source, options = {}) {
+  return runOperation(platform, "inspect", wasm, source, null, options);
+}
+
+/** Spool with `spool`, convert, and always dispose the spool. */
+export function convertSpooled(spool, wasm, stream, sink, options = {}) {
+  return convertSpooledWith(convert, spool, wasm, stream, sink, options);
+}
+
+/** Await each write callback before sending another chunk. */
 export function nodeWritableSink(writable) {
   if (writable == null || typeof writable.write !== "function") {
     throw new TypeError("a Node Writable stream is required");
@@ -118,8 +98,6 @@ export function nodeWritableSink(writable) {
   return Object.freeze({
     async writeChunk(bytes, signal) {
       requireSinkChunk(bytes);
-      // The stream can retain the bytes after WASM reuses its staging area.
-      const owned = Buffer.from(bytes);
       await abortable(new Promise((resolve, reject) => {
         let pendingError;
         let cleanupScheduled = false;
@@ -142,7 +120,7 @@ export function nodeWritableSink(writable) {
         try {
           // Awaiting this callback is stricter than waiting for `drain` alone:
           // it keeps at most one supplied chunk in the Writable queue.
-          writable.write(owned, (error) => {
+          writable.write(bytes, (error) => {
             if (error) pendingError = error;
             scheduleCleanup();
           });
@@ -164,27 +142,31 @@ export function nodeWritableSink(writable) {
  * Copy a forward-only Node `Readable`, Web `ReadableStream`, or async
  * iterable into a private temporary file (mode 0600 in a fresh `mkdtemp`
  * directory under `os.tmpdir()`), rejecting beyond `maxBytes`. The returned
- * `dispose()` closes and removes it; failures and aborts remove it at once.
+ * `source` is the file's path; `dispose()` removes it, and failures and
+ * aborts remove it at once.
  */
 export async function spoolToTempFile(stream, { maxBytes, signal, directory = tmpdir() } = {}) {
   requireU64(maxBytes, "maxBytes");
   const folder = await mkdtemp(join(directory, "caj2pdf-spool-"));
+  const path = join(folder, "input");
   let handle;
   const dispose = async () => {
     try {
       await handle?.close();
     } finally {
+      handle = undefined;
       await rm(folder, { recursive: true, force: true });
     }
   };
   try {
-    handle = await open(join(folder, "input"), "wx+", 0o600);
+    handle = await open(path, "wx", 0o600);
     let position = 0;
     await pumpChunks(stream, async (chunk) => {
       position = await writeSpoolChunk(handle, chunk, position, signal);
     }, { maxBytes, signal });
-    const source = await fileHandleSource(handle);
-    return { source, dispose, path: folder };
+    await handle.close();
+    handle = undefined;
+    return { source: path, dispose, path: folder };
   } catch (error) {
     await dispose();
     throw error;
@@ -204,25 +186,4 @@ export function convertReadable(wasm, stream, sink, options = {}) {
     sink,
     options,
   );
-}
-
-/** Run an operation with four bounded temporary stores, then close/remove them. */
-export async function withHnc8Scratch(operation, { maxBytes = 64n * 1024n * 1024n, directory = tmpdir() } = {}) {
-  scratchSize(0n, maxBytes);
-  const folder = await mkdtemp(join(directory, "caj2pdf-hnc8-"));
-  const handles = [];
-  try {
-    const scratch = [];
-    for (let i = 0; i < 4; i++) {
-      const handle = await open(join(folder, String(i)), "wx+", 0o600);
-      handles.push(handle);
-      scratch.push(await fileHandleScratch(handle, { maxBytes }));
-    }
-    return await operation(scratch);
-  } finally {
-    const closed = await Promise.allSettled(handles.map((handle) => handle.close()));
-    await rm(folder, { recursive: true, force: true });
-    const errors = closed.filter((result) => result.status === "rejected").map((result) => result.reason);
-    if (errors.length) throw new AggregateError(errors, "Could not close HN/C8 scratch files");
-  }
 }

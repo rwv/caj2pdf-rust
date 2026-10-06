@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 
 // Forward-only stream spooling: Node temporary files and a browser OPFS
-// spool. The OPFS tests here use an in-memory test double of the OPFS API;
-// browser.test.mjs exercises the real OPFS in headless Chromium.
+// spool. The OPFS tests here use an in-memory test double of the OPFS API
+// and stop before conversion, which needs a browser Worker; browser.test.mjs
+// converts through the real OPFS in headless Chromium.
 import assert from "node:assert/strict";
-import { readdir, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { convertReadableStream, spoolToOpfs } from "../browser.mjs";
@@ -42,8 +44,9 @@ test("a Node Readable spools to a private temp file that dispose removes", async
   await withTempRoot(async (directory) => {
     const bytes = syntheticCaj();
     const spooled = await spoolToTempFile(Readable.from(pieces(bytes)), { maxBytes: 1n << 20n, directory });
-    assert.equal(spooled.source.size, BigInt(bytes.length));
-    assert.deepEqual(await spooled.source.readAt(0n, 4), bytes.subarray(0, 4));
+    // The spooled copy is a file path that convert() reads directly.
+    assert.deepEqual(new Uint8Array(await readFile(spooled.source)), bytes);
+    assert.equal(spooled.source, join(spooled.path, "input"));
     assert.deepEqual(await readdir(spooled.path), ["input"]);
     await spooled.dispose();
   });
@@ -198,6 +201,7 @@ function fakeStorage({ writable = true, abortError } = {}) {
       assert.equal(create, true);
       files.set(name, []);
       const handle = {
+        kind: "file",
         async getFile() {
           return new File(files.get(name), name);
         },
@@ -227,17 +231,14 @@ function fakeStorage({ writable = true, abortError } = {}) {
   return { files, events, storage: { getDirectory: async () => root } };
 }
 
-test("the browser spool uses OPFS and removes its file after conversion", async (t) => {
+test("the browser spool writes an OPFS file handle that dispose removes", async () => {
   const { files, events, storage } = fakeStorage();
-  const { writer, bytes } = collectingWriter();
-  const report = await convertReadableStream(
-    await wasmModule(),
-    new Blob([syntheticCaj()]).stream(),
-    webWritableSink(writer),
-    { storage },
-  );
-  assert.equal(report.pagesConverted, 2);
-  await validatePdf(t, bytes(), 2);
+  const bytes = syntheticCaj();
+  const spooled = await spoolToOpfs(new Blob([bytes]).stream(), { maxBytes: 1n << 20n, storage });
+  // The spooled copy is the OPFS file handle that convert() opens in its Worker.
+  assert.equal(spooled.source.kind, "file");
+  assert.deepEqual(new Uint8Array(await (await spooled.source.getFile()).arrayBuffer()), bytes);
+  await spooled.dispose();
   assert.equal(files.size, 0);
   assert.deepEqual(events, ["close", "remove"]);
 });
@@ -250,15 +251,6 @@ test("the browser spool aborts and removes its file on failure", async () => {
   );
   assert.equal(bounded.files.size, 0);
   assert.deepEqual(bounded.events, ["abort", "remove"]);
-
-  const failing = fakeStorage();
-  await assert.rejects(
-    convertReadableStream(await wasmModule(), new Blob([Uint8Array.of(1, 2, 3)]).stream(), discard, {
-      storage: failing.storage,
-    }),
-    { name: "UnsupportedFormatError", format: null },
-  );
-  assert.equal(failing.files.size, 0);
 });
 
 test("the browser spool fails explicitly without durable storage", async () => {

@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-/** Browser entry point: the shared API plus an Origin Private File System spool. */
-import { blobSource, Caj2PdfError, checkAbort, checkRange, convertSpooled, pumpChunks, requireChunkLength, requireSinkChunk, requireU64 } from "./io.mjs";
-import { scratchCount, scratchSize } from "./internal/scratch.mjs";
+/**
+ * Browser entry point: the shared API plus an Origin Private File System
+ * spool. Each operation runs in a module Worker that reads a Blob/File with
+ * `FileReaderSync`, or an OPFS file through a synchronous access handle.
+ */
+import { Caj2PdfError, pumpChunks, requireU64 } from "./io.mjs";
+import { convertSpooledWith, runOperation } from "./internal/run.mjs";
 
 export * from "./io.mjs";
 
-/** Compile the packaged WASM module (or the one at `url`) once for reuse. */
+/** Fetch and compile the packaged WASM module (or the one at `url`) once for reuse. */
 export async function loadModule(url = new URL("./caj2pdf_wasm.wasm", import.meta.url)) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -15,52 +19,59 @@ export async function loadModule(url = new URL("./caj2pdf_wasm.wasm", import.met
   return WebAssembly.compileStreaming(response);
 }
 
+const platform = Object.freeze({
+  async createWorker() {
+    const worker = new Worker(new URL("./internal/worker.mjs", import.meta.url), { type: "module" });
+    return {
+      post: (message) => worker.postMessage(message),
+      onMessage: (listener) => worker.addEventListener("message", (event) => listener(event.data)),
+      onError: (listener) => {
+        worker.addEventListener("error", (event) => {
+          event.preventDefault?.();
+          listener(event.error ?? new Error(event.message || "caj2pdf Worker failed"));
+        });
+        worker.addEventListener("messageerror", () => listener(new Error("a caj2pdf Worker message could not be read")));
+      },
+      terminate: () => worker.terminate(),
+    };
+  },
+  async describe(input, role) {
+    if (input instanceof Blob) {
+      return { kind: "blob", blob: input, size: input.size };
+    }
+    if (input?.kind === "file" && typeof input.getFile === "function") {
+      // An OPFS file; the Worker opens a synchronous access handle on it.
+      return { kind: "opfs", handle: input, size: (await input.getFile()).size };
+    }
+    throw new TypeError(`${role} must be a Blob, a File, or an OPFS FileSystemFileHandle`);
+  },
+  async read() {
+    throw new Error("browser inputs are read in the Worker");
+  },
+});
+
 /**
- * Bounded scratch over a caller-owned OPFS FileSystemSyncAccessHandle, obtained
- * in a Dedicated Worker. Grant exclusive access and serialize calls. The caller
- * closes the handle and removes its file. No snapshots or image buffers are kept.
+ * Convert PDF, CAJ, KDH or HN/C8 to PDF. `source` is a Blob/File or an OPFS
+ * `FileSystemFileHandle`; the format is detected from its leading signature
+ * unless `format` is set.
  */
-export function syncAccessHandleScratch(handle, { maxBytes } = {}) {
-  scratchSize(0n, maxBytes);
-  if (["getSize", "truncate", "read", "write", "flush"].some((key) => typeof handle?.[key] !== "function")) {
-    throw new TypeError("an OPFS synchronous access handle is required in a Dedicated Worker");
-  }
-  const initial = handle.getSize();
-  if (!Number.isSafeInteger(initial) || initial < 0) throw new RangeError("invalid OPFS scratch size");
-  let size = BigInt(initial);
-  scratchSize(size, maxBytes);
-  return Object.freeze({
-    get size() { return size; },
-    async resize(bytes, signal) {
-      const length = scratchSize(bytes, maxBytes);
-      checkAbort(signal);
-      handle.truncate(length);
-      size = bytes;
-    },
-    async readAt(offset, length, signal) {
-      requireChunkLength(length, { allowZero: true });
-      checkRange(size, offset, BigInt(length));
-      checkAbort(signal);
-      const bytes = new Uint8Array(length);
-      const count = scratchCount(handle.read(bytes, { at: Number(offset) }), length);
-      return bytes.subarray(0, count);
-    },
-    async writeAt(offset, bytes, signal) {
-      requireSinkChunk(bytes);
-      checkRange(size, offset, BigInt(bytes.byteLength));
-      checkAbort(signal);
-      return scratchCount(handle.write(bytes, { at: Number(offset) }), bytes.byteLength);
-    },
-    async flush(signal) {
-      checkAbort(signal);
-      handle.flush();
-    },
-  });
+export function convert(wasm, source, sink, options = {}) {
+  return runOperation(platform, "convert", wasm, source, sink, options);
+}
+
+/** Read format, pages and validated CAJ/HN-A bookmark counts. No image decoding. */
+export function inspect(wasm, source, options = {}) {
+  return runOperation(platform, "inspect", wasm, source, null, options);
+}
+
+/** Spool with `spool`, convert, and always dispose the spool. */
+export function convertSpooled(spool, wasm, stream, sink, options = {}) {
+  return convertSpooledWith(convert, spool, wasm, stream, sink, options);
 }
 
 /**
  * Copy a forward-only `ReadableStream` into a uniquely named OPFS file,
- * rejecting beyond `maxBytes`, then expose it as a disk-backed Blob source.
+ * rejecting beyond `maxBytes`, and return its file handle as the source.
  * `dispose()` removes the file; failures and aborts remove it at once.
  * Rejects with `RANDOM_ACCESS_REQUIRED` when OPFS or `createWritable()` is
  * unavailable, rather than buffering the stream in memory.
@@ -69,7 +80,7 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
   requireU64(maxBytes, "maxBytes");
   if (typeof storage?.getDirectory !== "function") {
     throw new Caj2PdfError(
-      "no durable temporary storage (OPFS) is available; pass a Blob/File or a readAt source instead",
+      "no durable temporary storage (OPFS) is available; pass a Blob/File instead",
       "RANDOM_ACCESS_REQUIRED",
     );
   }
@@ -78,8 +89,8 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
   const file = await root.getFileHandle(name, { create: true });
   let writable;
   const dispose = async () => {
-    // A browser may briefly retain the writer lock after abort settles.
-    // Bound retries to this specific lock error; surface permanent failures.
+    // A browser may briefly retain the writer or access-handle lock after
+    // abort settles. Bound retries to this specific lock error.
     for (let attempt = 0; ; attempt++) {
       try {
         await root.removeEntry(name);
@@ -101,7 +112,7 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
     await pumpChunks(stream, (chunk) => writable.write(chunk), { maxBytes, signal });
     await writable.close();
     writable = undefined;
-    return { source: blobSource(await file.getFile()), dispose };
+    return { source: file, dispose };
   } catch (error) {
     await Promise.resolve().then(() => writable?.abort()).catch(() => {});
     try {
@@ -126,28 +137,4 @@ export function convertReadableStream(wasm, stream, sink, options = {}) {
     sink,
     options,
   );
-}
-
-/** Dedicated Worker only: run with four bounded OPFS stores and always dispose them. */
-export async function withHnc8Scratch(operation, { maxBytes = 64n * 1024n * 1024n, storage = globalThis.navigator?.storage } = {}) {
-  scratchSize(0n, maxBytes);
-  const root = await storage.getDirectory();
-  const directory = `caj2pdf-hnc8-${crypto.randomUUID()}`;
-  const folder = await root.getDirectoryHandle(directory, { create: true });
-  const handles = [];
-  try {
-    const scratch = [];
-    for (let i = 0; i < 4; i++) {
-      const file = await folder.getFileHandle(String(i), { create: true });
-      const handle = await file.createSyncAccessHandle();
-      handles.push(handle);
-      scratch.push(syncAccessHandleScratch(handle, { maxBytes }));
-    }
-    return await operation(scratch);
-  } finally {
-    const closed = await Promise.allSettled(handles.map(async (handle) => handle.close()));
-    await root.removeEntry(directory, { recursive: true });
-    const errors = closed.filter((result) => result.status === "rejected").map((result) => result.reason);
-    if (errors.length) throw new AggregateError(errors, "Could not close HN/C8 scratch handles");
-  }
 }

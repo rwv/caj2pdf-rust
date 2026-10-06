@@ -4,7 +4,7 @@ use super::*;
 use crate::native::SeekableSource;
 use crate::pdf::drawing_font;
 use crate::pdf::font::tests::{Tables, build, get32, table, tables};
-use crate::test_support::{NEVER, run};
+use crate::test_support::NEVER;
 use crate::{Error, RangedSource};
 use std::io::Cursor;
 use xberg_ttf_parser::{GlyphId, OutlineBuilder};
@@ -160,7 +160,7 @@ fn used(characters: &[char]) -> Vec<u8> {
 struct Bytes(Vec<u8>);
 
 impl SubsetOutput for Bytes {
-    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
+    fn put(&mut self, bytes: &[u8]) -> Result<()> {
         self.0.extend_from_slice(bytes);
         Ok(())
     }
@@ -171,17 +171,14 @@ fn subset_with<S: RangedSource>(
     characters: &[char],
     limits: &Limits,
 ) -> Result<Vec<u8>> {
-    run(async {
-        let mut font = OpenTypeFont::read(source, 0, limits, &NEVER).await?;
-        let plan = font
-            .plan_subset(&used(characters), u64::MAX, limits, &NEVER)
-            .await?;
+    (|| {
+        let mut font = OpenTypeFont::read(source, 0, limits, &NEVER)?;
+        let plan = font.plan_subset(&used(characters), u64::MAX, limits, &NEVER)?;
         let mut output = Bytes::default();
-        font.write_subset(&plan, &mut output, limits, &NEVER)
-            .await?;
+        font.write_subset(&plan, &mut output, limits, &NEVER)?;
         assert_eq!(output.0.len() as u64, plan.length());
         Ok(output.0)
-    })
+    })()
 }
 
 fn subset(font: Vec<u8>, characters: &[char], chunk: usize) -> Result<Vec<u8>> {
@@ -287,20 +284,17 @@ fn shared_glyphs_and_unused_fonts_keep_only_needed_outlines() {
 fn plan_maps_used_characters_to_subset_glyphs() {
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, false))).unwrap();
     let limits = Limits::default();
-    run(async {
-        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER)
-            .await
-            .unwrap();
+    {
+        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
         let plan = font
             .plan_subset(&used(&['D', 'A']), u64::MAX, &limits, &NEVER)
-            .await
             .unwrap();
         let face = font.face().unwrap();
         assert_eq!(plan.glyph(&face, 'A'), 1);
         assert_eq!(plan.glyph(&face, 'D'), 2);
         assert_eq!(plan.glyph(&face, '中'), 0);
         assert_eq!(plan.glyph(&face, 'Z'), 0);
-    });
+    };
 }
 
 fn malformed(edit: impl Fn(&mut Tables)) -> Vec<u8> {
@@ -376,16 +370,10 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
         ..Limits::default()
     };
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, false))).unwrap();
-    let mut font = run(OpenTypeFont::read(
-        &mut source,
-        0,
-        &Limits::default(),
-        &NEVER,
-    ))
-    .unwrap();
+    let mut font = OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER).unwrap();
     // Six glyphs need 6 * (2 + 12) bytes of glyph tables.
     assert!(matches!(
-        run(font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER)),
+        font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER),
         Err(Error::LimitExceeded { attempted: 84, .. })
     ));
     let limits = Limits {
@@ -394,10 +382,11 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     };
     // Glyph 4 with its instructions is 10 + 14 + 2 + 100 bytes.
     assert!(matches!(
-        run(font.plan_subset(&used(&['C']), u64::MAX, &limits, &NEVER)),
+        font.plan_subset(&used(&['C']), u64::MAX, &limits, &NEVER),
         Err(Error::LimitExceeded { attempted: 126, .. })
     ));
-    run(font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)).unwrap();
+    font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)
+        .unwrap();
 }
 
 /// Serves `patched` bytes for reads at `trigger` after `after` such reads.
@@ -413,7 +402,7 @@ impl RangedSource for Changing {
     fn size(&self) -> u64 {
         self.bytes.len() as u64
     }
-    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
         if offset == self.trigger {
             self.seen += 1;
         }
@@ -465,31 +454,24 @@ fn components_changed_between_reads_are_rejected() {
 fn projected_program_length_is_bounded_before_measuring() {
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, true))).unwrap();
     let limits = Limits::default();
-    run(async {
-        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER)
-            .await
-            .unwrap();
+    {
+        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
         let used = used(&['C']);
-        let plan = font
-            .plan_subset(&used, u64::MAX, &limits, &NEVER)
-            .await
-            .unwrap();
+        let plan = font.plan_subset(&used, u64::MAX, &limits, &NEVER).unwrap();
         let length = plan.length();
         let read = font.subset_bytes_read();
         assert!(read > 0);
-        font.plan_subset(&used, length, &limits, &NEVER)
-            .await
-            .unwrap();
+        font.plan_subset(&used, length, &limits, &NEVER).unwrap();
         assert_eq!(font.subset_bytes_read(), 2 * read);
         // Glyph data alone fits; the other tables push the program over.
-        let error = font.plan_subset(&used, length - 1, &limits, &NEVER).await;
+        let error = font.plan_subset(&used, length - 1, &limits, &NEVER);
         assert!(matches!(
             error,
             Err(Error::LimitExceeded { limit, attempted, .. })
                 if limit == length - 1 && attempted == length
         ));
         // The glyph data bound applies while components are still found.
-        let error = font.plan_subset(&used, 40, &limits, &NEVER).await;
+        let error = font.plan_subset(&used, 40, &limits, &NEVER);
         assert!(matches!(error, Err(Error::LimitExceeded { limit: 40, .. })));
-    });
+    };
 }

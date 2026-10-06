@@ -26,13 +26,13 @@ impl RangedSource for BudgetSource {
         self.source.size()
     }
 
-    async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
         assert!(
             self.remaining > 0,
             "conversion exhausted its finite read budget"
         );
         self.remaining -= 1;
-        self.source.read_at(offset, bytes).await
+        self.source.read_at(offset, bytes)
     }
 }
 
@@ -83,18 +83,17 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                 ..Default::default()
             };
             let result = if profile < 2 {
-                ready(convert_source_pages_pdf(
+                convert_source_pages_pdf(
                     &mut source,
                     &mut sink,
                     None,
-                    no_stores(),
                     &mut Visitor::default(),
                     ComposeOptions::default(),
                     &limits,
                     &NeverCancel,
-                ))
+                )
             } else {
-                ready(convert_c8_native_pdf(
+                convert_c8_native_pdf(
                     &mut source,
                     &mut sink,
                     C8FontSources {
@@ -102,11 +101,10 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                         roles: roles(),
                     },
                     None,
-                    no_stores(),
                     ComposeOptions::default(),
                     &limits,
                     &NeverCancel,
-                ))
+                )
             };
             if mutation == 0 {
                 assert_eq!(result.unwrap().output_pages, 2, "profile {profile}");

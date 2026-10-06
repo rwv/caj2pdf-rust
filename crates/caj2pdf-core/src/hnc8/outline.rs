@@ -86,7 +86,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             .then(|| ((self.header.page_index.offset - 0x15c) / 308) as u32)
     }
 
-    /// Visit HN-A bookmarks one record at a time, awaiting every visitor call.
+    /// Visit HN-A bookmarks one record at a time, calling the visitor for each.
     ///
     /// `map_page` maps a one-based physical source page to a zero-based emitted
     /// page. `None` marks an omitted destination; no neighboring-page fallback
@@ -98,9 +98,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// page, destination or zero level is skipped; a level deeper than its
     /// written parent allows, or than `max_depth`, is clamped. Both are
     /// counted in the returned report. Read errors, limits and cancellation
-    /// still fail. Visitor failure or a dropped future poisons the reader,
-    /// preventing an accidental retry of partial output.
-    pub async fn visit_bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
+    /// still fail. After a visitor failure the caller must discard the
+    /// partial output.
+    pub fn visit_bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
         &mut self,
         max_depth: u32,
         output_pages: u32,
@@ -113,20 +113,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             page: None,
             image: None,
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
-        self.poisoned = true;
-        let result = self
-            .bookmarks(max_depth, output_pages, map_page, visitor, loc)
-            .await;
-        if result.is_ok() {
-            self.poisoned = false;
-        }
-        result
+        self.bookmarks(max_depth, output_pages, map_page, visitor, loc)
     }
 
-    async fn bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
+    fn bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
         &mut self,
         max_depth: u32,
         output_pages: u32,
@@ -183,8 +173,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 &mut record,
                 at,
                 "outline record",
-            )
-            .await?;
+            )?;
             let level = u32::from_le_bytes(record[304..308].try_into().expect("fixed field width"));
             let entry = 'entry: {
                 let Some(title_end) = record[..256].iter().position(|&byte| byte == 0) else {
@@ -266,7 +255,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     depth: written - 1,
                     page_index,
                 })
-                .await
                 .map_err(|source| match source {
                     Error::Cancelled => at.error(ErrorKind::Cancelled),
                     source => at.error(ErrorKind::Source {

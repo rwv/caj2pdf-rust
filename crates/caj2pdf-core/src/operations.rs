@@ -79,7 +79,7 @@ fn pdf_header_offset(prefix: &[u8]) -> Option<usize> {
 /// Only `min(SIGNATURE_BYTES, size)` bytes are read when a signature starts
 /// at byte 0; otherwise at most `PDF_HEADER_SEARCH_BYTES` in total, in reads
 /// no larger than `limits.io_chunk_bytes`. `Ok(None)` means unrecognized.
-pub async fn detect_source<S: RangedSource, C: Cancellation>(
+pub fn detect_source<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
@@ -88,7 +88,7 @@ pub async fn detect_source<S: RangedSource, C: Cancellation>(
     let mut prefix = [0; PDF_HEADER_SEARCH_BYTES];
     let size = source.size();
     let leading = size.min(SIGNATURE_BYTES as u64) as usize;
-    read_prefix(source, &mut prefix, 0..leading, limits, cancellation).await?;
+    read_prefix(source, &mut prefix, 0..leading, limits, cancellation)?;
     if let Some(format) = leading_format(&prefix[..leading]) {
         return Ok(Some(Detection {
             format,
@@ -97,7 +97,7 @@ pub async fn detect_source<S: RangedSource, C: Cancellation>(
         }));
     }
     let searched = size.min(PDF_HEADER_SEARCH_BYTES as u64) as usize;
-    read_prefix(source, &mut prefix, leading..searched, limits, cancellation).await?;
+    read_prefix(source, &mut prefix, leading..searched, limits, cancellation)?;
     Ok(
         pdf_header_offset(&prefix[..searched]).map(|offset| Detection {
             format: InputFormat::Pdf,
@@ -107,7 +107,7 @@ pub async fn detect_source<S: RangedSource, C: Cancellation>(
     )
 }
 
-async fn read_prefix<S: RangedSource, C: Cancellation>(
+fn read_prefix<S: RangedSource, C: Cancellation>(
     source: &mut S,
     prefix: &mut [u8],
     range: Range<usize>,
@@ -117,7 +117,7 @@ async fn read_prefix<S: RangedSource, C: Cancellation>(
     let start = range.start;
     for (index, chunk) in prefix[range].chunks_mut(limits.io_chunk_bytes).enumerate() {
         let offset = start + index * limits.io_chunk_bytes;
-        read_exact_at(source, offset as u64, chunk, limits, cancellation).await?;
+        read_exact_at(source, offset as u64, chunk, limits, cancellation)?;
     }
     Ok(())
 }
@@ -141,10 +141,9 @@ pub struct Bookmark {
     pub page_index: u32,
 }
 
-/// A backpressure-aware recipient for streamed bookmark entries.
-#[allow(async_fn_in_trait)]
+/// A recipient for streamed bookmark entries, called once per entry.
 pub trait BookmarkVisitor {
-    async fn visit(&mut self, bookmark: Bookmark) -> Result<()>;
+    fn visit(&mut self, bookmark: Bookmark) -> Result<()>;
 }
 
 /// Options shared by platform adapters and format implementations.
@@ -189,7 +188,7 @@ mod tests {
         Detection, InputFormat, PDF_HEADER_SEARCH_BYTES, SIGNATURE_BYTES, detect_format,
         detect_source,
     };
-    use crate::test_support::{CancelAfter, NEVER, run};
+    use crate::test_support::{CancelAfter, NEVER};
     use crate::{Error, Limits, RangedSource, Result};
 
     #[test]
@@ -258,7 +257,7 @@ mod tests {
             self.size
         }
 
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
             self.reads.push((offset, destination.len()));
             let start = (offset as usize).min(self.bytes.len());
             let available = &self.bytes[start..];
@@ -269,7 +268,7 @@ mod tests {
     }
 
     fn detect(source: &mut Source, limits: &Limits) -> Result<Option<Detection>> {
-        run(detect_source(source, limits, &NEVER))
+        detect_source(source, limits, &NEVER)
     }
 
     fn detection(format: InputFormat, header_offset: u64, bytes_read: u64) -> Option<Detection> {
@@ -356,12 +355,8 @@ mod tests {
         );
 
         let mut source = Source::new(b"%PDF-1.7".to_vec());
-        let error = run(detect_source(
-            &mut source,
-            &Limits::default(),
-            &CancelAfter::always(),
-        ))
-        .unwrap_err();
+        let error =
+            detect_source(&mut source, &Limits::default(), &CancelAfter::always()).unwrap_err();
         assert!(matches!(error, Error::Cancelled), "{error:?}");
     }
 }

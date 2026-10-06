@@ -10,7 +10,6 @@
 //! validates the face and its PostScript name matches. The first match in
 //! each ordered list wins.
 
-use crate::document::block_on;
 use crate::signals::ProcessCancellation;
 use caj2pdf_core::{Limits, native::SeekableSource, pdf::OpenTypeFont};
 use std::collections::HashSet;
@@ -238,21 +237,11 @@ pub fn walk(roots: &[PathBuf], wanted: impl Fn(&OsStr) -> bool, max_entries: usi
 fn find_face(path: &Path, postscript: &str, limits: &Limits) -> Option<u32> {
     let file = File::open(path).ok()?;
     let mut source = SeekableSource::new(file).ok()?;
-    let count = block_on(OpenTypeFont::face_count(
-        &mut source,
-        limits,
-        &ProcessCancellation,
-    ))
-    .ok()?;
+    let count = OpenTypeFont::face_count(&mut source, limits, &ProcessCancellation).ok()?;
     (0..count.min(MAX_FACES)).find(|&face| {
-        block_on(OpenTypeFont::read(
-            &mut source,
-            face,
-            limits,
-            &ProcessCancellation,
-        ))
-        .and_then(|font| font.postscript_name())
-        .is_ok_and(|name| name == postscript)
+        OpenTypeFont::read(&mut source, face, limits, &ProcessCancellation)
+            .and_then(|font| font.postscript_name())
+            .is_ok_and(|name| name == postscript)
     })
 }
 

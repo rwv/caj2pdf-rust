@@ -52,8 +52,8 @@ impl<S: RangedSource> RangedSource for Progress<'_, S> {
         self.inner.size()
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let count = self.inner.read_at(offset, destination).await?;
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let count = self.inner.read_at(offset, destination)?;
         let end = offset.saturating_add(count as u64);
         if end > self.furthest {
             self.furthest = end;

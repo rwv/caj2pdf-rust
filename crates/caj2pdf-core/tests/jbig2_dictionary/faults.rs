@@ -31,8 +31,6 @@ fn source(body: &[u8], new_symbols: u32, page: u8, at: (i8, i8), references: &[u
 
 struct Observation {
     result: Result<DictionaryReport, DictionaryError>,
-    retry_poisoned: Option<bool>,
-    source: Source,
     store: Store,
 }
 
@@ -54,13 +52,13 @@ fn observe(
         limits,
         mq_budget,
         budget,
-        Store::unbounded(),
+        Store::default(),
         IAID_BASE,
     )
 }
 
 fn observe_custom(
-    mut source: Source,
+    source: Source,
     header: &SegmentHeader,
     limits: &Limits,
     mq_budget: MqBudget,
@@ -72,12 +70,12 @@ fn observe_custom(
     let mut contexts = MqBudget::default()
         .context_bank(context_count, &Limits::default())
         .unwrap();
-    let mut unread = Unread::default();
-    let created = ready(SymbolDictionaryDecoder::new(
-        &mut source,
+    let unread = Unread::default();
+    let result = SymbolDictionaryDecoder::new(
+        source.payload(),
         header,
         None,
-        direct_stores(&mut unread, &mut store),
+        direct_stores(&unread, &mut store),
         &table,
         &mut contexts,
         limits,
@@ -86,25 +84,9 @@ fn observe_custom(
         budget,
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ));
-    let (result, retry_poisoned) = match created {
-        Ok(mut decoder) => {
-            let result = ready(decoder.decode());
-            let retry_poisoned = result.as_ref().err().map(|_| {
-                let retry = ready(decoder.decode()).unwrap_err();
-                assert!(retry.to_string().contains("poisoned"));
-                matches!(retry.kind, DictionaryErrorKind::Poisoned)
-            });
-            (result, retry_poisoned)
-        }
-        Err(error) => (Err(error), None),
-    };
-    Observation {
-        result,
-        retry_poisoned,
-        source,
-        store,
-    }
+    )
+    .and_then(|decoder| decoder.decode());
+    Observation { result, store }
 }
 
 fn defaults(source: Source, header: &SegmentHeader) -> Observation {
@@ -118,63 +100,22 @@ fn defaults(source: Source, header: &SegmentHeader) -> Observation {
 }
 
 #[test]
-fn physical_source_truncation_and_overreport_are_rejected() {
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.max_read = 1;
-    input.visible_end = (segment.data.offset + 5) as usize;
-    let observation = defaults(input, &segment);
-    assert!(matches!(
-        observation.result.unwrap_err().kind,
-        DictionaryErrorKind::Truncated("exported symbol count")
-    ));
-    assert!(observation.store.bytes.is_empty());
-    assert!(!observation.store.flushed);
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.overreport_from = Some(segment.data.offset);
-    let observation = defaults(input, &segment);
-    assert!(matches!(
-        observation.result.unwrap_err().kind,
-        DictionaryErrorKind::Malformed("source read length")
-    ));
-    assert!(observation.store.bytes.is_empty());
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.max_read = 1;
-    input.visible_end = (segment.data.offset + 14) as usize; // only two physical MQ bytes
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert_nested_error(&error, "MQ:");
-    assert!(matches!(error.kind,
-        DictionaryErrorKind::Mq(ref error) if matches!(error.kind, ArithmeticErrorKind::Source(_))));
-    assert!(observation.store.bytes.is_empty());
-}
-
-#[test]
-fn failed_mq_initialization_keeps_exact_partial_body_fetch_progress() {
-    for fault in [None, Some(Fault::Io), Some(Fault::Cancelled)] {
+fn truncated_payloads_are_refused_before_mq() {
+    for visible in [5, 14] {
         let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
-        let body_start = segment.data.offset + 12;
-        input.max_read = 1;
-        if let Some(fault) = fault {
-            input.fault_from = Some((body_start + 1, fault));
-        } else {
-            input.visible_end = (body_start + 1) as usize;
-        }
+        input.visible_end = (segment.data.offset + visible) as usize;
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();
-        assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)), "{error}");
-        assert_eq!(error.segment, segment.number);
-        assert_eq!(error.progress.header_bytes_fetched, 12);
-        assert_eq!(error.progress.mq_initialization_bytes_fetched, 1);
+        assert!(
+            matches!(
+                error.kind,
+                DictionaryErrorKind::InvalidSpan("data outside source")
+            ),
+            "{error}"
+        );
         assert!(error.progress.mq.is_none());
-        assert_eq!(error.progress.source_bytes_fetched(), 13);
         assert!(observation.store.bytes.is_empty());
-        assert!(!observation.store.flushed);
     }
 }
 
@@ -183,7 +124,6 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
     input.advertised = input.bytes.len() as u64 - 1;
-    input.read_calls = 0;
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
@@ -197,12 +137,10 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     );
     assert!(std::error::Error::source(&error).is_none());
     assert_eq!(error.offset, segment.data.offset);
-    assert_eq!(observation.source.read_calls, 0);
 
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let mut segment = header(&mut input);
     segment.data.offset = u64::MAX - 5;
-    input.read_calls = 0;
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
@@ -210,7 +148,6 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
         DictionaryErrorKind::InvalidSpan("data end overflow")
     ));
     assert_eq!(error.offset, segment.data.offset);
-    assert_eq!(observation.source.read_calls, 0);
 }
 
 #[test]
@@ -218,19 +155,19 @@ fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
     input.read_calls = 0;
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut input,
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::new(0),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert!(error.to_string().contains("cancelled"));
     assert!(std::error::Error::source(&error).is_none());
     assert_eq!((error.segment, error.offset), (1, segment.data.offset));
-    assert_eq!(error.progress.source_bytes_fetched(), 0);
+    assert_eq!(error.progress.header_bytes_fetched, 0);
     assert_eq!(input.read_calls, 0);
 }
 
@@ -241,13 +178,13 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
     let cancelled = Rc::new(Cell::new(false));
     input.max_read = 1;
     input.cancel_after_read = Some((segment.data.offset, Rc::clone(&cancelled)));
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut input,
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::While(cancelled),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert_eq!(error.offset, segment.data.offset + 1);
@@ -262,8 +199,14 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
         let segment = header(&mut input);
         input.max_read = 1;
         input.fault_from = Some((segment.data.offset + 4, fault));
-        let observation = defaults(input, &segment);
-        let error = observation.result.unwrap_err();
+        let error = read_dictionary_data_header(
+            &mut input,
+            &segment,
+            &Limits::default(),
+            DictionaryBudget::default(),
+            &CancelAfter::Never,
+        )
+        .unwrap_err();
         match fault {
             Fault::Io => {
                 assert!(matches!(error.kind, DictionaryErrorKind::Source(_)));
@@ -274,8 +217,6 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
         assert_eq!(error.segment, 1);
         assert_eq!(error.offset, segment.data.offset + 4);
         assert_eq!(error.progress.header_bytes_fetched, 4);
-        assert!(observation.store.bytes.is_empty());
-        assert!(!observation.store.flushed);
     }
 }
 
@@ -283,14 +224,13 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
 fn context_bank_count_is_checked_before_arithmetic_or_output() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
-    input.max_offset = 0;
     let observation = observe_custom(
         input,
         &segment,
         &Limits::default(),
         MqBudget::default(),
         DictionaryBudget::default(),
-        Store::unbounded(),
+        Store::default(),
         IAID_BASE + 1,
     );
     let error = observation.result.unwrap_err();
@@ -298,71 +238,7 @@ fn context_bank_count_is_checked_before_arithmetic_or_output() {
         error.kind,
         DictionaryErrorKind::Malformed("expected exactly 7680 integer and bitmap MQ contexts")
     ));
-    assert!(observation.source.max_offset < segment.data.offset + 12);
     assert!(observation.store.bytes.is_empty());
-    assert!(!observation.store.flushed);
-}
-
-#[test]
-fn sink_flush_failure_and_cancellation_poison_completed_bitmap() {
-    for fault in [Fault::Io, Fault::Cancelled] {
-        let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-        let segment = header(&mut input);
-        input.max_read = 1;
-        let observation = observe_custom(
-            input,
-            &segment,
-            &Limits::default(),
-            MqBudget::default(),
-            DictionaryBudget::default(),
-            Store {
-                flush_fault: Some(fault),
-                ..Store::unbounded()
-            },
-            IAID_BASE,
-        );
-        let error = observation.result.unwrap_err();
-        match fault {
-            Fault::Io => {
-                assert!(matches!(error.kind, DictionaryErrorKind::Sink(_)));
-                assert_nested_error(&error, "sink:");
-            }
-            Fault::Cancelled => assert!(matches!(error.kind, DictionaryErrorKind::Cancelled)),
-        }
-        assert_eq!(error.progress.completed_symbols, 1);
-        assert_eq!(error.progress.stored_bitmap_bytes, 1);
-        assert!(error.progress.poisoned);
-        assert_eq!(observation.retry_poisoned, Some(true));
-        assert_eq!(observation.store.bytes, [0]);
-        assert!(!observation.store.flushed);
-    }
-}
-
-#[test]
-fn sink_write_cancellation_does_not_claim_a_completed_bitmap() {
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    let observation = observe_custom(
-        input,
-        &segment,
-        &Limits::default(),
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        Store {
-            write_fault: Some(Fault::Cancelled),
-            ..Store::unbounded()
-        },
-        IAID_BASE,
-    );
-    let error = observation.result.unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
-    assert_eq!(error.progress.sink_writes, 1);
-    assert_eq!(error.progress.completed_symbols, 0);
-    assert_eq!(error.progress.stored_bitmap_bytes, 0);
-    assert!(error.progress.poisoned);
-    assert_eq!(observation.retry_poisoned, Some(true));
-    assert!(observation.store.bytes.is_empty());
-    assert!(!observation.store.flushed);
 }
 
 #[test]
@@ -396,19 +272,15 @@ fn page_reference_and_at_constraints_fail_before_mq() {
     for case in cases {
         let mut input = source(&ONE_SYMBOL, 1, case.page, case.at, case.references);
         let segment = header(&mut input);
-        input.max_offset = 0;
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();
         assert!(error.to_string().contains(case.expected), "{error}");
-        assert!(observation.source.max_offset < segment.data.offset + 12);
         assert!(observation.store.bytes.is_empty());
-        assert!(!observation.store.flushed);
     }
 
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     input.bytes[4] = 4; // a region segment cannot be decoded as a dictionary
     let segment = header(&mut input);
-    input.max_offset = 0;
     let observation = defaults(input, &segment);
     assert!(matches!(
         observation.result.unwrap_err().kind,
@@ -417,7 +289,6 @@ fn page_reference_and_at_constraints_fail_before_mq() {
             value: 4
         }
     ));
-    assert!(observation.source.max_offset < segment.data.offset);
     assert!(observation.store.bytes.is_empty());
 }
 
@@ -463,17 +334,14 @@ fn malformed_geometry_and_limits_fail_before_output() {
         );
         let error = observation.result.unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
-        assert_eq!(observation.retry_poisoned, Some(true));
         assert!(observation.store.bytes.is_empty());
-        assert!(!observation.store.flushed);
     }
 }
 
 #[test]
-fn extra_width_before_oob_poisons_after_one_committed_symbol() {
+fn extra_width_before_oob_fails_after_one_committed_symbol() {
     let mut input = source(&TWO_SYMBOLS, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
-    input.max_read = 1;
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
@@ -482,9 +350,7 @@ fn extra_width_before_oob_poisons_after_one_committed_symbol() {
     ));
     assert_eq!(error.progress.completed_symbols, 1);
     assert_eq!(error.progress.stored_bitmap_bytes, 1);
-    assert_eq!(observation.retry_poisoned, Some(true));
     assert_eq!(observation.store.bytes.len(), 1);
-    assert!(!observation.store.flushed);
 }
 
 #[test]
@@ -509,9 +375,7 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
         max_height: 16,
         max_total_pixels: 256,
         max_stored_bitmap_bytes: 32,
-        max_sink_writes: 64,
         max_source_request_bytes: 2,
-        max_sink_request_bytes: 2,
         ..DictionaryBudget::default()
     };
     for case in 0..96 {
@@ -523,10 +387,7 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
         body[index] ^= (state >> 32) as u8 | 1;
         let mut input = source(&body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
-        input.max_read = 1;
-        input.max_request = 0;
         let observation = observe(input, &segment, &limits, mq_budget, budget);
-        assert!(observation.source.max_request <= 2, "case {case}");
         assert!(observation.store.bytes.len() <= 32, "case {case}");
         match observation.result {
             Ok(report) => {
@@ -535,28 +396,23 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
                     report.progress.mq.unwrap().symbols_decoded <= 256,
                     "case {case}"
                 );
-                assert!(observation.store.flushed, "case {case}");
             }
             Err(error) => {
                 assert!(
-                    error.progress.source_bytes_fetched() <= 12 + ONE_SYMBOL.len() as u64,
+                    error.progress.header_bytes_fetched <= 12,
                     "case {case}: {error}"
                 );
                 assert!(
                     error.progress.mq.is_none_or(|mq| mq.symbols_decoded <= 256),
                     "case {case}"
                 );
-                assert!(!observation.store.flushed, "case {case}");
-                if observation.retry_poisoned.is_some() {
-                    assert_eq!(observation.retry_poisoned, Some(true), "case {case}");
-                }
             }
         }
     }
 }
 
 #[test]
-fn integer_oob_and_export_overshoot_poison_partial_store() {
+fn integer_oob_and_export_overshoot_keep_the_partial_store() {
     // Each body codes a one-symbol dictionary that ends in a refusal at the
     // model's signed OOB and export-run boundaries.
     let cases = [
@@ -583,8 +439,6 @@ fn integer_oob_and_export_overshoot_poison_partial_store() {
         assert_eq!(error.progress.stored_bitmap_bytes, stored);
         assert_eq!(error.progress.export_runs, export_runs);
         assert_eq!(observation.store.bytes.len(), stored as usize);
-        assert!(!observation.store.flushed);
-        assert_eq!(observation.retry_poisoned, Some(true));
     }
 }
 
@@ -628,9 +482,6 @@ fn zero_dimension_negative_export_and_exported_total_are_typed() {
             );
         }
         assert_eq!(error.progress.export_runs, export_runs);
-        assert!(error.progress.poisoned);
-        assert_eq!(observation.retry_poisoned, Some(true));
         assert_eq!(observation.store.bytes, stored);
-        assert!(!observation.store.flushed);
     }
 }

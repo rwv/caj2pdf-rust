@@ -4,34 +4,20 @@
 //! No corpus, reference converter, stored JPEG or rendered fixture is used.
 
 use caj2pdf_core::{
-    Error, Limits, NeverCancel, RangedSource, Result, SequentialSink,
-    native::WriteSink,
+    Error, Limits, NeverCancel, RangedSource, Result,
     pdf::{BilevelImageSpec, ImageEncoding, ImagePlacement, ImageSpec, PageSpec, PdfDocument},
 };
+use std::io::Write;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    future::Future,
     path::{Path, PathBuf},
-    pin::pin,
     process::{Command, Output},
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 const MAX_TOOL_OUTPUT: usize = 1024 * 1024;
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native test adapters must finish immediately"),
-    }
-}
 
 struct TempDir(PathBuf);
 
@@ -100,7 +86,7 @@ impl RangedSource for Source {
         self.bytes.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         assert!(!self.sealed, "placing a completed image reread its source");
         self.max_request = self.max_request.max(destination.len());
         let offset = usize::try_from(offset).map_err(|_| Error::InvalidInput {
@@ -498,7 +484,7 @@ fn asymmetric_bilevel_and_raw_rgb_keep_rows_or_flip_only_with_negative_ctm() {
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let matrices = [
         [
             [12.0, 0.0, 0.0, 12.0, 0.0, 2.0],
@@ -509,47 +495,41 @@ fn asymmetric_bilevel_and_raw_rgb_keep_rows_or_flip_only_with_negative_ctm() {
             [12.0, 0.0, 0.0, -12.0, 16.0, 14.0],
         ],
     ];
-    let report = ready(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        let mut bilevel = document
-            .begin_bilevel_image(BilevelImageSpec {
-                pixel_width: 3,
-                pixel_height: 3,
-                row_stride: 2,
-            })
-            .await?;
-        assert_eq!(bilevel.write(&padded[..1]).await?, 1);
-        assert_eq!(bilevel.write(&padded[1..5]).await?, 4);
-        assert_eq!(bilevel.write(&padded[5..]).await?, 1);
-        let bilevel = bilevel.finish().await?;
-        let rgb = document
-            .add_image(
-                &mut source,
-                4,
-                raw.len() as u64,
-                spec(3, 3, ImageEncoding::Rgb8),
-            )
-            .await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        let mut bilevel = document.begin_bilevel_image(BilevelImageSpec {
+            pixel_width: 3,
+            pixel_height: 3,
+            row_stride: 2,
+        })?;
+        assert_eq!(bilevel.write(&padded[..1])?, 1);
+        assert_eq!(bilevel.write(&padded[1..5])?, 4);
+        assert_eq!(bilevel.write(&padded[5..])?, 1);
+        let bilevel = bilevel.finish()?;
+        let rgb = document.add_image(
+            &mut source,
+            4,
+            raw.len() as u64,
+            spec(3, 3, ImageEncoding::Rgb8),
+        )?;
         source.sealed = true;
         for transforms in matrices {
-            document
-                .add_placed_page(
-                    page(32.0, 16.0),
-                    &[
-                        ImagePlacement {
-                            image: bilevel,
-                            transform: transforms[0],
-                        },
-                        ImagePlacement {
-                            image: rgb,
-                            transform: transforms[1],
-                        },
-                    ],
-                )
-                .await?;
+            document.add_placed_page(
+                page(32.0, 16.0),
+                &[
+                    ImagePlacement {
+                        image: bilevel,
+                        transform: transforms[0],
+                    },
+                    ImagePlacement {
+                        image: rgb,
+                        transform: transforms[1],
+                    },
+                ],
+            )?;
         }
-        document.finish().await
-    })
+        document.finish()
+    })()
     .unwrap();
     assert_eq!(source.read_bytes, raw.len() as u64);
     assert!(source.max_request <= 4);
@@ -557,7 +537,7 @@ fn asymmetric_bilevel_and_raw_rgb_keep_rows_or_flip_only_with_negative_ctm() {
     assert_eq!(report.pages_converted, 2);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(32, 16); 2],
         &[
             ExpectedImage {
@@ -662,7 +642,7 @@ fn runtime_gray_and_rgb_jpeg_streams_are_unchanged_and_both_ctm_signs_render() {
     let (rgb, rgb_pixels) = jpeg(&temporary, false);
     let mut gray_source = Source::new(&gray);
     let mut rgb_source = Source::new(&rgb);
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let limits = Limits {
         io_chunk_bytes: 31,
         ..Limits::default()
@@ -671,45 +651,39 @@ fn runtime_gray_and_rgb_jpeg_streams_are_unchanged_and_both_ctm_signs_render() {
         [16.0, 0.0, 0.0, 16.0, 1.0, 2.0],
         [16.0, 0.0, 0.0, -16.0, 22.0, 18.0],
     ];
-    let report = ready(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        let gray_image = document
-            .add_image(
-                &mut gray_source,
-                4,
-                gray.len() as u64,
-                spec(16, 16, ImageEncoding::JpegGray8),
-            )
-            .await?;
-        let rgb_image = document
-            .add_image(
-                &mut rgb_source,
-                4,
-                rgb.len() as u64,
-                spec(16, 16, ImageEncoding::JpegRgb8),
-            )
-            .await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        let gray_image = document.add_image(
+            &mut gray_source,
+            4,
+            gray.len() as u64,
+            spec(16, 16, ImageEncoding::JpegGray8),
+        )?;
+        let rgb_image = document.add_image(
+            &mut rgb_source,
+            4,
+            rgb.len() as u64,
+            spec(16, 16, ImageEncoding::JpegRgb8),
+        )?;
         gray_source.sealed = true;
         rgb_source.sealed = true;
         for image in [gray_image, rgb_image] {
-            document
-                .add_placed_page(
-                    page(40.0, 20.0),
-                    &[
-                        ImagePlacement {
-                            image,
-                            transform: matrices[0],
-                        },
-                        ImagePlacement {
-                            image,
-                            transform: matrices[1],
-                        },
-                    ],
-                )
-                .await?;
+            document.add_placed_page(
+                page(40.0, 20.0),
+                &[
+                    ImagePlacement {
+                        image,
+                        transform: matrices[0],
+                    },
+                    ImagePlacement {
+                        image,
+                        transform: matrices[1],
+                    },
+                ],
+            )?;
         }
-        document.finish().await
-    })
+        document.finish()
+    })()
     .unwrap();
     assert_eq!(report.input_bytes_read, (gray.len() + rgb.len()) as u64);
     assert_eq!(gray_source.read_bytes, gray.len() as u64);
@@ -717,7 +691,7 @@ fn runtime_gray_and_rgb_jpeg_streams_are_unchanged_and_both_ctm_signs_render() {
     assert!(gray_source.max_request <= 31 && rgb_source.max_request <= 31);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(40, 20); 2],
         &[
             ExpectedImage {
@@ -769,7 +743,7 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
     let blue = [10, 20, 230];
     let mut red_source = Source::new(&red);
     let mut blue_source = Source::new(&blue);
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let limits = Limits {
         io_chunk_bytes: 2,
         ..Limits::default()
@@ -785,14 +759,12 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
         [3.5, 0.0, 0.0, 2.75, 6.125, -1.5],
         [3.0, 0.0, 0.0, -3.0, 40.0, 50.0],
     ];
-    let report = ready(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        let red_image = document
-            .add_image(&mut red_source, 4, 3, spec(1, 1, ImageEncoding::Rgb8))
-            .await?;
-        let blue_image = document
-            .add_image(&mut blue_source, 4, 3, spec(1, 1, ImageEncoding::Rgb8))
-            .await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        let red_image =
+            document.add_image(&mut red_source, 4, 3, spec(1, 1, ImageEncoding::Rgb8))?;
+        let blue_image =
+            document.add_image(&mut blue_source, 4, 3, spec(1, 1, ImageEncoding::Rgb8))?;
         red_source.sealed = true;
         blue_source.sealed = true;
         for handles in [
@@ -804,20 +776,16 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
                 .zip(overlap)
                 .map(|(image, transform)| ImagePlacement { image, transform })
                 .collect();
-            document
-                .add_placed_page(page(32.0, 24.0), &placements)
-                .await?;
+            document.add_placed_page(page(32.0, 24.0), &placements)?;
         }
         let placements: Vec<_> = [red_image, blue_image, red_image, blue_image]
             .into_iter()
             .zip(affine)
             .map(|(image, transform)| ImagePlacement { image, transform })
             .collect();
-        document
-            .add_placed_page(page(32.0, 24.0), &placements)
-            .await?;
-        document.finish().await
-    })
+        document.add_placed_page(page(32.0, 24.0), &placements)?;
+        document.finish()
+    })()
     .unwrap();
     assert_eq!(report.input_bytes_read, 6);
     assert_eq!(red_source.read_bytes + blue_source.read_bytes, 6);
@@ -825,7 +793,7 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
     assert_eq!(report.pages_converted, 3);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(32, 24); 3],
         &[
             ExpectedImage {

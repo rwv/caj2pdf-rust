@@ -5,7 +5,7 @@
 use super::records::Records;
 use super::*;
 
-pub(super) async fn read<S: RangedSource, C: Cancellation>(
+pub(super) fn read<S: RangedSource, C: Cancellation>(
     source: &mut S,
     page: PageRecord,
     limits: &Limits,
@@ -41,8 +41,7 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
             cancellation,
             loc,
             &mut max_source_request_bytes,
-        )
-        .await?;
+        )?;
         records.consume(
             page.text.offset + offset,
             &buffer[..length],

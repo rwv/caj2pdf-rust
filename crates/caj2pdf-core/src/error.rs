@@ -186,9 +186,25 @@ impl std::error::Error for Error {
     }
 }
 
+/// An I/O error that carries a core error, as an [`io::Write`] adapter in
+/// this crate reports one, converts back to that error.
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        Self::Io(error)
+        match error.downcast::<Self>() {
+            Ok(error) => error,
+            Err(error) => Self::Io(error),
+        }
+    }
+}
+
+/// Carry a core error through an [`io::Write`] adapter; an I/O error is
+/// passed on as it is.
+impl From<Error> for io::Error {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::Io(error) => error,
+            other => io::Error::other(other),
+        }
     }
 }
 

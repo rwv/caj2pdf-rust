@@ -22,7 +22,7 @@ import { join, resolve } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { Caj2PdfError, convert, fileHandleSource, loadModule, nodeWritableSink, UnsupportedFormatError } from "../node.mjs";
+import { Caj2PdfError, convert, loadModule, nodeWritableSink, UnsupportedFormatError } from "../node.mjs";
 
 export const DEFAULT_MATRIX = fileURLToPath(new URL("../../tests/conformance/matrix.json", import.meta.url));
 export const DEFAULT_WASM = fileURLToPath(
@@ -221,7 +221,7 @@ async function convertSample(handle, row, expectation, context, signal) {
     const timeout = AbortSignal.timeout(context.timeoutMs);
     let report;
     try {
-      report = await convert(context.wasm, await fileHandleSource(handle), nodeWritableSink(output), {
+      report = await convert(context.wasm, handle.fd, nodeWritableSink(output), {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         limits: { maxOutputBytes: context.maxOutputBytes },
       });
@@ -348,7 +348,7 @@ export async function runCorpus({
       verified.push({ row, result });
       result.stage = "convert";
       if (API_CALLER_TABLE.has(row.detected_type)) {
-        Object.assign(result, { outcome: "not_run", reason: "HN/C8 requires runtime codec tables and scratch stores; this runner has no caller configuration" });
+        Object.assign(result, { outcome: "not_run", reason: "HN/C8 is experimental and native C8 needs caller fonts; this runner has no font configuration" });
       } else {
         Object.assign(result, await convertSample(handle, row, expectation, context, signal));
       }

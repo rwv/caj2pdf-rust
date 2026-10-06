@@ -5,7 +5,7 @@ use crate::pdf::input::recovery::{
     PatchedSource, candidate_prefix_end, interrupted_syntax_prefix, replay_end,
 };
 use crate::read_exact_at;
-use crate::test_support::{NEVER, run};
+use crate::test_support::NEVER;
 use std::io::{self, Cursor};
 
 /// A source whose bytes from `unreadable_from` onward fail with an I/O
@@ -20,7 +20,7 @@ impl RangedSource for UnreadableTail {
         self.bytes.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if offset >= self.unreadable_from {
             return Err(Error::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -67,15 +67,9 @@ fn repair_skips_terminators_at_the_declared_end_or_without_endobj() {
     bytes.extend_from_slice(b"\nendstream\nendobj");
     let end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let scan = run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        end,
-        &Limits::default(),
-        &NEVER,
-        &mut [],
-    ))
-    .unwrap();
+    let scan =
+        scan_fragment_with_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
+            .unwrap();
     assert_eq!(scan.objects.len(), 1);
     assert_eq!(scan.objects[0].object.range.length, end);
     assert_eq!(scan.patches.len(), 1);
@@ -86,17 +80,17 @@ fn repair_skips_terminators_at_the_declared_end_or_without_endobj() {
 
     let mut patched = PatchedSource::new(&mut source, &scan.patches);
     let mut length = [0_u8; 2];
-    run(read_exact_at(
+    read_exact_at(
         &mut patched,
         patch.offset,
         &mut length,
         &Limits::default(),
         &NEVER,
-    ))
+    )
     .unwrap();
     assert_eq!(&length, b"41");
     // An empty read inside a patch overlaps none of its bytes.
-    assert_eq!(run(patched.read_at(patch.offset + 1, &mut [])).unwrap(), 0);
+    assert_eq!(patched.read_at(patch.offset + 1, &mut []).unwrap(), 0);
 }
 
 #[test]
@@ -105,15 +99,9 @@ fn repair_accepts_a_terminator_without_a_preceding_end_of_line() {
     bytes.extend_from_slice(b"endstream\nendobj");
     let end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let scan = run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        end,
-        &Limits::default(),
-        &NEVER,
-        &mut [],
-    ))
-    .unwrap();
+    let scan =
+        scan_fragment_with_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
+            .unwrap();
     assert_eq!(scan.objects[0].object.range.length, end);
     assert_eq!(scan.patches.len(), 1);
     assert_eq!(scan.patches[0].replacement, b"12");
@@ -130,14 +118,14 @@ fn source_failure_after_the_declared_stream_extent_is_not_repaired() {
         bytes,
         unreadable_from: data_at + 2000,
     };
-    expect_injected_io(run(scan_fragment_with_candidates(
+    expect_injected_io(scan_fragment_with_candidates(
         &mut source,
         0,
         size,
         &one_byte_reads(),
         &NEVER,
         &mut [],
-    )));
+    ));
 }
 
 #[test]
@@ -151,26 +139,20 @@ fn source_failure_while_checking_a_repair_candidate_is_propagated() {
         bytes,
         unreadable_from: marker + 9,
     };
-    expect_injected_io(run(scan_fragment_with_candidates(
+    expect_injected_io(scan_fragment_with_candidates(
         &mut source,
         0,
         size,
         &one_byte_reads(),
         &NEVER,
         &mut [],
-    )));
+    ));
 
     // The same bytes repair cleanly once the tail is readable.
     source.unreadable_from = u64::MAX;
-    let scan = run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        size,
-        &one_byte_reads(),
-        &NEVER,
-        &mut [],
-    ))
-    .unwrap();
+    let scan =
+        scan_fragment_with_candidates(&mut source, 0, size, &one_byte_reads(), &NEVER, &mut [])
+            .unwrap();
     assert_eq!(scan.patches.len(), 1);
     assert_eq!(scan.patches[0].original, b"1000");
     assert_eq!(scan.patches[0].replacement, b"1002");
@@ -190,16 +172,9 @@ fn an_object_extending_past_the_page_table_end_is_charged_as_input() {
         max_input_bytes: hint,
         ..Limits::default()
     };
-    let error = run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        hint,
-        &limits,
-        &NEVER,
-        &mut [],
-    ))
-    .err()
-    .expect("an object past the input limit was accepted");
+    let error = scan_fragment_with_candidates(&mut source, 0, hint, &limits, &NEVER, &mut [])
+        .err()
+        .expect("an object past the input limit was accepted");
     assert!(
         matches!(
             error,
@@ -233,15 +208,8 @@ fn skips_only_a_known_partial_header_and_exact_previous_scalar_replay() {
             io_chunk_bytes: chunk,
             ..Limits::default()
         };
-        let scan = run(scan_fragment_with_candidates(
-            &mut source,
-            0,
-            end,
-            &limits,
-            &NEVER,
-            &mut [],
-        ))
-        .unwrap();
+        let scan =
+            scan_fragment_with_candidates(&mut source, 0, end, &limits, &NEVER, &mut []).unwrap();
         assert_eq!(
             scan.objects
                 .iter()
@@ -271,14 +239,14 @@ fn refuses_unknown_prefixes_changed_scalars_and_unbounded_replays() {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
         assert!(
-            run(scan_fragment_with_candidates(
+            scan_fragment_with_candidates(
                 &mut source,
                 0,
                 end,
                 &Limits::default(),
                 &NEVER,
                 &mut [],
-            ))
+            )
             .is_err()
         );
     }
@@ -288,15 +256,8 @@ fn refuses_unknown_prefixes_changed_scalars_and_unbounded_replays() {
     let end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     assert!(
-        run(scan_fragment_with_candidates(
-            &mut source,
-            0,
-            end,
-            &Limits::default(),
-            &NEVER,
-            &mut [],
-        ))
-        .is_err()
+        scan_fragment_with_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [],)
+            .is_err()
     );
 }
 #[test]
@@ -321,14 +282,14 @@ fn refuses_unknown_original_or_scalar_and_changed_prefix() {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
         assert!(
-            run(scan_fragment_with_candidates(
+            scan_fragment_with_candidates(
                 &mut source,
                 0,
                 end,
                 &Limits::default(),
                 &NEVER,
                 &mut [],
-            ))
+            )
             .is_err()
         );
     }
@@ -341,28 +302,15 @@ fn recovers_a_partial_filter_name_without_a_sample_specific_rule() {
     );
     let end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let scan = run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        end,
-        &Limits::default(),
-        &NEVER,
-        &mut [],
-    ))
-    .unwrap();
+    let scan =
+        scan_fragment_with_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
+            .unwrap();
     assert_eq!(scan.objects.len(), 3);
 }
 fn scan_bytes(bytes: Vec<u8>) -> Result<FragmentScan> {
     let end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    run(scan_fragment_with_candidates(
-        &mut source,
-        0,
-        end,
-        &one_byte_reads(),
-        &NEVER,
-        &mut [],
-    ))
+    scan_fragment_with_candidates(&mut source, 0, end, &one_byte_reads(), &NEVER, &mut [])
 }
 
 #[test]
@@ -775,12 +723,12 @@ fn refuses_incomplete_candidate_and_ambiguous_embedded_scalar_copies() {
         }),
     ];
     assert_eq!(
-        run(replay_end(
+        replay_end(
             &mut reader,
             replay_at,
             &objects,
             &BTreeMap::from([(reference, 7)])
-        ))
+        )
         .unwrap(),
         None
     );
@@ -820,7 +768,7 @@ fn a_stream_prefix_followed_by_its_length_replay_is_skipped() {
 mod candidate_tests {
     use super::*;
     use crate::native::SeekableSource;
-    use crate::test_support::{NEVER, run};
+    use crate::test_support::NEVER;
     use std::io::Cursor;
 
     const ORIGINAL: &[u8] = b"7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n";
@@ -846,7 +794,7 @@ mod candidate_tests {
     fn scan(bytes: Vec<u8>, candidates: &mut [FragmentCandidate]) -> Result<FragmentScan> {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        run(scan_fragment_with_candidates(
+        scan_fragment_with_candidates(
             &mut source,
             0,
             end,
@@ -856,7 +804,7 @@ mod candidate_tests {
             },
             &NEVER,
             candidates,
-        ))
+        )
     }
 
     #[test]
@@ -864,26 +812,14 @@ mod candidate_tests {
         let bytes = b"1 0 obj << /Length 3 >> stream\nabcdef\nendstream\nendobj\n".to_vec();
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let scan = run(scan_fragment_with_candidates(
-            &mut source,
-            0,
-            end,
-            &Limits::default(),
-            &NEVER,
-            &mut [],
-        ))
-        .unwrap();
+        let scan =
+            scan_fragment_with_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
+                .unwrap();
         assert_eq!(scan.patches.len(), 1);
         assert!(
-            run(collect_fragment_candidates(
-                &mut source,
-                0,
-                end,
-                &Limits::default(),
-                &NEVER,
-            ))
-            .unwrap()
-            .is_empty()
+            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER,)
+                .unwrap()
+                .is_empty()
         );
     }
 
@@ -895,15 +831,9 @@ mod candidate_tests {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
         assert_eq!(
-            run(collect_fragment_candidates(
-                &mut source,
-                0,
-                end,
-                &Limits::default(),
-                &NEVER,
-            ))
-            .unwrap()
-            .len(),
+            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER,)
+                .unwrap()
+                .len(),
             1
         );
         assert!(scan(bytes.clone(), &mut []).is_err());
@@ -931,23 +861,23 @@ mod candidate_tests {
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
         // A row alone is not a complete verified document: object 7 is later.
         assert!(
-            run(scan_fragment_with_candidates(
+            scan_fragment_with_candidates(
                 &mut source,
                 row_start,
                 row_end,
                 &Limits::default(),
                 &NEVER,
                 &mut [],
-            ))
+            )
             .is_err()
         );
-        let objects = run(collect_fragment_candidates(
+        let objects = collect_fragment_candidates(
             &mut source,
             row_start,
             row_end,
             &Limits::default(),
             &NEVER,
-        ))
+        )
         .unwrap();
         assert_eq!(
             objects
@@ -1503,14 +1433,7 @@ mod candidate_tests {
             ..Limits::default()
         };
         assert!(matches!(
-            run(scan_fragment_with_candidates(
-                &mut source,
-                0,
-                size,
-                &limits,
-                &NEVER,
-                &mut [],
-            )),
+            scan_fragment_with_candidates(&mut source, 0, size, &limits, &NEVER, &mut [],),
             Err(Error::PdfLimitExceeded { .. })
         ));
     }
@@ -1540,7 +1463,7 @@ mod candidate_tests {
             )
             .unwrap();
             let error = reader.malformed(boundary, None, "expected PDF name");
-            run(interrupted_syntax_prefix(&mut reader, 0, &error))
+            interrupted_syntax_prefix(&mut reader, 0, &error)
         }
         // A short, malformed header cannot create a pending object or loop
         // when walking back to the first token exhausts the prefix.
@@ -1580,11 +1503,7 @@ mod candidate_tests {
                 &NEVER,
             )
             .unwrap();
-            run(candidate_prefix_end(
-                &mut reader,
-                0,
-                std::slice::from_mut(&mut item),
-            ))
+            candidate_prefix_end(&mut reader, 0, std::slice::from_mut(&mut item))
         }
         let mut bytes = [PREFIX, NEXT].concat();
         let at = bytes.len();

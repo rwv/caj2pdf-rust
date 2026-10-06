@@ -5,8 +5,9 @@
 
 mod common;
 
+use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
         ComposeError, ComposeErrorKind, ComposeOptions, ComposeReport, ComposeStage, ErrorKind,
         Variant,
@@ -14,8 +15,9 @@ use caj2pdf_core::{
 };
 use common::{
     CancelAfter,
-    hnc8_document::{Image, RENDER_DPI, convert as compose, document},
+    hnc8_document::{Image, RENDER_DPI, document},
 };
+use std::io::Write;
 use std::{
     error::Error as _,
     fs, io,
@@ -225,11 +227,7 @@ impl RangedSource for Source {
         self.bytes.len() as u64
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         if self.payload_start == Some(offset) {
             self.payload_passes += 1;
@@ -259,17 +257,17 @@ struct Sink {
     fail_at: Option<usize>,
 }
 
-impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -281,16 +279,7 @@ fn run(
     limits: &Limits,
     cancel: &impl Cancellation,
 ) -> Result<ComposeReport, ComposeError> {
-    compose(
-        source,
-        sink,
-        None,
-        &mut Default::default(),
-        &mut (),
-        options,
-        limits,
-        cancel,
-    )
+    compose(source, sink, None, &mut (), options, limits, cancel)
 }
 
 fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {
