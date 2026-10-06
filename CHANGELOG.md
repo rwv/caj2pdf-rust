@@ -5,8 +5,9 @@
 - Fix: font embedding permissions follow the least restrictive OS/2
   `fsType` licensing bit, so fonts that set both print and editable
   embedding (`fsType` 12, such as TeX Gyre) are accepted. Fonts whose
-  `fsType` forbids subsetting (bit 8) are refused, since only subsets are
-  embedded; the error now reads `font metadata does not permit subset
+  `fsType` forbids subsetting (bit 8) or allows only bitmaps (bit 9) are
+  refused when their OS/2 table defines those bits (version 2 or later),
+  since only subset outlines are embedded; the error now reads `font metadata does not permit subset
   embedding`.
 
 - **Breaking:** without any font option, the CLI converts a native C8/HN-B

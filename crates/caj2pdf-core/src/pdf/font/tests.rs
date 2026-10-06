@@ -200,7 +200,8 @@ fn metadata_and_directory_fail_closed() {
 
 #[test]
 fn the_least_restrictive_embedding_bit_applies() {
-    // Installable, print, editable, and print with editable (TeX Gyre).
+    // Installable, print, editable, print with editable (TeX Gyre), and
+    // restricted with print, where print wins.
     for fs_type in [0, 4, 8, 12, 6] {
         let mut source = fixture();
         let i = entry(&source.bytes, b"OS/2");
@@ -217,8 +218,33 @@ fn the_least_restrictive_embedding_bit_applies() {
             "{fs_type:#x}"
         );
     }
-    assert!(!permits_subset_embedding(1));
-    assert!(!permits_subset_embedding(3));
+    for version in [0, 1, 2, 3, 5] {
+        assert!(!permits_subset_embedding(version, 2), "{version}");
+        assert!(!permits_subset_embedding(version, 3), "{version}");
+        // Versions 0 and 1 reserve the no-subsetting and bitmap-only bits.
+        for bits in [0x100, 0x200, 0x300] {
+            assert_eq!(
+                permits_subset_embedding(version, bits),
+                version < 2,
+                "{version} {bits:#x}"
+            );
+        }
+    }
+    // A version-1 OS/2 table with the reserved bits set is accepted.
+    let mut source = fixture();
+    let i = entry(&source.bytes, b"OS/2");
+    let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
+    put16(&mut source.bytes, at as usize, 1);
+    put16(&mut source.bytes, at as usize + 8, 0x304);
+    assert!(
+        run(OpenTypeFont::read(
+            &mut source,
+            0,
+            &Limits::default(),
+            &NeverCancel
+        ))
+        .is_ok()
+    );
 }
 
 #[test]

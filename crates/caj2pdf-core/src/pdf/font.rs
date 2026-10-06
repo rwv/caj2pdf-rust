@@ -45,15 +45,16 @@ pub struct FontGlyph {
     pub advance: u16,
 }
 
-/// Whether an OS/2 `fsType` permits embedding a subset of the outlines.
-/// When a font sets several licensing bits, the least restrictive applies,
-/// as OS/2 versions 0-2 specify and readers apply to later versions too: a
-/// restricted license (bit 1) alone forbids embedding. A subset is always
-/// embedded, so the no-subsetting (bit 8) and bitmap-only (bit 9) bits
-/// forbid it as well.
-fn permits_subset_embedding(fs_type: u16) -> bool {
+/// Whether an OS/2 table of `version` with `fs_type` permits embedding a
+/// subset of the outlines. When a font sets several licensing bits, the
+/// least restrictive applies, as OS/2 versions 0-2 specify and readers
+/// apply to later versions too: a restricted license (bit 1) alone forbids
+/// embedding. A subset is always embedded, so from version 2, which defines
+/// them, the no-subsetting (bit 8) and bitmap-only (bit 9) bits forbid it as
+/// well; versions 0 and 1 reserve those bits.
+fn permits_subset_embedding(version: u16, fs_type: u16) -> bool {
     let licensing = fs_type & 0xf;
-    (licensing == 0 || licensing & 0xc != 0) && fs_type & 0x300 == 0
+    (licensing == 0 || licensing & 0xc != 0) && (version < 2 || fs_type & 0x300 == 0)
 }
 
 /// Metadata and a borrowed source for one face of a static OpenType font or
@@ -215,11 +216,16 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
                 attempted: u64::from(maps),
             });
         }
-        // `fsType` of the required OS/2 table.
-        let fs_type = font.tables[5]
-            .get(8..10)
-            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]));
-        if !fs_type.is_some_and(permits_subset_embedding) {
+        // `version` and `fsType` of the required OS/2 table.
+        let field = |at: usize| {
+            font.tables[5]
+                .get(at..at + 2)
+                .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+        };
+        let permitted = field(0)
+            .zip(field(8))
+            .is_some_and(|(version, fs_type)| permits_subset_embedding(version, fs_type));
+        if !permitted {
             return Err(invalid("font metadata does not permit subset embedding"));
         }
         if let Some(span) = font.outlines[CFF] {
