@@ -316,7 +316,9 @@ jobs:
         run: python3 scripts/check-doc-links.py
 
   coverage:
-    # Keep this name aligned with the required branch-protection check.
+    # Keep this name aligned with the required branch-protection check. The
+    # gate itself is the workspace floor in scripts/check-coverage.sh; rename
+    # the job and the protection rule together when the floor is next moved.
     name: Line coverage (100% required)
     runs-on: ubuntu-24.04
     steps:

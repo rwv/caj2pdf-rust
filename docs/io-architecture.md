@@ -8,7 +8,11 @@ bounded read/write proof of concept; it does not implement document conversion.
 ## Decision
 
 The core accepts a **sized random-access source** and a **sequential output
-sink**. Input records can refer to earlier or later offsets, while PDF bytes
+sink**. Bounded means capped by `Limits`, not spooled: the core never reads a
+document whole, but one image payload, one symbol dictionary or one page
+bitmap may be held in memory. Spooling to temporary storage is a platform
+adapter's job for forward-only input, not a core requirement for decoding
+(issue #346 records the change from the earlier stricter reading). Input records can refer to earlier or later offsets, while PDF bytes
 can be emitted in order. A source read names an absolute byte offset and
 returns only the requested range. The sink writes in order and does not expose
 seek. The adapters accept borrowed handles, so callers can retain ownership.

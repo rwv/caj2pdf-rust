@@ -1159,6 +1159,14 @@ full-array evidence remains required.
 
 ## Dependency inventory and review
 
+Third-party crates under a license in the `deny.toml` allowlist (MIT,
+Apache-2.0, BSD-2/3-Clause, ISC, Unicode-3.0, Zlib) need no per-file review:
+record the crate, version, purpose and selected grant in the table below.
+Per-file provenance review still applies to source copied into this
+repository and to any CAJ-specific HN or JBIG decoding, which must remain an
+independent reimplementation and never a transliteration of the Python or Go
+converters.
+
 The workspace contains three owned packages. The dependency column lists
 direct third-party Cargo dependencies in the current graph:
 

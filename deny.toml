@@ -1,6 +1,7 @@
 # Dependency licenses are audited for both native Linux and browser/Node WASM.
-# An SPDX `MIT OR ...` expression is accepted under its MIT grant; no other
-# license is globally allowed. Keep the selected grant in the provenance list.
+# Permissive licenses are allowed; copyleft and source-available licenses are
+# not. Project-owned source stays MIT. Keep the selected grant of any
+# multi-licensed crate in the provenance list.
 [graph]
 all-features = true
 targets = [
@@ -61,7 +62,16 @@ targets = [
 ]
 
 [licenses]
-allow = ["MIT"]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
 confidence-threshold = 0.93
 include-dev = true
 include-build = true

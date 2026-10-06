@@ -15,9 +15,12 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   subset accepts direct `/Size`, `/W`, `/Index`, and `/Length`, unfiltered or
   `/FlateDecode` data, and ordinary free or uncompressed in-use entries. A
   later classic table may point back to an xref stream through `/Prev`.
-- Direct or indirect stream `/Length`; the reader skips exactly that many
-  payload bytes before checking `endstream` and `endobj`. PDF-looking bytes
-  inside a stream are payload, not structure.
+- Direct or indirect stream `/Length`. A direct length is trusted when
+  `endstream` follows it; otherwise, and for an indirect length that is not
+  yet known, the reader searches forward for `endstream` and accepts the
+  first candidate that the later-resolved `/Length` confirms, or the only
+  candidate when no length can be resolved. PDF-looking bytes inside a stream
+  are payload once the extent is fixed; the reader does not re-parse them.
 - Catalog and page-tree links, declared page counts, and bounded object and
   page indexes. Page geometry accepts direct rectangles or indirect scalar
   rectangle objects. Encrypted input, type-2 compressed object entries,
