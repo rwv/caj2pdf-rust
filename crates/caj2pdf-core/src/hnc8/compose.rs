@@ -11,10 +11,6 @@ mod type3;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::image_emit::{
-    Type0DecodeSettings, Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind,
-    Type0ScratchStage, emit_type0_xobject,
-};
 use super::type3_image::{CheckedType3, Type3PdfOptions, Type3Stage, preflight_type3};
 use super::{
     ApplicationInfoStatus, At, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
@@ -22,12 +18,14 @@ use super::{
     empirical_image_transform, empirical_page_from_pixels, read_type2_jpeg_info,
 };
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
-use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
+use crate::jbig1::{
+    Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info,
+};
 use crate::jbig2::text_composer::RandomAccessScratch;
 use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
 use crate::pdf::{
-    BookmarkView, ImageEncoding, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
-    PdfDocument,
+    BilevelImageSpec, BookmarkView, ImageEncoding, ImagePlacement, ImageSpec,
+    MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
@@ -36,44 +34,34 @@ use crate::{
 };
 use std::{error, fmt, mem::size_of};
 
-/// Caller-owned stores reused between images. Existing type-0/JPEG callers
-/// may still pass `&mut scratch` directly. Type-3 callers additionally provide
-/// three symbol stores and the caller-owned MQ table.
-pub struct ComposeWorkspaces<'a, T> {
-    pub rows: &'a mut T,
-    pub type3: Option<ComposeType3Workspaces<'a, T>>,
-}
-
+/// Caller-owned stores reused between type-3 images: three symbol stores,
+/// the full-page text scratch and the caller-owned MQ table. Type-0 and JPEG
+/// images stream straight to the PDF and use no store.
 pub struct ComposeType3Workspaces<'a, T> {
     pub table: &'a MqTable,
     pub first: &'a mut T,
     pub second: &'a mut T,
     pub refined: &'a mut T,
+    pub text: &'a mut T,
 }
 
-impl<'a, T> From<&'a mut T> for ComposeWorkspaces<'a, T> {
-    fn from(rows: &'a mut T) -> Self {
-        Self { rows, type3: None }
-    }
-}
-
-/// Per-page metadata and per-image temporary-storage ceilings. Type-3 limits
-/// cover all four stores together. Scratch work
+/// Per-page metadata and per-image type-3 storage ceilings. The type-3
+/// limits cover all four stores together. Scratch work
 /// charges requested read/write bytes, including requests that fail or make
 /// short progress. These limits do not cap PDF indexes or process residency.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComposeBudget {
     pub max_page_metadata_bytes: u64,
-    pub max_row_store_bytes: u64,
-    pub max_row_store_io_bytes: u64,
+    pub max_type3_store_bytes: u64,
+    pub max_type3_store_io_bytes: u64,
 }
 
 impl Default for ComposeBudget {
     fn default() -> Self {
         Self {
             max_page_metadata_bytes: 4 * 1024 * 1024,
-            max_row_store_bytes: 64 * 1024 * 1024,
-            max_row_store_io_bytes: 256 * 1024 * 1024,
+            max_type3_store_bytes: 64 * 1024 * 1024,
+            max_type3_store_io_bytes: 256 * 1024 * 1024,
         }
     }
 }
@@ -179,9 +167,7 @@ impl ComposeVisitor for () {
     }
 }
 
-/// Successful traversal totals. Peaks are accounted handler storage, not
-/// an RSS measurement. Row-store totals include physical successful bytes;
-/// the per-image work ceiling separately charges requested bytes.
+/// Successful traversal totals.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComposeReport {
     pub conversion: ConversionReport,
@@ -293,7 +279,7 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::Contexts(error) => write!(f, "{error}"),
             ComposeErrorKind::Io(error) => write!(f, "{error}"),
             ComposeErrorKind::Cleanup { primary, cleanup } => {
-                write!(f, "{primary}; row-store cleanup also failed: {cleanup}")
+                write!(f, "{primary}; store cleanup also failed: {cleanup}")
             }
         }
     }
@@ -406,38 +392,67 @@ fn container(error: Hnc8Error, stage: ComposeStage) -> ComposeError {
     .error((stage, ComposeErrorKind::Container(Box::new(error))))
 }
 
-/// A decoder failure at its own offset; a row-store refusal surfaces as a
-/// sink error and is reported at the scratch stage.
-fn type0_decode(at: At, error: Type0Error) -> ComposeError {
-    let stage = if matches!(error.kind, Type0ErrorKind::Sink(_)) {
-        ComposeStage::Scratch
-    } else {
-        ComposeStage::Decode
-    };
-    at.type0(stage)(error)
+/// A decoder failure at its own offset; a refused PDF image write surfaces
+/// as a sink error and is reported at the PDF stage.
+fn type0_decode(at: At) -> impl Fn(Type0Error) -> ComposeError {
+    move |error| {
+        let stage = if matches!(error.kind, Type0ErrorKind::Sink(_)) {
+            ComposeStage::Pdf
+        } else {
+            ComposeStage::Decode
+        };
+        at.type0(stage)(error)
+    }
 }
 
-fn scratch_error(at: At, error: Type0ScratchError) -> ComposeError {
-    let store_stage = if error.stage == Type0ScratchStage::Cleanup {
-        ComposeStage::Cleanup
-    } else {
-        ComposeStage::Scratch
-    };
-    let primary = match error.kind {
-        Type0ScratchErrorKind::Decode(error) => type0_decode(at, error),
-        Type0ScratchErrorKind::Store(error) => at.io(store_stage)(error),
-        Type0ScratchErrorKind::Pdf(error) => at.io(ComposeStage::Pdf)(error),
-    };
-    match error.cleanup_error {
-        None => primary,
-        Some(cleanup) => at.error((
-            ComposeStage::Cleanup,
-            ComposeErrorKind::Cleanup {
-                primary: Box::new(primary),
-                cleanup,
-            },
-        )),
-    }
+/// Stream one preflighted type-0 record's rows to a bilevel image XObject in
+/// decode (top-first) order; the caller's positive-height matrix puts the
+/// first row on top. The PDF writer drops each row's DIB storage padding.
+#[allow(clippy::too_many_arguments)]
+async fn emit_type0<S, W, C>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    record: ImageRecord,
+    info: Type0Info,
+    table: &QmTable,
+    contexts: &mut ContextBank,
+    at: At,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<crate::pdf::ImageObject, ComposeError>
+where
+    S: RangedSource,
+    W: SequentialSink,
+    C: Cancellation,
+{
+    let mut rows = document
+        .begin_bilevel_image(BilevelImageSpec {
+            pixel_width: info.width,
+            pixel_height: info.height,
+            row_stride: info.dib_stride,
+        })
+        .await
+        .map_err(at.io(ComposeStage::Pdf))?;
+    let span = record
+        .type0_span()
+        .expect("type-0 record checked by composition preflight");
+    let mut decoder = Type0Decoder::new(
+        source,
+        span,
+        table,
+        contexts,
+        &mut rows,
+        limits,
+        cancellation,
+        options.arithmetic,
+        options.image,
+    )
+    .await
+    .map_err(type0_decode(at))?;
+    while decoder.decode_next_row().await.map_err(type0_decode(at))? {}
+    decoder.finish().await.map_err(type0_decode(at))?;
+    rows.finish().await.map_err(at.io(ComposeStage::Pdf))
 }
 
 /// Additional descriptor groups are accepted only after a complete byte
@@ -501,8 +516,8 @@ fn validate(options: ComposeOptions, limits: &Limits) -> Result<(), ComposeError
     if !counters.contains(&options.arithmetic.max_symbols)
         || !counters.contains(&options.arithmetic.max_work)
         || !counters.contains(&options.budget.max_page_metadata_bytes)
-        || !counters.contains(&options.budget.max_row_store_bytes)
-        || !counters.contains(&options.budget.max_row_store_io_bytes)
+        || !counters.contains(&options.budget.max_type3_store_bytes)
+        || !counters.contains(&options.budget.max_type3_store_io_bytes)
     {
         return Err(At::NONE.error((
             ComposeStage::Preflight,
@@ -676,7 +691,7 @@ async fn emit_image<S, W, T, C>(
     type3: Option<CheckedType3>,
     image_at: At,
     contexts: &mut Option<ContextBank>,
-    workspaces: &mut ComposeWorkspaces<'_, T>,
+    stores: &mut Option<ComposeType3Workspaces<'_, T>>,
     table: Option<&QmTable>,
     options: ComposeOptions,
     limits: &Limits,
@@ -694,28 +709,19 @@ where
             if contexts.is_none() {
                 *contexts = Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
             }
-            let settings = Type0DecodeSettings {
-                table: table.expect("type-zero table checked"),
-                arithmetic: options.arithmetic,
-                image: options.image,
-                limits,
-                cancellation,
-            };
-            let object = emit_type0_xobject(
+            let object = emit_type0(
                 source,
                 document,
                 image.record,
                 info,
+                table.expect("type-zero table checked"),
                 contexts.as_mut().expect("contexts constructed"),
-                workspaces.rows,
-                Type0ScratchBudget {
-                    max_bytes: options.budget.max_row_store_bytes,
-                    max_work_bytes: options.budget.max_row_store_io_bytes,
-                },
-                &settings,
+                image_at,
+                options,
+                limits,
+                cancellation,
             )
-            .await
-            .map_err(|error| scratch_error(image_at, *error))?;
+            .await?;
             report.type0_images += 1;
             object
         }
@@ -725,7 +731,7 @@ where
                 document,
                 image_at,
                 type3.expect("type-3 metadata retained from preflight"),
-                workspaces,
+                stores.as_mut().expect("type-3 stores checked"),
                 options,
                 limits,
                 cancellation,
@@ -772,14 +778,15 @@ where
 ///
 /// Source-declared page and image extents determine HN-A/C8 layout using
 /// the empirical coordinate unit. Zero extents are errors. DIB storage
-/// padding is omitted from PDF image widths and streams. Type-0 rows are
-/// reversed in one bounded store before the negative-height CTM is applied.
-/// JPEG bytes are copied unchanged. Only current-page plans/placements and
-/// checked type-3 directories are held; the existing PDF writer retains its
-/// indexes. Type-3 retains top-first packed rows while streaming to an
-/// equivalent positive-height CTM. Three symbol stores and text scratch
-/// are cleared per image; their aggregate size and I/O share the store budget.
-/// Normal completed type-0/type-3 paths truncate their stores, including errors.
+/// padding is omitted from PDF image widths and streams. Type-0 and type-3
+/// rows stream top-first under a positive-height CTM equivalent to the
+/// reference's negative-height matrix for bottom-first rows. JPEG bytes are
+/// copied unchanged. Only current-page plans/placements and checked type-3
+/// directories are held; the existing PDF writer retains its indexes. Only
+/// type-3 images use the `type3` stores: three symbol stores and the text
+/// scratch are cleared per image; their aggregate size and I/O share the
+/// store budget. Normal completed type-3 paths truncate their stores,
+/// including errors.
 /// A dropped pending future cannot perform async cleanup: the adapter must
 /// dispose of its store and partial output, and never resume that session.
 #[allow(clippy::too_many_arguments)]
@@ -787,7 +794,7 @@ pub async fn convert_source_pages_pdf<'a, S, W, T, V, C>(
     source: &mut S,
     sink: &mut W,
     table: Option<&QmTable>,
-    workspaces: impl Into<ComposeWorkspaces<'a, T>>,
+    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     visitor: &mut V,
     options: ComposeOptions,
     limits: &Limits,
@@ -801,7 +808,6 @@ where
     C: Cancellation,
 {
     validate(options, limits)?;
-    let mut workspaces = workspaces.into();
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
@@ -927,20 +933,20 @@ where
                 });
                 continue;
             }
-            let (checked, type3, visible_width, display_width, height) = preflight_image(
+            let (checked, plan, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
                 header.variant,
                 image_at,
                 table,
-                workspaces.type3.is_some(),
+                type3.is_some(),
                 options,
                 limits,
                 cancellation,
             )
             .await?;
-            if let Some(type3) = type3 {
-                type3_bytes += type3.retained_bytes();
+            if let Some(plan) = plan {
+                type3_bytes += plan.retained_bytes();
                 let wanted = capacity_bytes::<CheckedType3>(type3_plans.len() + 1);
                 reserve(
                     &mut type3_plans,
@@ -948,7 +954,7 @@ where
                     limits.allocation_refused("current-page type-3 plans", wanted),
                 )
                 .map_err(image_at.io(ComposeStage::Preflight))?;
-                type3_plans.push(type3);
+                type3_plans.push(plan);
                 let peak = planning_peak
                     + capacity_bytes::<CheckedType3>(type3_plans.capacity())
                     + type3_bytes;
@@ -974,7 +980,7 @@ where
                 source_image_transform(page_geometry, coordinate)
             }
             .map_err(image_at.io(ComposeStage::Geometry))?;
-            if matches!(checked, CheckedImage::Type3) {
+            if matches!(checked, CheckedImage::Type0(_) | CheckedImage::Type3) {
                 // Top-first rows give the same placement as bottom-first rows
                 // under the reference's negative-height matrix, without a copy.
                 transform[5] += transform[3];
@@ -1010,7 +1016,7 @@ where
             }
             let image = &mut images[index];
             let image_at = at.image(image.record);
-            let type3 = match image.checked {
+            let plan = match image.checked {
                 CheckedImage::Type3 => type3_plans.next(),
                 _ => None,
             };
@@ -1018,10 +1024,10 @@ where
                 reader.source_mut(),
                 &mut document,
                 image,
-                type3,
+                plan,
                 image_at,
                 &mut contexts,
-                &mut workspaces,
+                &mut type3,
                 table,
                 options,
                 limits,

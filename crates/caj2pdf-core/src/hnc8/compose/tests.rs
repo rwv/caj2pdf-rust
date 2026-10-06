@@ -365,10 +365,10 @@ fn rows(width: usize) -> Vec<Vec<bool>> {
         .collect()
 }
 
-fn reversed_packed(rows: &[Vec<bool>]) -> Vec<u8> {
+fn packed(rows: &[Vec<bool>]) -> Vec<u8> {
     let stride = rows[0].len().div_ceil(8);
     let mut packed = vec![0; stride * rows.len()];
-    for (number, row) in rows.iter().rev().enumerate() {
+    for (number, row) in rows.iter().enumerate() {
         for (x, bit) in row.iter().enumerate() {
             if *bit {
                 packed[number * stride + x / 8] |= 0x80 >> (x % 8);
@@ -595,7 +595,6 @@ fn convert(
     source: &mut Source,
     sink: &mut Sink,
     table: Option<&QmTable>,
-    scratch: &mut Scratch,
     visitor: &mut Visitor,
     options: ComposeOptions,
     limits: &Limits,
@@ -604,12 +603,17 @@ fn convert(
         source,
         sink,
         table,
-        scratch,
+        no_stores(),
         visitor,
         options,
         limits,
         &NeverCancel,
     ))
+}
+
+/// Type-0 and JPEG images use no store.
+fn no_stores<'a>() -> Option<ComposeType3Workspaces<'a, Scratch>> {
+    None
 }
 
 fn contains(bytes: &[u8], needle: &[u8]) -> bool {
@@ -620,7 +624,6 @@ struct Harness {
     fixture: Fixture,
     source: Source,
     sink: Sink,
-    scratch: Scratch,
     visitor: Visitor,
 }
 
@@ -632,7 +635,6 @@ impl Harness {
             fixture,
             source,
             sink: Sink::default(),
-            scratch: Scratch::default(),
             visitor: Visitor::default(),
         }
     }
@@ -651,7 +653,6 @@ impl Harness {
             &mut self.source,
             &mut self.sink,
             table,
-            &mut self.scratch,
             &mut self.visitor,
             options,
             limits,
@@ -663,7 +664,7 @@ impl Harness {
             &mut self.source,
             &mut self.sink,
             Some(&table()),
-            &mut self.scratch,
+            no_stores(),
             &mut self.visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -680,7 +681,7 @@ fn located(error: &ComposeError, variant: Variant, page: Option<u32>, image: Opt
 }
 
 #[test]
-fn hnb_maps_all_six_rows_without_a_table_or_scratch_activity() {
+fn hnb_maps_all_six_rows_without_a_table() {
     let first = Record::jpeg(16, 8, 55, 99, 99);
     let last = Record::jpeg(8, 16, 205, 99, 99);
     let built = fixture(
@@ -696,13 +697,12 @@ fn hnb_maps_all_six_rows_without_a_table_or_scratch_activity() {
     );
     let mut source = Source::new(built.bytes);
     let mut sink = Sink::default();
-    let mut scratch = Scratch::default();
     let mut visitor = Visitor::default();
     let report = ready(convert_source_pages_pdf(
         &mut source,
         &mut sink,
         None,
-        &mut scratch,
+        no_stores(),
         &mut visitor,
         ComposeOptions::default(),
         &Limits::default(),
@@ -736,8 +736,6 @@ fn hnb_maps_all_six_rows_without_a_table_or_scratch_activity() {
     assert_eq!(visitor.sizes[1..5], [None; 4]);
     assert!(contains(&sink.bytes, &first.bytes));
     assert!(contains(&sink.bytes, &last.bytes));
-    assert_eq!(scratch.peak, 0);
-    assert_eq!(scratch.max_request, 0);
 }
 
 #[test]
@@ -752,13 +750,11 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
         let expected_descriptors = built.descriptors[0].clone();
         let mut source = Source::new(built.bytes);
         let mut sink = Sink::default();
-        let mut scratch = Scratch::default();
         let mut visitor = Visitor::default();
         let report = convert(
             &mut source,
             &mut sink,
             None,
-            &mut scratch,
             &mut visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -794,12 +790,11 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
             .map(|number| content.find(&format!("/Im{number} Do")).unwrap())
             .collect::<Vec<_>>();
         assert!(locations.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(scratch.peak, 0);
     }
 }
 
 #[test]
-fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
+fn mixed_images_preserve_exact_padding_and_asymmetric_top_first_rows() {
     for width in [1, 7, 8, 9, 24, 25, 28, 31, 32, 33] {
         let pixels = rows(width);
         let bilevel = Record::type0(&pixels, 0, 0);
@@ -810,13 +805,11 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
         );
         let mut source = Source::new(built.bytes);
         let mut sink = Sink::default();
-        let mut scratch = Scratch::default();
         let mut visitor = Visitor::default();
         let report = convert(
             &mut source,
             &mut sink,
             Some(&table()),
-            &mut scratch,
             &mut visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -829,8 +822,9 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
             visitor.sizes[0].unwrap().width_points,
             100.0 * (240.0 / 2473.0)
         );
-        assert_eq!(visitor.images[0].4[3], -40.0 * (240.0 / 2473.0));
-        let expected = reversed_packed(&pixels);
+        // Top-first rows: a positive-height matrix shifted down by the height.
+        assert_eq!(visitor.images[0].4[3], 40.0 * (240.0 / 2473.0));
+        let expected = packed(&pixels);
         assert!(
             crate::test_support::bilevel_pixels(&sink.bytes).contains(&expected),
             "width {width}"
@@ -841,14 +835,11 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
         ));
         assert_eq!(report.type0_images, 2);
         assert_eq!(report.jpeg_images, 1);
-        let scratch_bytes = width.div_ceil(32) * 4 * pixels.len();
-        assert_eq!(scratch.peak, scratch_bytes);
-        assert!(scratch.bytes.is_empty());
     }
 }
 
 #[test]
-fn short_source_scratch_and_sink_calls_stay_bounded() {
+fn short_source_and_sink_calls_stay_bounded() {
     let built = fixture(
         Variant::C8,
         &[vec![
@@ -862,10 +853,6 @@ fn short_source_scratch_and_sink_calls_stay_bounded() {
         short: Some(2),
         ..Sink::default()
     };
-    let mut scratch = Scratch {
-        short: Some(1),
-        ..Scratch::default()
-    };
     let mut visitor = Visitor::default();
     let limits = Limits {
         io_chunk_bytes: 7,
@@ -875,7 +862,6 @@ fn short_source_scratch_and_sink_calls_stay_bounded() {
         &mut source,
         &mut sink,
         Some(&table()),
-        &mut scratch,
         &mut visitor,
         ComposeOptions::default(),
         &limits,
@@ -884,39 +870,6 @@ fn short_source_scratch_and_sink_calls_stay_bounded() {
     assert_eq!(report.output_pages, 1);
     assert!(source.max_request <= 7);
     assert!(sink.max_request <= 7);
-    assert!(scratch.max_request <= 7);
-    assert_eq!(scratch.read, 24);
-    assert_eq!(scratch.written, 24);
-    assert!(scratch.bytes.is_empty());
-}
-
-#[test]
-fn row_storage_peaks_do_not_accumulate_across_pages() {
-    let one = vec![Record::type0(&rows(9), 0, 0), Record::jpeg(8, 8, 90, 2, 2)];
-    let mut peaks = Vec::new();
-    for count in [1, 20] {
-        let built = fixture(Variant::C8, &vec![one.clone(); count]);
-        let mut source = Source::new(built.bytes);
-        let mut sink = Sink::default();
-        let mut scratch = Scratch::default();
-        let mut visitor = Visitor::default();
-        let report = convert(
-            &mut source,
-            &mut sink,
-            Some(&table()),
-            &mut scratch,
-            &mut visitor,
-            ComposeOptions::default(),
-            &Limits::default(),
-        )
-        .unwrap();
-        assert_eq!(report.output_pages, count as u32);
-        assert_eq!(scratch.written, count as u64 * 12);
-        assert_eq!(scratch.read, count as u64 * 12);
-        assert!(scratch.bytes.is_empty());
-        peaks.push(scratch.peak);
-    }
-    assert_eq!(peaks[0], peaks[1]);
 }
 
 #[test]
@@ -928,7 +881,7 @@ fn invalid_text_marker_is_rejected_without_emitting_images() {
             &mut case.source,
             &mut case.sink,
             None,
-            &mut case.scratch,
+            no_stores(),
             &mut case.visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -1033,7 +986,6 @@ fn missing_table_and_text_working_allocation_failures_remain_located() {
     assert_eq!(error.stage, ComposeStage::Headers);
     assert_eq!(error.offset, Some(missing.fixture.descriptors[0][0]));
     assert!(matches!(error.kind, ComposeErrorKind::MissingTable));
-    assert_eq!(missing.scratch.peak, 0);
     let mut bounded = Harness::type0();
     let limits = Limits {
         io_chunk_bytes: 7,
@@ -1050,7 +1002,6 @@ fn missing_table_and_text_working_allocation_failures_remain_located() {
         resource: "text decoder allocation reservation", limit: 512,
         attempted: crate::hnc8::TEXT_DECODER_RESERVATION_BYTES,
     })));
-    assert_eq!(bounded.scratch.peak, 0);
 }
 
 #[test]
@@ -1140,140 +1091,6 @@ fn malformed_counts_spans_and_text_declared_length_are_not_partial_passes() {
 }
 
 #[test]
-fn bounded_row_store_capacity_and_work_failures_reset_the_store() {
-    for capacity in [true, false] {
-        let mut case = Harness::type0();
-        let mut options = ComposeOptions::default();
-        if capacity {
-            options.budget.max_row_store_bytes = 11;
-        } else {
-            options.budget.max_row_store_io_bytes = 11;
-        }
-        let error = case
-            .run(Some(&table()), options, &Limits::default())
-            .unwrap_err();
-        located(&error, Variant::C8, Some(1), Some(1));
-        assert!(case.scratch.bytes.is_empty());
-        assert!(case.visitor.mappings.is_empty());
-        assert!(matches!(
-            error.kind,
-            ComposeErrorKind::Io(Error::LimitExceeded { .. }) | ComposeErrorKind::Image(_)
-        ));
-    }
-}
-
-#[test]
-fn exclusive_dirty_row_store_is_overwritten_and_reset() {
-    let mut case = Harness::type0();
-    case.scratch.bytes = vec![0xee; 100];
-    case.run(
-        Some(&table()),
-        ComposeOptions::default(),
-        &Limits::default(),
-    )
-    .unwrap();
-    assert!(case.scratch.bytes.is_empty());
-    assert!(
-        crate::test_support::bilevel_pixels(&case.sink.bytes).contains(&reversed_packed(&rows(9)))
-    );
-}
-
-#[test]
-fn scratch_short_zero_overreported_and_error_paths_preserve_identity_and_cleanup() {
-    for read in [true, false] {
-        for mode in [Fault::Zero, Fault::Overreport, Fault::Io] {
-            let mut case = Harness::type0();
-            if read {
-                case.scratch.read_fault = Some(mode);
-            } else {
-                case.scratch.write_fault = Some(mode);
-            }
-            let error = case
-                .run(
-                    Some(&table()),
-                    ComposeOptions::default(),
-                    &Limits::default(),
-                )
-                .unwrap_err();
-            located(&error, Variant::C8, Some(1), Some(1));
-            assert_eq!(error.stage, ComposeStage::Scratch);
-            assert!(case.scratch.bytes.is_empty());
-            assert!(case.visitor.mappings.is_empty());
-        }
-    }
-}
-
-#[test]
-fn scratch_prepare_flush_and_cleanup_failures_cannot_be_successful() {
-    for fault in 0..3 {
-        let mut case = Harness::type0();
-        match fault {
-            0 => case.scratch.fail_initialize = true,
-            1 => case.scratch.fail_flush = true,
-            _ => case.scratch.fail_cleanup = true,
-        }
-        let error = case
-            .run(
-                Some(&table()),
-                ComposeOptions::default(),
-                &Limits::default(),
-            )
-            .unwrap_err();
-        located(&error, Variant::C8, Some(1), Some(1));
-        let stage = if fault == 2 {
-            ComposeStage::Cleanup
-        } else {
-            ComposeStage::Scratch
-        };
-        assert_eq!(error.stage, stage);
-        assert!(case.visitor.mappings.is_empty());
-        if stage != ComposeStage::Cleanup {
-            assert!(case.scratch.bytes.is_empty());
-        }
-    }
-    let mut case = Harness::type0();
-    case.scratch.write_fault = Some(Fault::Io);
-    case.scratch.fail_cleanup = true;
-    let error = case
-        .run(
-            Some(&table()),
-            ComposeOptions::default(),
-            &Limits::default(),
-        )
-        .unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Cleanup);
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Cleanup { ref primary, cleanup: Error::Io(_) } if primary.stage == ComposeStage::Scratch)
-    );
-    assert!(error.to_string().contains("cleanup also failed"));
-}
-
-#[test]
-fn cancellation_during_decode_or_readback_still_resets_storage() {
-    for read in [true, false] {
-        let mut case = Harness::type0();
-        let flag = Rc::new(Cell::new(false));
-        if read {
-            case.scratch.cancel_read = Some(flag.clone());
-        } else {
-            case.scratch.cancel_write = Some(flag.clone());
-        }
-        let error = case.cancelled(flag).unwrap_err();
-        located(&error, Variant::C8, Some(1), Some(1));
-        assert_eq!(
-            error.stage,
-            if read {
-                ComposeStage::Pdf
-            } else {
-                ComposeStage::Decode
-            }
-        );
-        assert!(case.scratch.bytes.is_empty());
-        assert!(case.visitor.mappings.is_empty());
-    }
-}
-
-#[test]
 fn source_and_pdf_sink_failures_are_located_and_never_emit_success_events() {
     for mode in [Fault::Zero, Fault::Overreport, Fault::Io] {
         let mut case = Harness::type0();
@@ -1287,7 +1104,6 @@ fn source_and_pdf_sink_failures_are_located_and_never_emit_success_events() {
             .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(1));
         assert_eq!(error.stage, ComposeStage::Headers);
-        assert!(case.scratch.bytes.is_empty());
         assert!(case.visitor.mappings.is_empty());
     }
     let mut case = Harness::type0();
@@ -1301,7 +1117,6 @@ fn source_and_pdf_sink_failures_are_located_and_never_emit_success_events() {
         .unwrap_err();
     located(&error, Variant::C8, Some(1), Some(1));
     assert_eq!(error.stage, ComposeStage::Pdf);
-    assert!(case.scratch.bytes.is_empty());
     assert!(case.visitor.mappings.is_empty());
 }
 
@@ -1319,7 +1134,6 @@ fn visitor_failure_and_inter_page_cancellation_invalidate_the_whole_conversion()
     located(&error, Variant::C8, Some(1), None);
     assert_eq!(error.stage, ComposeStage::Visitor);
     assert_eq!(case.visitor.mappings, [(1, Some(1))]);
-    assert!(case.scratch.bytes.is_empty());
     let mut case = Harness::new(Variant::C8, &vec![vec![Record::type0(&rows(9), 0, 0)]; 2]);
     let flag = Rc::new(Cell::new(false));
     case.visitor.cancel = Some(flag.clone());
@@ -1327,7 +1141,6 @@ fn visitor_failure_and_inter_page_cancellation_invalidate_the_whole_conversion()
     located(&error, Variant::C8, Some(2), None);
     assert_eq!(error.stage, ComposeStage::Container);
     assert_eq!(case.visitor.mappings, [(1, Some(1))]);
-    assert!(case.scratch.bytes.is_empty());
 }
 
 #[test]
@@ -1340,8 +1153,8 @@ fn invalid_configuration_is_refused_before_source_sink_or_store_access() {
                 0 => options.arithmetic.max_symbols = value,
                 1 => options.arithmetic.max_work = value,
                 2 => options.budget.max_page_metadata_bytes = value,
-                3 => options.budget.max_row_store_bytes = value,
-                _ => options.budget.max_row_store_io_bytes = value,
+                3 => options.budget.max_type3_store_bytes = value,
+                _ => options.budget.max_type3_store_io_bytes = value,
             }
             let error = case
                 .run(Some(&table()), options, &Limits::default())
@@ -1351,7 +1164,6 @@ fn invalid_configuration_is_refused_before_source_sink_or_store_access() {
             assert_eq!(error.variant, None);
             assert_eq!(case.source.max_request, 0);
             assert!(case.sink.bytes.is_empty());
-            assert_eq!(case.scratch.max_request, 0);
         }
     }
     let mut case = Harness::type0();
@@ -1434,13 +1246,8 @@ fn larger_padded_rows_are_streamed_in_chunks_without_growing_page_metadata() {
     case.run(Some(&table()), ComposeOptions::default(), &limits)
         .unwrap();
     assert!(case.source.max_request <= 17);
-    assert!(case.scratch.max_request <= 17);
     assert!(case.sink.max_request <= 17);
-    assert!(case.scratch.bytes.is_empty());
-    assert!(
-        crate::test_support::bilevel_pixels(&case.sink.bytes)
-            .contains(&reversed_packed(&rows(4097)))
-    );
+    assert!(crate::test_support::bilevel_pixels(&case.sink.bytes).contains(&packed(&rows(4097))));
 }
 
 #[test]
@@ -1532,13 +1339,10 @@ fn nested_type0_error_mapping_preserves_identity_stage_and_error_sources() {
             Type0ErrorKind::Malformed("original error"),
             ComposeStage::Decode,
         ),
-        (
-            Type0ErrorKind::Sink(Error::Cancelled),
-            ComposeStage::Scratch,
-        ),
+        (Type0ErrorKind::Sink(Error::Cancelled), ComposeStage::Pdf),
     ];
     for (kind, stage) in cases {
-        let error = type0_decode(at, example_image_error(kind));
+        let error = type0_decode(at)(example_image_error(kind));
         located(&error, Variant::C8, Some(2), Some(3));
         assert_eq!(error.offset, Some(99));
         assert_eq!(error.stage, stage);
@@ -1561,51 +1365,7 @@ fn nested_type0_error_mapping_preserves_identity_stage_and_error_sources() {
 }
 
 #[test]
-fn scratch_error_mapping_preserves_primary_and_cleanup_failures() {
-    let at = At {
-        variant: Some(Variant::HnA),
-        page: Some(2),
-        image: Some(3),
-        offset: Some(41),
-    };
-    for stage in [
-        Type0ScratchStage::Prepare,
-        Type0ScratchStage::Decode,
-        Type0ScratchStage::Emit,
-        Type0ScratchStage::Cleanup,
-    ] {
-        let expected = if stage == Type0ScratchStage::Cleanup {
-            ComposeStage::Cleanup
-        } else {
-            ComposeStage::Scratch
-        };
-        let error = scratch_error(
-            at,
-            Type0ScratchError {
-                stage,
-                kind: Type0ScratchErrorKind::Store(Error::Cancelled),
-                cleanup_error: None,
-                report: Default::default(),
-            },
-        );
-        located(&error, Variant::HnA, Some(2), Some(3));
-        assert_eq!(error.stage, expected);
-        assert_error_description(&error, true);
-    }
-    let error = scratch_error(
-        at,
-        Type0ScratchError {
-            stage: Type0ScratchStage::Emit,
-            kind: Type0ScratchErrorKind::Pdf(Error::Cancelled),
-            cleanup_error: Some(Error::Io(io::Error::other("original cleanup error"))),
-            report: Default::default(),
-        },
-    );
-    assert_eq!(error.stage, ComposeStage::Cleanup);
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Cleanup { ref primary, .. } if primary.stage == ComposeStage::Pdf)
-    );
-    assert_error_description(&error, true);
+fn plain_error_kinds_have_descriptions_without_a_source() {
     for kind in [
         ComposeErrorKind::MissingTable,
         ComposeErrorKind::UnsupportedImageType(1),
@@ -1615,95 +1375,6 @@ fn scratch_error_mapping_preserves_primary_and_cleanup_failures() {
         ComposeErrorKind::Type3Dib("example"),
     ] {
         assert_error_description(&At::NONE.error((ComposeStage::Preflight, kind)), false);
-    }
-}
-
-#[test]
-fn dropped_pending_conversion_requires_caller_owned_store_disposal() {
-    struct OwnedScratch {
-        inner: Scratch,
-        live_bytes: Rc<Cell<usize>>,
-        disposed: Rc<Cell<bool>>,
-        pending_read: bool,
-    }
-
-    impl Drop for OwnedScratch {
-        fn drop(&mut self) {
-            self.inner.bytes.clear();
-            self.live_bytes.set(0);
-            self.disposed.set(true);
-        }
-    }
-
-    impl RandomAccessScratch for OwnedScratch {
-        fn size(&self) -> crate::Result<u64> {
-            self.inner.size()
-        }
-        async fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
-            self.inner.set_len(bytes).await?;
-            self.live_bytes.set(self.inner.bytes.len());
-            Ok(())
-        }
-        async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
-            if self.pending_read {
-                std::future::pending().await
-            } else {
-                self.inner.read_at(offset, bytes).await
-            }
-        }
-        async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
-            if !self.pending_read {
-                std::future::pending().await
-            } else {
-                self.inner.write_at(offset, bytes).await
-            }
-        }
-        async fn flush(&mut self) -> crate::Result<()> {
-            self.inner.flush().await
-        }
-    }
-
-    for pending_read in [true, false] {
-        let mut case = Harness::type0();
-        let live = Rc::new(Cell::new(0));
-        let disposed = Rc::new(Cell::new(false));
-        let mut scratch = OwnedScratch {
-            inner: Scratch::default(),
-            live_bytes: live.clone(),
-            disposed: disposed.clone(),
-            pending_read,
-        };
-        let table = table();
-        let options = ComposeOptions::default();
-        let limits = Limits::default();
-        {
-            let mut future = pin!(convert_source_pages_pdf(
-                &mut case.source,
-                &mut case.sink,
-                Some(&table),
-                &mut scratch,
-                &mut case.visitor,
-                options,
-                &limits,
-                &NeverCancel,
-            ));
-            assert!(matches!(
-                future
-                    .as_mut()
-                    .poll(&mut Context::from_waker(Waker::noop())),
-                Poll::Pending
-            ));
-            assert_eq!(live.get(), 12);
-        }
-        // Dropping the borrowed future cannot await set_len(0). The adapter
-        // owner releases its backing storage; no successful report exists.
-        assert_eq!(live.get(), 12);
-        assert!(!disposed.get());
-        assert!(case.visitor.mappings.is_empty());
-        assert!(!contains(&case.sink.bytes, b"%%EOF"));
-        drop(scratch);
-        assert!(disposed.get());
-        assert_eq!(live.get(), 0);
     }
 }
 
@@ -1798,7 +1469,7 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
     );
     let samples = &raster[header.len()..];
     assert_eq!(samples.len(), 32 * 16);
-    // Check every visible pixel after the negative CTM and row reversal;
+    // Check every visible pixel of the top-first rows under the flipped CTM;
     // dropped storage padding must leave the background image visible.
     for (y, row) in pixels.iter().enumerate() {
         for x in 0..9 {
@@ -1822,7 +1493,6 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
         "the later overlapping JPEG paints over the earlier 90-gray draw"
     );
     assert_eq!(case.visitor.images.len(), 4);
-    assert!(case.scratch.bytes.is_empty());
 }
 
 #[test]
@@ -1847,7 +1517,6 @@ fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
         &mut Source::new(fixture.bytes.clone()),
         &mut sink,
         None,
-        &mut Scratch::default(),
         &mut Visitor::default(),
         ComposeOptions {
             include_bookmarks: true,
@@ -1868,7 +1537,6 @@ fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
             &mut Source::new(bytes.to_vec()),
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut Visitor::default(),
             ComposeOptions {
                 include_bookmarks,
@@ -1917,7 +1585,6 @@ fn unproven_outline_variants_are_reported_not_written_or_failed() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut Visitor::default(),
             ComposeOptions {
                 include_bookmarks,
@@ -1965,7 +1632,6 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
         &mut source,
         &mut sink,
         None,
-        &mut Scratch::default(),
         &mut Visitor::default(),
         ComposeOptions::default(),
         &Limits::default(),
@@ -2034,7 +1700,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     f.bytes[34..36].copy_from_slice(&5000_u16.to_le_bytes());
     let mut source = Source::new(f.bytes);
     let mut sink = Sink::default();
-    let mut rows = Scratch::default();
+    let mut text = Scratch::default();
     let mut first = Scratch {
         short: Some(1),
         ..Default::default()
@@ -2046,15 +1712,13 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         &mut source,
         &mut sink,
         Some(&table()),
-        ComposeWorkspaces {
-            rows: &mut rows,
-            type3: Some(ComposeType3Workspaces {
-                table: &mq,
-                first: &mut first,
-                second: &mut second,
-                refined: &mut refined,
-            }),
-        },
+        Some(ComposeType3Workspaces {
+            table: &mq,
+            first: &mut first,
+            second: &mut second,
+            refined: &mut refined,
+            text: &mut text,
+        }),
         &mut visitor,
         ComposeOptions {
             type3: Type3PdfOptions {
@@ -2074,7 +1738,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         (report.output_pages, report.type3_images, report.jpeg_images),
         (2, 3, 1)
     );
-    for store in [&rows, &first, &second, &refined] {
+    for store in [&text, &first, &second, &refined] {
         assert!(store.bytes.is_empty());
     }
     assert_eq!(report.type0_images, 1);
@@ -2114,25 +1778,25 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         let f = fixture(Variant::C8, &[vec![record]]);
         let mut source = Source::new(f.bytes);
         let mut sink = Sink::default();
-        let mut rows = Scratch::default();
+        let mut text = Scratch::default();
         let mut first = Scratch::default();
         let mut second = Scratch::default();
         let mut refined = Scratch::default();
         let flag = Rc::new(Cell::new(false));
         let mut options = ComposeOptions::default();
         match mode {
-            1 => rows.fail_initialize = true,
-            2 => rows.write_fault = Some(Fault::Overreport),
-            3 => rows.read_fault = Some(Fault::Overreport),
-            4 => rows.cancel_write = Some(flag.clone()),
-            5 => options.budget.max_row_store_bytes = 1,
-            6 => options.budget.max_row_store_io_bytes = 1,
-            7 => rows.fail_cleanup = true,
+            1 => text.fail_initialize = true,
+            2 => text.write_fault = Some(Fault::Overreport),
+            3 => text.read_fault = Some(Fault::Overreport),
+            4 => text.cancel_write = Some(flag.clone()),
+            5 => options.budget.max_type3_store_bytes = 1,
+            6 => options.budget.max_type3_store_io_bytes = 1,
+            7 => text.fail_cleanup = true,
             8 => {
-                rows.fail_cleanup = true;
-                rows.read_fault = Some(Fault::Io);
+                text.fail_cleanup = true;
+                text.read_fault = Some(Fault::Io);
             }
-            9 => rows.fail_flush = true,
+            9 => text.fail_flush = true,
             10 => sink.fail_after = Some(20),
             _ => (),
         }
@@ -2140,15 +1804,13 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
             &mut source,
             &mut sink,
             Some(&table()),
-            ComposeWorkspaces {
-                rows: &mut rows,
-                type3: Some(ComposeType3Workspaces {
-                    table: &mq,
-                    first: &mut first,
-                    second: &mut second,
-                    refined: &mut refined,
-                }),
-            },
+            Some(ComposeType3Workspaces {
+                table: &mq,
+                first: &mut first,
+                second: &mut second,
+                refined: &mut refined,
+                text: &mut text,
+            }),
             &mut (),
             options,
             &limits,
@@ -2175,8 +1837,8 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         for store in [&first, &second, &refined] {
             assert!(store.bytes.is_empty());
         }
-        if !rows.fail_cleanup {
-            assert!(rows.bytes.is_empty());
+        if !text.fail_cleanup {
+            assert!(text.bytes.is_empty());
         }
         assert!(!contains(&sink.bytes, b"%%EOF"));
     }
@@ -2201,7 +1863,7 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
         let mut source = Source::new(f.bytes);
         source.short = 7;
         source.payload = Some((f.payloads[0][0], f.payloads[0][0] + length));
-        let (mut rows, mut first, mut second, mut refined) = (
+        let (mut text, mut first, mut second, mut refined) = (
             Scratch::default(),
             Scratch::default(),
             Scratch::default(),
@@ -2212,15 +1874,13 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
             &mut source,
             &mut sink,
             Some(&table()),
-            ComposeWorkspaces {
-                rows: &mut rows,
-                type3: Some(ComposeType3Workspaces {
-                    table: &mq,
-                    first: &mut first,
-                    second: &mut second,
-                    refined: &mut refined,
-                }),
-            },
+            Some(ComposeType3Workspaces {
+                table: &mq,
+                first: &mut first,
+                second: &mut second,
+                refined: &mut refined,
+                text: &mut text,
+            }),
             &mut (),
             ComposeOptions::default(),
             &limits,
@@ -2258,21 +1918,19 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
         let mut source = Source::new(f.bytes);
         let mut sink = Sink::default();
         let mut stores: [Scratch; 4] = Default::default();
-        let [rows, first, second, refined] = &mut stores;
+        let [text, first, second, refined] = &mut stores;
         let mut visitor = Anomalies(Vec::new());
         let result = ready(convert_source_pages_pdf(
             &mut source,
             &mut sink,
             None,
-            ComposeWorkspaces {
-                rows,
-                type3: Some(ComposeType3Workspaces {
-                    table: &table,
-                    first,
-                    second,
-                    refined,
-                }),
-            },
+            Some(ComposeType3Workspaces {
+                table: &table,
+                first,
+                second,
+                refined,
+                text,
+            }),
             &mut visitor,
             ComposeOptions {
                 type3: Type3PdfOptions {
@@ -2343,21 +2001,19 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
             source.short = 11;
             let mut sink = Sink::default();
             let mut stores: [Scratch; 4] = Default::default();
-            let [rows, first, second, refined] = &mut stores;
+            let [text, first, second, refined] = &mut stores;
             let mut aliases = Aliases(Vec::new());
             let report = ready(convert_source_pages_pdf(
                 &mut source,
                 &mut sink,
                 None,
-                ComposeWorkspaces {
-                    rows,
-                    type3: Some(ComposeType3Workspaces {
-                        table: &mq,
-                        first,
-                        second,
-                        refined,
-                    }),
-                },
+                Some(ComposeType3Workspaces {
+                    table: &mq,
+                    first,
+                    second,
+                    refined,
+                    text,
+                }),
                 &mut aliases,
                 ComposeOptions::default(),
                 &limits,
@@ -2436,7 +2092,6 @@ fn repeated_groups_reject_conflicts_partial_groups_and_read_failures_before_draw
             &mut source,
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut Visitor::default(),
             ComposeOptions::default(),
             &Limits::default(),
@@ -2552,7 +2207,6 @@ fn source_page_and_image_extents_are_independent_of_decoded_pixels() {
                     &mut Source::new(built.bytes),
                     &mut Sink::default(),
                     None,
-                    &mut Scratch::default(),
                     &mut visitor,
                     ComposeOptions::default(),
                     &Limits::default(),
@@ -2601,7 +2255,6 @@ fn missing_page_or_image_extent_fails_before_emitting_image_data() {
             &mut Source::new(built.bytes),
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -2642,37 +2295,33 @@ fn mixed_codec_content_page() -> Vec<u8> {
     let options = ComposeOptions::default();
     let qm = table();
     let mq = mq_table(&limits);
-    let (mut rows, mut first, mut second, mut refined) = (
+    let (mut text, mut first, mut second, mut refined) = (
         Scratch::default(),
         Scratch::default(),
         Scratch::default(),
         Scratch::default(),
     );
-    let mut workspaces = ComposeWorkspaces {
-        rows: &mut rows,
-        type3: Some(ComposeType3Workspaces {
-            table: &mq,
-            first: &mut first,
-            second: &mut second,
-            refined: &mut refined,
-        }),
-    };
+    let mut workspaces = Some(ComposeType3Workspaces {
+        table: &mq,
+        first: &mut first,
+        second: &mut second,
+        refined: &mut refined,
+        text: &mut text,
+    });
     let mut plan = Plan::default();
     let mut baseline = Sink::default();
-    let stores = workspaces.type3.as_mut().unwrap();
+    let stores = workspaces.as_mut().unwrap();
     let mut report = ready(convert_source_pages_pdf(
         &mut source,
         &mut baseline,
         Some(&qm),
-        ComposeWorkspaces {
-            rows: &mut *workspaces.rows,
-            type3: Some(ComposeType3Workspaces {
-                table: &mq,
-                first: &mut *stores.first,
-                second: &mut *stores.second,
-                refined: &mut *stores.refined,
-            }),
-        },
+        Some(ComposeType3Workspaces {
+            table: &mq,
+            first: &mut *stores.first,
+            second: &mut *stores.second,
+            refined: &mut *stores.refined,
+            text: &mut *stores.text,
+        }),
         &mut plan,
         options,
         &limits,
@@ -2747,7 +2396,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
         page.glyph(0, 'A', [20.0, 0.0, 0.0, 20.0, 10.0, 50.0])
             .await
             .unwrap();
-        page.image(0, [18.0, 0.0, 0.0, -6.0, 12.0, 60.0])
+        page.image(0, [18.0, 0.0, 0.0, 6.0, 12.0, 54.0])
             .await
             .unwrap();
         page.segment([10.0, 55.0], [90.0, 55.0], 2.0).await.unwrap();
@@ -2771,8 +2420,13 @@ fn mixed_codec_content_page() -> Vec<u8> {
         (report.type0_images, report.jpeg_images, report.type3_images),
         (2, 2, 2)
     );
-    let stores = workspaces.type3.as_mut().unwrap();
-    for store in [workspaces.rows, stores.first, stores.second, stores.refined] {
+    let stores = workspaces.as_mut().unwrap();
+    for store in [
+        &*stores.text,
+        &*stores.first,
+        &*stores.second,
+        &*stores.refined,
+    ] {
         assert!(store.bytes.is_empty());
         assert!(store.max_request <= 64);
     }
@@ -2796,7 +2450,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
         .collect();
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
     let decoded = crate::test_support::bilevel_pixels(&sink.bytes);
-    assert_eq!(decoded[0], reversed_packed(&pixels));
+    assert_eq!(decoded[0], packed(&pixels));
     assert_eq!(decoded[1], vec![0x80, 0, 0, 0, 0]);
     sink.bytes
 }
@@ -2884,7 +2538,6 @@ fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
             &mut source,
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut Visitor::default(),
             ComposeOptions::default(),
             &Limits::default(),
@@ -2922,7 +2575,6 @@ fn hna_paired_page_sizes_override_header_per_page_in_raw_and_compressed_text() {
             &mut source,
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -2959,7 +2611,6 @@ fn hna_zero_page_prefix_dimensions_fail_before_emitting_images() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             None,
-            &mut Scratch::default(),
             &mut Visitor::default(),
             ComposeOptions::default(),
             &Limits::default(),

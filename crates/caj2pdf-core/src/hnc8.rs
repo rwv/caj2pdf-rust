@@ -11,7 +11,6 @@
 
 mod appinfo;
 mod compose;
-mod image_emit;
 mod inflate;
 mod jpeg;
 mod native;
@@ -29,8 +28,7 @@ pub use appinfo::{
 pub use compose::{
     C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
     ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
-    ComposeWorkspaces, ComposedImage, convert_document_pdf, convert_source_pages_pdf,
-    uses_native_text,
+    ComposedImage, convert_document_pdf, convert_source_pages_pdf, uses_native_text,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{

@@ -19,10 +19,10 @@ struct Meter {
 impl Meter {
     fn charge(&self, count: usize) -> crate::Result<()> {
         let attempted = self.work.get().saturating_add(count as u64);
-        if attempted > self.budget.max_row_store_io_bytes {
+        if attempted > self.budget.max_type3_store_io_bytes {
             return Err(Error::LimitExceeded {
                 resource: "type-3 store I/O bytes",
-                limit: self.budget.max_row_store_io_bytes,
+                limit: self.budget.max_type3_store_io_bytes,
                 attempted,
             });
         }
@@ -31,10 +31,10 @@ impl Meter {
     }
     fn resize(&self, old: u64, new: u64) -> crate::Result<u64> {
         let attempted = self.bytes.get().saturating_sub(old).saturating_add(new);
-        if attempted > self.budget.max_row_store_bytes {
+        if attempted > self.budget.max_type3_store_bytes {
             return Err(Error::LimitExceeded {
                 resource: "type-3 store bytes",
-                limit: self.budget.max_row_store_bytes,
+                limit: self.budget.max_type3_store_bytes,
                 attempted,
             });
         }
@@ -142,7 +142,7 @@ pub(super) async fn emit<S, W, T, C>(
     document: &mut PdfDocument<'_, W, C>,
     at: At,
     checked: CheckedType3,
-    workspaces: &mut ComposeWorkspaces<'_, T>,
+    stores: &mut ComposeType3Workspaces<'_, T>,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -153,7 +153,6 @@ where
     T: RandomAccessScratch,
     C: Cancellation,
 {
-    let stores = workspaces.type3.as_mut().expect("type-3 stores checked");
     let meter = Meter {
         bytes: Cell::new(0),
         work: Cell::new(0),
@@ -164,7 +163,7 @@ where
             &mut *stores.first,
             &mut *stores.second,
             &mut *stores.refined,
-            &mut *workspaces.rows,
+            &mut *stores.text,
         ] {
             store
                 .set_len(0)
@@ -175,7 +174,7 @@ where
         let first = Store::new(stores.first, &meter);
         let second = Store::new(stores.second, &meter);
         let refined = Store::new(stores.refined, &meter);
-        let text = Store::new(workspaces.rows, &meter);
+        let text = Store::new(stores.text, &meter);
         let mut decoding = Type3Workspaces {
             first: Type3Store {
                 reader: &mut &first,
@@ -226,7 +225,7 @@ where
         &mut *stores.first,
         &mut *stores.second,
         &mut *stores.refined,
-        &mut *workspaces.rows,
+        &mut *stores.text,
     ] {
         if let Err(error) = store.set_len(0).await {
             cleanup.get_or_insert(error);
@@ -291,7 +290,7 @@ mod tests {
             bytes: Cell::new(0),
             work: Cell::new(0),
             budget: ComposeBudget {
-                max_row_store_bytes: 5,
+                max_type3_store_bytes: 5,
                 ..Default::default()
             },
         };

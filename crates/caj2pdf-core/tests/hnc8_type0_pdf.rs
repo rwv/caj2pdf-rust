@@ -367,12 +367,6 @@ fn convert_error(bytes: Vec<u8>, options: ComposeOptions, limits: &Limits) -> Co
     .unwrap_err()
 }
 
-/// The PDF stream of a type-0 image: rows bottom-first, drawn upright by
-/// the composer's negative-height matrix.
-fn streamed(rows: &Pixels) -> Vec<u8> {
-    packed(&rows.iter().rev().cloned().collect())
-}
-
 /// Every cancellation surface of the type-0 composition path.
 fn cancelled(error: &ComposeError) -> bool {
     match &error.kind {
@@ -573,7 +567,7 @@ fn boundary_widths_have_exact_packed_rows_in_every_layout() {
                 assert!(report.conversion.input_bytes_read <= 2 * built.bytes.len() as u64);
                 assert_eq!(
                     image_streams(&pdf),
-                    [(width as u32, height as u32, streamed(&rows))],
+                    [(width as u32, height as u32, packed(&rows))],
                     "{layout:?} width {width} height {height}"
                 );
             }
@@ -585,7 +579,7 @@ fn boundary_widths_have_exact_packed_rows_in_every_layout() {
 fn padding_bits_and_row_order_are_exact_for_known_rows() {
     // Width 9: the first byte is full and the second keeps only its MSB.
     // The PDF stream drops the two DIB padding bytes of each 4-byte row and
-    // holds the rows bottom-first.
+    // holds the rows top-first, drawn upright by a positive-height matrix.
     let rows: Pixels = vec![
         vec![true, false, false, false, false, false, false, false, true],
         vec![false; 9],
@@ -595,7 +589,7 @@ fn padding_bits_and_row_order_are_exact_for_known_rows() {
     let (_, pdf) = convert(built.bytes).unwrap();
     assert_eq!(
         image_streams(&pdf),
-        [(9, 3, vec![0x7f, 0x00, 0x00, 0x00, 0x80, 0x80])]
+        [(9, 3, vec![0x80, 0x80, 0x00, 0x00, 0x7f, 0x00])]
     );
     check_renders(&pdf, &rows);
     let rows = pattern(33, 5, 1);

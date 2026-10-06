@@ -336,9 +336,10 @@ export async function validateMultiImageHn(t, bytes) {
       assert.equal(image.name, `/Im${index}`);
       assert.equal(image.width, 3); assert.equal(image.height, 2);
       const { stdout } = await run("qpdf", [`--show-object=${image.object.split(" ")[0]}`, "--filtered-stream-data", path], { encoding: "buffer" });
+      // Rows stay top-first: 101 / 010 and 110 / 001.
       assert.deepEqual([...stdout], index === 0
-        ? [0x40, 0xa0]
-        : [0x20, 0xc0]);
+        ? [0xa0, 0x40]
+        : [0xc0, 0x20]);
     }
     const content = (await run("qpdf", [`--show-object=${page.contents[0].split(" ")[0]}`, "--filtered-stream-data", path])).stdout;
     const draws = [...content.matchAll(/([\d.e+\- ]+) cm\s+\/Im(\d+) Do/g)];
@@ -347,7 +348,9 @@ export async function validateMultiImageHn(t, bytes) {
     for (let i = 0; i < 2; i++) {
       assert.equal(Number(draws[i][2]), i);
       const matrix = draws[i][1].trim().split(/\s+/).map(Number);
-      const expected = [(80 - i * 20) * scale, 0, 0, -(40 + i * 10) * scale, i * 13 * scale, 200 * scale - i * scale];
+      // A positive height with the origin at the image's bottom edge.
+      const height = (40 + i * 10) * scale;
+      const expected = [(80 - i * 20) * scale, 0, 0, height, i * 13 * scale, 200 * scale - i * scale - height];
       assert.equal(matrix.length, 6);
       matrix.forEach((value, axis) => assert.ok(Math.abs(value - expected[axis]) < 0.000001, `image ${i}, matrix axis ${axis}`));
     }

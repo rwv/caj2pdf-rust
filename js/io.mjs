@@ -24,7 +24,7 @@ export const DEFAULT_LIMITS = Object.freeze({
 
 /**
  * Format names in WASM code order. `pdf`, `caj`, `kdh`, `hn` and `c8`
- * convert (HN/C8 needs scratch stores, see `hnc8`); `teb` and `nh` are
+ * convert (HN/C8 type-3 images need scratch stores, see `hnc8`); `teb` and `nh` are
  * rejected with `UnsupportedFormatError`.
  */
 export const FORMATS = Object.freeze(["auto", "pdf", "caj", "kdh", "hn", "c8", "teb", "nh"]);
@@ -452,7 +452,7 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
         const id = exports.caj2pdf_io_request_store();
         const store = hnc8?.scratch[id - 1];
         if (!Number.isInteger(id) || id < 1 || id > 4 || store == null) {
-          throw new Caj2PdfError("HN/C8 decoding requires four independent scratch stores", "RANDOM_ACCESS_REQUIRED");
+          throw new Caj2PdfError("HN/C8 type-3 decoding requires four independent scratch stores", "RANDOM_ACCESS_REQUIRED");
         }
         const offset = exports.caj2pdf_io_request_offset();
         if (status === 8) {

@@ -46,7 +46,8 @@ preserves short I/O and OS errors. `into_inner()` returns the handle.
 Dropping closes it but does not delete its path: the CLI or embedding caller
 owns temporary-file creation/unlinking. These blocking operations suit native
 file adapters; the asynchronous browser/Node bridge remains separate.
-The source-page example uses this adapter for its four reusable stores.
+The CLI uses this adapter for its four reusable type-3 stores (three symbol
+stores and the text scratch); type-0 and JPEG images stream without a store.
 This storage API does not resolve codec-state distribution or enable HN/C8
 CLI/JS routing on its own; those remain #10 work.
 
@@ -211,7 +212,7 @@ JavaScript selects the new export only when `hnc8.fonts.symbols` is supplied.
 **Unstable Rust API change:** `C8PageFonts` gains `symbols: Option<usize>`;
 existing struct literals should set `None` unless supplying the resource.
 `Engine::set_c8_fonts` gains a final symbol index (`u32::MAX` for absent).
-Font resource capacity is eight; the four image scratch stores are unchanged.
+Font resource capacity is eight; the four type-3 scratch stores are unchanged.
 
 HN-B/C8 state `801d/3` selects an explicitly supplied `latinState3` resource.
 Register it with `caj2pdf_c8_set_latin_state3(index)` after the base roles and

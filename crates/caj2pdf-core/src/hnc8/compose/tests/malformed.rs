@@ -78,7 +78,6 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                 short: Some(7),
                 ..Default::default()
             };
-            let mut scratch = Scratch::default();
             let limits = Limits {
                 io_chunk_bytes: 64,
                 ..Default::default()
@@ -88,7 +87,7 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                     &mut source,
                     &mut sink,
                     None,
-                    &mut scratch,
+                    no_stores(),
                     &mut Visitor::default(),
                     ComposeOptions::default(),
                     &limits,
@@ -103,7 +102,7 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                         roles: roles(),
                     },
                     None,
-                    &mut scratch,
+                    no_stores(),
                     ComposeOptions::default(),
                     &limits,
                     &NeverCancel,
@@ -125,7 +124,6 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                     "first page was not emitted"
                 );
             }
-            assert!(scratch.bytes.is_empty());
             assert!(source.source.max_request <= 64);
             assert!(fonts[0].source.source.max_request <= 64);
             assert!(sink.max_request <= 64);

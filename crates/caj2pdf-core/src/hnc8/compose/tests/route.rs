@@ -15,7 +15,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     let mut sink = Sink::default();
     let limits = Limits::default();
     let mq = mq_table(&limits);
-    let (mut rows, mut first, mut second, mut refined) = Default::default();
+    let (mut text, mut first, mut second, mut refined) = Default::default();
     let result = ready(convert_document_pdf(
         &mut source,
         &mut sink,
@@ -24,7 +24,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
             roles: roles(),
         }),
         Some(&table()),
-        workspaces(&mq, &mut rows, &mut first, &mut second, &mut refined),
+        workspaces(&mq, &mut text, &mut first, &mut second, &mut refined),
         &mut Visitor::default(),
         ComposeOptions::default(),
         &limits,
@@ -35,20 +35,18 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
 
 fn workspaces<'a>(
     table: &'a MqTable,
-    rows: &'a mut Scratch,
+    text: &'a mut Scratch,
     first: &'a mut Scratch,
     second: &'a mut Scratch,
     refined: &'a mut Scratch,
-) -> ComposeWorkspaces<'a, Scratch> {
-    ComposeWorkspaces {
-        rows,
-        type3: Some(ComposeType3Workspaces {
-            table,
-            first,
-            second,
-            refined,
-        }),
-    }
+) -> Option<ComposeType3Workspaces<'a, Scratch>> {
+    Some(ComposeType3Workspaces {
+        table,
+        first,
+        second,
+        refined,
+        text,
+    })
 }
 
 fn native(bytes: &[u8]) -> Result<bool, ComposeError> {
@@ -135,7 +133,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
         let mut sink = Sink::default();
         let limits = Limits::default();
         let mq = mq_table(&limits);
-        let (mut rows, mut first, mut second, mut refined) = Default::default();
+        let (mut text, mut first, mut second, mut refined) = Default::default();
         let direct = ready(convert_c8_native_pdf(
             &mut source,
             &mut sink,
@@ -144,7 +142,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
                 roles: roles(),
             },
             Some(&table()),
-            workspaces(&mq, &mut rows, &mut first, &mut second, &mut refined),
+            workspaces(&mq, &mut text, &mut first, &mut second, &mut refined),
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
@@ -253,7 +251,6 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         face: 0,
     }];
     let mut sink = Sink::default();
-    let mut rows = Scratch::default();
     let error = ready(convert_document_pdf(
         &mut source,
         &mut sink,
@@ -262,7 +259,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
             roles: roles(),
         }),
         Some(&table()),
-        &mut rows,
+        no_stores(),
         &mut (),
         ComposeOptions::default(),
         &Limits::default(),
