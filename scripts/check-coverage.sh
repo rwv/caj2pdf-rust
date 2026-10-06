@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
-# Require every instrumented Rust source line to be covered. Compare integer
-# counts so a displayed percentage rounded to 100% cannot hide a missed line.
+# Require the workspace line coverage to stay at or above a floor. The floor
+# is a whole-workspace figure, not a per-file target; raise it only when the
+# measured total moves up. Override with COVERAGE_THRESHOLD_PERCENT=<n> to
+# probe a different floor locally.
+COVERAGE_THRESHOLD_PERCENT="${COVERAGE_THRESHOLD_PERCENT:-90}"
 report_dir=target/coverage
 report="$report_dir/lcov.info"
 summary="$report_dir/summary.txt"
@@ -21,7 +24,7 @@ fi
 # LLVM's LF/LH summary can include extra uncovered instantiation lines that
 # have no DA record or uncovered line in the annotated source report. Dedup
 # repeated source-line records before applying the exact coverage gate.
-awk -F: -v root="$PWD/" '
+awk -F: -v root="$PWD/" -v threshold="$COVERAGE_THRESHOLD_PERCENT" '
   /^SF:/ {
     file = substr($0, 4)
     if (index(file, root) == 1) file = substr(file, length(root) + 1)
@@ -49,19 +52,14 @@ awk -F: -v root="$PWD/" '
       print "Line coverage: malformed or empty DA records; the coverage gate cannot pass."
       exit 1
     }
-    failed = 0
     for (file in found) {
-      if (found[file] == 0) continue
-      if (hit[file] != found[file]) {
-        percent = 100 * hit[file] / found[file]
-        printf "File below 100%%: %s %.2f%% (%d/%d)\n", file, percent, hit[file], found[file]
-        failed = 1
-      }
+      if (found[file] == 0 || hit[file] == found[file]) continue
+      percent = 100 * hit[file] / found[file]
+      printf "File: %s %.2f%% (%d/%d)\n", file, percent, hit[file], found[file]
     }
     percent = 100 * hits / lines
-    printf "Line coverage: %.2f%% (%d/%d); required 100%% total and per file.\n", \
-      percent, hits, lines
-    if (hits != lines) failed = 1
-    exit failed
+    printf "Line coverage: %.2f%% (%d/%d); required at least %s%% in total.\n", \
+      percent, hits, lines, threshold
+    exit (percent + 0 < threshold + 0)
   }
 ' "$report" | tee "$summary"

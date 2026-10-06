@@ -13,8 +13,10 @@ language of the repository, API, CLI, documentation, and diagnostics.
   Python or Go converters or their FreeType/LGPL-derived decoders; migrate a
   private Rust module only after per-file provenance review
   ([provenance](docs/provenance.md)).
-- Input is ranged or seekable, output is sequential, and buffers are bounded;
-  forward-only input is spooled ([I/O architecture](docs/io-architecture.md)).
+- Input is ranged or seekable and is never read whole; output is sequential.
+  Buffers are capped by `Limits`: one image payload, symbol dictionary or page
+  bitmap may live in memory. Forward-only input is spooled by the platform
+  adapter ([I/O architecture](docs/io-architecture.md)).
 - Keep format parsing, PDF writing, and platform adapters separate. Return
   structured errors instead of panicking on malformed input.
 - Sample documents stay outside Git. A missing optional corpus is

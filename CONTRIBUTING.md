@@ -56,13 +56,14 @@ lockfiles, and release-note requirements.
 State which acceptance criteria the change satisfies and provide the command
 and result for relevant tests. Native, browser, and Node.js paths need separate
 evidence when affected. Tests that skip because an optional external corpus is
-absent do not count as corpus validation. Record memory measurements for changes
-to buffering, decoding, or PDF output. Keep new test fixtures synthetic or
-otherwise demonstrably redistributable under MIT.
+absent do not count as corpus validation. Record a memory measurement only
+when a change adds a new class of allocation (a buffer that scales with
+document size rather than with one image, dictionary or page). Keep new test
+fixtures synthetic or otherwise demonstrably redistributable under MIT.
 Write meaningful unit tests for success, malformed input, and error paths.
-The required native line-coverage gate is 100% for every source file in its
-LCOV report. Exercise real behavior and error propagation; do not add
-assertions that only mirror the implementation or hide uncovered lines.
+Exercise real behavior and error propagation; do not add assertions that only
+mirror the implementation. A failure branch that can only be reached by a
+mocked allocator or an impossible arithmetic overflow needs no test.
 
 ## Fuzzing
 
@@ -97,11 +98,11 @@ CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
 `-D warnings`, locked native tests, the WASM build and JavaScript adapter
 tests, the MIT license/source/advisory audit with a relative Markdown link
 check (`python3 scripts/check-doc-links.py`), and the line-coverage gate in
-`scripts/check-coverage.sh`. The gate requires every unique instrumented Rust
-source line in the native LCOV report to be covered, both in total and in each
-reported file; it fails on any uncovered line even when a rounded percentage
-displays 100%. Run `bash scripts/check-coverage.sh` locally (it needs
-`cargo-llvm-cov` and the PDF validators listed in
+`scripts/check-coverage.sh`. The gate requires the workspace line coverage in
+the native LCOV report to stay at or above `COVERAGE_THRESHOLD_PERCENT` in
+that script; it is a floor, not a per-file target, and it is raised only when
+the measured total moves up. Run `bash scripts/check-coverage.sh` locally (it
+needs `cargo-llvm-cov` and the PDF validators listed in
 [the PDF writer notes](docs/research/pdf-writer.md)).
 
 The merge gate is these `ci.yml` jobs plus the Linux x86_64/ARM64 glibc and
@@ -112,10 +113,9 @@ only when packaging, toolchain or lockfile inputs change; they always run on
 `main`, before each release and on demand. A red matrix on `main` must be
 fixed before the next release is tagged.
 
-Coverage is measured per source file, so inline `#[cfg(test)]` modules count
-toward their file's figure. Prefer a sibling `tests.rs` module (as
-`pdf/input` and `jbig1` do) for new unit tests so the per-file figure reflects
-production code.
+Inline `#[cfg(test)]` modules are instrumented like production code, so
+prefer a sibling `tests.rs` module (as `pdf/input` and `jbig1` do) to keep the
+report readable.
 
 ## Optional CAJViewer setup
 

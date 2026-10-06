@@ -9,9 +9,10 @@
   code from the Python or Go converters or other differently licensed sources.
   Migrate a private Rust module only after per-file provenance review confirms
   original ownership and MIT eligibility; never migrate its JBIG/HN code.
-- Preserve memory-conscious I/O: seekable or ranged input, sequential output,
-  bounded buffers, and temporary spooling for forward-only inputs when needed.
-  Avoid whole-file `Vec<u8>` conversion APIs as the main path.
+- Keep I/O bounded, not spooled: input is ranged or seekable and is never
+  read whole; output is sequential. One image payload, one symbol dictionary
+  or one page bitmap may be held in memory under `Limits`. Forward-only input
+  is spooled by the platform adapter, not the core.
 - Browser and Node.js are both first-class JavaScript targets. Keep platform
   adapters separate from conversion logic.
 - Use Conventional Commits; mark breaking changes with `!` or a
