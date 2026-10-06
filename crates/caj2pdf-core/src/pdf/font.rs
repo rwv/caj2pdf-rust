@@ -45,6 +45,17 @@ pub struct FontGlyph {
     pub advance: u16,
 }
 
+/// Whether an OS/2 `fsType` permits embedding a subset of the outlines.
+/// When a font sets several licensing bits, the least restrictive applies,
+/// as OS/2 versions 0-2 specify and readers apply to later versions too: a
+/// restricted license (bit 1) alone forbids embedding. A subset is always
+/// embedded, so the no-subsetting (bit 8) and bitmap-only (bit 9) bits
+/// forbid it as well.
+fn permits_subset_embedding(fs_type: u16) -> bool {
+    let licensing = fs_type & 0xf;
+    (licensing == 0 || licensing & 0xc != 0) && fs_type & 0x300 == 0
+}
+
 /// Metadata and a borrowed source for one face of a static OpenType font or
 /// collection, with TrueType (`glyf`/`loca`) or CFF outlines.
 ///
@@ -204,12 +215,12 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
                 attempted: u64::from(maps),
             });
         }
-        if matches!(
-            face.permissions(),
-            None | Some(xberg_ttf_parser::Permissions::Restricted)
-        ) || !face.is_outline_embedding_allowed()
-        {
-            return Err(invalid("font metadata does not permit outline embedding"));
+        // `fsType` of the required OS/2 table.
+        let fs_type = font.tables[5]
+            .get(8..10)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]));
+        if !fs_type.is_some_and(permits_subset_embedding) {
+            return Err(invalid("font metadata does not permit subset embedding"));
         }
         if let Some(span) = font.outlines[CFF] {
             let glyphs = face.number_of_glyphs();

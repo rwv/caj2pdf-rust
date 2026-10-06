@@ -172,6 +172,15 @@ fn metadata_and_directory_fail_closed() {
             let (at, _) = span(s.bytes[i..i + 16].try_into().unwrap());
             put16(&mut s.bytes, at as usize + 8, 0x200);
         },
+        |s| {
+            let i = entry(&s.bytes, b"OS/2");
+            let (at, _) = span(s.bytes[i..i + 16].try_into().unwrap());
+            put16(&mut s.bytes, at as usize + 8, 0x108);
+        },
+        |s| {
+            let i = entry(&s.bytes, b"OS/2");
+            s.bytes[i..i + 4].copy_from_slice(b"OS/3");
+        },
     ];
     for (index, mutation) in mutations.iter().enumerate() {
         let mut source = fixture();
@@ -187,6 +196,29 @@ fn metadata_and_directory_fail_closed() {
             "mutation {index}"
         );
     }
+}
+
+#[test]
+fn the_least_restrictive_embedding_bit_applies() {
+    // Installable, print, editable, and print with editable (TeX Gyre).
+    for fs_type in [0, 4, 8, 12, 6] {
+        let mut source = fixture();
+        let i = entry(&source.bytes, b"OS/2");
+        let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
+        put16(&mut source.bytes, at as usize + 8, fs_type);
+        assert!(
+            run(OpenTypeFont::read(
+                &mut source,
+                0,
+                &Limits::default(),
+                &NeverCancel
+            ))
+            .is_ok(),
+            "{fs_type:#x}"
+        );
+    }
+    assert!(!permits_subset_embedding(1));
+    assert!(!permits_subset_embedding(3));
 }
 
 #[test]

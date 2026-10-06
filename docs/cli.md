@@ -247,7 +247,7 @@ more than 5% of the font size: high values look crowded or overlap.
 | Liberation Serif | 1/6 | `∗ ∥ ∪ ①`–`⑦ ┆` | 957 / 6,760 |
 | Noto Serif | 1/6 | 15, including `∑ ∗ ∞ ①`–`⑦ ►` | 4,026 / 6,715 |
 | Caladea | 1/6 | 16, including `Ω δ ε θ ∗ ①`–`⑦` | 1,057 / 6,716 |
-| TeX Gyre Termes | 0/6 | rejected: its `fsType` 12 is not read as embeddable | — |
+| TeX Gyre Termes (`.otf`) | 2/6 | `∥ ∪ ①`–`⑦ ┆` | not measured |
 
 FreeSerif's advances are Times-like (the Times-metric faces overrun least),
 so it has both full coverage and the closest widths; DejaVu Sans covers
