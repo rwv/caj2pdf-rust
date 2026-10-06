@@ -671,7 +671,7 @@ fn inspect_reports_every_recognized_format() {
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "Format: HN\nVariant: HN-B\nConversion: experimental (caller codec states may be required)\nPages: 2\nOutline: unknown\n"
+        "Format: HN\nVariant: HN-B\nConversion: experimental\nPages: 2\nOutline: unknown\n"
     );
     scratch.write("bad.kdh", &kdh(b"not a pdf"));
     scratch.write("broken.kdh", &kdh(&fixture("truncated_xref.pdf")));
@@ -859,7 +859,7 @@ fn pdf_bytes_are_not_written_to_a_terminal() {
 }
 
 /// Original 3x2 HN-A image shared in shape with the WASM synthetic fixture.
-/// Its invented constant probability model emits 101/010, not normative states.
+/// Its one-byte SCD decodes to rows 101/010 under the standard QM states.
 fn image_hn() -> Vec<u8> {
     image_hn_with_bookmarks(0)
 }
@@ -897,7 +897,7 @@ fn image_hn_with_bookmarks(count: usize) -> Vec<u8> {
     bytes[payload + 14] = 1;
     put_u32(&mut bytes, payload + 32, 2);
     bytes[payload + 40..payload + 43].fill(255);
-    bytes[payload + 48] = 0x92;
+    bytes[payload + 48] = 0x39;
     bytes
 }
 
@@ -1018,16 +1018,7 @@ fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
     let scratch = Scratch::new("hn-image");
     let input = image_hn();
     scratch.write("input.hn", &input);
-    scratch.write("qm.txt", "16384 0 0 0\n".repeat(113).as_bytes());
-    scratch.write("mq.txt", "16384 0 0 0\n".repeat(47).as_bytes());
-    assert_success(&scratch.run([
-        "input.hn",
-        "--qm-states",
-        "qm.txt",
-        "--mq-states=mq.txt",
-        "-o",
-        "out.pdf",
-    ]));
+    assert_success(&scratch.run(["input.hn", "-o", "out.pdf"]));
     assert_eq!(validate_pdf(&scratch.path("out.pdf")).0, 1);
     let objects = tool(
         "mutool",
@@ -1049,74 +1040,31 @@ fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
         .unwrap();
     assert_success(&pixels);
     assert_eq!(pixels.stdout, [0x40, 0xa0]);
-    let pipe = scratch.run_with_stdin(&["-", "--qm-states=qm.txt", "--no-bookmarks"], &input);
+    let pipe = scratch.run_with_stdin(&["-", "--no-bookmarks"], &input);
     assert_success(&pipe);
     assert_eq!(pipe.stdout, fs::read(scratch.path("out.pdf")).unwrap());
-    assert_eq!(
-        scratch.entries(),
-        ["input.hn", "mq.txt", "out.pdf", "qm.txt"]
-    );
-}
-
-#[test]
-fn hn_standard_states_work_without_external_files() {
-    let scratch = Scratch::new("hn-standard");
-    scratch.write("input.hn", &image_hn());
-    assert_success(&scratch.run(["input.hn", "-o", "default.pdf"]));
-    let rows = caj2pdf_core::qm::STANDARD_STATES
-        .iter()
-        .map(|state| {
-            format!(
-                "{} {} {} {}\n",
-                state.qe,
-                state.next_lps,
-                state.next_mps,
-                u8::from(state.switch_mps)
-            )
-        })
-        .collect::<String>();
-    scratch.write("qm.txt", rows.as_bytes());
-    assert_success(&scratch.run(["input.hn", "--qm-states=qm.txt", "-o", "explicit.pdf"]));
-    assert_eq!(
-        fs::read(scratch.path("default.pdf")).unwrap(),
-        fs::read(scratch.path("explicit.pdf")).unwrap()
-    );
-    assert_eq!(validate_pdf(&scratch.path("default.pdf")).0, 1);
+    assert_eq!(scratch.entries(), ["input.hn", "out.pdf"]);
     assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
 }
 
 #[test]
 fn hn_failures_preserve_inputs_and_existing_output_and_remove_temporary_files() {
     let scratch = Scratch::new("hn-fail");
-    scratch.write("input.hn", &image_hn());
-    let states = "16384 0 0 0\n".repeat(113);
-    scratch.write("qm.txt", states.as_bytes());
-    scratch.write("out.pdf", b"keep original output");
-    let missing = scratch.run([
-        "input.hn",
-        "--qm-states=missing.txt",
-        "-o",
-        "out.pdf",
-        "--force",
-    ]);
-    assert_failure(&missing, 1, "missing.txt");
-    assert_eq!(
-        fs::read(scratch.path("out.pdf")).unwrap(),
-        b"keep original output"
-    );
-    for target in ["qm.txt", "state-hardlink"] {
-        if target == "state-hardlink" {
-            fs::hard_link(scratch.path("qm.txt"), scratch.path(target)).unwrap();
+    let input = image_hn();
+    scratch.write("input.hn", &input);
+    for target in ["input.hn", "input-hardlink"] {
+        if target == "input-hardlink" {
+            fs::hard_link(scratch.path("input.hn"), scratch.path(target)).unwrap();
         }
         assert_failure(
-            &scratch.run(["input.hn", "--qm-states=qm.txt", "-o", target, "--force"]),
+            &scratch.run(["input.hn", "-o", target, "--force"]),
             1,
             "input",
         );
-        assert_eq!(fs::read(scratch.path("qm.txt")).unwrap(), states.as_bytes());
+        assert_eq!(fs::read(scratch.path("input.hn")).unwrap(), input);
     }
     let failed = scratch
-        .command(["input.hn", "--qm-states=qm.txt", "-o", "new.pdf"])
+        .command(["input.hn", "-o", "new.pdf"])
         .env("TMPDIR", scratch.path("missing"))
         .output()
         .unwrap();
@@ -1130,33 +1078,6 @@ fn hn_failures_preserve_inputs_and_existing_output_and_remove_temporary_files() 
         &scratch.run(["empty.hn", "--no-bookmarks", "-o", "new.pdf"]),
         1,
         "cannot omit source pages",
-    );
-    assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
-}
-
-#[test]
-fn invalid_caller_tables_are_rejected_before_output_creation() {
-    let scratch = Scratch::new("state-files");
-    scratch.write("input.hn", &image_hn());
-    for (flag, bytes) in [
-        ("--qm-states", vec![255]),
-        ("--qm-states", b"1 0\n".to_vec()),
-        ("--qm-states", "0 0 0 0\n".repeat(113).into_bytes()),
-        ("--mq-states", "32768 0 0 0\n".repeat(47).into_bytes()),
-        ("--qm-states", vec![b' '; 16385]),
-    ] {
-        scratch.write("states.txt", &bytes);
-        assert_failure(
-            &scratch.run(["input.hn", flag, "states.txt", "-o", "out.pdf"]),
-            1,
-            "state",
-        );
-        assert!(!scratch.path("out.pdf").exists());
-    }
-    assert_failure(
-        &scratch.run(["input.hn", "--mq-states=missing", "-o", "out.pdf"]),
-        1,
-        "cannot read",
     );
     assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
 }
@@ -1176,14 +1097,13 @@ fn no_bookmarks_skips_caj_outline_import() {
 fn hna_inspection_and_converted_outline_agree() {
     let scratch = Scratch::new("hn-outline");
     scratch.write("input.hn", &image_hn_with_bookmarks(2));
-    scratch.write("qm.txt", "16384 0 0 0\n".repeat(113).as_bytes());
     let json = scratch.run(["inspect", "input.hn", "--json", "--bookmarks"]);
     assert_success(&json);
     assert!(stdout(&json).contains(r#""has_outline":true,"bookmark_count":2,"bookmarks":[{"title":"Root","page":1,"children":[{"title":"Leaf","page":1,"children":[]}]}]"#));
     let text = scratch.run(["inspect", "input.hn", "--bookmarks"]);
     assert_success(&text);
     assert!(stdout(&text).ends_with("Bookmarks: 2\n  - Root (page 1)\n    - Leaf (page 1)\n"));
-    assert_success(&scratch.run(["input.hn", "--qm-states=qm.txt"]));
+    assert_success(&scratch.run(["input.hn"]));
     let (pages, outline) = validate_pdf(&scratch.path("input.pdf"));
     assert_eq!(pages, 1);
     assert!(
@@ -1759,7 +1679,7 @@ fn diagnostic_hn() -> Vec<u8> {
 }
 
 const HN_STRUCTURE_TEXT: &str = "Format: HN\nVariant: HN-A\n\
-    Conversion: experimental (caller codec states may be required)\n";
+    Conversion: experimental\n";
 
 #[test]
 fn inspect_pages_reports_structure_without_content() {
@@ -1840,7 +1760,7 @@ fn inspect_pages_reports_structure_without_content() {
             "empty.c8",
             format!(
                 "Format: C8\nVariant: C8\n\
-                 Conversion: experimental (caller codec states may be required)\n\
+                 Conversion: experimental\n\
                  Pages: 1\nOutline: unknown\nPage index: 80+20 (20-byte rows)\n\
                  {empty}Page 1: {page}"
             ),
@@ -1849,7 +1769,7 @@ fn inspect_pages_reports_structure_without_content() {
             "empty.hn",
             format!(
                 "Format: HN\nVariant: HN-B\n\
-                 Conversion: experimental (caller codec states may be required)\n\
+                 Conversion: experimental\n\
                  Pages: 2\nOutline: unknown\nPage index: 216+40 (20-byte rows)\n\
                  {empty}Page 1: {page}Page 2: {page}"
             ),

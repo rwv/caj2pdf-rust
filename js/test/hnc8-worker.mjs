@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
-import { qmStates, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
@@ -20,7 +20,7 @@ try {
   const parts = [];
   const report = await convert(module, blobSource(new Blob([syntheticHn(true, true)])), {
     async writeChunk(bytes) { parts.push(...bytes); return bytes.length; }, async flush() {},
-  }, { chunkSize: 3, hnc8: { qmStates, scratch } });
+  }, { chunkSize: 3, hnc8: { scratch } });
   const standardPdf = [];
   const standard = await convert(module, blobSource(new Blob([syntheticHn()])), {
     async writeChunk(bytes) { standardPdf.push(...bytes); return bytes.length; }, async flush() {},
@@ -33,7 +33,7 @@ try {
     const prefixedPdf = [];
     await convert(module, blobSource(new Blob([syntheticPrefixedHn(markers)])), {
       async writeChunk(bytes) { prefixedPdf.push(...bytes); return bytes.length; }, async flush() {},
-    }, { chunkSize: 3, hnc8: { qmStates, scratch } });
+    }, { chunkSize: 3, hnc8: { scratch } });
     if (prefixedPdf.length !== parts.length || prefixedPdf.some((byte, i) => byte !== parts[i])) {
       throw new Error("paired raw prefix or image markers changed the mixed-image PDF");
     }
@@ -64,7 +64,7 @@ try {
     const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},
     }, { includeBookmarks: false, chunkSize: 32, hnc8: {
-      fonts: { cjk: font, latin: font, alternateLatin: font, ...(hasSymbols ? { symbols } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}), ...(latinState ? { [`latinState${latinState}`]: { ...font } } : {}) }, qmStates, scratch,
+      fonts: { cjk: font, latin: font, alternateLatin: font, ...(hasSymbols ? { symbols } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}), ...(latinState ? { [`latinState${latinState}`]: { ...font } } : {}) }, scratch,
     } });
     if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);

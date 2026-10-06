@@ -8,8 +8,8 @@ Some raw HN-A pages begin with the same compact image/control records used
 by direct compressed frames. The shared 28-byte record consumer handles both;
 the older glyph-first and tagged compressed profiles retain their checks.
 
-The public `read_text_coordinates` API still requires one coordinate per
-descriptor. Composition may accept fewer compact coordinates only when the
+The public `read_text_coordinates` inspection API (removed in #348) required
+one coordinate per descriptor. Composition may accept fewer compact coordinates only when the
 descriptor count is a positive integral number of coordinate groups. Each
 additional descriptor must have the same type, payload length and every
 payload byte as its corresponding first-group image. Two fixed 1 KiB buffers

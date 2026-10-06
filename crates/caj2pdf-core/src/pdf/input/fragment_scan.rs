@@ -110,26 +110,6 @@ pub(crate) struct FragmentCandidate {
     pub used: bool,
 }
 
-#[cfg(test)]
-pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    body_start: u64,
-    minimum_end: u64,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<FragmentScan> {
-    scan_fragment_with_candidates(
-        source,
-        body_start,
-        minimum_end,
-        limits,
-        cancellation,
-        &mut [],
-        &mut 0,
-    )
-    .await
-}
-
 /// Collect locally framed candidates from an anchored row. Deferred prefixes
 /// and indirect Length references are proved by the final whole-fragment scan,
 /// never by this index. Framed stream extents still require codec validation.
@@ -1797,12 +1777,14 @@ mod tests {
         bytes.extend_from_slice(b"\nendstream\nendobj");
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let scan = run(scan_fragment_objects(
+        let scan = run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(scan.objects.len(), 1);
@@ -1848,12 +1830,14 @@ mod tests {
         bytes.extend_from_slice(b"endstream\nendobj");
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let scan = run(scan_fragment_objects(
+        let scan = run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(scan.objects[0].range.length, end);
@@ -1872,12 +1856,14 @@ mod tests {
             bytes,
             unreadable_from: data_at + 2000,
         };
-        expect_injected_io(run(scan_fragment_objects(
+        expect_injected_io(run(scan_fragment_with_candidates(
             &mut source,
             0,
             size,
             &one_byte_reads(),
             &NEVER,
+            &mut [],
+            &mut 0,
         )));
     }
 
@@ -1892,22 +1878,26 @@ mod tests {
             bytes,
             unreadable_from: marker + 9,
         };
-        expect_injected_io(run(scan_fragment_objects(
+        expect_injected_io(run(scan_fragment_with_candidates(
             &mut source,
             0,
             size,
             &one_byte_reads(),
             &NEVER,
+            &mut [],
+            &mut 0,
         )));
 
         // The same bytes repair cleanly once the tail is readable.
         source.unreadable_from = u64::MAX;
-        let scan = run(scan_fragment_objects(
+        let scan = run(scan_fragment_with_candidates(
             &mut source,
             0,
             size,
             &one_byte_reads(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(scan.patches.len(), 1);
@@ -1929,9 +1919,17 @@ mod tests {
             max_input_bytes: hint,
             ..Limits::default()
         };
-        let error = run(scan_fragment_objects(&mut source, 0, hint, &limits, &NEVER))
-            .err()
-            .expect("an object past the input limit was accepted");
+        let error = run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            hint,
+            &limits,
+            &NEVER,
+            &mut [],
+            &mut 0,
+        ))
+        .err()
+        .expect("an object past the input limit was accepted");
         assert!(
             matches!(
                 error,
@@ -1966,7 +1964,16 @@ mod tests {
                 io_chunk_bytes: chunk,
                 ..Limits::default()
             };
-            let scan = run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER)).unwrap();
+            let scan = run(scan_fragment_with_candidates(
+                &mut source,
+                0,
+                end,
+                &limits,
+                &NEVER,
+                &mut [],
+                &mut 0,
+            ))
+            .unwrap();
             assert_eq!(
                 scan.objects
                     .iter()
@@ -2003,12 +2010,14 @@ mod tests {
             let end = bytes.len() as u64;
             let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
             assert!(
-                run(scan_fragment_objects(
+                run(scan_fragment_with_candidates(
                     &mut source,
                     0,
                     end,
                     &Limits::default(),
-                    &NEVER
+                    &NEVER,
+                    &mut [],
+                    &mut 0
                 ))
                 .is_err()
             );
@@ -2019,12 +2028,14 @@ mod tests {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
         assert!(
-            run(scan_fragment_objects(
+            run(scan_fragment_with_candidates(
                 &mut source,
                 0,
                 end,
                 &Limits::default(),
-                &NEVER
+                &NEVER,
+                &mut [],
+                &mut 0
             ))
             .is_err()
         );
@@ -2052,12 +2063,14 @@ mod tests {
             let end = bytes.len() as u64;
             let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
             assert!(
-                run(scan_fragment_objects(
+                run(scan_fragment_with_candidates(
                     &mut source,
                     0,
                     end,
                     &Limits::default(),
-                    &NEVER
+                    &NEVER,
+                    &mut [],
+                    &mut 0
                 ))
                 .is_err()
             );
@@ -2071,12 +2084,14 @@ mod tests {
         );
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let scan = run(scan_fragment_objects(
+        let scan = run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(scan.objects.len(), 3);
@@ -2084,12 +2099,14 @@ mod tests {
     fn scan_bytes(bytes: Vec<u8>) -> Result<FragmentScan> {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        run(scan_fragment_objects(
+        run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &one_byte_reads(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
     }
 
@@ -2552,9 +2569,17 @@ mod tests {
             max_output_bytes: 240,
             ..one_byte_reads()
         };
-        let error = run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER))
-            .err()
-            .unwrap();
+        let error = run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            end,
+            &limits,
+            &NEVER,
+            &mut [],
+            &mut 0,
+        ))
+        .err()
+        .unwrap();
         assert!(
             matches!(
                 error,
@@ -2617,12 +2642,14 @@ mod candidate_tests {
         let bytes = b"1 0 obj << /Length 3 >> stream\nabcdef\nendstream\nendobj\n".to_vec();
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let scan = run(scan_fragment_objects(
+        let scan = run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(scan.patches.len(), 1);
@@ -2685,12 +2712,14 @@ mod candidate_tests {
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
         // A row alone is not a complete verified document: object 7 is later.
         assert!(
-            run(scan_fragment_objects(
+            run(scan_fragment_with_candidates(
                 &mut source,
                 row_start,
                 row_end,
                 &Limits::default(),
-                &NEVER
+                &NEVER,
+                &mut [],
+                &mut 0
             ))
             .is_err()
         );
@@ -3091,7 +3120,15 @@ mod candidate_tests {
             ..Limits::default()
         };
         assert!(matches!(
-            run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER)),
+            run(scan_fragment_with_candidates(
+                &mut source,
+                0,
+                end,
+                &limits,
+                &NEVER,
+                &mut [],
+                &mut 0
+            )),
             Err(Error::LimitExceeded {
                 resource: "CAJ Flate scan bytes",
                 ..
@@ -3198,7 +3235,15 @@ mod candidate_tests {
             io_chunk_bytes: 1,
             ..Limits::default()
         };
-        let result = run(scan_fragment_objects(&mut source, 0, size, &limits, &NEVER));
+        let result = run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            size,
+            &limits,
+            &NEVER,
+            &mut [],
+            &mut 0,
+        ));
         assert!(matches!(
             result,
             Err(Error::LimitExceeded {
@@ -3323,7 +3368,15 @@ mod candidate_tests {
             ..Limits::default()
         };
         assert!(matches!(
-            run(scan_fragment_objects(&mut source, 0, size, &limits, &NEVER)),
+            run(scan_fragment_with_candidates(
+                &mut source,
+                0,
+                size,
+                &limits,
+                &NEVER,
+                &mut [],
+                &mut 0
+            )),
             Err(Error::PdfLimitExceeded { .. })
         ));
     }

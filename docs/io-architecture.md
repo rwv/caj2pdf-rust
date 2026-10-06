@@ -121,23 +121,14 @@ remains the caller's responsibility.
 ## Error and operation contract
 
 The core `Error` distinguishes unsupported format, invalid input, truncated
-input, resource limit, I/O failure, cancellation, and random-access-required
-errors. Its `DocumentOperations` trait defines async `inspect`,
-`visit_bookmarks`, `convert`, and `import_bookmarks` methods. Bookmark visits
-use a recipient rather than a whole-outline vector. Conversion returns a
-`ConversionReport` with input/output byte counts and page/bookmark counts;
-inspection returns a bounded `DocumentInfo`. These are signatures for later
-format engines, not working conversion entry points yet. No operation accepts
-a whole-document byte array as its primary interface.
-
-The issue #4 `copy_range` helper is a bounded I/O proof. It is useful for
-testing short reads, partial writes, cancellation, and limit enforcement,
-but copying bytes is not PDF conversion.
-
-The [native example](../crates/caj2pdf-core/examples/native_bounded_copy.rs)
-passes borrowed `Read + Seek` and `Write` handles into these adapters and
-requires no output seek. Run it with
-`cargo run -p caj2pdf-core --example native_bounded_copy`.
+input, resource limit, I/O failure, cancellation, and located format errors.
+Format engines are plain async functions over `RangedSource` and
+`SequentialSink`. Bookmark visits use a `BookmarkVisitor` recipient rather than
+a whole-outline vector. Conversion returns a `ConversionReport` with
+input/output byte counts and page/bookmark counts; inspection returns a bounded
+`DocumentInfo`. No operation accepts a whole-document byte array as its
+primary interface. The native `SeekableSource` and `WriteSink` adapters borrow
+`Read + Seek` and `Write` handles and require no output seek.
 
 ## Verification
 

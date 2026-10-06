@@ -105,11 +105,10 @@ pub struct ContextState {
     pub mps: bool,
 }
 
-/// Contexts kept between stripes or reset at a stripe boundary.
+/// Contexts reset at the start of each stripe.
 #[derive(Debug)]
 pub struct ContextBank {
     states: Vec<ContextState>,
-    ready_for_carry: bool,
 }
 
 impl ContextBank {
@@ -135,16 +134,12 @@ impl ContextBank {
             .try_reserve_exact(count)
             .map_err(|_| ArithmeticError::configuration(ArithmeticErrorKind::InvalidContext))?;
         states.resize(count, ContextState::default());
-        Ok(Self {
-            states,
-            ready_for_carry: false,
-        })
+        Ok(Self { states })
     }
 
-    /// Discard previous stripe probability estimates and require a new reset stripe.
+    /// Discard previous stripe probability estimates.
     pub fn reset(&mut self) {
         self.states.fill(ContextState::default());
-        self.ready_for_carry = false;
     }
 
     /// Read a context without exposing mutable decoder state.
@@ -152,7 +147,7 @@ impl ContextBank {
         self.states.get(index).copied()
     }
 
-    /// Set one context with a checked state index; this does not enable carry.
+    /// Set one context with a checked state index.
     pub fn set(&mut self, index: usize, state: ContextState) -> ArithmeticResult<()> {
         let destination = self.states.get_mut(index).ok_or(ArithmeticError {
             offset: None,
@@ -180,13 +175,6 @@ pub struct EncodedSpan {
     pub length: u64,
 }
 
-/// Whether a new stripe starts with fresh contexts or carries the previous ones.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StripeMode {
-    Reset,
-    Carry,
-}
-
 /// Per-stripe bounds. Work counts each symbol, renormalization shift, and
 /// byte input. Each byte input can cause at most one bounded 256-byte refill.
 ///
@@ -208,7 +196,6 @@ pub enum ArithmeticErrorKind {
     InvalidState,
     InvalidSpan(&'static str),
     InvalidBudget,
-    UnreadyCarry,
     IncompleteStripe {
         expected: u64,
         decoded: u64,
@@ -266,9 +253,6 @@ impl fmt::Display for ArithmeticError {
             ArithmeticErrorKind::InvalidState => f.write_str("invalid context state index"),
             ArithmeticErrorKind::InvalidSpan(reason) => write!(f, "invalid SCD span: {reason}"),
             ArithmeticErrorKind::InvalidBudget => f.write_str("invalid arithmetic work budget"),
-            ArithmeticErrorKind::UnreadyCarry => {
-                f.write_str("carry requires a completed previous stripe")
-            }
             ArithmeticErrorKind::IncompleteStripe { expected, decoded } => {
                 write!(
                     f,
@@ -346,7 +330,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         span: EncodedSpan,
         table: &'a QmTable,
         contexts: &'a mut ContextBank,
-        mode: StripeMode,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: ArithmeticBudget,
@@ -381,11 +364,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 ArithmeticErrorKind::InvalidContext,
             ));
         }
-        if mode == StripeMode::Carry && !contexts.ready_for_carry {
-            return Err(ArithmeticError::configuration(
-                ArithmeticErrorKind::UnreadyCarry,
-            ));
-        }
         if !(1..=MAX_BUDGET_COUNT).contains(&budget.max_symbols)
             || !(1..=MAX_BUDGET_COUNT).contains(&budget.max_work)
         {
@@ -393,11 +371,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 ArithmeticErrorKind::InvalidBudget,
             ));
         }
-        if mode == StripeMode::Reset {
-            contexts.reset();
-        } else {
-            contexts.ready_for_carry = false;
-        }
+        contexts.reset();
         let mut decoder = Self {
             source,
             span,
@@ -452,7 +426,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         // A caller may drop this future while source I/O is pending. Mark the
         // partially advanced registers unusable before the first await.
         self.poisoned = true;
-        self.contexts.ready_for_carry = false;
         let result = self.decode_symbol_inner(context).await;
         match result {
             Ok(bit) => {
@@ -485,9 +458,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         self.contexts.state(index)
     }
 
-    /// Complete exactly `expected_symbols` and make final contexts available
-    /// to `Carry`.
-    /// Dropping a decoder without finishing leaves the bank unavailable.
+    /// Check that exactly `expected_symbols` were decoded.
     pub fn finish(self, expected_symbols: u64) -> ArithmeticResult<()> {
         if self.poisoned {
             return Err(self.at(None, ArithmeticErrorKind::Poisoned));
@@ -502,7 +473,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 },
             ));
         }
-        self.contexts.ready_for_carry = true;
         Ok(())
     }
 
@@ -865,7 +835,6 @@ mod tests {
             },
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -882,7 +851,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -905,7 +873,6 @@ mod tests {
             },
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &small_input,
             &NEVER,
             budget(),
@@ -923,7 +890,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             ArithmeticBudget {
@@ -941,7 +907,6 @@ mod tests {
                 span(3),
                 &table,
                 &mut contexts,
-                StripeMode::Reset,
                 &limits,
                 &NEVER,
                 ArithmeticBudget {
@@ -960,7 +925,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             ArithmeticBudget {
@@ -1030,7 +994,6 @@ mod tests {
                 span,
                 &table,
                 &mut contexts,
-                StripeMode::Reset,
                 &limits,
                 &NEVER,
                 budget(),
@@ -1077,7 +1040,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1109,7 +1071,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             ArithmeticBudget {
@@ -1147,7 +1108,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1169,7 +1129,6 @@ mod tests {
             span(0),
             &table,
             &mut contexts,
-            StripeMode::Carry,
             &limits,
             &NEVER,
             budget(),
@@ -1188,7 +1147,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Carry,
             &limits,
             &NEVER,
             budget(),
@@ -1199,21 +1157,6 @@ mod tests {
         assert!(matches!(
             error.kind,
             ArithmeticErrorKind::Source(Error::TruncatedInput { .. })
-        ));
-        let mut after_failure = MockSource::new(&[]);
-        let carry = run(ArithmeticDecoder::new(
-            &mut after_failure,
-            span(0),
-            &table,
-            &mut contexts,
-            StripeMode::Carry,
-            &limits,
-            &NEVER,
-            budget(),
-        ));
-        assert!(matches!(
-            carry.err().unwrap().kind,
-            ArithmeticErrorKind::UnreadyCarry
         ));
     }
 
@@ -1228,7 +1171,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1257,7 +1199,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1290,7 +1231,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1323,7 +1263,6 @@ mod tests {
             span(4),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1369,7 +1308,6 @@ mod tests {
             span(INPUT_BUFFER_BYTES as u64),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &broad_limits,
             &NEVER,
             ArithmeticBudget {
@@ -1416,7 +1354,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &flag,
             budget(),
@@ -1434,7 +1371,6 @@ mod tests {
             span(4),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &flag,
             budget(),
@@ -1463,7 +1399,6 @@ mod tests {
             span(4),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1484,23 +1419,6 @@ mod tests {
         assert!(matches!(
             decoder.finish(1).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
-        ));
-        let mut next = MockSource::new(&[]);
-        assert!(matches!(
-            run(ArithmeticDecoder::new(
-                &mut next,
-                span(0),
-                &table,
-                &mut contexts,
-                StripeMode::Carry,
-                &limits,
-                &NEVER,
-                budget(),
-            ))
-            .err()
-            .unwrap()
-            .kind,
-            ArithmeticErrorKind::UnreadyCarry
         ));
     }
 
@@ -1524,7 +1442,6 @@ mod tests {
             span(4),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1542,23 +1459,6 @@ mod tests {
             run(decoder.decode_symbol(0)).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
-        let mut next = MockSource::new(&[]);
-        assert!(matches!(
-            run(ArithmeticDecoder::new(
-                &mut next,
-                span(0),
-                &table,
-                &mut contexts,
-                StripeMode::Carry,
-                &limits,
-                &NEVER,
-                budget(),
-            ))
-            .err()
-            .unwrap()
-            .kind,
-            ArithmeticErrorKind::UnreadyCarry
-        ));
     }
 
     #[test]
@@ -1572,7 +1472,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1591,7 +1490,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             ArithmeticBudget {
@@ -1616,36 +1514,16 @@ mod tests {
     }
 
     #[test]
-    fn carry_requires_an_exactly_finished_stripe_and_reset_discards_state() {
+    fn finish_requires_the_exact_symbol_count_and_each_stripe_resets_contexts() {
         let table = synthetic_table();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut cold = MockSource::new(&[]);
-        assert!(matches!(
-            run(ArithmeticDecoder::new(
-                &mut cold,
-                span(0),
-                &table,
-                &mut contexts,
-                StripeMode::Carry,
-                &limits,
-                &NEVER,
-                budget(),
-            ))
-            .err()
-            .unwrap()
-            .kind,
-            ArithmeticErrorKind::UnreadyCarry
-        ));
-        assert_eq!(cold.calls, 0);
-
         let mut first = MockSource::new(&[0xc0, 0, 0]);
         let mut decoder = run(ArithmeticDecoder::new(
             &mut first,
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1659,23 +1537,6 @@ mod tests {
                 decoded: 1,
             }
         ));
-        let mut after_incomplete = MockSource::new(&[]);
-        assert!(matches!(
-            run(ArithmeticDecoder::new(
-                &mut after_incomplete,
-                span(0),
-                &table,
-                &mut contexts,
-                StripeMode::Carry,
-                &limits,
-                &NEVER,
-                budget(),
-            ))
-            .err()
-            .unwrap()
-            .kind,
-            ArithmeticErrorKind::UnreadyCarry
-        ));
 
         let mut first = MockSource::new(&[0xc0, 0, 0]);
         let mut decoder = run(ArithmeticDecoder::new(
@@ -1683,7 +1544,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1691,11 +1551,13 @@ mod tests {
         .unwrap();
         assert!(run(decoder.decode_symbol(0)).unwrap());
         decoder.finish(1).unwrap();
-        let carried = ContextState {
-            state_index: 1,
-            mps: true,
-        };
-        assert_eq!(contexts.state(0), Some(carried));
+        assert_eq!(
+            contexts.state(0),
+            Some(ContextState {
+                state_index: 1,
+                mps: true,
+            })
+        );
 
         let mut second = MockSource::new(&[0, 0, 0]);
         let mut decoder = run(ArithmeticDecoder::new(
@@ -1703,24 +1565,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Carry,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        assert_eq!(decoder.context_state(0), Some(carried));
-        assert!(run(decoder.decode_symbol(0)).unwrap());
-        decoder.finish(1).unwrap();
-        assert_eq!(contexts.state(0), Some(carried));
-
-        let mut third = MockSource::new(&[0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut third,
-            span(3),
-            &table,
-            &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             budget(),
@@ -1728,23 +1572,6 @@ mod tests {
         .unwrap();
         assert_eq!(decoder.context_state(0), Some(ContextState::default()));
         assert!(!run(decoder.decode_symbol(0)).unwrap());
-        let mut after_drop = MockSource::new(&[]);
-        assert!(matches!(
-            run(ArithmeticDecoder::new(
-                &mut after_drop,
-                span(0),
-                &table,
-                &mut contexts,
-                StripeMode::Carry,
-                &limits,
-                &NEVER,
-                budget(),
-            ))
-            .err()
-            .unwrap()
-            .kind,
-            ArithmeticErrorKind::UnreadyCarry
-        ));
         contexts.reset();
         assert_eq!(contexts.state(0), Some(ContextState::default()));
     }
@@ -1761,7 +1588,6 @@ mod tests {
                 span(input.len() as u64),
                 &table,
                 &mut contexts,
-                StripeMode::Reset,
                 &limits,
                 &NEVER,
                 ArithmeticBudget {
@@ -1832,28 +1658,11 @@ mod tests {
         );
 
         let mut source = MockSource::new(&[0, 0, 0]);
-        let unready = run(ArithmeticDecoder::new(
-            &mut source,
-            span(3),
-            &table,
-            &mut contexts,
-            StripeMode::Carry,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .err()
-        .unwrap();
-        assert_eq!(
-            unready.to_string(),
-            "T.82 arithmetic decoder: carry requires a completed previous stripe"
-        );
         let zero_budget = run(ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &NEVER,
             ArithmeticBudget {
@@ -1872,7 +1681,6 @@ mod tests {
             span(3),
             &table,
             &mut contexts,
-            StripeMode::Reset,
             &limits,
             &Flag(Some(Rc::new(Cell::new(true)))),
             budget(),
@@ -1912,10 +1720,7 @@ mod tests {
     fn an_empty_context_bank_is_rejected_before_input() {
         // `ContextBank::new` never builds an empty bank; the decoder still
         // refuses one rather than indexing it.
-        let mut empty = ContextBank {
-            states: Vec::new(),
-            ready_for_carry: true,
-        };
+        let mut empty = ContextBank { states: Vec::new() };
         let table = synthetic_table();
         let mut source = MockSource::new(&[0, 0, 0]);
         let error = run(ArithmeticDecoder::new(
@@ -1923,7 +1728,6 @@ mod tests {
             span(3),
             &table,
             &mut empty,
-            StripeMode::Carry,
             &Limits::default(),
             &NEVER,
             budget(),
@@ -1933,6 +1737,5 @@ mod tests {
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!((error.offset, error.context), (None, None));
         assert_eq!(source.calls, 0);
-        assert!(empty.ready_for_carry);
     }
 }

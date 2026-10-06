@@ -19,9 +19,7 @@ pub use document::{
     PdfDocument,
 };
 pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, OpenTypeFont};
-pub use fragment::{
-    FragmentObject, FragmentPlan, reconstruct_fragment, reconstruct_fragment_with_bookmarks,
-};
+pub use fragment::{FragmentObject, FragmentPlan, reconstruct_fragment_with_bookmarks};
 pub use input::{PdfIndex, RepairObject};
 pub use types::{PdfRange, PdfRef};
 pub use writer::{MAX_CLASSIC_PDF_BYTES, ObjectId, PdfWriter};

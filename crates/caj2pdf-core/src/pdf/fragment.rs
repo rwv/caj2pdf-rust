@@ -32,15 +32,14 @@ pub struct FragmentObject {
 ///
 /// `pages` is document order. When `pages_root` has no supplied object, every
 /// page must refer directly to this missing parent; a single `/Pages` node is
-/// synthesized. A missing catalog is synthesized at the next available object
-/// number. Existing root objects are retained only when their references are
-/// consistent with this plan.
+/// synthesized. The catalog is always synthesized at the next available object
+/// number, and a supplied catalog object is rejected. An existing page tree
+/// root is retained only when its references are consistent with this plan.
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentPlan<'a> {
     pub objects: &'a [FragmentObject],
     pub pages: &'a [PdfRef],
     pub pages_root: PdfRef,
-    pub catalog: Option<PdfRef>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -486,28 +485,17 @@ async fn emit_outline_item<W: SequentialSink, C: Cancellation>(
     .await
 }
 
-/// Reconstruct one PDF from indexed indirect objects and explicit page order.
+/// Reconstruct one PDF from indexed indirect objects and explicit page order,
+/// with a CAJ outline in the same PDF revision.
 ///
 /// All plan and source validation precedes the first sink write. A subsequent
 /// source, sink, or cancellation failure leaves a partial output and returns
 /// an error, never a successful report. Source object bytes are copied in
 /// bounded chunks without materializing a whole object or PDF in memory.
-pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancellation>(
-    source: &mut R,
-    sink: &mut W,
-    plan: &FragmentPlan<'_>,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<ConversionReport> {
-    reconstruct_fragment_with_bookmarks(source, sink, plan, &[], limits, cancellation).await
-}
-
-/// Reconstruct PDF fragments and write a CAJ outline in the same PDF revision.
 ///
 /// Bookmark entries are depth-first and name zero-based positions in
 /// `plan.pages`. All titles and links are checked before the first sink write;
-/// title hex is then emitted in bounded chunks. Existing fragment Catalog
-/// objects cannot currently be updated with a new outline.
+/// title hex is then emitted in bounded chunks.
 pub async fn reconstruct_fragment_with_bookmarks<
     R: RangedSource,
     W: SequentialSink,
@@ -537,14 +525,6 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
     // At most `max_bookmarks`, a `u32`.
     let bookmark_count = bookmarks.len() as u32;
-    if bookmark_count != 0 && plan.catalog.is_some() {
-        return Err(pdf_error(
-            plan.catalog,
-            0,
-            PdfErrorKind::UnsupportedFeature,
-            "fragment outline import requires a synthetic Catalog",
-        ));
-    }
     if len_u64(plan.pages.len()) > u64::from(limits.max_pages) {
         let first = plan.pages.first().copied();
         let offset = first
@@ -569,9 +549,6 @@ pub async fn reconstruct_fragment_with_bookmarks<
         return Err(malformed(None, 0, "fragment has no pages"));
     }
     checked_reference(plan.pages_root, 0)?;
-    if let Some(catalog) = plan.catalog {
-        checked_reference(catalog, 0)?;
-    }
     if cancellation.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -703,31 +680,20 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
 
     let synthetic_pages = object_index(&records, plan.pages_root).is_none();
-    let catalog = if let Some(reference) = plan.catalog {
-        if object_index(&records, reference).is_none() {
-            return Err(malformed(Some(reference), 0, "catalog object is missing"));
-        }
-        reference
-    } else {
-        let largest = records.last().map_or(plan.pages_root.number, |record| {
-            record.reference.number.max(plan.pages_root.number)
-        });
-        // Every record and the pages root passed `checked_reference`, so
-        // `largest <= MAX_PDF_OBJECTS` and the successor fits `u32`.
-        let number = largest + 1;
-        let reference = PdfRef {
-            number,
-            generation: 0,
-        };
-        checked_reference(reference, 0)?;
-        reference
+    let largest = records.last().map_or(plan.pages_root.number, |record| {
+        record.reference.number.max(plan.pages_root.number)
+    });
+    // Every record and the pages root passed `checked_reference`, so
+    // `largest <= MAX_PDF_OBJECTS` and the successor fits `u32`.
+    let catalog = PdfRef {
+        number: largest + 1,
+        generation: 0,
     };
+    checked_reference(catalog, 0)?;
     if synthetic_pages {
         records.push(Record::synthetic(plan.pages_root));
     }
-    if plan.catalog.is_none() {
-        records.push(Record::synthetic(catalog));
-    }
+    records.push(Record::synthetic(catalog));
     records.sort_unstable_by_key(|record| record.reference.number);
 
     // Validate framing, stream lengths, references, and page-tree structure
@@ -779,19 +745,17 @@ pub async fn reconstruct_fragment_with_bookmarks<
         )
     });
     let pages_suffix = b"] >>\nendobj\n";
-    let catalog_text = plan.catalog.is_none().then(|| {
-        if let Some((outline_root, _, _)) = &outline {
-            format!(
-                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
-                catalog.number, plan.pages_root.number, outline_root.number
-            )
-        } else {
-            format!(
-                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
-                catalog.number, plan.pages_root.number
-            )
-        }
-    });
+    let catalog_text = if let Some((outline_root, _, _)) = &outline {
+        format!(
+            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
+            catalog.number, plan.pages_root.number, outline_root.number
+        )
+    } else {
+        format!(
+            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
+            catalog.number, plan.pages_root.number
+        )
+    };
     let mut body_bytes = HEADER.len() as u64;
     for record in &records {
         if record.range.length != 0 {
@@ -805,9 +769,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         }
         body_bytes = checked_add(body_bytes, pages_suffix.len() as u64)?;
     }
-    if let Some(text) = &catalog_text {
-        body_bytes = checked_add(body_bytes, text.len() as u64)?;
-    }
+    body_bytes = checked_add(body_bytes, catalog_text.len() as u64)?;
     if let Some((_, nodes, root_text)) = &outline {
         body_bytes = checked_add(body_bytes, root_text.len() as u64)?;
         for (bookmark, node) in bookmarks.iter().zip(nodes) {
@@ -926,13 +888,18 @@ pub async fn reconstruct_fragment_with_bookmarks<
         emit(sink, &buffer, &mut report, limits, cancellation).await?;
         emit(sink, pages_suffix, &mut report, limits, cancellation).await?;
     }
-    if let Some(text) = catalog_text {
-        let index = object_index(&records, catalog).ok_or(Error::InvalidInput {
-            reason: "synthetic catalog was not indexed",
-        })?;
-        records[index].output_offset = report.output_bytes_written;
-        emit(sink, text.as_bytes(), &mut report, limits, cancellation).await?;
-    }
+    let index = object_index(&records, catalog).ok_or(Error::InvalidInput {
+        reason: "synthetic catalog was not indexed",
+    })?;
+    records[index].output_offset = report.output_bytes_written;
+    emit(
+        sink,
+        catalog_text.as_bytes(),
+        &mut report,
+        limits,
+        cancellation,
+    )
+    .await?;
     if let Some((root, nodes, root_text)) = &outline {
         let index = object_index(&records, *root).ok_or(Error::InvalidInput {
             reason: "synthetic outline root was not indexed",
@@ -1305,20 +1272,16 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             })?;
 
     let mut found_pages = 0_u32;
-    let mut found_catalogs = 0_u32;
     for (index, kind) in kinds.iter().enumerate() {
         match kind {
             Some(FragmentKind::Page { .. }) => found_pages += 1,
-            Some(FragmentKind::Catalog { .. }) => {
-                found_catalogs += 1;
-                if Some(records[index].reference) != plan.catalog {
-                    return Err(pdf_error(
-                        Some(records[index].reference),
-                        records[index].range.offset,
-                        PdfErrorKind::AmbiguousRepair,
-                        "unselected catalog object is present",
-                    ));
-                }
+            Some(FragmentKind::Catalog) => {
+                return Err(pdf_error(
+                    Some(records[index].reference),
+                    records[index].range.offset,
+                    PdfErrorKind::AmbiguousRepair,
+                    "unselected catalog object is present",
+                ));
             }
             _ => {}
         }
@@ -1330,29 +1293,6 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             PdfErrorKind::AmbiguousRepair,
             "supplied page objects do not match explicit page order",
         ));
-    }
-    if (plan.catalog.is_some() && found_catalogs != 1)
-        || (plan.catalog.is_none() && found_catalogs != 0)
-    {
-        return Err(malformed(
-            plan.catalog,
-            0,
-            "catalog object has the wrong type",
-        ));
-    }
-    if let Some(catalog) = plan.catalog {
-        let failure = malformed(Some(catalog), 0, "catalog object is missing");
-        let index = object_index(records, catalog).ok_or(failure)?;
-        match &kinds[index] {
-            Some(FragmentKind::Catalog { pages }) if *pages == plan.pages_root => {}
-            _ => {
-                return Err(malformed(
-                    Some(catalog),
-                    records[index].range.offset,
-                    "catalog does not reference the selected page tree",
-                ));
-            }
-        }
     }
     let failure = malformed(
         Some(plan.pages_root),

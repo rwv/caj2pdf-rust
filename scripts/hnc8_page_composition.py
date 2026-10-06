@@ -711,13 +711,12 @@ def parse_native(data: bytes, source_size: int) -> dict:
                                       "payload_offset": offset, "payload_length": length,
                                       "width": visible, "display_width": display, "height": height,
                                       "pdf_ctm": _numbers(parts[10:], "native image CTM")})
-        elif parts[0] == "R" and len(parts) == 19:
+        elif parts[0] == "R" and len(parts) == 14:
             if parts[1] not in ("HN-A", "C8", "HN-B") or not pages:
                 raise CompositionError("native variant/empty summary is unsupported")
             values = [_integer(value, "native resource summary") for value in parts[2:]]
             keys = ["source_pages", "output_pages", "no_image_pages", "type0_images", "jpeg_images",
-                    "peak_page_metadata_bytes", "peak_text_working_bytes", "peak_row_store_bytes",
-                    "row_store_read_bytes", "row_store_written_bytes", "source_read_bytes", "max_source_request_bytes",
+                    "source_read_bytes", "max_source_request_bytes",
                     "output_bytes", "max_sink_request_bytes", "scratch_read_bytes", "scratch_written_bytes",
                     "max_scratch_request_bytes"]
             summary = {"variant": parts[1], **dict(zip(keys, values))}
@@ -729,12 +728,9 @@ def parse_native(data: bytes, source_size: int) -> dict:
     if (summary["source_pages"] != len(pages) or summary["output_pages"] != output_pages or
             summary["no_image_pages"] != sum(page["output_page"] is None for page in pages) or
             summary["type0_images"] != sum(image["record_type"] == 0 for image in images) or
-            summary["jpeg_images"] != sum(image["record_type"] == 2 for image in images) or
-            summary["row_store_read_bytes"] != summary["scratch_read_bytes"] or
-            summary["row_store_written_bytes"] != summary["scratch_written_bytes"]):
-        raise CompositionError("native summary disagrees with its rows/physical scratch counters")
-    for key, cap in (("peak_page_metadata_bytes", 65536), ("peak_text_working_bytes", MIB),
-                     ("peak_row_store_bytes", 2*MIB), ("max_source_request_bytes", 4096),
+            summary["jpeg_images"] != sum(image["record_type"] == 2 for image in images)):
+        raise CompositionError("native summary disagrees with its rows")
+    for key, cap in (("max_source_request_bytes", 4096),
                      ("max_sink_request_bytes", 4096), ("max_scratch_request_bytes", 4096),
                      ("output_bytes", PDF_LIMIT)):
         if summary[key] > cap:

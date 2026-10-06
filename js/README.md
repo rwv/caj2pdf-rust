@@ -125,8 +125,6 @@ to the file you choose.
   `MALFORMED_CAJ`, `PDF_LIMIT_EXCEEDED`, `TRUNCATED_INPUT`) and the core's
   located message. `UnsupportedFormatError` adds `format`. Source and sink
   errors and abort reasons propagate unchanged.
-- `copyRange(wasm, source, sink, options)` is a bounded copy diagnostic for
-  custom sources and sinks; it is not conversion.
 
 ## Sources and sinks
 
@@ -261,10 +259,8 @@ not provide that contract. Pass four independent adapters to `convert` as shown 
 
 ## Experimental HN/C8 conversion
 
-`convert` uses built-in standard QM/MQ states. Provide `hnc8: { scratch }`
-for arithmetic image decoding. Optional `qmStates` and `mqStates` override the
-corresponding standard table; each state is `{ qe, nextLps, nextMps, switchMps }`,
-with exactly 113 QM or 47 MQ entries. Invalid or partial overrides are rejected.
+`convert` uses the built-in standard QM/MQ states. Provide `hnc8: { scratch }`
+for arithmetic image decoding.
 
 ```js
 // `source`, `sink`, `wasm` use the ordinary streaming API.
@@ -320,8 +316,6 @@ Raw WASM hosts must implement statuses 6–9 (scratch read/write/resize/flush),
 use `caj2pdf_io_request_store()` (1–4), and acknowledge resize through
 `caj2pdf_io_complete_resize()`. The request offset holds the new extent for
 resize; read/write reuse the staging buffer and completion exports.
-Feed state rows through `caj2pdf_hnc8_add_state(table, qe, nextLps, nextMps, switch)`
-after start and before the first poll (table 0 = QM, 1 = MQ; switch 0/1).
 The raw host owns cleanup if it cancels or drops a pending operation.
 
 ## Bounded memory and I/O

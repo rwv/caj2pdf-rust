@@ -20,10 +20,9 @@ export async function useHn(
   source: import('../../browser.mjs').RangedSource,
   sink: import('../../browser.mjs').SequentialSink,
   scratch: NonNullable<import('../../browser.mjs').Hnc8Options['scratch']>,
-  mqStates: readonly import('../../browser.mjs').ProbabilityState[],
 ) {
   const { convert } = await import('../../browser.mjs');
-  return convert(wasm, source, sink, { hnc8: { scratch, mqStates }, includeBookmarks: false });
+  return convert(wasm, source, sink, { hnc8: { scratch }, includeBookmarks: false });
 }
 
 export async function useScopedHn(

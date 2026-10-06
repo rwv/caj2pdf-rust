@@ -266,12 +266,14 @@ mod tests {
                     .into_bytes();
             let end = bytes.len() as u64;
             let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-            let result = run(scan_fragment_objects(
+            let result = run(scan_fragment_with_candidates(
                 &mut source,
                 0,
                 end,
                 &Limits::default(),
                 &NEVER,
+                &mut [],
+                &mut 0,
             ));
             assert_eq!(
                 result.is_ok(),
@@ -302,12 +304,14 @@ mod tests {
             io_chunk_bytes: 1,
             ..Limits::default()
         };
-        let result = run(scan_fragment_objects(
+        let result = run(scan_fragment_with_candidates(
             &mut source,
             0,
             length,
             &limits,
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .unwrap();
         assert_eq!(result.objects[0].range.offset, prefix.len() as u64);
@@ -330,12 +334,14 @@ mod tests {
             max_output_bytes: 60,
             ..Limits::default()
         };
-        let result = run(scan_fragment_objects(
+        let result = run(scan_fragment_with_candidates(
             &mut source,
             0,
             valid.len() as u64,
             &limits,
             &NEVER,
+            &mut [],
+            &mut 0,
         ));
         assert!(matches!(
             result,
@@ -425,12 +431,14 @@ mod tests {
             let end = bytes.len() as u64;
             let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
             assert_eq!(
-                run(scan_fragment_objects(
+                run(scan_fragment_with_candidates(
                     &mut source,
                     0,
                     end,
                     &Limits::default(),
-                    &NEVER
+                    &NEVER,
+                    &mut [],
+                    &mut 0
                 ))
                 .is_ok(),
                 length == 3

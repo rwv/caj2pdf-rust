@@ -152,7 +152,6 @@ fn existing_tree_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
         9,
         b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] /Resources << >> >>",
     );
-    let catalog = add_object(&mut bytes, 1, b"<< /Type /Catalog /Pages 5 0 R >>");
     let second = add_object(
         &mut bytes,
         3,
@@ -170,7 +169,7 @@ fn existing_tree_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
     );
     (
         BytesSource::new(bytes),
-        vec![first, catalog, second, branch, root],
+        vec![first, second, branch, root],
         vec![reference(9), reference(3)],
     )
 }
@@ -195,10 +194,16 @@ fn sparse_out_of_order_objects_use_explicit_page_order() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
-        let report =
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 2);
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
         let pdf = String::from_utf8_lossy(&sink.bytes);
@@ -220,10 +225,16 @@ fn input_report_counts_validation_and_copy_reads() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
-        let report =
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.input_bytes_read, source.bytes_read);
         assert!(
             report.input_bytes_read
@@ -238,7 +249,7 @@ fn input_report_counts_validation_and_copy_reads() {
 }
 
 #[test]
-fn existing_nested_pages_and_catalog_are_preserved() {
+fn existing_nested_pages_are_preserved_under_a_synthetic_catalog() {
     run(async {
         let (mut source, objects, pages) = existing_tree_fragment();
         let mut sink = BytesSink::default();
@@ -246,13 +257,19 @@ fn existing_nested_pages_and_catalog_are_preserved() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: Some(reference(1)),
         };
-        let report =
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 2);
         let pdf = String::from_utf8_lossy(&sink.bytes);
-        assert!(pdf.contains("/Root 1 0 R"));
+        assert!(pdf.contains("/Root 10 0 R"));
         assert_eq!(pdf.matches("/Type /Catalog").count(), 1);
         assert_eq!(pdf.matches("/Type /Pages").count(), 2);
         Ok::<(), Error>(())
@@ -261,69 +278,23 @@ fn existing_nested_pages_and_catalog_are_preserved() {
 }
 
 #[test]
-fn existing_pages_can_gain_catalog_and_missing_pages_can_keep_catalog() {
-    run(async {
-        let (mut source, objects, pages) = existing_tree_fragment();
-        let without_catalog: Vec<_> = objects
-            .iter()
-            .copied()
-            .filter(|object| object.reference != reference(1))
-            .collect();
-        let mut sink = BytesSink::default();
-        let plan = FragmentPlan {
-            objects: &without_catalog,
-            pages: &pages,
-            pages_root: reference(5),
-            catalog: None,
-        };
-        reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
-        assert!(String::from_utf8_lossy(&sink.bytes).contains("/Root 10 0 R"));
-
-        let mut bytes = b"CAJ\0".to_vec();
-        let page = add_object(
-            &mut bytes,
-            9,
-            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] /Resources << >> >>",
-        );
-        let catalog = add_object(&mut bytes, 1, b"<< /Type /Catalog /Pages 5 0 R >>");
-        let mut source = BytesSource::new(bytes);
-        let objects = [page, catalog];
-        let pages = [reference(9)];
-        let mut sink = BytesSink::default();
-        let plan = FragmentPlan {
-            objects: &objects,
-            pages: &pages,
-            pages_root: reference(5),
-            catalog: Some(reference(1)),
-        };
-        reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
-        let pdf = String::from_utf8_lossy(&sink.bytes);
-        assert!(pdf.contains("/Root 1 0 R"));
-        assert!(pdf.contains("/Kids [9 0 R ]"));
-        Ok::<(), Error>(())
-    })
-    .unwrap();
-}
-
-#[test]
 fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
     run(async {
-        for case in 0..6 {
-            let (mut source, objects, mut pages) = existing_tree_fragment();
-            let mut catalog = Some(reference(1));
+        for case in 0..5 {
+            let (mut source, mut objects, mut pages) = existing_tree_fragment();
             let expected = match case {
                 0 => {
-                    replace_in_object(&mut source, objects[4], b"/Count 2", b"/Count 3");
+                    replace_in_object(&mut source, objects[3], b"/Count 2", b"/Count 3");
                     PdfErrorKind::Malformed
                 }
                 1 => {
-                    replace_in_object(&mut source, objects[2], b"/Parent 7", b"/Parent 5");
+                    replace_in_object(&mut source, objects[1], b"/Parent 7", b"/Parent 5");
                     PdfErrorKind::Malformed
                 }
                 2 => {
                     replace_in_object(
                         &mut source,
-                        objects[4],
+                        objects[3],
                         b"/Kids [9 0 R 7 0 R]",
                         b"/Kids [9 0 R 5 0 R]",
                     );
@@ -333,12 +304,12 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
                     pages.reverse();
                     PdfErrorKind::AmbiguousRepair
                 }
-                4 => {
-                    replace_in_object(&mut source, objects[1], b"/Pages 5", b"/Pages 7");
-                    PdfErrorKind::Malformed
-                }
                 _ => {
-                    catalog = None;
+                    objects.push(add_object(
+                        &mut source.bytes,
+                        1,
+                        b"<< /Type /Catalog /Pages 5 0 R >>",
+                    ));
                     PdfErrorKind::AmbiguousRepair
                 }
             };
@@ -347,12 +318,17 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog,
             };
-            let error =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
-                    .await
-                    .unwrap_err();
+            let error = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await
+            .unwrap_err();
             assert!(
                 matches!(error, Error::Pdf { kind, .. } if kind == expected),
                 "case {case}: {error}"
@@ -371,13 +347,13 @@ fn ambiguous_parent_and_repeated_pages_fail_before_writing() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(7),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(
+            reconstruct_fragment_with_bookmarks(
                 &mut source,
                 &mut sink,
                 &wrong_root,
+                &[],
                 &Limits::default(),
                 &NEVER,
             )
@@ -391,10 +367,17 @@ fn ambiguous_parent_and_repeated_pages_fail_before_writing() {
             objects: &objects,
             pages: &repeated,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::AmbiguousRepair,
                 ..
@@ -416,10 +399,17 @@ fn a_sink_failure_never_returns_a_success_report() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Io(_))
         ));
         assert!(!sink.bytes.is_empty());
@@ -437,10 +427,17 @@ fn malformed_indirect_stream_length_fails_before_output() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 ..
@@ -459,14 +456,21 @@ fn input_and_output_limits_are_preflighted_before_sink_write() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let limits = Limits {
             max_output_bytes: 100,
             ..Limits::default()
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &limits,
+                &NEVER
+            )
+            .await,
             Err(Error::PdfLimitExceeded {
                 resource: "output bytes",
                 ..
@@ -480,9 +484,16 @@ fn input_and_output_limits_are_preflighted_before_sink_write() {
             max_input_bytes: first,
             ..Limits::default()
         };
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -517,10 +528,17 @@ fn outline_destinations_must_target_ordered_pages() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 reason: "outline destination does not target an ordered Page object",
@@ -539,10 +557,17 @@ fn outline_destinations_must_target_ordered_pages() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::UnsupportedFeature,
                 ..
@@ -566,7 +591,6 @@ fn outline_count_limit_is_checked_before_writing() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut sink = BytesSink::default();
         let limits = Limits {
@@ -574,7 +598,7 @@ fn outline_count_limit_is_checked_before_writing() {
             ..Limits::default()
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
+            reconstruct_fragment_with_bookmarks(&mut source, &mut sink, &plan, &[], &limits, &NEVER).await,
             Err(Error::PdfLimitExceeded {
                 resource: "bookmarks",
                 offset,
@@ -589,9 +613,16 @@ fn outline_count_limit_is_checked_before_writing() {
             max_bookmarks: 1,
             ..Limits::default()
         };
-        let report = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .expect("one outline destination fits a one-bookmark limit");
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .expect("one outline destination fits a one-bookmark limit");
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
     });
 }
@@ -675,9 +706,16 @@ fn one_byte_io_chunks_still_finish_with_bounded_output() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
-        let report = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 2);
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
         Ok::<(), Error>(())
@@ -700,12 +738,17 @@ fn duplicate_overlapping_and_truncated_spans_fail_before_output() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog: None,
             };
-            let error =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
-                    .await
-                    .unwrap_err();
+            let error = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await
+            .unwrap_err();
             assert!(
                 matches!(error, Error::Pdf { .. } | Error::TruncatedInput { .. }),
                 "case {case}: {error}"
@@ -725,10 +768,17 @@ fn missing_reference_generation_and_memory_limit_are_typed() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 reason: "indirect reference targets a missing object",
@@ -743,10 +793,17 @@ fn missing_reference_generation_and_memory_limit_are_typed() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::UnsupportedFeature,
                 ..
@@ -764,10 +821,17 @@ fn missing_reference_generation_and_memory_limit_are_typed() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &limits,
+                &NEVER
+            )
+            .await,
             Err(Error::PdfLimitExceeded {
                 resource: "PDF allocation bytes",
                 object: Some((9, 0)),
@@ -781,29 +845,33 @@ fn missing_reference_generation_and_memory_limit_are_typed() {
 #[test]
 fn empty_pages_missing_roots_and_invalid_ids_reject_without_output() {
     run(async {
-        for case in 0..5 {
+        for case in 0..4 {
             let (mut source, objects, pages) = two_page_fragment();
             let mut requested = pages.clone();
             let mut root = reference(5);
-            let mut catalog = None;
             match case {
                 0 => requested.clear(),
                 1 => requested[1] = reference(77),
-                2 => catalog = Some(reference(11)),
-                3 => root = reference(0),
+                2 => root = reference(0),
                 _ => root = reference(MAX_PDF_OBJECTS + 1),
             }
             let plan = FragmentPlan {
                 objects: &objects,
                 pages: &requested,
                 pages_root: root,
-                catalog,
             };
             let mut sink = BytesSink::default();
             assert!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
-                    .await
-                    .is_err(),
+                reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &[],
+                    &Limits::default(),
+                    &NEVER,
+                )
+                .await
+                .is_err(),
                 "case {case} unexpectedly succeeded"
             );
             assert!(sink.bytes.is_empty());
@@ -824,11 +892,18 @@ fn missing_root_rejects_nested_nodes_and_non_page_kids() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut sink = BytesSink::default();
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::AmbiguousRepair,
                 ..
@@ -842,10 +917,17 @@ fn missing_root_rejects_nested_nodes_and_non_page_kids() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 ..
@@ -862,16 +944,16 @@ fn existing_tree_rejects_empty_count_over_limit_and_non_page_child() {
             let (mut source, objects, pages) = existing_tree_fragment();
             let mut limits = Limits::default();
             match case {
-                0 => replace_in_object(&mut source, objects[4], b"/Count 2", b"/Count 0"),
+                0 => replace_in_object(&mut source, objects[3], b"/Count 2", b"/Count 0"),
                 1 => {
-                    replace_in_object(&mut source, objects[4], b"/Count 2", b"/Count 3");
+                    replace_in_object(&mut source, objects[3], b"/Count 2", b"/Count 3");
                     limits.max_pages = 2;
                 }
                 _ => replace_in_object(
                     &mut source,
-                    objects[4],
+                    objects[3],
                     b"/Kids [9 0 R 7 0 R]",
-                    b"/Kids [9 0 R 1 0 R]",
+                    b"/Kids [9 0 R 3 0 R]",
                 ),
             }
             let mut sink = BytesSink::default();
@@ -879,12 +961,18 @@ fn existing_tree_rejects_empty_count_over_limit_and_non_page_child() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog: Some(reference(1)),
             };
             assert!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-                    .await
-                    .is_err(),
+                reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &[],
+                    &limits,
+                    &NEVER
+                )
+                .await
+                .is_err(),
                 "case {case} unexpectedly succeeded"
             );
             assert!(sink.bytes.is_empty());
@@ -913,14 +1001,21 @@ fn multi_digit_page_refs_and_small_chunk_flushes_are_supported() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let limits = Limits {
             io_chunk_bytes: 20,
             ..Limits::default()
         };
         let mut sink = BytesSink::default();
-        let report = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 2);
         assert!(String::from_utf8_lossy(&sink.bytes).contains("/Kids [12 0 R 3 0 R ]"));
         Ok::<(), Error>(())
@@ -966,7 +1061,6 @@ fn repeated_page_tree_links_cannot_expand_the_walk_stack() {
         objects: &[],
         pages: &pages,
         pages_root: root,
-        catalog: None,
     };
     assert!(matches!(
         validate_existing_page_tree(&plan, &records, &kinds, 0, &Limits::default()),
@@ -978,9 +1072,9 @@ fn repeated_page_tree_links_cannot_expand_the_walk_stack() {
 }
 
 #[test]
-fn page_inventory_catalog_role_and_branch_parent_must_agree() {
+fn page_inventory_and_branch_parent_must_agree() {
     run(async {
-        for case in 0..3 {
+        for case in 0..2 {
             let (mut source, mut objects, pages) = existing_tree_fragment();
             let expected = match case {
                 0 => {
@@ -991,17 +1085,8 @@ fn page_inventory_catalog_role_and_branch_parent_must_agree() {
                     ));
                     PdfErrorKind::AmbiguousRepair
                 }
-                1 => {
-                    replace_in_object(
-                        &mut source,
-                        objects[1],
-                        b"/Type /Catalog",
-                        b"/Type /Catolog",
-                    );
-                    PdfErrorKind::Malformed
-                }
                 _ => {
-                    replace_in_object(&mut source, objects[3], b"/Parent 5", b"/Parent 9");
+                    replace_in_object(&mut source, objects[2], b"/Parent 5", b"/Parent 9");
                     PdfErrorKind::Malformed
                 }
             };
@@ -1009,13 +1094,18 @@ fn page_inventory_catalog_role_and_branch_parent_must_agree() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog: Some(reference(1)),
             };
             let mut sink = BytesSink::default();
-            let error =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
-                    .await
-                    .unwrap_err();
+            let error = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await
+            .unwrap_err();
             assert!(
                 matches!(error, Error::Pdf { kind, .. } if kind == expected),
                 "case {case}: {error}"
@@ -1034,11 +1124,18 @@ fn page_media_box_must_be_direct_or_inherited_from_the_page_tree() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut sink = BytesSink::default();
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 ..
@@ -1048,15 +1145,22 @@ fn page_media_box_must_be_direct_or_inherited_from_the_page_tree() {
 
         let (mut source, objects, pages) = existing_tree_fragment();
         replace_in_object(&mut source, objects[0], b"/MediaBox", b"/Mediabax");
-        replace_in_object(&mut source, objects[2], b"/MediaBox", b"/Mediabax");
+        replace_in_object(&mut source, objects[1], b"/MediaBox", b"/Mediabax");
         let plan = FragmentPlan {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: Some(reference(1)),
         };
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
                 ..
@@ -1078,11 +1182,17 @@ fn page_media_box_must_be_direct_or_inherited_from_the_page_tree() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut source = BytesSource::new(bytes);
-        let report =
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 1);
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
         Ok::<(), Error>(())
@@ -1119,13 +1229,18 @@ fn page_contents_references_only_streams_or_one_indirect_stream_array() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog: None,
             };
             let mut source = BytesSource::new(bytes);
             let mut sink = BytesSink::default();
-            let result =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
-                    .await;
+            let result = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await;
             // Case 2 uses an indirect stream array; case 4 names the
             // stream directly.
             if case == 2 || case == 4 {
@@ -1183,10 +1298,16 @@ fn many_pages_can_share_one_indirect_contents_array() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
-        let report =
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.pages_converted, 64);
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
         Ok::<(), Error>(())
@@ -1209,12 +1330,18 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
                 objects: &objects,
                 pages: &pages,
                 pages_root: reference(5),
-                catalog: None,
             };
             let mut sink = BytesSink::default();
             assert!(matches!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
-                    .await,
+                reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &[],
+                    &Limits::default(),
+                    &NEVER,
+                )
+                .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     ..
@@ -1229,11 +1356,18 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut sink = BytesSink::default();
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::AmbiguousRepair,
                 ..
@@ -1259,11 +1393,18 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let mut source = BytesSource::new(bytes);
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::Pdf {
                 kind: PdfErrorKind::AmbiguousRepair,
                 ..
@@ -1306,15 +1447,15 @@ fn cancellation_before_input_and_during_flush_never_reports_success() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let cancelled = TestCancel(Cell::new(true));
         let mut sink = BytesSink::default();
         assert!(matches!(
-            reconstruct_fragment(
+            reconstruct_fragment_with_bookmarks(
                 &mut source,
                 &mut sink,
                 &plan,
+                &[],
                 &Limits::default(),
                 &cancelled,
             )
@@ -1329,10 +1470,11 @@ fn cancellation_before_input_and_during_flush_never_reports_success() {
             cancellation: &cancellation,
         };
         assert!(matches!(
-            reconstruct_fragment(
+            reconstruct_fragment_with_bookmarks(
                 &mut source,
                 &mut sink,
                 &plan,
+                &[],
                 &Limits::default(),
                 &cancellation,
             )
@@ -1351,7 +1493,6 @@ fn fragment_bookmarks_form_a_readable_unicode_outline_tree() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let bookmarks = [
             Bookmark {
@@ -1423,7 +1564,6 @@ fn invalid_fragment_bookmarks_fail_before_any_output() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(5),
-            catalog: None,
         };
         let cases = [
             Bookmark {
@@ -1479,14 +1619,12 @@ fn invalid_fragment_bookmarks_fail_before_any_output() {
     });
 }
 
-/// The usual plan: `pages` under a synthetic-or-existing root 5 and no
-/// catalog.
+/// The usual plan: `pages` under a synthetic-or-existing root 5.
 fn plan<'a>(objects: &'a [FragmentObject], pages: &'a [PdfRef]) -> FragmentPlan<'a> {
     FragmentPlan {
         objects,
         pages,
         pages_root: reference(5),
-        catalog: None,
     }
 }
 
@@ -1549,7 +1687,15 @@ fn source_that_over_reports_reads_is_rejected() {
         let plan = plan(&objects, &pages);
         let mut sink = BytesSink::default();
         assert!(matches!(
-            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,).await,
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[],
+                &Limits::default(),
+                &NEVER,
+            )
+            .await,
             Err(Error::InvalidInput {
                 reason: "PDF source reported more bytes than requested"
             })
@@ -1582,7 +1728,6 @@ fn fragment_span_total_overflow_is_an_input_limit_before_reads() {
             objects: &objects,
             pages: &pages,
             pages_root: reference(2),
-            catalog: None,
         };
         let limits = Limits {
             max_input_bytes: u64::MAX,
@@ -1590,9 +1735,16 @@ fn fragment_span_total_overflow_is_an_input_limit_before_reads() {
         };
         let mut source = BytesSource::sparse(u64::MAX, Vec::new());
         let mut sink = BytesSink::default();
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -1620,9 +1772,16 @@ fn page_limit_names_the_first_ordered_page_span() {
             ..Limits::default()
         };
         let mut sink = BytesSink::default();
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -1867,9 +2026,16 @@ fn output_buffer_is_charged_together_with_the_object_index() {
             ..Limits::default()
         };
         let mut sink = BytesSink::default();
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -1897,7 +2063,15 @@ fn page_reference_buffer_flushes_before_it_overflows_a_chunk() {
             ..Limits::default()
         };
         let mut sink = BytesSink::default();
-        let report = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
+        let report = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await?;
         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
         assert!(String::from_utf8_lossy(&sink.bytes).contains("/Kids [9 0 R 3 0 R ]"));
         Ok::<(), Error>(())
@@ -2004,9 +2178,16 @@ fn spans_beyond_the_classic_xref_ceiling_fail_before_output() {
             ..Limits::default()
         };
         let mut sink = BytesSink::default();
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &limits,
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -2048,9 +2229,16 @@ fn references_beyond_the_object_profile_are_unsupported() {
         objects.push(extra);
         let plan = plan(&objects, &pages);
         let mut sink = BytesSink::default();
-        let error = reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
-            .await
-            .unwrap_err();
+        let error = reconstruct_fragment_with_bookmarks(
+            &mut source,
+            &mut sink,
+            &plan,
+            &[],
+            &Limits::default(),
+            &NEVER,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -2063,39 +2251,6 @@ fn references_beyond_the_object_profile_are_unsupported() {
             ),
             "{error}"
         );
-        assert!(sink.bytes.is_empty());
-    });
-}
-
-#[test]
-fn fragment_outline_requires_synthetic_catalog() {
-    run(async {
-        let (mut source, objects, pages) = existing_tree_fragment();
-        let plan = FragmentPlan {
-            catalog: Some(reference(1)),
-            ..plan(&objects, &pages)
-        };
-        let mut sink = BytesSink::default();
-        let result = reconstruct_fragment_with_bookmarks(
-            &mut source,
-            &mut sink,
-            &plan,
-            &[Bookmark {
-                depth: 0,
-                title: "outline".into(),
-                page_index: 0,
-            }],
-            &Limits::default(),
-            &NEVER,
-        )
-        .await;
-        assert!(matches!(
-            result,
-            Err(Error::Pdf {
-                kind: PdfErrorKind::UnsupportedFeature,
-                ..
-            })
-        ));
         assert!(sink.bytes.is_empty());
     });
 }

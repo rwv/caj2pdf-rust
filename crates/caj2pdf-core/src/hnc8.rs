@@ -6,8 +6,8 @@
 //! [`convert_type2_image_pdf`] streams one checked type-2 JPEG to PDF.
 //! [`convert_type3_image_pdf`] decodes one observed type-3 JBIG2 image with a
 //! caller-supplied MQ table and bounded stores.
-//! [`read_text_coordinates`] validates the observed text frame while retaining
-//! only raw image-coordinate words. Empirical geometry remains diagnostic.
+//! Composition validates the observed text frame while retaining only raw
+//! image-coordinate words. Empirical geometry remains diagnostic.
 //! [`Hnc8Reader::application_info`] reads the trailing C8 application-info
 //! package's DOI, URL and note count.
 
@@ -32,8 +32,8 @@ pub use appinfo::{
 pub use compose::{
     C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
     ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
-    ComposeWorkspaces, ComposedImage, convert_c8_native_pdf, convert_document_pdf,
-    convert_source_pages_pdf, uses_native_text,
+    ComposeWorkspaces, ComposedImage, convert_document_pdf, convert_source_pages_pdf,
+    uses_native_text,
 };
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
@@ -48,25 +48,21 @@ pub use convert_jpeg::{
     convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
-pub use native::{
+pub(crate) use native::{
     NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate,
 };
-pub use native_page::{
-    C8_DEFAULT_DECORATION_ALIAS, C8PageFonts, is_cjk_coded, write_c8_native_page,
-};
+pub(crate) use native_page::write_c8_native_page;
+pub use native_page::{C8_DEFAULT_DECORATION_ALIAS, C8PageFonts};
 pub use outline::{MAX_RECORDED_OUTLINE_DEFECTS, OutlineDefect, OutlineRepair, OutlineReport};
-pub use placement::{
-    C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
-    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalC8HorizontalDecoration, EmpiricalPageGeometry,
-    empirical_c8_glyph_transform, empirical_c8_horizontal_decoration, empirical_c8_segment,
-    empirical_image_transform, empirical_page_from_pixels, empirical_page_from_type0,
+pub(crate) use placement::{
+    C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EmpiricalPageGeometry,
+    empirical_c8_horizontal_decoration, empirical_c8_segment, empirical_image_transform,
+    empirical_page_from_pixels,
 };
 pub use structure::{ApplicationInfoTail, TextFraming, TextStructure};
-pub use text::{
-    RawTextCoordinate, TEXT_DECODER_RESERVATION_BYTES, TextBudget, TextCoordinates,
-    read_text_coordinates,
-};
+pub(crate) use text::TEXT_DECODER_RESERVATION_BYTES;
+pub use text::{RawTextCoordinate, TextBudget};
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};

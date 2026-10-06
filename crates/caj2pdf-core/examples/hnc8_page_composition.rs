@@ -375,22 +375,14 @@ fn run() -> Result<(), Box<dyn StdError>> {
     if scratch.size()? != 0 {
         return Err("completed diagnostic retained row-store bytes".into());
     }
-    if mq.is_none() && report.peak_row_store_bytes != scratch.peak_bytes {
-        return Err("handler row-store peak differs from physical file lengths".into());
-    }
     println!(
-        "R\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "R\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         report.source_variant.as_str(),
         report.source_pages,
         report.output_pages,
         report.no_image_pages,
         report.type0_images,
         report.jpeg_images,
-        report.peak_page_metadata_bytes,
-        report.peak_text_working_bytes,
-        report.peak_row_store_bytes,
-        report.row_store_read_bytes,
-        report.row_store_written_bytes,
         source.bytes,
         source.max_request,
         sink.bytes,
@@ -405,8 +397,8 @@ fn run() -> Result<(), Box<dyn StdError>> {
     );
     if mq.is_some() {
         eprintln!(
-            "type-3 images: {}; aggregate store peak: {} bytes",
-            report.type3_images, report.peak_row_store_bytes
+            "type-3 images: {}; row-store peak: {} bytes",
+            report.type3_images, scratch.peak_bytes
         );
         for store in &symbol_stores {
             if store.size()? != 0 {

@@ -119,7 +119,7 @@ pub fn write_text<W: Write>(
         out,
         "Conversion: {}",
         if matches!(info.format, InputFormat::Hn | InputFormat::C8) {
-            "experimental (caller codec states may be required)"
+            "experimental"
         } else if supported {
             "supported"
         } else if unsupported_reason(info.format).is_some() {

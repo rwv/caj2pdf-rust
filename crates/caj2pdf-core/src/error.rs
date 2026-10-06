@@ -49,8 +49,6 @@ pub enum Error {
     Io(io::Error),
     /// The caller cancelled the operation.
     Cancelled,
-    /// A forward-only source was supplied without a seekable spool.
-    RandomAccessRequired,
     /// A located problem in a CAJ container field or record.
     Caj {
         /// Absolute byte offset in the input source.
@@ -121,7 +119,6 @@ impl fmt::Display for Error {
             ),
             Self::Io(error) => write!(f, "I/O error: {error}"),
             Self::Cancelled => f.write_str("operation cancelled"),
-            Self::RandomAccessRequired => f.write_str("random-access input required"),
             Self::Caj {
                 offset,
                 record,

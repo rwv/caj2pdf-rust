@@ -279,8 +279,10 @@ interventions establish interpretation on the two measured documents.
 
 ## Native source-derived verification
 
-The original MIT streaming parser is `hnc8::read_text_coordinates` with
-`TextBudget`; pure geometry is exposed through
+At the measured revision, the original MIT streaming parser was
+`hnc8::read_text_coordinates` with `TextBudget`; that function and the
+`hnc8_text_placement` example were removed in #348 and remain available at
+`b9bffe1`. There, pure geometry is exposed through
 `hnc8::empirical_page_from_pixels`, `hnc8::empirical_page_from_type0` and
 `hnc8::empirical_image_transform`. The metadata example
 `hnc8_text_placement` receives only an original source path. It does not

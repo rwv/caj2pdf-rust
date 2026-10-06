@@ -11,12 +11,14 @@ use super::{
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, SequentialSink};
 
-/// Indices into the font handles supplied to [`write_c8_native_page`].
+/// Indices into the font handles supplied to the native page writer.
 ///
 /// Only `cjk` and `latin` are required. Every glyph first uses the font of the
 /// role the source selects. When that role is absent, or its font does not
 /// map the character, the glyph falls back by character: CJK-coded
-/// characters (see [`is_cjk_coded`]) use `cjk` and all others use `latin`.
+/// characters (CJK radicals and punctuation, kana, Han, compatibility
+/// ideographs, vertical and small forms, and halfwidth/fullwidth forms) use
+/// `cjk` and all others use `latin`.
 /// A glyph missing from that fallback font still fails with a located error.
 /// No system lookup or other substitution is performed.
 #[derive(Clone, Copy, Debug)]

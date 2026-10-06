@@ -141,7 +141,6 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
     };
     let mut offset = 0;
     let mut max_source_request_bytes = 0;
-    let mut hash = Sha256::new();
     while offset < bytes {
         let length = (bytes - offset).min(chunk as u64) as usize;
         read_chunks(
@@ -154,7 +153,6 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
             &mut max_source_request_bytes,
         )
         .await?;
-        hash.update(&buffer[..length]);
         records.consume(
             page.text.offset + offset,
             &buffer[..length],
@@ -172,7 +170,6 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
     } else {
         records.count
     };
-    let digest = hash.finalize().into();
     Ok(TextCoordinates {
         text: page.text,
         page_size: None,
@@ -180,8 +177,6 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
         decoded_length: bytes as u32,
         record_count,
         coordinates: records.coordinates,
-        encoded_sha256: digest,
-        decoded_sha256: digest,
         max_source_request_bytes,
         max_decoder_output_chunk_bytes: 0,
         owned_buffer_bytes,

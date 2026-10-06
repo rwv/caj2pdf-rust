@@ -858,7 +858,6 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         objects: &objects,
         pages: &page_refs,
         pages_root: root,
-        catalog: None,
     };
     let bookmarks = if options.include_bookmarks {
         metadata.bookmarks.as_slice()

@@ -18,7 +18,6 @@ fn page() -> EmpiricalPageGeometry {
 #[test]
 fn documented_factors_and_comparison_precision_are_explicit() {
     assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 240.0 / 2473.0);
-    assert_eq!(EMPIRICAL_PIXEL_POINTS, 0.24);
     assert_eq!(EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, 0.00005);
 }
 
@@ -30,7 +29,7 @@ fn image_dimensions_round_the_exact_point_ratio_once() {
     // serializes as 497.03999999999996 and changes full-page edge pixels.
     assert_eq!(page.size.width_points, 497.04);
     assert_eq!(page.size.height_points, 36.72);
-    assert_ne!(page.size.width_points, 2071.0 * EMPIRICAL_PIXEL_POINTS);
+    assert_ne!(page.size.width_points, 2071.0 * 0.24);
     let transform = empirical_image_transform(page, 2071, 153, point(0, 0)).unwrap();
     assert_eq!(transform, [497.04, 0.0, 0.0, -36.72, 0.0, 36.72]);
     // The whole public unsigned dimension range keeps the numerator exact.
@@ -72,79 +71,6 @@ fn zero_origin_is_top_left_and_positive_y_moves_downward() {
     // Coordinates remain unrounded; four-decimal precision is a comparison
     // policy, rather than a loss of precision during field evaluation.
     assert_ne!(moved[4], (moved[4] * 10_000.0).round() / 10_000.0);
-}
-
-#[test]
-fn type0_page_uses_padded_bits_and_checks_the_public_info() {
-    let info = Type0Info {
-        width: 33,
-        height: 100,
-        dib_stride: 8,
-        visible_bytes: 5,
-    };
-    let padded = empirical_page_from_type0(info, [0.5, -1.25]).unwrap();
-    close(padded.size.width_points, 64.0 * 0.24);
-    assert_eq!(padded.size.height_points, 24.0);
-    assert_ne!(padded.size.width_points, 33.0 * 0.24);
-    let visible = empirical_page_from_pixels(33, 100, [0.5, -1.25]).unwrap();
-    assert_ne!(
-        padded.media_box().unwrap()[2],
-        visible.media_box().unwrap()[2]
-    );
-    let ctm = empirical_image_transform(padded, 64, 100, point(0, 0)).unwrap();
-    assert_eq!(ctm[0], padded.size.width_points);
-    assert_eq!(ctm[5], 22.75);
-    let aligned = empirical_page_from_type0(
-        Type0Info {
-            width: 32,
-            height: 1,
-            dib_stride: 4,
-            visible_bytes: 4,
-        },
-        [0.0; 2],
-    )
-    .unwrap();
-    assert_eq!(aligned.size.width_points, 32.0 * 0.24);
-    for invalid in [
-        Type0Info { width: 0, ..info },
-        Type0Info { height: 0, ..info },
-        Type0Info {
-            dib_stride: 7,
-            ..info
-        },
-        Type0Info {
-            dib_stride: usize::MAX,
-            ..info
-        },
-        Type0Info {
-            visible_bytes: 4,
-            ..info
-        },
-    ] {
-        assert!(matches!(
-            empirical_page_from_type0(invalid, [0.0; 2]),
-            Err(Error::InvalidInput { .. })
-        ));
-    }
-}
-
-#[test]
-fn type0_padded_width_conversion_is_checked_at_the_u32_boundary() {
-    let width = u32::MAX - 7;
-    let stride = u64::from(width).div_ceil(32) * 4;
-    let visible = u64::from(width).div_ceil(8);
-    let info = Type0Info {
-        width,
-        height: 1,
-        dib_stride: stride as usize,
-        visible_bytes: visible as usize,
-    };
-    assert!(matches!(
-        empirical_page_from_type0(info, [0.0; 2]),
-        Err(Error::InvalidInput {
-            reason: "empirical type-0 display width exceeds the supported pixel range"
-        })
-    ));
 }
 
 #[test]
@@ -365,31 +291,6 @@ fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
     }
 }
 
-#[test]
-fn type0_display_width_preserves_partial_bits_when_there_are_no_padding_bytes() {
-    for width in 1_u32..=96 {
-        let info = Type0Info {
-            width,
-            height: 3,
-            dib_stride: width.div_ceil(32) as usize * 4,
-            visible_bytes: width.div_ceil(8) as usize,
-        };
-        let expected = if width.div_ceil(8) % 4 == 0 {
-            width
-        } else {
-            width.div_ceil(32) * 32
-        };
-        assert_eq!(type0_display_width(info), u64::from(expected));
-        assert_eq!(
-            empirical_page_from_type0(info, [0.0; 2])
-                .unwrap()
-                .size
-                .width_points,
-            f64::from(expected) * 72.0 / 300.0
-        );
-    }
-}
-
 fn point(x: u16, y: u16) -> RawTextCoordinate {
     RawTextCoordinate {
         x,
@@ -411,12 +312,24 @@ fn c8_glyph_sizes_predict_independent_original_controls() {
         (8, 715),
     ] {
         let style = 0x1000 | field << 5 | field;
-        let cjk =
-            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Cjk)
-                .unwrap();
-        let latin =
-            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Latin)
-                .unwrap();
+        let cjk = native_glyph_transform(
+            page(),
+            origin,
+            [4672, 4294],
+            style,
+            C8GlyphClass::Cjk,
+            [None; 2],
+        )
+        .unwrap();
+        let latin = native_glyph_transform(
+            page(),
+            origin,
+            [4672, 4294],
+            style,
+            C8GlyphClass::Latin,
+            [None; 2],
+        )
+        .unwrap();
         // Original square fonts, 96 DPI, displayed 3420%. Field 7 was held out
         // from model calibration. These are measurements, not size-table copies.
         assert_eq!(
@@ -426,20 +339,27 @@ fn c8_glyph_sizes_predict_independent_original_controls() {
         assert_eq!(cjk[..4], latin[..4]);
         assert!(latin[4] > cjk[4]);
         assert!(latin[5] < cjk[5]);
-        let shifted = empirical_c8_glyph_transform(
+        let shifted = native_glyph_transform(
             page(),
             [4672, 4294],
             [4692, 4314],
             style,
             C8GlyphClass::Cjk,
+            [None; 2],
         )
         .unwrap();
         assert_eq!(shifted, cjk);
     }
     // Independent horizontal/vertical fields preserve each axis's size.
-    let matrix =
-        empirical_c8_glyph_transform(page(), origin, [4672, 4294], 0x1065, C8GlyphClass::Cjk)
-            .unwrap();
+    let matrix = native_glyph_transform(
+        page(),
+        origin,
+        [4672, 4294],
+        0x1065,
+        C8GlyphClass::Cjk,
+        [None; 2],
+    )
+    .unwrap();
     assert!(matrix[0] < matrix[3]);
     close(matrix[0], 7.724252491694352);
     close(matrix[3], 10.465116279069768);
@@ -448,23 +368,46 @@ fn c8_glyph_sizes_predict_independent_original_controls() {
 #[test]
 fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
     let origin = [4652, 4274];
-    let a = empirical_c8_glyph_transform(page(), origin, [4652, 4274], 0x1084, C8GlyphClass::Cjk)
-        .unwrap();
-    let b = empirical_c8_glyph_transform(page(), origin, [4632, 4254], 0x1084, C8GlyphClass::Cjk)
-        .unwrap();
+    let a = native_glyph_transform(
+        page(),
+        origin,
+        [4652, 4274],
+        0x1084,
+        C8GlyphClass::Cjk,
+        [None; 2],
+    )
+    .unwrap();
+    let b = native_glyph_transform(
+        page(),
+        origin,
+        [4632, 4254],
+        0x1084,
+        C8GlyphClass::Cjk,
+        [None; 2],
+    )
+    .unwrap();
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     for style in [
         0x0485, 0x9c85, 0x1485, 0x04c5, 0x14c5, 0x14a4, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
     ] {
         assert!(
-            empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
+            native_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk, [None; 2])
+                .is_err()
         );
     }
     let mut invalid = page();
     invalid.size.height_points = f64::NAN;
     assert!(
-        empirical_c8_glyph_transform(invalid, origin, origin, 0x1084, C8GlyphClass::Cjk).is_err()
+        native_glyph_transform(
+            invalid,
+            origin,
+            origin,
+            0x1084,
+            C8GlyphClass::Cjk,
+            [None; 2]
+        )
+        .is_err()
     );
 }
 
@@ -569,15 +512,16 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
         for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
             let style = 0x1000 | field << 5 | field;
             let expected =
-                empirical_c8_glyph_transform(page(), [4652, 4274], [4672, 4294], style, class)
+                native_glyph_transform(page(), [4652, 4274], [4672, 4294], style, class, [None; 2])
                     .unwrap();
             for flags in [0x0800, 0x0c00] {
-                let actual = empirical_c8_glyph_transform(
+                let actual = native_glyph_transform(
                     page(),
                     [4652, 4274],
                     [4672, 4294],
                     flags | field << 5 | field,
                     class,
+                    [None; 2],
                 )
                 .unwrap();
                 // i586 may retain x87 intermediate precision across the two
@@ -604,13 +548,25 @@ fn independently_controlled_variants_preserve_both_glyph_classes() {
         (0x10a5, &[0x14a5][..]),
     ] {
         for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
-            let expected =
-                empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], reference, class)
-                    .unwrap();
+            let expected = native_glyph_transform(
+                page(),
+                [4652, 4274],
+                [5200, 4700],
+                reference,
+                class,
+                [None; 2],
+            )
+            .unwrap();
             for &style in styles {
-                let actual =
-                    empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
-                        .unwrap();
+                let actual = native_glyph_transform(
+                    page(),
+                    [4652, 4274],
+                    [5200, 4700],
+                    style,
+                    class,
+                    [None; 2],
+                )
+                .unwrap();
                 for (actual, expected) in actual.into_iter().zip(expected) {
                     close(actual, expected);
                 }
@@ -626,12 +582,13 @@ fn independently_controlled_variants_preserve_both_glyph_classes() {
 #[test]
 fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
     for (style, expected_em) in [(0xe58c, 27.159468438538206), (0x154a, 20.930232558139537)] {
-        let actual = empirical_c8_glyph_transform(
+        let actual = native_glyph_transform(
             page(),
             [4652, 4274],
             [4672, 4294],
             style,
             C8GlyphClass::Cjk,
+            [None; 2],
         )
         .unwrap();
         close(actual[0], expected_em);
@@ -640,23 +597,31 @@ fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
             actual[4],
             page().origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
         );
-        let shifted = empirical_c8_glyph_transform(
+        let shifted = native_glyph_transform(
             page(),
             [4672, 4294],
             [4692, 4314],
             style,
             C8GlyphClass::Cjk,
+            [None; 2],
         )
         .unwrap();
         assert_eq!(actual, shifted);
         assert!(
-            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Latin,)
-                .is_err()
+            native_glyph_transform(
+                page(),
+                [0, 0],
+                [0, 0],
+                style,
+                C8GlyphClass::Latin,
+                [None; 2]
+            )
+            .is_err()
         );
     }
     for style in [0x118c, 0xe58b, 0xe56c] {
         assert!(
-            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk,)
+            native_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk, [None; 2])
                 .is_err()
         );
     }
@@ -793,20 +758,22 @@ fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
         (0x1022, 24.0, 28.0, 9.0),
         (0x1041, 28.0, 24.0, 10.0),
     ] {
-        let cjk = empirical_c8_glyph_transform(
+        let cjk = native_glyph_transform(
             page,
             [4652, 4274],
             [4672, 4334],
             style,
             C8GlyphClass::Cjk,
+            [None; 2],
         )
         .unwrap();
-        let latin = empirical_c8_glyph_transform(
+        let latin = native_glyph_transform(
             page,
             [4652, 4274],
             [4672, 4334],
             style,
             C8GlyphClass::Latin,
+            [None; 2],
         )
         .unwrap();
         close(cjk[0], width * 75.0 / 301.0);

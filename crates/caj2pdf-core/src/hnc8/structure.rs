@@ -8,9 +8,7 @@
 
 use super::{
     ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, TextBudget,
-    Variant,
-    appinfo::Trailer,
-    text::{ReadPurpose, read_coordinates},
+    Variant, appinfo::Trailer, text::read_coordinates,
 };
 use crate::{Cancellation, RangedSource};
 
@@ -119,7 +117,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 self.limits,
                 self.cancellation,
                 budget,
-                ReadPurpose::Compose,
             )
             .await
             {

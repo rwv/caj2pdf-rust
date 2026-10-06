@@ -167,7 +167,7 @@ impl Fixture {
         budget: TextBudget,
         cancel: &C,
     ) -> Result<TextCoordinates> {
-        block_on(read_text_coordinates(
+        block_on(read_coordinates(
             &mut self.source,
             self.header,
             self.page,
@@ -195,11 +195,9 @@ fn ordinary() -> Fixture {
 }
 
 #[test]
-fn invented_frames_preserve_raw_words_order_repeats_and_hashes() {
+fn invented_frames_preserve_raw_words_order_and_repeats() {
     let expected = [point(10, 20), point(0x8123, 0xffff), point(10, 20)];
     let mut fixture = ordinary();
-    let frame_hash: [u8; 32] = Sha256::digest(fixture.frame()).into();
-    let plain_hash: [u8; 32] = Sha256::digest(&fixture.plain).into();
     let result = fixture.normal().unwrap();
     assert_eq!(result.coordinates, expected);
     assert_eq!(result.text, fixture.page.text);
@@ -211,8 +209,6 @@ fn invented_frames_preserve_raw_words_order_repeats_and_hashes() {
         }
     );
     assert_eq!((result.decoded_length, result.record_count), (144, 3));
-    assert_eq!(result.encoded_sha256, frame_hash);
-    assert_eq!(result.decoded_sha256, plain_hash);
     assert_eq!(result.max_source_request_bytes, fixture.source.max_request);
     assert_eq!(
         result.working_memory_bytes,
@@ -315,7 +311,7 @@ fn both_variants_reject_unknown_compression_markers() {
             fixture.page.row_offset = 0x15c;
         }
         fixture.source.bytes[520] ^= 1;
-        let error = block_on(read_text_coordinates(
+        let error = block_on(read_coordinates(
             &mut fixture.source,
             fixture.header,
             fixture.page,
@@ -337,7 +333,7 @@ fn hn_a_outline_aligned_index_is_supported_and_hn_b_is_not() {
     fixture.page.row_offset = 0x15c;
     assert_eq!(fixture.normal().unwrap().coordinates.len(), 3);
     fixture.header.variant = Variant::HnB;
-    let error = block_on(read_text_coordinates(
+    let error = block_on(read_coordinates(
         &mut fixture.source,
         fixture.header,
         fixture.page,
@@ -828,7 +824,6 @@ fn raw_records_cross_every_small_chunk_boundary_without_false_image_markers() {
     for chunk in 1..=33 {
         let mut fixture = raw_fixture();
         fixture.source.short = 1;
-        let hash: [u8; 32] = Sha256::digest(&fixture.source.bytes[512..]).into();
         let result = fixture
             .parse(
                 Limits {
@@ -842,8 +837,6 @@ fn raw_records_cross_every_small_chunk_boundary_without_false_image_markers() {
         assert_eq!(result.coordinates, [point(12, 34), point(0xffff, 0x8000)]);
         assert_eq!(result.record_count, 8);
         assert_eq!(result.zlib_frame, None);
-        assert_eq!(result.encoded_sha256, hash);
-        assert_eq!(result.decoded_sha256, hash);
         assert_eq!(result.max_decoder_output_chunk_bytes, 0);
         assert!(result.max_source_request_bytes <= chunk);
     }
@@ -1067,14 +1060,6 @@ fn direct_compressed_records_cross_chunks_without_scanning_image_or_tail_payload
         assert_eq!(output.record_count, 10);
         assert_eq!(output.zlib_frame.unwrap().offset, 528);
         assert_eq!(output.decoded_length, plain.len() as u32);
-        assert_eq!(
-            output.decoded_sha256,
-            <[u8; 32]>::from(Sha256::digest(&plain))
-        );
-        assert_eq!(
-            output.encoded_sha256,
-            <[u8; 32]>::from(Sha256::digest(&fixture.source.bytes[528..]))
-        );
         assert!(output.max_source_request_bytes <= chunk);
         assert!(output.max_decoder_output_chunk_bytes <= chunk);
     }
@@ -1101,10 +1086,6 @@ fn direct_record_counts_unknown_tags_and_incomplete_records_are_refused() {
             error.offset, 528,
             "compressed diagnostics use a source anchor"
         );
-    }
-    for images in [0, 2] {
-        let error = direct_fixture(valid.clone(), images).normal().unwrap_err();
-        assert!(error.to_string().contains("image records"));
     }
     let no_images = direct_fixture(end.to_vec(), 0).normal().unwrap();
     assert!(no_images.coordinates.is_empty());
@@ -1229,7 +1210,7 @@ fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
 }
 
 #[test]
-fn raw_image_first_records_reuse_compact_controls_with_strict_public_counts() {
+fn raw_image_first_records_reuse_compact_controls() {
     let mut plain = direct_image(point(0xffff, 17));
     for tag in [0x8001, 0x801c, 0x801d, 0x80ff, 0x8071, 0x8070, 0x0042] {
         plain.extend(direct_record(tag, 42));
@@ -1259,15 +1240,7 @@ fn raw_image_first_records_reuse_compact_controls_with_strict_public_counts() {
         assert_eq!(out.coordinates, [point(0xffff, 17), point(19, 0x8004)]);
         assert_eq!(out.record_count, 10);
         assert_eq!(out.zlib_frame, None);
-        assert_eq!(out.encoded_sha256, <[u8; 32]>::from(Sha256::digest(&plain)));
         assert_eq!(out.max_decoder_output_chunk_bytes, 0);
-        f.page.image_count = 4;
-        assert!(
-            f.normal()
-                .unwrap_err()
-                .to_string()
-                .contains("image count differs")
-        );
     }
 }
 
@@ -1357,11 +1330,6 @@ fn paired_prefix_raw_records_preserve_extents_hashes_and_chunk_bounds() {
         );
         assert_eq!(result.record_count, 10);
         assert_eq!(result.zlib_frame, None);
-        assert_eq!(
-            result.encoded_sha256,
-            <[u8; 32]>::from(Sha256::digest(&f.source.bytes[512..]))
-        );
-        assert_eq!(result.decoded_sha256, result.encoded_sha256);
         assert!(f.source.max_request <= chunk);
         assert_eq!(result.max_decoder_output_chunk_bytes, 0);
     }
@@ -1441,7 +1409,7 @@ fn prefixed_image_only_and_cancellation_keep_the_same_bounded_contract() {
 }
 
 #[test]
-fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_raw() {
+fn raw_hna_composition_decodes_only_verified_image_markers() {
     for (marker, x, width, expected_x, expected_width) in [
         (0xd300_u16, 0xc014_u16, 0xc118_u16, 20, 280),
         (0xd300, 20, 280, 20, 280),
@@ -1456,9 +1424,6 @@ fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_
             f.source.bytes[image + 4..image + 6].copy_from_slice(&x.to_le_bytes());
             f.source.bytes[image + 8..image + 10].copy_from_slice(&width.to_le_bytes());
             f.source.short = 2;
-            let inspected = f.normal().unwrap();
-            assert_eq!(inspected.coordinates[0].x, x);
-            assert_eq!(inspected.coordinates[0].width, width);
             let composed = block_on(read_coordinates(
                 &mut f.source,
                 f.header,
@@ -1469,7 +1434,6 @@ fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_
                 },
                 &NeverCancel,
                 TextBudget::default(),
-                ReadPurpose::Compose,
             ))
             .unwrap();
             assert_eq!(
@@ -1481,15 +1445,13 @@ fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_
                     height: 907,
                 }]
             );
-            assert_eq!(composed.encoded_sha256, inspected.encoded_sha256);
-            assert_eq!(composed.decoded_sha256, inspected.decoded_sha256);
             assert!(composed.max_source_request_bytes <= chunk);
         }
     }
 }
 
 #[test]
-fn compressed_hna_markers_preserve_inspection_and_other_profiles() {
+fn compressed_hna_markers_preserve_other_profiles() {
     for (tag, marker, x, width, expected_x, expected_width) in [
         (0x800a_u16, 0xd300_u16, 0xc014_u16, 0xc118_u16, 20, 280),
         (0x800a, 0xd300, 20, 280, 20, 280),
@@ -1518,8 +1480,6 @@ fn compressed_hna_markers_preserve_inspection_and_other_profiles() {
                 }
                 f.recompress();
                 f.source.short = 2;
-                let inspected = f.normal().unwrap();
-                assert_eq!(inspected.coordinates, [raw, raw]);
                 let composed = block_on(read_coordinates(
                     &mut f.source,
                     f.header,
@@ -1530,7 +1490,6 @@ fn compressed_hna_markers_preserve_inspection_and_other_profiles() {
                     },
                     &NeverCancel,
                     TextBudget::default(),
-                    ReadPurpose::Compose,
                 ))
                 .unwrap();
                 let expected = if variant == Variant::HnA {
@@ -1543,8 +1502,6 @@ fn compressed_hna_markers_preserve_inspection_and_other_profiles() {
                     raw
                 };
                 assert_eq!(composed.coordinates, [expected, expected]);
-                assert_eq!(composed.encoded_sha256, inspected.encoded_sha256);
-                assert_eq!(composed.decoded_sha256, inspected.decoded_sha256);
                 assert!(composed.max_source_request_bytes <= chunk);
             }
         }

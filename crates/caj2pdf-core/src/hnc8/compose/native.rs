@@ -153,7 +153,6 @@ where
         let bytes = capacity_bytes::<ImageObject>(images.capacity())
             + capacity_bytes::<bool>(top_first.capacity());
         check_metadata(bytes, options.budget).map_err(at.io(ComposeStage::Preflight))?;
-        report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(bytes);
         while let Some(record) = reader
             .next_image()
             .await

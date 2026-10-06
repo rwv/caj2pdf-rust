@@ -30,15 +30,7 @@ impl Default for Type0ScratchBudget {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct Type0ScratchReport {
-    pub peak_scratch_bytes: u64,
-    pub scratch_read_bytes: u64,
-    pub scratch_write_bytes: u64,
     pub scratch_work_bytes: u64,
-    pub max_request_bytes: usize,
-    pub read_calls: u64,
-    pub write_calls: u64,
-    /// Allocated only after the decoder's three row buffers have been dropped.
-    pub copy_buffer_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -125,7 +117,6 @@ fn charge_request(
         });
     }
     report.scratch_work_bytes = attempted;
-    report.max_request_bytes = report.max_request_bytes.max(count);
     Ok(())
 }
 
@@ -189,7 +180,6 @@ impl<T: RandomAccessScratch, C: Cancellation> SequentialSink for ReversedRows<'_
         let count = bytes.len().min((self.stride - column) as usize);
         let offset = self.length - self.stride - self.position / self.stride * self.stride + column;
         charge_request(self.report, self.budget, count)?;
-        self.report.write_calls += 1;
         let written = self.scratch.write_at(offset, &bytes[..count]).await?;
         if written > count {
             return Err(Error::InvalidInput {
@@ -197,7 +187,6 @@ impl<T: RandomAccessScratch, C: Cancellation> SequentialSink for ReversedRows<'_
             });
         }
         self.position += len_u64(written);
-        self.report.scratch_write_bytes += len_u64(written);
         check_size(self.scratch, self.length)?;
         // The decoder's write_all checks cancellation after accounting for
         // accepted bytes; returning the count preserves its progress report.
@@ -279,7 +268,6 @@ where
     check_size(scratch, 0).map_err(prepare)?;
     scratch.set_len(length).await.map_err(prepare)?;
     check_size(scratch, length).map_err(prepare)?;
-    report.peak_scratch_bytes = length;
     {
         let mut rows = ReversedRows {
             scratch,
@@ -302,7 +290,6 @@ where
     }
     let chunk = length.min(len_u64(settings.limits.io_chunk_bytes)) as usize;
     let mut buffer = copy_buffer(chunk, settings.limits, *report)?;
-    report.copy_buffer_bytes = buffer.capacity();
     let mut rows = document
         .begin_bilevel_image(BilevelImageSpec {
             pixel_width: display_width as u32,
@@ -342,7 +329,6 @@ where
                 *report,
             )
         })?;
-        report.read_calls += 1;
         let read = scratch
             .read_at(position, &mut buffer[..count])
             .await
@@ -373,7 +359,6 @@ where
                 *report,
             ));
         }
-        report.scratch_read_bytes += len_u64(read);
         check_size(scratch, length).map_err(|error| {
             failed(
                 Type0ScratchStage::Emit,
@@ -422,7 +407,7 @@ pub(super) async fn emit_type0_xobject<S, W, T, C>(
     scratch: &mut T,
     budget: Type0ScratchBudget,
     settings: &Type0DecodeSettings<'_, C>,
-) -> Result<(ImageObject, Type0ScratchReport), Box<Type0ScratchError>>
+) -> Result<ImageObject, Box<Type0ScratchError>>
 where
     S: RangedSource,
     W: SequentialSink,
@@ -448,7 +433,7 @@ where
         Err(error) => Err(error),
     };
     match (result, cleanup) {
-        (Ok(image), Ok(())) => Ok((image, report)),
+        (Ok(image), Ok(())) => Ok(image),
         (Ok(_), Err(error)) => Err(failed(
             Type0ScratchStage::Cleanup,
             Type0ScratchErrorKind::Store(error),
@@ -684,7 +669,7 @@ mod tests {
         budget: Type0ScratchBudget,
         alter: impl FnOnce(&mut Type0Info),
         fail_pdf: bool,
-    ) -> Result<Type0ScratchReport, Box<Type0ScratchError>> {
+    ) -> Result<(), Box<Type0ScratchError>> {
         let (mut source, record) = image();
         let limits = Limits {
             io_chunk_bytes: 3,
@@ -709,7 +694,7 @@ mod tests {
             budget,
             &settings,
         ))
-        .map(|(_, report)| report)
+        .map(|_| ())
     }
 
     #[test]
@@ -735,7 +720,6 @@ mod tests {
             )
             .unwrap_err();
             assert_eq!(error.stage, Type0ScratchStage::Prepare);
-            assert_eq!(error.report.peak_scratch_bytes, 0);
             assert_eq!(
                 scratch.len_calls, 1,
                 "only cleanup may resize an invalid request"
@@ -785,10 +769,6 @@ mod tests {
             .unwrap_err();
             assert_eq!(error.stage, stage);
             assert!(error.report.scratch_work_bytes <= max_work_bytes);
-            assert_eq!(error.report.peak_scratch_bytes, 8);
-            if stage == Type0ScratchStage::Emit {
-                assert_eq!(error.report.scratch_write_bytes, 8);
-            }
             assert!(scratch.bytes.is_empty());
         }
     }
@@ -869,7 +849,6 @@ mod tests {
         };
         let error = run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
         assert_eq!(error.stage, Type0ScratchStage::Decode);
-        assert_eq!(error.report.scratch_write_bytes, 8);
         assert!(scratch.bytes.is_empty());
     }
 
@@ -884,7 +863,6 @@ mod tests {
                 run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
             assert_eq!(error.stage, Type0ScratchStage::Emit);
             assert!(matches!(error.kind, Type0ScratchErrorKind::Store(_)));
-            assert_eq!(error.report.scratch_write_bytes, 8);
             assert!(scratch.bytes.is_empty());
         }
         let mut scratch = Scratch::default();
@@ -935,9 +913,6 @@ mod tests {
             );
             assert!(error.cleanup_error.is_none());
             assert!(scratch.bytes.is_empty());
-            if during_write {
-                assert_eq!(error.report.scratch_write_bytes, 1);
-            }
         }
     }
 
@@ -1005,7 +980,7 @@ mod tests {
 
     #[test]
     fn every_cancellation_checkpoint_refuses_and_completed_calls_reset_storage() {
-        fn attempt(cancel: &CancelAfter) -> Result<Type0ScratchReport, Box<Type0ScratchError>> {
+        fn attempt(cancel: &CancelAfter) -> Result<(), Box<Type0ScratchError>> {
             let (mut source, record) = image();
             let limits = Limits {
                 io_chunk_bytes: 3,
@@ -1037,7 +1012,7 @@ mod tests {
                 &settings,
             ));
             assert!(scratch.bytes.is_empty());
-            result.map(|(_, report)| report)
+            result.map(|_| ())
         }
         let counter = CancelAfter::never();
         attempt(&counter).unwrap();
@@ -1065,9 +1040,7 @@ mod tests {
             };
             let error =
                 run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
-            reached_readback |= error.stage == Type0ScratchStage::Emit
-                && error.report.scratch_write_bytes == 8
-                && error.report.scratch_read_bytes == 0;
+            reached_readback |= error.stage == Type0ScratchStage::Emit;
             assert!(scratch.bytes.is_empty());
         }
         assert!(reached_readback);
@@ -1106,13 +1079,6 @@ mod tests {
             error.kind,
             Type0ScratchErrorKind::Pdf(Error::Io(_))
         ));
-        assert_eq!(
-            (
-                error.report.scratch_read_bytes,
-                error.report.scratch_write_bytes
-            ),
-            (8, 8)
-        );
         assert!(scratch.bytes.is_empty());
         assert!(error.source().unwrap().downcast_ref::<Error>().is_some());
     }
@@ -1166,7 +1132,7 @@ mod tests {
         };
         let mut sink = Sink::default();
         let mut document = ready(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
-        let (object, report) = ready(emit_type0_xobject(
+        let object = ready(emit_type0_xobject(
             &mut source,
             &mut document,
             record,
@@ -1188,13 +1154,6 @@ mod tests {
         ready(document.finish()).unwrap();
         assert!(scratch.bytes.is_empty());
         assert_eq!(scratch.snapshot, [0, 0, 0, 0, 0x80, 0, 0, 0]);
-        assert_eq!(report.peak_scratch_bytes, 8);
-        assert_eq!(
-            (report.scratch_read_bytes, report.scratch_write_bytes),
-            (8, 8)
-        );
-        assert!(report.max_request_bytes <= 3);
-        assert!(report.copy_buffer_bytes <= 3);
         assert!(sink.bytes.windows(8).any(|bytes| bytes == b"/Width 1"));
         assert_eq!(
             crate::test_support::bilevel_pixels(&sink.bytes),
