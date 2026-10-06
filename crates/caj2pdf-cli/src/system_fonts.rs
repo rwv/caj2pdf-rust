@@ -87,9 +87,9 @@ pub const LATIN: [Face; 7] = [
 ];
 
 /// The platform whose font directories are searched. A build constructs
-/// only its own platform; the tests construct each.
+/// only its own platform; the Unix tests construct each.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(all(test, unix)), allow(dead_code))]
 pub enum Platform {
     /// Linux and other Unix systems: the XDG base directories.
     Unix,
