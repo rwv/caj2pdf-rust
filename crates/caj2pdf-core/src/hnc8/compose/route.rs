@@ -109,15 +109,14 @@ where
     V: ComposeVisitor,
     C: Cancellation,
 {
-    let mut counted = CountingSource { source, bytes: 0 };
+    let mut routing = 0;
+    let mut counted = CountingSource::new(&mut *source, &mut routing);
     let native = match fonts {
         Some(fonts) if uses_native_text(&mut counted, options, limits, cancellation).await? => {
             Some(fonts)
         }
         _ => None,
     };
-    let routing = counted.bytes;
-    let source = counted.source;
     let mut report = match native {
         Some(fonts) => {
             convert_c8_native_pdf(

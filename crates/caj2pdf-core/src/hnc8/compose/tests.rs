@@ -1666,7 +1666,7 @@ fn scratch_error_mapping_preserves_primary_and_cleanup_failures() {
         ComposeErrorKind::Unsupported("example"),
         ComposeErrorKind::NoImages,
     ] {
-        assert_error_description(&At::NONE.error(ComposeStage::Preflight, kind), false);
+        assert_error_description(&At::NONE.error((ComposeStage::Preflight, kind)), false);
     }
 }
 

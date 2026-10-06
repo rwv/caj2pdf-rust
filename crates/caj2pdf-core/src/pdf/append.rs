@@ -13,10 +13,10 @@ use super::outline::{
 use super::types::{PdfRange, PdfRef};
 use super::writer::{MAX_PDF_OBJECTS, Output};
 use super::xref::{Trailer, write_xref};
-use crate::fallible::{checked_read_count, reserve_exact, usize_from_u32};
+use crate::fallible::{reserve_exact, usize_from_u32};
 use crate::{
-    Bookmark, Cancellation, ConversionReport, Error, Limits, RangedSource, Result, SequentialSink,
-    read_exact_at,
+    Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, Result,
+    SequentialSink, read_exact_at,
 };
 use std::mem::size_of;
 
@@ -65,43 +65,19 @@ pub async fn copy_pdf_range<R: RangedSource, W: SequentialSink, C: Cancellation>
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
-    let mut counted = CountingSource {
-        inner: source,
-        bytes_read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut counted =
+        CountingSource::new(source, &mut input_bytes_read).rejecting_overread(OVERREAD);
     let index = PdfIndex::open(&mut counted, range, limits, cancellation).await?;
     let mut report = PdfOutlineAppender::begin(&mut counted, sink, &index, limits, cancellation)
         .await?
         .finish()
         .await?;
-    report.input_bytes_read = counted.bytes_read;
+    report.input_bytes_read = input_bytes_read;
     Ok(report)
 }
 
 const OVERREAD: &str = "PDF source reported more bytes than requested";
-
-struct CountingSource<'a, R> {
-    inner: &'a mut R,
-    bytes_read: u64,
-}
-
-impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let read = self.inner.read_at(offset, destination).await?;
-        let read = checked_read_count(read, destination.len(), OVERREAD)?;
-        self.bytes_read = self
-            .bytes_read
-            .checked_add(read as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF input byte count overflows",
-            })?;
-        Ok(read)
-    }
-}
 
 /// Append CAJ bookmark entries to a previously inspected PDF.
 ///

@@ -15,7 +15,7 @@ pub(super) fn error(at: At, stage: ComposeStage, error: Type3PdfError) -> Compos
         offset: error.offset.or(at.offset),
         ..at
     }
-    .error(stage, ComposeErrorKind::Type3(Box::new(error)))
+    .error((stage, ComposeErrorKind::Type3(Box::new(error))))
 }
 
 struct Meter {
@@ -244,13 +244,13 @@ where
         (Ok(emitted), None) => Ok(emitted),
         (Err(primary), None) => Err(primary),
         (Ok(_), Some(cleanup)) => Err(at.io(ComposeStage::Cleanup)(cleanup)),
-        (Err(primary), Some(cleanup)) => Err(at.error(
+        (Err(primary), Some(cleanup)) => Err(at.error((
             ComposeStage::Cleanup,
             ComposeErrorKind::Cleanup {
                 primary: Box::new(primary),
                 cleanup,
             },
-        )),
+        ))),
     }
 }
 

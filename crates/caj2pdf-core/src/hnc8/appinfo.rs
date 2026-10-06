@@ -5,11 +5,11 @@
 //! `NoteItems` entries are extracted, by a small scanner rather than a general
 //! XML parser. A defect here is located but must not fail page conversion.
 
+use super::inflate::{ExactInflate, InflateFault, InflateFaultKind};
 use super::{ErrorKind, Hnc8Error, Hnc8Reader, Location, Result, Variant, read_fixed};
 use crate::fallible::{len_u64, reserve_exact};
 use crate::hnc8::TEXT_DECODER_RESERVATION_BYTES;
 use crate::{Cancellation, RangedSource};
-use flate2::{Decompress, FlushDecompress, Status};
 use std::fmt;
 
 /// Ceiling for both the compressed and the inflated package.
@@ -270,51 +270,38 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         let mut output = Vec::new();
         reserve_exact(&mut output, decoded as usize + 1, refused())?;
         output.resize(decoded as usize + 1, 0);
-        let mut inflater = Decompress::new(true);
-        let (mut fetched, mut buffered, mut used) = (0_u64, 0, 0);
+        let mut inflate = ExactInflate::new(package.offset, compressed, decoded);
+        let fault = |fault: InflateFault| {
+            let reason = match fault.kind {
+                InflateFaultKind::Invalid => "invalid stream or checksum",
+                InflateFaultKind::Excess => "output exceeds the declared length",
+                InflateFaultKind::EndMismatch => "stream ends before the declared lengths",
+                InflateFaultKind::Stalled => "truncated stream",
+            };
+            loc.at(fault.offset).malformed(field, reason)
+        };
         loop {
-            let before_in = inflater.total_in();
-            let at = loc.at(package.offset + before_in);
             if self.cancellation.is_cancelled() {
-                return Err(at.error(ErrorKind::Cancelled));
+                return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
             }
-            if used == buffered && fetched < compressed {
-                buffered = (compressed - fetched).min(chunk) as usize;
+            if let Some((at, length)) = inflate.next_read(input.len()) {
                 read_fixed(
                     self.source,
                     self.limits,
                     self.cancellation,
-                    package.offset + fetched,
-                    &mut input[..buffered],
-                    loc.at(package.offset + fetched),
+                    at,
+                    &mut input[..length],
+                    loc.at(at),
                     field,
                 )
                 .await?;
-                fetched += len_u64(buffered);
-                used = 0;
             }
-            let before_out = inflater.total_out();
-            let status = inflater
-                .decompress(
-                    &input[used..buffered],
-                    &mut output[before_out as usize..],
-                    FlushDecompress::None,
-                )
-                .map_err(|_| at.malformed(field, "invalid stream or checksum"))?;
-            used += (inflater.total_in() - before_in) as usize;
-            if inflater.total_out() > decoded {
-                return Err(at.malformed(field, "output exceeds the declared length"));
-            }
-            if status == Status::StreamEnd {
-                if inflater.total_in() != compressed || inflater.total_out() != decoded {
-                    let end = loc.at(package.offset + inflater.total_in());
-                    return Err(end.malformed(field, "stream ends before the declared lengths"));
-                }
+            let window = &mut output[inflate.total_out() as usize..];
+            let step = inflate.step(&input, window).map_err(fault)?;
+            inflate.check_length(&step).map_err(fault)?;
+            if inflate.finished(&step).map_err(fault)? {
                 output.truncate(decoded as usize);
                 return Ok(output);
-            }
-            if inflater.total_in() == before_in && inflater.total_out() == before_out {
-                return Err(at.malformed(field, "truncated stream"));
             }
         }
     }

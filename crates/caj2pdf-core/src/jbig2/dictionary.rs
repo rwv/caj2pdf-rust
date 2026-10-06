@@ -8,7 +8,7 @@
 //! but explicitly refused before arithmetic or store output.
 
 use super::{
-    HeaderError, HeaderLimits, SegmentHeader, SegmentSpan,
+    FieldCursor, FieldFault, HeaderError, HeaderLimits, SegmentHeader, SegmentSpan,
     generic::template2_context,
     integer::{
         INTEGER_CONTEXT_COUNT, IntegerContextBanks, IntegerProcedure, IntegerValue, decode_integer,
@@ -19,8 +19,8 @@ use super::{
     },
     read_segment_header,
 };
-use crate::fallible::{len_u64, reserve_exact, try_convert, usize_from_u32};
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
+use crate::fallible::{reserve_exact, try_convert, usize_from_u32};
+use crate::{Cancellation, CountingSource, Error, Limits, RangedSource, SequentialSink};
 use std::{error, fmt, io, mem};
 
 const BITMAP_CONTEXTS: usize = 1024;
@@ -295,35 +295,14 @@ fn check_limit(
 
 struct HeaderCursor<'a> {
     header: &'a SegmentHeader,
-    at: u64,
-    end: u64,
-    fetched: u64,
-    request_bytes: usize,
-    max_data_header_bytes: u64,
-}
-
-struct CountingSource<'a, S> {
-    source: &'a mut S,
-    fetched: u64,
-}
-
-impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.source.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let count = self.source.read_at(offset, destination).await?;
-        if count <= destination.len() {
-            self.fetched = self.fetched.saturating_add(count as u64);
-        }
-        Ok(count)
-    }
+    /// `fields.fetched` starts at the framing header's exact length, which
+    /// the reparse read once.
+    fields: FieldCursor,
 }
 
 impl HeaderCursor<'_> {
     fn error(&self, kind: DictionaryErrorKind) -> DictionaryError {
-        self.error_at(self.at, kind)
+        self.error_at(self.fields.at, kind)
     }
 
     fn invalid_span(&self, reason: &'static str) -> DictionaryError {
@@ -332,7 +311,7 @@ impl HeaderCursor<'_> {
 
     fn error_at(&self, offset: u64, kind: DictionaryErrorKind) -> DictionaryError {
         let mut error = at(self.header, offset, kind);
-        error.progress.header_bytes_fetched = self.fetched;
+        error.progress.header_bytes_fetched = self.fields.fetched;
         error
     }
 
@@ -343,69 +322,30 @@ impl HeaderCursor<'_> {
         cancellation: &C,
     ) -> DictionaryResult<[u8; N]> {
         let mut bytes = [0u8; N];
-        self.fill(source, name, cancellation, &mut bytes).await?;
+        let result = self.fields.fill(source, cancellation, &mut bytes).await;
+        result.map_err(|fault| self.fault(fault, name))?;
         Ok(bytes)
     }
 
-    /// Fill `bytes` from the cursor. Not generic over the field width, so
-    /// every header field shares one instantiation per source type.
-    async fn fill<S: RangedSource, C: Cancellation>(
-        &mut self,
-        source: &mut S,
-        name: &'static str,
-        cancellation: &C,
-        bytes: &mut [u8],
-    ) -> DictionaryResult<()> {
-        let count = len_u64(bytes.len());
-        let future = self
-            .at
-            .checked_add(count)
-            .ok_or_else(|| self.invalid_span("header offset overflow"))?;
-        let attempted = future - self.header.data.offset;
-        if attempted > self.max_data_header_bytes {
-            return Err(self.error(DictionaryErrorKind::LimitExceeded {
-                resource: "dictionary header bytes",
-                limit: self.max_data_header_bytes,
-                attempted,
-            }));
-        }
-        if future > self.end {
-            return Err(self.error(DictionaryErrorKind::Truncated(name)));
-        }
-        let mut done = 0;
-        while done < bytes.len() {
-            if cancellation.is_cancelled() {
-                return Err(self.error(DictionaryErrorKind::Cancelled));
+    fn fault(&self, fault: FieldFault, name: &'static str) -> DictionaryError {
+        match fault {
+            FieldFault::LimitExceeded { attempted } => {
+                self.error(DictionaryErrorKind::LimitExceeded {
+                    resource: "dictionary header bytes",
+                    limit: self.fields.max_header_bytes,
+                    attempted,
+                })
             }
-            let request = (bytes.len() - done).min(self.request_bytes);
-            let got = source
-                .read_at(self.at, &mut bytes[done..done + request])
-                .await
-                .map_err(|error| {
-                    self.error(if matches!(error, Error::Cancelled) {
-                        DictionaryErrorKind::Cancelled
-                    } else {
-                        DictionaryErrorKind::Source(error)
-                    })
-                })?;
-            if got > request {
-                return Err(self.error(DictionaryErrorKind::Malformed("source read length")));
+            FieldFault::Overflow => self.invalid_span("header offset overflow"),
+            FieldFault::PastEnd | FieldFault::Ended { .. } => {
+                self.error(DictionaryErrorKind::Truncated(name))
             }
-            if got == 0 {
-                return Err(self.error(DictionaryErrorKind::Truncated(name)));
-            }
-            // `got <= request <= bytes.len() - done`, so `at` stays at or
-            // below the checked `future`. `fetched` starts at the framing
-            // header's exact length (the reparse read each header byte once),
-            // so it stays at or below `at - header_start`.
-            self.at += got as u64;
-            self.fetched += got as u64;
-            done += got;
-            if cancellation.is_cancelled() {
-                return Err(self.error(DictionaryErrorKind::Cancelled));
+            FieldFault::Cancelled => self.error(DictionaryErrorKind::Cancelled),
+            FieldFault::Source(error) => self.error(DictionaryErrorKind::Source(error)),
+            FieldFault::Overread => {
+                self.error(DictionaryErrorKind::Malformed("source read length"))
             }
         }
-        Ok(())
     }
 }
 
@@ -540,7 +480,8 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         io_chunk_bytes: limits.io_chunk_bytes.min(budget.max_source_request_bytes),
         ..*limits
     };
-    let mut framing_source = CountingSource { source, fetched: 0 };
+    let mut framing_fetched = 0;
+    let mut framing_source = CountingSource::new(source, &mut framing_fetched);
     let verified_result = read_segment_header(
         &mut framing_source,
         SegmentSpan {
@@ -552,15 +493,17 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         cancellation,
     )
     .await;
-    let framing_fetched = framing_source.fetched;
     check_reparsed_header(header, verified_result, header_start, framing_fetched)?;
     let mut cursor = HeaderCursor {
         header,
-        at: header.data.offset,
-        end,
-        fetched: framing_fetched,
-        request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
-        max_data_header_bytes: budget.max_data_header_bytes,
+        fields: FieldCursor {
+            start: header.data.offset,
+            at: header.data.offset,
+            end,
+            fetched: framing_fetched,
+            request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
+            max_header_bytes: budget.max_data_header_bytes,
+        },
     };
     let flags = u16::from_be_bytes(
         cursor
@@ -648,19 +591,19 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
             .await?;
         *position = (x as i8, y as i8);
     }
-    let exported_offset = cursor.at;
+    let exported_offset = cursor.fields.at;
     let exported_symbols = u32::from_be_bytes(
         cursor
             .read(source, "exported symbol count", cancellation)
             .await?,
     );
-    let new_offset = cursor.at;
+    let new_offset = cursor.fields.at;
     let new_symbols = u32::from_be_bytes(
         cursor
             .read(source, "new symbol count", cancellation)
             .await?,
     );
-    let header_bytes = cursor.at - header.data.offset;
+    let header_bytes = cursor.fields.at - header.data.offset;
     if new_symbols > budget.max_new_symbols {
         return Err(cursor.error_at(
             new_offset,
@@ -681,7 +624,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
             },
         ));
     }
-    let body_length = end - cursor.at;
+    let body_length = end - cursor.fields.at;
     if body_length > budget.max_body_bytes {
         return Err(cursor.error(DictionaryErrorKind::LimitExceeded {
             resource: "dictionary body bytes",
@@ -707,7 +650,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         new_symbols,
         header_bytes,
         body: SegmentSpan {
-            offset: cursor.at,
+            offset: cursor.fields.at,
             length: body_length,
         },
     })

@@ -7,7 +7,7 @@
 //! region bitmap. It contains no normative MQ probability states.
 
 use super::{
-    SegmentHeader,
+    PreflightKind, PreflightSite, SegmentHeader,
     dictionary::{DictionaryMode, SymbolDescriptor},
     iaid::{IaidContextBanks, IaidLayout, checked_symbol_index, decode_iaid},
     integer::{IntegerProcedure, IntegerValue, decode_integer},
@@ -224,50 +224,27 @@ fn preflight_error(
 }
 
 fn preflight_cap(
-    segment: u32,
-    offset: u64,
-    fetched: u64,
+    site: PreflightSite,
     resource: &'static str,
     limit: u64,
     attempted: u64,
 ) -> TextInstanceResult<()> {
     if attempted > limit {
-        Err(preflight_error(
-            segment,
-            offset,
-            fetched,
-            TextInstanceErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            },
-        ))
+        Err(site.error(TextInstanceErrorKind::LimitExceeded {
+            resource,
+            limit,
+            attempted,
+        }))
     } else {
         Ok(())
     }
 }
 
-#[derive(Clone, Copy)]
-struct PreflightSite {
-    segment: u32,
-    offset: u64,
-    fetched: u64,
-}
+impl PreflightKind for TextInstanceErrorKind {
+    type Error = TextInstanceError;
 
-impl PreflightSite {
-    fn error(self, kind: TextInstanceErrorKind) -> TextInstanceError {
-        preflight_error(self.segment, self.offset, self.fetched, kind)
-    }
-
-    fn cap(self, resource: &'static str, limit: u64, attempted: u64) -> TextInstanceResult<()> {
-        preflight_cap(
-            self.segment,
-            self.offset,
-            self.fetched,
-            resource,
-            limit,
-            attempted,
-        )
+    fn locate(self, site: PreflightSite) -> TextInstanceError {
+        preflight_error(site.segment, site.offset, site.header_fetched, self)
     }
 }
 
@@ -301,7 +278,7 @@ fn validate_descriptor(
         .relative_store_offset
         .checked_add(bytes)
         .ok_or_else(|| bad("dictionary descriptor end overflow"))?;
-    site.cap("dictionary store span", max_span, relative_end)?;
+    preflight_cap(site, "dictionary store span", max_span, relative_end)?;
     let absolute_end = expected_base
         .checked_add(relative_end)
         .ok_or_else(|| bad("dictionary absolute store end overflow"))?;
@@ -561,7 +538,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         let site = PreflightSite {
             segment: segment.number,
             offset: at,
-            fetched,
+            header_fetched: fetched,
         };
         let bad = |kind| site.error(kind);
         if checked != parsed {
@@ -641,20 +618,16 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             ),
             ("temporary store budget", budget.max_temporary_store_bytes),
         ] {
-            preflight_cap(segment.number, at, fetched, name, MAX_BUDGET_COUNT, value)?;
+            preflight_cap(site, name, MAX_BUDGET_COUNT, value)?;
         }
         preflight_cap(
-            segment.number,
-            at,
-            fetched,
+            site,
             "exported symbols",
             u64::from(budget.max_exported_symbols),
             dictionary.catalog.exported_symbols.len() as u64,
         )?;
         preflight_cap(
-            segment.number,
-            at,
-            fetched,
+            site,
             "instances",
             u64::from(budget.max_instances),
             u64::from(parsed.instances),

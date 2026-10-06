@@ -7,10 +7,10 @@ pub use text::{ContentPageWriter, FontObject};
 
 use super::outline::{BookmarkView, OutlineBuilder, write_utf16_hex};
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
-use crate::fallible::{checked_read_count, len_u64, reserve, reserve_exact, usize_from_u32};
+use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
-    Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
-    SequentialSink, read_exact_at,
+    Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
+    RangedSource, Result, SequentialSink, read_exact_at,
 };
 use flate2::{Compress, Compression, FlushCompress, Status};
 use std::fmt::Write as _;
@@ -331,27 +331,6 @@ impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
 }
 
 const OVERREAD: &str = "image source reported more bytes than requested";
-
-struct CountingSource<'a, R> {
-    inner: &'a mut R,
-    total: &'a mut u64,
-}
-
-impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let read = self.inner.read_at(offset, destination).await?;
-        let read = checked_read_count(read, destination.len(), OVERREAD)?;
-        let read = len_u64(read);
-        *self.total = self.total.checked_add(read).ok_or(Error::InvalidInput {
-            reason: "image input byte count overflows",
-        })?;
-        Ok(read as usize)
-    }
-}
 
 /// Build PDF pages and outline items without retaining image or PDF payloads.
 ///
@@ -959,10 +938,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             reserve_exact(&mut self.image_buffer, additional, refused)?;
             self.image_buffer.resize(chunk_size, 0);
         }
-        let mut source = CountingSource {
-            inner: source,
-            total: &mut self.input_bytes_read,
-        };
+        let mut source =
+            CountingSource::new(source, &mut self.input_bytes_read).rejecting_overread(OVERREAD);
         let mut done = 0_u64;
         while done < length {
             let chunk = (length - done).min(self.image_buffer.len() as u64) as usize;

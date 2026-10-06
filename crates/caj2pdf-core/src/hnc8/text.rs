@@ -4,13 +4,15 @@
 //! Opaque text is discarded. Coordinate words have no assigned signedness
 //! or physical units here, and this reader does not enable composition.
 
-use super::{ErrorKind, Header, Location, PageRecord, Result, Span, Variant};
+use super::inflate::{ExactInflate, InflateFault, InflateFaultKind};
+use super::{ErrorKind, Header, Hnc8Error, Location, PageRecord, Result, Span, Variant};
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
-use flate2::{Decompress, FlushDecompress, Status};
 
 mod raw;
 mod records;
+
+use records::Records;
 
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -84,6 +86,16 @@ pub struct TextCoordinates {
     pub working_memory_bytes: u64,
 }
 
+/// Page text the coordinate readers accept, or text they do not frame.
+pub(super) enum PageText {
+    /// Compressed or raw text with its image coordinates.
+    Framed(TextCoordinates),
+    /// A span shorter than the compressed header, or one starting with
+    /// neither `COMPRESSTEXT` header nor raw HN-A records. C8 native text is
+    /// framed like this; the error reports it to readers that need records.
+    Unframed(Hnc8Error),
+}
+
 /// Validate either compressed HN-A/C8 text layout or uncompressed HN-A records
 /// and return the image coordinates for composition.
 ///
@@ -106,6 +118,21 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
+    match read_page_text(source, header, page, limits, cancellation, budget).await? {
+        PageText::Framed(text) => Ok(text),
+        PageText::Unframed(error) => Err(error),
+    }
+}
+
+/// [`read_coordinates`], reporting unframed text apart from other errors.
+pub(super) async fn read_page_text<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    header: Header,
+    page: PageRecord,
+    limits: &Limits,
+    cancellation: &C,
+    budget: TextBudget,
+) -> Result<PageText> {
     if header.variant == Variant::HnB {
         return Err(location(header, page).error(ErrorKind::Unsupported {
             field: "text framing variant",
@@ -113,7 +140,15 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
         }));
     }
     let loc = location(header, page);
-    validate_metadata(header, page, source.size(), limits, budget, loc)?;
+    validate_metadata(header, page, source.size(), limits, loc)?;
+    if page.text.length < HEADER_BYTES as u64 {
+        return Ok(PageText::Unframed(loc.error(ErrorKind::Truncated {
+            field: "page text header",
+            expected: HEADER_BYTES as u64,
+            available: page.text.length,
+        })));
+    }
+    validate_budget(page, budget, loc)?;
     let mut prefix = [0; 4];
     read_chunks(
         source,
@@ -154,31 +189,23 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
                 0x800a | 0x801c
             );
     }
-    let mut result = if header.variant == Variant::HnA
+    let mut text = if header.variant == Variant::HnA
         && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004))
     {
-        raw::read(
-            source,
-            page,
-            limits,
-            cancellation,
-            budget,
-            loc,
-            if prefixed_raw {
-                Some(
-                    records::Records::with_page_prefix(budget.max_records).decode_raw_hna_markers(),
-                )
-            } else {
-                (tag == 0x800a)
-                    .then(|| records::Records::new(budget.max_records).decode_raw_hna_markers())
-            },
-        )
-        .await
+        let records = if prefixed_raw || tag == 0x800a {
+            Records::tagged(budget.max_records, prefixed_raw).decode_markers(true)
+        } else {
+            Records::ordered(budget.max_records)
+        };
+        raw::read(source, page, limits, cancellation, budget, loc, records).await?
     } else {
-        read_compressed_text(source, header, page, limits, cancellation, budget).await
-    }?;
-    result.page_size = page_size;
-    Ok(result)
+        match read_compressed_text(source, header, page, limits, cancellation, budget).await? {
+            PageText::Framed(text) => text,
+            unframed => return Ok(unframed),
+        }
+    };
+    text.page_size = page_size;
+    Ok(PageText::Framed(text))
 }
 
 fn location(header: Header, page: PageRecord) -> Location {
@@ -209,7 +236,6 @@ fn validate_metadata(
     page: PageRecord,
     size: u64,
     limits: &Limits,
-    budget: TextBudget,
     loc: Location,
 ) -> Result<()> {
     limits.validate().map_err(|source| {
@@ -263,13 +289,10 @@ fn validate_metadata(
     if page.text.offset > i32::MAX as u64 || page.text.length > i32::MAX as u64 {
         return Err(loc.malformed("page text span", "outside nonnegative signed 32-bit range"));
     }
-    if page.text.length < HEADER_BYTES as u64 {
-        return Err(loc.error(ErrorKind::Truncated {
-            field: "page text header",
-            expected: HEADER_BYTES as u64,
-            available: page.text.length,
-        }));
-    }
+    Ok(())
+}
+
+fn validate_budget(page: PageRecord, budget: TextBudget, loc: Location) -> Result<()> {
     if page.text.length > budget.max_span_bytes {
         return Err(loc.limit("page text bytes", budget.max_span_bytes, page.text.length));
     }
@@ -343,62 +366,6 @@ fn check_working(owned: u64, compressed: bool, budget: TextBudget, loc: Location
     Ok(working)
 }
 
-struct Accumulator {
-    glyph_end: u32,
-    tail_start: u32,
-    coordinates: Vec<RawTextCoordinate>,
-    loc: Location,
-    records: Option<records::Records>,
-    image_marker: [u8; 4],
-    decode_hna_markers: bool,
-}
-
-impl Accumulator {
-    fn consume(&mut self, offset: u64, bytes: &[u8]) -> Result<()> {
-        if let Some(records) = &mut self.records {
-            return records.consume(bytes, &mut self.coordinates, self.loc);
-        }
-        for (index, byte) in bytes.iter().copied().enumerate() {
-            let at = offset + len_u64(index);
-            if at >= 8 && at < u64::from(self.glyph_end) {
-                let within = (at - 8) % 16;
-                let expected = match within {
-                    0 | 1 => Some(0x8070_u16.to_le_bytes()[within as usize]),
-                    4 | 5 => Some(0x8071_u16.to_le_bytes()[(within - 4) as usize]),
-                    8 | 9 => Some(0x8001_u16.to_le_bytes()[(within - 8) as usize]),
-                    _ => None,
-                };
-                if expected.is_some_and(|expected| expected != byte) {
-                    return Err(self
-                        .loc
-                        .malformed("decoded text marker", "differs from observed record marker"));
-                }
-            } else if at >= u64::from(self.tail_start - 4) {
-                // Each fixed-layout image coordinate follows its four-byte
-                // record marker. Retain only that marker across chunk boundaries.
-                let relative = at - u64::from(self.tail_start - 4);
-                let within = relative % 28;
-                if within < 4 {
-                    self.image_marker[within as usize] = byte;
-                } else if within < 12 {
-                    let coordinate = &mut self.coordinates[(relative / 28) as usize];
-                    let word = match (within - 4) / 2 {
-                        0 => &mut coordinate.x,
-                        1 => &mut coordinate.y,
-                        2 => &mut coordinate.width,
-                        _ => &mut coordinate.height,
-                    };
-                    *word |= u16::from(byte) << ((within % 2) * 8);
-                    if within == 11 && self.decode_hna_markers {
-                        records::decode_image_markers(self.image_marker, coordinate);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
@@ -406,7 +373,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-) -> Result<TextCoordinates> {
+) -> Result<PageText> {
     let loc = location(header, page);
 
     let mut max_source_request_bytes = 0;
@@ -432,7 +399,10 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     {
         HEADER_BYTES
     } else {
-        return Err(loc.malformed("page text prefix", "unsupported compressed text header"));
+        return Ok(PageText::Unframed(loc.malformed(
+            "page text prefix",
+            "unsupported compressed text header",
+        )));
     };
     let decoded_length = u32::from_le_bytes(
         fixed[header_bytes - 4..header_bytes]
@@ -504,110 +474,91 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let mut input = allocate(input_count, 0_u8, limits, loc)?;
     let mut output = allocate(output_count, 0_u8, limits, loc)?;
     let images = usize_from_u32(page.image_count);
-    let coordinates = allocate(images, RawTextCoordinate::default(), limits, loc)?;
-    let mut accumulator = Accumulator {
-        glyph_end: (8 + glyph_bytes) as u32,
-        tail_start: decoded_bytes.saturating_sub(tail_bytes) as u32,
-        coordinates,
-        loc: loc.at(zlib_frame.offset),
-        image_marker: [0; 4],
-        decode_hna_markers: header.variant == Variant::HnA,
-        records: (header_bytes == 16).then(|| records::Records::new(budget.max_records)),
+    let mut coordinates = allocate(images, RawTextCoordinate::default(), limits, loc)?;
+    let mut records = if header_bytes == 16 {
+        Records::tagged(budget.max_records, false)
+    } else {
+        Records::fixed(
+            8 + glyph_bytes,
+            decoded_bytes.saturating_sub(tail_bytes),
+            record_count,
+        )
+        .decode_markers(header.variant == Variant::HnA)
     };
+    let frame_loc = loc.at(zlib_frame.offset);
     let owned_buffer_bytes = len_u64(input.capacity())
         .saturating_add(len_u64(output.capacity()))
         .saturating_add(
-            len_u64(accumulator.coordinates.capacity())
-                .saturating_mul(size_of::<RawTextCoordinate>() as u64),
+            len_u64(coordinates.capacity()).saturating_mul(size_of::<RawTextCoordinate>() as u64),
         );
     let working_memory_bytes = check_working(owned_buffer_bytes, true, budget, loc)?;
-    let mut inflater = Decompress::new(true);
-    let mut fetched = 0_u64;
-    let mut buffered = 0;
-    let mut used = 0;
+    let mut inflate = ExactInflate::new(zlib_frame.offset, zlib_frame.length, decoded_bytes);
+    let fault = |fault: InflateFault| {
+        let (field, reason) = match fault.kind {
+            InflateFaultKind::Invalid => {
+                ("text zlib frame", "invalid stream, dictionary or checksum")
+            }
+            InflateFaultKind::Excess => ("decoded text length", "output exceeds declared length"),
+            InflateFaultKind::EndMismatch => (
+                "text zlib frame",
+                "end differs from declared compressed/decoded span",
+            ),
+            InflateFaultKind::Stalled => (
+                "text zlib frame",
+                "truncated stream or decoder made no progress",
+            ),
+        };
+        loc.at(fault.offset).malformed(field, reason)
+    };
     let mut max_decoder_output_chunk_bytes = 0;
     loop {
         if cancellation.is_cancelled() {
-            return Err(loc
-                .at(zlib_frame.offset + inflater.total_in())
-                .error(ErrorKind::Cancelled));
+            return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
         }
-        if used == buffered && fetched < zlib_frame.length {
-            buffered = (zlib_frame.length - fetched).min(len_u64(input.len())) as usize;
+        if let Some((at, length)) = inflate.next_read(input.len()) {
             read_chunks(
                 source,
-                zlib_frame.offset + fetched,
-                &mut input[..buffered],
+                at,
+                &mut input[..length],
                 limits,
                 cancellation,
                 loc,
                 &mut max_source_request_bytes,
             )
             .await?;
-            fetched += len_u64(buffered);
-            used = 0;
         }
-        let before_in = inflater.total_in();
-        let before_out = inflater.total_out();
-        // A one-byte excess sentinel remains available even at the declared
-        // length, so the decoder can consume its trailer and report StreamEnd.
-        let writable = (decoded_bytes - before_out + 1).min(len_u64(output.len())) as usize;
-        let status = inflater
-            .decompress(
-                &input[used..buffered],
-                &mut output[..writable],
-                FlushDecompress::None,
-            )
-            .map_err(|_| {
-                loc.at(zlib_frame.offset + before_in)
-                    .malformed("text zlib frame", "invalid stream, dictionary or checksum")
-            })?;
+        let writable = inflate.writable(output.len());
+        let step = inflate
+            .step(&input, &mut output[..writable])
+            .map_err(fault)?;
         if cancellation.is_cancelled() {
-            return Err(loc
-                .at(zlib_frame.offset + inflater.total_in())
-                .error(ErrorKind::Cancelled));
+            return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
         }
-        used += (inflater.total_in() - before_in) as usize;
-        let produced = (inflater.total_out() - before_out) as usize;
-        if inflater.total_out() > decoded_bytes {
-            return Err(loc
-                .at(zlib_frame.offset + before_in)
-                .malformed("decoded text length", "output exceeds declared length"));
-        }
-        max_decoder_output_chunk_bytes = max_decoder_output_chunk_bytes.max(produced);
-        accumulator.consume(before_out, &output[..produced])?;
-        if status == Status::StreamEnd {
-            if inflater.total_in() != zlib_frame.length || inflater.total_out() != decoded_bytes {
-                return Err(loc.at(zlib_frame.offset + inflater.total_in()).malformed(
-                    "text zlib frame",
-                    "end differs from declared compressed/decoded span",
-                ));
-            }
+        inflate.check_length(&step).map_err(fault)?;
+        max_decoder_output_chunk_bytes = max_decoder_output_chunk_bytes.max(step.produced);
+        records.consume(
+            step.before_out,
+            &output[..step.produced],
+            &mut coordinates,
+            frame_loc,
+        )?;
+        if inflate.finished(&step).map_err(fault)? {
             break;
         }
-        if inflater.total_in() == before_in && inflater.total_out() == before_out {
-            return Err(loc.at(zlib_frame.offset + before_in).malformed(
-                "text zlib frame",
-                "truncated stream or decoder made no progress",
-            ));
-        }
     }
-    let record_count = match accumulator.records {
-        Some(records) => records.finish(&mut accumulator.coordinates, loc.at(zlib_frame.offset))?,
-        None => record_count,
-    };
-    Ok(TextCoordinates {
+    let record_count = records.finish(&mut coordinates, frame_loc)?;
+    Ok(PageText::Framed(TextCoordinates {
         text: page.text,
         page_size: None,
         zlib_frame: Some(zlib_frame),
         decoded_length,
         record_count,
-        coordinates: accumulator.coordinates,
+        coordinates,
         max_source_request_bytes,
         max_decoder_output_chunk_bytes,
         owned_buffer_bytes,
         working_memory_bytes,
-    })
+    }))
 }
 
 #[cfg(test)]

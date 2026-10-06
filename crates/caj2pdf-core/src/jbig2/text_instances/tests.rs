@@ -501,10 +501,10 @@ fn located_error_variants_and_progress_are_inspectable() {
     let site = PreflightSite {
         segment: 3,
         offset: 23,
-        fetched: 2,
+        header_fetched: 2,
     };
-    assert!(site.cap("test", 2, 2).is_ok());
-    let error = site.cap("test", 2, 3).unwrap_err();
+    assert!(preflight_cap(site, "test", 2, 2).is_ok());
+    let error = preflight_cap(site, "test", 2, 3).unwrap_err();
     assert!(matches!(
         error.kind,
         TextInstanceErrorKind::LimitExceeded { attempted: 3, .. }
@@ -521,7 +521,7 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
     let site = PreflightSite {
         segment: 3,
         offset: 23,
-        fetched: 2,
+        header_fetched: 2,
     };
     let valid = StoredSymbol {
         store: SymbolStore::Imported,

@@ -3,11 +3,13 @@
 //! One checked HN/C8 type-1/type-2 JPEG as a bounded, one-page PDF diagnostic.
 
 use super::{
-    Budget, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, JpegColor, JpegInfo, Variant,
-    read_type2_jpeg_info,
+    At, Budget, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, JpegColor, JpegInfo, Locate,
+    Variant, read_type2_jpeg_info,
 };
 use crate::pdf::{ImageEncoding, ImageObject, ImageSpec, PageSpec, PdfDocument};
-use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink};
+use crate::{
+    Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, SequentialSink,
+};
 use std::{error, fmt};
 
 const POINTS_PER_INCH: f64 = 72.0;
@@ -108,39 +110,16 @@ impl error::Error for Type2PdfError {
     }
 }
 
-#[derive(Clone, Copy)]
-struct At {
-    page: Option<u32>,
-    image: Option<u32>,
-    offset: Option<u64>,
-}
+impl Locate for Type2PdfErrorKind {
+    type Error = Type2PdfError;
 
-impl At {
-    const NONE: Self = Self {
-        page: None,
-        image: None,
-        offset: None,
-    };
-
-    fn error(self, kind: Type2PdfErrorKind) -> Type2PdfError {
+    fn locate(self, at: At) -> Type2PdfError {
         Type2PdfError {
-            page: self.page,
-            image: self.image,
-            offset: self.offset,
-            kind,
+            page: at.page,
+            image: at.image,
+            offset: at.offset,
+            kind: self,
         }
-    }
-
-    fn pdf(self, error: Error) -> Type2PdfError {
-        self.error(Type2PdfErrorKind::Pdf(error))
-    }
-
-    fn jpeg(self, error: Hnc8Error) -> Type2PdfError {
-        At {
-            offset: Some(error.offset),
-            ..self
-        }
-        .error(Type2PdfErrorKind::Jpeg(Box::new(error)))
     }
 }
 
@@ -160,25 +139,6 @@ fn selected_container(error: Hnc8Error, selection: Type2ImageSelection) -> Type2
     converted.page.get_or_insert(selection.page_number);
     converted.image.get_or_insert(selection.image_number);
     converted
-}
-
-/// Count every byte returned by the source, including the two selected-JPEG
-/// passes, without changing the source's stable-size contract.
-struct CountingSource<'a, S> {
-    inner: &'a mut S,
-    read: u64,
-}
-
-impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let count = self.inner.read_at(offset, destination).await?;
-        self.read = self.read.saturating_add(count as u64);
-        Ok(count)
-    }
 }
 
 fn page_spec(info: JpegInfo, pixels_per_inch: f64) -> PageSpec {
@@ -230,17 +190,19 @@ pub(super) async fn preflight_type2<S: RangedSource, C: Cancellation>(
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     if !matches!(image.record_type, 1 | 2) {
-        return Err(At {
-            offset: Some(image.descriptor_offset),
-            ..at
-        }
-        .error(Type2PdfErrorKind::UnsupportedImageType(image.record_type)));
+        return Err(at
+            .with_offset(image.descriptor_offset)
+            .error(Type2PdfErrorKind::UnsupportedImageType(image.record_type)));
     }
     let info = read_type2_jpeg_info(source, image, limits, cancellation, budget)
         .await
-        .map_err(|error| at.jpeg(error))?;
+        .map_err(|error| {
+            at.with_offset(error.offset)
+                .error(Type2PdfErrorKind::Jpeg(Box::new(error)))
+        })?;
     Ok(CheckedType2 {
         record: image,
         info,
@@ -257,6 +219,7 @@ pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Ca
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     document
         .add_image(
@@ -266,7 +229,7 @@ pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Ca
             image_spec(checked.info()),
         )
         .await
-        .map_err(|error| at.pdf(error))
+        .map_err(at.wrap(Type2PdfErrorKind::Pdf))
 }
 
 /// Stream one checked HN/C8 type-1 or type-2 JPEG record into a one-page PDF.
@@ -300,10 +263,8 @@ pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
             "page and image numbers must be one-based",
         )));
     }
-    let mut source = CountingSource {
-        inner: source,
-        read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut source = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::probe_at_page(
         &mut source,
         limits,
@@ -324,6 +285,7 @@ pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
             page: Some(page.page_number),
             image: Some(selection.image_number),
             offset: Some(page.row_offset + 8),
+            ..At::NONE
         }
         .error(Type2PdfErrorKind::InvalidSelection(
             "image number exceeds page image count",
@@ -345,6 +307,7 @@ pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     let checked = preflight_type2(
         reader.source_mut(),
@@ -357,14 +320,17 @@ pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
     let info = checked.info();
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
-        .map_err(|error| at.pdf(error))?;
+        .map_err(at.wrap(Type2PdfErrorKind::Pdf))?;
     let object = emit_type2_xobject(reader.source_mut(), &mut document, checked).await?;
     document
         .add_page(page_spec(info, options.pixels_per_inch), &[object])
         .await
-        .map_err(|error| at.pdf(error))?;
-    let mut conversion = document.finish().await.map_err(|error| at.pdf(error))?;
-    conversion.input_bytes_read = source.read;
+        .map_err(at.wrap(Type2PdfErrorKind::Pdf))?;
+    let mut conversion = document
+        .finish()
+        .await
+        .map_err(at.wrap(Type2PdfErrorKind::Pdf))?;
+    conversion.input_bytes_read = input_bytes_read;
     Ok(Type2SelectedPdfReport {
         conversion,
         source_variant: header.variant,

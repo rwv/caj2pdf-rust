@@ -3,7 +3,7 @@
 //! Bounded object scanning for headerless CAJ PDF fragments.
 
 use super::{ObjectTail, Reader, exact_name, exact_reference, exact_unsigned};
-use crate::fallible::{checked_read_count, reserve};
+use crate::fallible::{checked_read_count, push_checked};
 use crate::pdf::writer::MAX_PDF_OBJECTS;
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
@@ -303,11 +303,13 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                     }
                     let count = next_object_count(pending_prefixes.len())?;
                     let allocation = (count as u64) * std::mem::size_of::<FragmentObject>() as u64;
-                    limits.check_allocation(allocation)?;
-                    let refused =
-                        limits.allocation_refused("CAJ interrupted prefix index", allocation);
-                    reserve(&mut pending_prefixes, 1, refused)?;
-                    pending_prefixes.push(prefix);
+                    push_checked(
+                        &mut pending_prefixes,
+                        prefix,
+                        allocation,
+                        limits,
+                        "CAJ interrupted prefix index",
+                    )?;
                     cursor = end;
                     return Ok(None);
                 }
@@ -428,13 +430,17 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                             {
                                 let count = next_object_count(pending_prefixes.len())?;
                                 let allocation = (count as u64) * std::mem::size_of::<FragmentObject>() as u64;
-                                limits.check_allocation(allocation)?;
-                                let refused = limits.allocation_refused("CAJ interrupted prefix index", allocation);
-                                reserve(&mut pending_prefixes, 1, refused)?;
-                                pending_prefixes.push(FragmentObject {
+                                let prefix = FragmentObject {
                                     reference,
                                     range: PdfRange { offset: body_start + start, length: prefix_length as u64 },
-                                });
+                                };
+                                push_checked(
+                                    &mut pending_prefixes,
+                                    prefix,
+                                    allocation,
+                                    limits,
+                                    "CAJ interrupted prefix index",
+                                )?;
                                 cursor = next;
                                 return Ok(None);
                             }
@@ -561,23 +567,21 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 (patches.len() as u64)
                     .saturating_mul(std::mem::size_of::<LengthPatch>() as u64 + 40),
             );
-        limits
-            .check_allocation(allocation)
-            .map_err(reader.locator(start, Some(reference)))?;
-        let refused = reader.allocation_limit(
-            start,
-            Some(reference),
-            "PDF fragment object index allocation",
-            allocation,
-        );
-        reserve(&mut objects, 1, refused)?;
-        objects.push(FragmentObject {
+        let object = FragmentObject {
             reference,
             range: PdfRange {
                 offset: body_start + start,
                 length: end - start,
             },
-        });
+        };
+        push_checked(
+            &mut objects,
+            object,
+            allocation,
+            limits,
+            "PDF fragment object index allocation",
+        )
+        .map_err(reader.locator(start, Some(reference)))?;
         cursor = end;
         final_object_repaired = object_repaired;
         Ok(Some(end))
@@ -592,16 +596,12 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 ..
             }) if salvage_rows.is_some() => {
                 final_object_repaired = false;
-                let refused = limits.allocation_refused(
-                    "damaged PDF object index",
-                    (damaged.len() as u64 + 1) * 32,
-                );
-                limits.check_allocation((damaged.len() as u64 + 1) * 32)?;
-                reserve(&mut damaged, 1, refused)?;
-                damaged.push((
+                let row = (
                     object.map(|(number, generation)| PdfRef { number, generation }),
                     offset,
-                ));
+                );
+                let bytes = (damaged.len() as u64 + 1) * 32;
+                push_checked(&mut damaged, row, bytes, limits, "damaged PDF object index")?;
                 if let Some(end) = damaged_stream_end(&mut reader, start, &lengths).await? {
                     cursor = end;
                     continue 'objects;
@@ -727,13 +727,9 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
             );
             let Some(original) = original else {
                 if salvage_rows.is_some() {
-                    limits.check_allocation((damaged.len() as u64 + 1) * 32)?;
-                    let refused = limits.allocation_refused(
-                        "damaged PDF object index",
-                        (damaged.len() as u64 + 1) * 32,
-                    );
-                    reserve(&mut damaged, 1, refused)?;
-                    damaged.push((Some(prefix.reference), prefix.range.offset));
+                    let row = (Some(prefix.reference), prefix.range.offset);
+                    let bytes = (damaged.len() as u64 + 1) * 32;
+                    push_checked(&mut damaged, row, bytes, limits, "damaged PDF object index")?;
                     continue;
                 }
                 return Err(failure);
@@ -769,18 +765,20 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
         for (target, actual) in pending_lengths {
             if scan.resolve_length(target) != Some(actual) {
                 if salvage_rows.is_some() {
-                    limits.check_allocation((scan.damaged.len() as u64 + 1) * 32)?;
-                    let refused = limits.allocation_refused(
-                        "damaged PDF object index",
-                        (scan.damaged.len() as u64 + 1) * 32,
-                    );
-                    reserve(&mut scan.damaged, 1, refused)?;
                     let offset = scan
                         .objects
                         .iter()
                         .find(|object| object.reference == target)
                         .map_or(body_start, |object| object.range.offset);
-                    scan.damaged.push((Some(target), offset));
+                    let bytes = (scan.damaged.len() as u64 + 1) * 32;
+                    let row = (Some(target), offset);
+                    push_checked(
+                        &mut scan.damaged,
+                        row,
+                        bytes,
+                        limits,
+                        "damaged PDF object index",
+                    )?;
                     scan.objects.retain(|object| object.reference != target);
                     continue;
                 }
@@ -1576,11 +1574,7 @@ fn retain_length(
 ) -> Result<()> {
     let count = next_object_count(entries.len())?;
     let bytes = (count * std::mem::size_of::<(PdfRef, u64)>()) as u64;
-    limits.check_allocation(bytes)?;
-    let refused = limits.allocation_refused("fragment Length index", bytes);
-    reserve(entries, 1, refused)?;
-    entries.push(entry);
-    Ok(())
+    push_checked(entries, entry, bytes, limits, "fragment Length index")
 }
 
 /// Zlib framing locates a stream independently of marker-like payload bytes.

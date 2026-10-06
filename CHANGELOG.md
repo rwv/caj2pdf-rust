@@ -53,6 +53,11 @@
   are removed, and `TextComposer` takes plain `RangedSource` bitmap stores:
   the `BitmapView` revision trait is removed.
 
+- Internal: one byte-counting source, error locator, JBIG2 header-field
+  cursor, page-text record parser, bounded inflate loop and bounded-push
+  helper replace their per-module copies (#350); output is unchanged. The
+  counting adapter is public as `caj2pdf_core::CountingSource`.
+
 - Fix: font embedding permissions follow the least restrictive OS/2
   `fsType` licensing bit, so fonts that set both print and editable
   embedding (`fsType` 12, such as TeX Gyre) are accepted. Fonts whose

@@ -2,14 +2,15 @@
 
 //! Bounded HN/C8 type-0 image pages to PDF with a caller-supplied QM table.
 
-use super::{Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
+use super::{At, Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, Locate, Variant};
 use crate::jbig1::{
     Type0Budget, Type0Decoder, Type0Error, Type0Info, Type0Report, read_type0_info,
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
-    Cancellation, ConversionReport, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink,
+    Cancellation, ConversionReport, CountingSource, Error, Limits, MAX_BUDGET_COUNT, RangedSource,
+    SequentialSink,
 };
 use std::{error, fmt};
 
@@ -161,41 +162,24 @@ impl error::Error for Type0PdfError {
     }
 }
 
-#[derive(Clone, Copy)]
-struct At {
-    page: Option<u32>,
-    image: Option<u32>,
-    offset: Option<u64>,
+impl Locate for Type0PdfErrorKind {
+    type Error = Type0PdfError;
+
+    fn locate(self, at: At) -> Type0PdfError {
+        Type0PdfError {
+            page: at.page,
+            image: at.image,
+            offset: at.offset,
+            kind: self,
+        }
+    }
 }
 
-impl At {
-    const NONE: Self = Self {
-        page: None,
-        image: None,
-        offset: None,
-    };
-
-    fn error(self, kind: Type0PdfErrorKind) -> Type0PdfError {
-        Type0PdfError {
-            page: self.page,
-            image: self.image,
-            offset: self.offset,
-            kind,
-        }
-    }
-
-    fn pdf(self) -> impl FnOnce(Error) -> Type0PdfError {
-        move |error| self.error(Type0PdfErrorKind::Pdf(error))
-    }
-
-    fn image(self) -> impl FnOnce(Type0Error) -> Type0PdfError {
-        move |error| {
-            At {
-                offset: Some(error.offset),
-                ..self
-            }
+/// Locate a JBIG decoder error at its own offset within `at`.
+fn image_error(at: At) -> impl FnOnce(Type0Error) -> Type0PdfError {
+    move |error| {
+        at.with_offset(error.offset)
             .error(Type0PdfErrorKind::Image(Box::new(error)))
-        }
     }
 }
 
@@ -219,26 +203,6 @@ fn selected_container(error: Hnc8Error, selection: Type0ImageSelection) -> Type0
         converted.image = Some(selection.image_number);
     }
     converted
-}
-
-/// Counts bytes returned by every source read for the report.
-struct CountingSource<'a, S> {
-    inner: &'a mut S,
-    read: u64,
-}
-
-impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let count = self.inner.read_at(offset, destination).await?;
-        // Overreports are rejected by the callers' read helpers; saturate so
-        // this counter cannot mask them with an overflow panic.
-        self.read = self.read.saturating_add(count as u64);
-        Ok(count)
-    }
 }
 
 fn page_spec(width: u32, height: u32, pixels_per_inch: f64) -> PageSpec {
@@ -296,6 +260,7 @@ pub(super) async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Can
         page: Some(record.page_number),
         image: Some(record.image_number),
         offset: Some(record.descriptor_offset),
+        ..At::NONE
     };
     let span = record
         .type0_span()
@@ -312,9 +277,9 @@ pub(super) async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Can
         settings.image,
     )
     .await
-    .map_err(at.image())?;
-    while decoder.decode_next_row().await.map_err(at.image())? {}
-    decoder.finish().await.map_err(at.image())
+    .map_err(image_error(at))?;
+    while decoder.decode_next_row().await.map_err(image_error(at))? {}
+    decoder.finish().await.map_err(image_error(at))
 }
 
 /// The existing selected-image sample convention: visible width, top row first.
@@ -330,6 +295,7 @@ pub(super) async fn emit_type0_xobject<S: RangedSource, W: SequentialSink, C: Ca
         page: Some(record.page_number),
         image: Some(record.image_number),
         offset: Some(record.descriptor_offset),
+        ..At::NONE
     };
     let mut rows = document
         .begin_bilevel_image(BilevelImageSpec {
@@ -338,9 +304,9 @@ pub(super) async fn emit_type0_xobject<S: RangedSource, W: SequentialSink, C: Ca
             row_stride: checked.dib_stride,
         })
         .await
-        .map_err(at.pdf())?;
+        .map_err(at.wrap(Type0PdfErrorKind::Pdf))?;
     decode_type0_rows(source, record, contexts, &mut rows, settings).await?;
-    rows.finish().await.map_err(at.pdf())
+    rows.finish().await.map_err(at.wrap(Type0PdfErrorKind::Pdf))
 }
 
 async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
@@ -361,12 +327,15 @@ async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
         page: Some(record.page_number),
         image: Some(record.image_number),
         offset: Some(record.descriptor_offset),
+        ..At::NONE
     };
     let span = record
         .type0_span()
         .ok_or_else(|| at.error(Type0PdfErrorKind::UnsupportedImageType(record.record_type)))?;
     // Refuse a page beyond `max_pages` before its image is read, decoded, or written.
-    limits.check_pages(output_page).map_err(at.pdf())?;
+    limits
+        .check_pages(output_page)
+        .map_err(at.wrap(Type0PdfErrorKind::Pdf))?;
     let info = read_type0_info(
         reader.source_mut(),
         span,
@@ -376,7 +345,7 @@ async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
         options.image,
     )
     .await
-    .map_err(at.image())?;
+    .map_err(image_error(at))?;
     let object = emit_type0_xobject(
         reader.source_mut(),
         document,
@@ -398,7 +367,7 @@ async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
             &[object],
         )
         .await
-        .map_err(at.pdf())?;
+        .map_err(at.wrap(Type0PdfErrorKind::Pdf))?;
     Ok(())
 }
 
@@ -433,22 +402,21 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
     validate_options(options)?;
     let mut contexts = ContextBank::new(TYPE0_CONTEXTS, limits)
         .map_err(|error| At::NONE.error(Type0PdfErrorKind::Contexts(Box::new(error))))?;
-    let mut source = CountingSource {
-        inner: source,
-        read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut source = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut source, limits, cancellation, options.container)
         .await
         .map_err(container)?;
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
-        .map_err(At::NONE.pdf())?;
+        .map_err(At::NONE.wrap(Type0PdfErrorKind::Pdf))?;
     let mut images = 0_u64;
     while let Some(page) = reader.next_page().await.map_err(container)? {
         let at_page = At {
             page: Some(page.page_number),
             image: None,
             offset: Some(page.row_offset + 8),
+            ..At::NONE
         };
         match (page.image_count, options.multiple_images) {
             (0, _) => return Err(at_page.error(Type0PdfErrorKind::NoImages)),
@@ -476,8 +444,11 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
         }
     }
     let source_pages = reader.header().page_count;
-    let mut conversion = document.finish().await.map_err(At::NONE.pdf())?;
-    conversion.input_bytes_read = source.read;
+    let mut conversion = document
+        .finish()
+        .await
+        .map_err(At::NONE.wrap(Type0PdfErrorKind::Pdf))?;
+    conversion.input_bytes_read = input_bytes_read;
     Ok(Type0PdfReport {
         conversion,
         source_pages,
@@ -513,10 +484,8 @@ pub async fn convert_type0_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
     }
     let mut contexts = ContextBank::new(TYPE0_CONTEXTS, limits)
         .map_err(|error| At::NONE.error(Type0PdfErrorKind::Contexts(Box::new(error))))?;
-    let mut source = CountingSource {
-        inner: source,
-        read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut source = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::probe_at_page(
         &mut source,
         limits,
@@ -537,6 +506,7 @@ pub async fn convert_type0_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
             page: Some(page.page_number),
             image: Some(selection.image_number),
             offset: Some(page.row_offset + 8),
+            ..At::NONE
         }
         .error(Type0PdfErrorKind::InvalidSelection(
             "image number exceeds page image count",
@@ -562,10 +532,11 @@ pub async fn convert_type0_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
         page: Some(record.page_number),
         image: Some(record.image_number),
         offset: Some(record.descriptor_offset),
+        ..At::NONE
     };
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
-        .map_err(at.pdf())?;
+        .map_err(at.wrap(Type0PdfErrorKind::Pdf))?;
     emit_type0_image(
         &mut reader,
         &mut document,
@@ -580,8 +551,11 @@ pub async fn convert_type0_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
         },
     )
     .await?;
-    let mut conversion = document.finish().await.map_err(at.pdf())?;
-    conversion.input_bytes_read = source.read;
+    let mut conversion = document
+        .finish()
+        .await
+        .map_err(at.wrap(Type0PdfErrorKind::Pdf))?;
+    conversion.input_bytes_read = input_bytes_read;
     Ok(Type0SelectedPdfReport {
         conversion,
         source_variant: header.variant,
