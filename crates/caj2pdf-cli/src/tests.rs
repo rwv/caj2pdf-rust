@@ -4,14 +4,13 @@
 //! rendering, and the file helpers. Process behavior is in `tests/cli.rs`.
 
 use crate::CliError;
-use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
+use crate::command::{Command, Endpoint, parse};
 use crate::document::unsupported;
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
 };
-use crate::json::write_string;
 use crate::report::{
     Pages, write_application_info_warning, write_json, write_text, write_warnings,
 };
@@ -182,23 +181,87 @@ fn subcommands_parse_their_own_options() {
     );
 }
 
+fn help(values: &[&str]) -> String {
+    match parse_str(values) {
+        Ok(Command::Help(text)) => text,
+        other => panic!("{values:?}: expected help, got {other:?}"),
+    }
+}
+
 #[test]
 fn help_and_version_win_after_valid_arguments() {
-    assert_eq!(parse_str(&["--help"]), Ok(Command::Help(Topic::Convert)));
-    assert_eq!(parse_str(&["x", "-h"]), Ok(Command::Help(Topic::Convert)));
-    assert_eq!(
-        parse_str(&["inspect", "--help"]),
-        Ok(Command::Help(Topic::Inspect))
-    );
-    assert_eq!(
-        parse_str(&["add-bookmarks", "-h"]),
-        Ok(Command::Help(Topic::AddBookmarks))
-    );
+    assert_eq!(help(&["--help"]), help(&["x", "-h"]));
+    assert!(help(&["inspect", "--help"]).contains("caj2pdf inspect INPUT"));
+    assert!(help(&["add-bookmarks", "-h"]).contains("caj2pdf add-bookmarks SOURCE_CAJ"));
     assert_eq!(parse_str(&["-V"]), Ok(Command::Version));
     assert_eq!(parse_str(&["inspect", "--version"]), Ok(Command::Version));
-    for topic in [Topic::Convert, Topic::Inspect, Topic::AddBookmarks] {
-        assert!(topic.help().contains("Usage:"));
+    assert_eq!(parse_str(&["add-bookmarks", "-V"]), Ok(Command::Version));
+}
+
+/// Every option and positional argument documented in `docs/cli.md`
+/// appears in the help of its command.
+#[test]
+fn help_lists_every_documented_option() {
+    let cases: &[(&[&str], &[&str])] = &[
+        (
+            &["--help"],
+            &[
+                "Usage: caj2pdf INPUT [-o OUTPUT] [--force]",
+                "caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]",
+                "caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]",
+                "inspect",
+                "add-bookmarks",
+                "<INPUT>",
+                "-o, --output <OUTPUT>",
+                "-f, --force",
+                "-q, --quiet",
+                "--allow-damaged",
+                "--no-bookmarks",
+                "--fonts <DIR>",
+                "--font-cjk <FILE>",
+                "--font-latin <FILE>",
+                "--font-alternate-latin <FILE>",
+                "--font-latin-state3 <FILE>",
+                "--font-latin-state28 <FILE>",
+                "--font-latin-state31 <FILE>",
+                "--font-symbols <FILE>",
+                "--font-decoration <FILE>",
+                "--decoration-char <CHAR>",
+                "--no-system-fonts",
+                "-h, --help",
+                "-V, --version",
+                "Exit status: 0 on success, 3 for a partial PDF with blank pages,\n\
+                 2 for invalid arguments, 1 for other failures.",
+            ],
+        ),
+        (
+            &["inspect", "--help"],
+            &["<INPUT>", "--json", "--bookmarks", "--pages", "-h, --help"],
+        ),
+        (
+            &["add-bookmarks", "--help"],
+            &[
+                "<SOURCE_CAJ>",
+                "<INPUT_PDF>",
+                "-o, --output <OUTPUT_PDF>",
+                "-f, --force",
+                "-h, --help",
+                "At most one input may be -.",
+            ],
+        ),
+    ];
+    for (command, expected) in cases {
+        let text = help(command);
+        for option in *expected {
+            assert!(
+                text.contains(option),
+                "{command:?} lacks {option:?}:\n{text}"
+            );
+        }
     }
+    // Conversion options belong to conversion only.
+    let inspect = help(&["inspect", "--help"]);
+    assert!(!inspect.contains("--force") && !inspect.contains("--fonts"));
 }
 
 #[test]
@@ -211,13 +274,19 @@ fn invalid_arguments_are_usage_errors() {
         (&["add-bookmarks", "a", "b", "c"], "unexpected argument 'c'"),
         (&["add-bookmarks", "a", "b"], "requires -o OUTPUT_PDF"),
         (&["add-bookmarks", "-", "-", "-o", "x"], "only one input"),
-        (&["a", "-o"], "option '-o' requires a value"),
+        (&["a", "-o"], "option '--output' requires a value"),
         (&["a", "-o", "x", "--output=y"], "more than once"),
         (&["a", "--json"], "unrecognized option '--json'"),
         (&["inspect", "a", "-o", "x"], "unrecognized option '-o'"),
         (
             &["inspect", "a", "--output=x"],
-            "unrecognized option '--output=x'",
+            "unrecognized option '--output'",
+        ),
+        (&["inspect", "a", "b"], "unexpected argument 'b'"),
+        (&["-q", "inspect", "a"], "unexpected argument 'a'"),
+        (
+            &["a", "--force=yes"],
+            "unexpected value 'yes' for '--force'",
         ),
         (
             &["inspect", "a", "--force"],
@@ -264,21 +333,29 @@ fn default_output_is_a_distinct_sibling_pdf() {
     assert!(error.message.contains("-o OUTPUT"));
 }
 
-fn json_string(value: &str) -> String {
-    let mut out = Vec::new();
-    write_string(&mut out, value).unwrap();
-    String::from_utf8(out).unwrap()
-}
-
 #[test]
 fn json_strings_escape_quotes_backslashes_and_controls() {
-    assert_eq!(json_string(""), "\"\"");
-    assert_eq!(json_string("plain"), "\"plain\"");
-    assert_eq!(
-        json_string("a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}"),
-        "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}\""
-    );
-    assert_eq!(json_string("中文\u{20000}"), "\"中文\u{20000}\"");
+    let mut info = caj_inspection();
+    let json_title = |info: &Inspection| {
+        let text = render(true, info, true);
+        let start = text.find("\"title\":").unwrap() + 8;
+        let end = text.find(",\"page\":").unwrap();
+        text[start..end].to_owned()
+    };
+    for (title, expected) in [
+        ("", "\"\""),
+        ("plain", "\"plain\""),
+        (
+            "a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}",
+            "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}\"",
+        ),
+        // Backspace and form feed keep the \u escapes of schema version 1.
+        ("\u{8}\u{c}/", "\"\\u0008\\u000c/\""),
+        ("中文\u{20000}", "\"中文\u{20000}\""),
+    ] {
+        info.bookmarks = Some(vec![bookmark(0, title, 0)]);
+        assert_eq!(json_title(&info), expected, "{title:?}");
+    }
 }
 
 fn bookmark(depth: u32, title: &str, page_index: u32) -> Bookmark {
@@ -1312,14 +1389,16 @@ fn font_directory_and_two_required_roles_parse_without_optional_roles() {
     }
 }
 
-fn font_options(directory: &Path) -> crate::args::ConvertOptions {
-    crate::args::ConvertOptions {
+fn font_options(directory: &Path) -> crate::command::ConvertOptions {
+    crate::command::ConvertOptions {
         font_dir: Some(directory.to_owned()),
         ..Default::default()
     }
 }
 
-fn load_fonts(options: &crate::args::ConvertOptions) -> Result<crate::hnc8::Resources, CliError> {
+fn load_fonts(
+    options: &crate::command::ConvertOptions,
+) -> Result<crate::hnc8::Resources, CliError> {
     crate::hnc8::Resources::load(options, &caj2pdf_core::Limits::default())
 }
 
@@ -1359,7 +1438,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
             .message
             .contains("decoration.ttf")
     );
-    for name in crate::args::FONT_FILES {
+    for name in crate::command::FONT_FILES {
         fs::write(dir.0.join(format!("{name}.ttf")), name).unwrap();
     }
     let resources = load_fonts(&options).unwrap();

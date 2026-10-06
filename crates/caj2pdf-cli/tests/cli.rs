@@ -248,7 +248,7 @@ fn help_and_version_print_to_stdout() {
     ] {
         let output = scratch.run(args);
         assert_success(&output);
-        assert!(stdout(&output).contains("Usage:\n  caj2pdf "));
+        assert!(stdout(&output).contains("Usage: caj2pdf "));
     }
     let output = scratch.run(["--version"]);
     assert_success(&output);

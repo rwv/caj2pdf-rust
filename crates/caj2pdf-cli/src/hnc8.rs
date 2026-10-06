@@ -5,7 +5,7 @@
 
 use crate::{
     CliError,
-    args::{ConvertOptions, Endpoint, FONT_EXTENSIONS, FONT_FILES},
+    command::{ConvertOptions, Endpoint, FONT_EXTENSIONS, FONT_FILES},
     files::{Input, open_input},
 };
 use caj2pdf_core::{
