@@ -7,14 +7,12 @@ mod common;
 
 use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{
-        ComposeError, ComposeErrorKind, ComposeOptions, ComposeReport, ComposeStage, ErrorKind,
-        Variant,
-    },
+    Cancellation, Context, Error, ErrorKind, Hnc8Stage, Limits, NeverCancel, RangedSource,
+    hnc8::{ComposeOptions, ComposeReport, Variant},
 };
 use common::{
     CancelAfter,
+    errors::{page_image, stage_of},
     hnc8_document::{Image, RENDER_DPI, document},
 };
 use std::io::Write;
@@ -278,7 +276,7 @@ fn run(
     options: ComposeOptions,
     limits: &Limits,
     cancel: &impl Cancellation,
-) -> Result<ComposeReport, ComposeError> {
+) -> caj2pdf_core::Result<ComposeReport> {
     compose(source, sink, None, &mut (), options, limits, cancel)
 }
 
@@ -552,11 +550,8 @@ fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Container(_)),
-        "{error}"
-    );
-    assert_eq!((error.page, error.image), (Some(1), Some(2)));
+    assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
+    assert_eq!(page_image(&error), (Some(1), Some(2)));
     assert!(error.offset.is_some());
 
     let mut corrupt = built.bytes;
@@ -573,15 +568,14 @@ fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
     )
     .unwrap_err();
     assert!(
-        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Malformed { field: "JPEG SOI", .. })),
+        matches!(error.kind, ErrorKind::Malformed) && error.reason.starts_with("JPEG SOI"),
         "{error}"
     );
-    assert_eq!(error.stage, ComposeStage::Headers);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
     assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(1), Some(payload as u64))
+        (page_image(&error), error.offset),
+        ((Some(1), Some(1)), Some(payload as u64))
     );
-    assert!(error.source().is_some());
     assert!(find(&sink.bytes, b"/Subtype /Image").is_none());
 }
 
@@ -626,16 +620,18 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
     );
     assert!(
         matches!(
-            error.kind,
-            ComposeErrorKind::Io(Error::TruncatedInput { .. })
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                ..
+            }
         ),
         "{error}"
     );
-    assert_eq!(error.stage, ComposeStage::Pdf);
-    assert!(error.source().is_some());
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
     assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(1), Some(payload))
+        (page_image(&error), error.offset),
+        ((Some(1), Some(1)), Some(payload))
     );
 
     let mut sink = Sink {
@@ -648,11 +644,8 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
         ComposeOptions::default(),
         &Limits::default(),
     );
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))),
-        "{error}"
-    );
-    assert_eq!(error.stage, ComposeStage::Pdf);
+    assert!(matches!(error.kind, ErrorKind::Io(_)), "{error}");
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
 
     let error = run(
         &mut Source::new(built.bytes.clone()),
@@ -663,7 +656,7 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("cancelled"), "{error}");
-    assert!(error.source().is_some());
+    assert!(error.source().is_none());
 
     let limits = Limits {
         max_output_bytes: 100,
@@ -677,8 +670,11 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
     );
     assert!(
         matches!(
-            error.kind,
-            ComposeErrorKind::Io(Error::LimitExceeded { .. })
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                ..
+            }
         ),
         "{error}"
     );
@@ -694,9 +690,10 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
         &limits,
     );
     assert!(
-        matches!(&error.kind, ComposeErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. })),
+        matches!(error.kind, ErrorKind::LimitExceeded { .. }),
         "{error}"
     );
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Container));
 
     let mut source = Source::new(built.bytes);
     source.payload_start = Some(payload);
@@ -708,9 +705,7 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
         ComposeOptions::default(),
         &Limits::default(),
     );
-    assert!(
-        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Source { .. })),
-        "{error}"
-    );
+    assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
     assert!(find(&sink.bytes, b"/Subtype /Image").is_none());
 }

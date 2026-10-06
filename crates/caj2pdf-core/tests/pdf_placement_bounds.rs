@@ -6,7 +6,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Error, Limits, RangedSource, Result,
+    Error, ErrorKind, Limits, RangedSource, Result,
     pdf::{
         ImageEncoding, ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
         PdfDocument,
@@ -17,7 +17,13 @@ use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 fn assert_document_refusal<T>(result: Result<T>) {
-    assert!(matches!(result, Err(Error::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
+    ));
 }
 
 fn page() -> PageSpec {
@@ -89,7 +95,9 @@ impl RangedSource for GeneratedSource {
             return match fault {
                 Fault::Zero => Ok(0),
                 Fault::Overreport => Ok(destination.len() + 1),
-                Fault::Io => Err(Error::Io(io::Error::other("synthetic source failure"))),
+                Fault::Io => Err(Error::from(ErrorKind::Io(io::Error::other(
+                    "synthetic source failure",
+                )))),
             };
         }
         assert!(offset <= self.size, "reader requested a nonexistent range");
@@ -214,23 +222,34 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
                 bad.transform[component] = value;
                 let before = state.bytes.get();
                 let error = document.add_placed_page(page(), &[good, bad]).unwrap_err();
-                assert!(matches!(error, Error::InvalidInput { .. }), "{error:?}");
+                assert!(
+                    matches!(
+                        error,
+                        Error {
+                            kind: ErrorKind::Malformed,
+                            ..
+                        }
+                    ),
+                    "{error:?}"
+                );
                 assert_eq!(state.bytes.get(), before, "later component {component}");
             }
         }
         let before = state.bytes.get();
         let error = document.add_placed_page(page(), &[]).unwrap_err();
-        assert!(matches!(error, Error::InvalidInput { .. }));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         assert_eq!(state.bytes.get(), before);
         let too_many = vec![good; MAX_PAGE_IMAGE_PLACEMENTS + 1];
         let error = document.add_placed_page(page(), &too_many).unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "PDF image placements per page",
-                limit,
-                attempted,
-            } if limit == MAX_PAGE_IMAGE_PLACEMENTS as u64
+            Error { kind: ErrorKind::LimitExceeded { resource: "PDF image placements per page", limit, attempted, .. }, .. } if limit == MAX_PAGE_IMAGE_PLACEMENTS as u64
                 && attempted == MAX_PAGE_IMAGE_PLACEMENTS as u64 + 1
         ));
         assert_eq!(state.bytes.get(), before);
@@ -246,7 +265,13 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
                 },
             ] {
                 let error = document.add_placed_page(bad_page, &[good]).unwrap_err();
-                assert!(matches!(error, Error::InvalidInput { .. }));
+                assert!(matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Malformed,
+                        ..
+                    }
+                ));
                 assert_eq!(state.bytes.get(), before);
             }
         }
@@ -319,10 +344,14 @@ fn page_cap_refusal_leaves_existing_page_finishable() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "pages",
-                limit: 1,
-                attempted: 2,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "pages",
+                    limit: 1,
+                    attempted: 2,
+                    ..
+                },
+                ..
             }
         ));
         assert_eq!(state.bytes.get(), before);
@@ -351,7 +380,16 @@ fn object_index_budget_refusal_reserves_no_unwritten_page_objects() -> Result<()
         let error = document
             .add_placed_page(page(), &[placed(image)])
             .unwrap_err();
-        assert!(matches!(error, Error::LimitExceeded { .. }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::LimitExceeded { .. },
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
         assert_eq!(state.bytes.get(), before);
         document.finish()
     })()?;
@@ -399,16 +437,29 @@ fn invalid_image_specs_and_unavailable_ranges_are_refused_before_emission() -> R
             let error = document
                 .add_image(&mut source, offset, length, spec)
                 .unwrap_err();
-            assert!(matches!(error, Error::InvalidInput { .. }), "{error:?}");
+            assert!(
+                matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Malformed,
+                        ..
+                    }
+                ),
+                "{error:?}"
+            );
             assert_eq!(state.bytes.get(), before);
         }
         let error = document.add_image(&mut source, 9, 2, gray(2)).unwrap_err();
         assert!(matches!(
             error,
-            Error::TruncatedInput {
-                offset: 9,
-                expected: 2,
-                available: 1
+            Error {
+                kind: ErrorKind::Truncated {
+                    expected: 2,
+                    available: 1,
+                    ..
+                },
+                offset: Some(9),
+                ..
             }
         ));
         assert_eq!(state.bytes.get(), before);
@@ -426,7 +477,10 @@ fn invalid_image_specs_and_unavailable_ranges_are_refused_before_emission() -> R
         ] {
             assert!(matches!(
                 document.add_image(&mut source, 0, 1, spec),
-                Err(Error::LimitExceeded { .. })
+                Err(Error {
+                    kind: ErrorKind::LimitExceeded { .. },
+                    ..
+                })
             ));
             assert_eq!(state.bytes.get(), before);
         }
@@ -459,10 +513,14 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "PDF image stream bytes",
-                limit: 2_147_483_647,
-                attempted: 2_147_483_648
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF image stream bytes",
+                    limit: 2_147_483_647,
+                    attempted: 2_147_483_648,
+                    ..
+                },
+                ..
             }
         ));
         assert_eq!(state.bytes.get(), before);
@@ -471,10 +529,14 @@ fn stream_length_and_u64_range_edges_are_refused_without_reading() -> Result<()>
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::TruncatedInput {
-                offset: u64::MAX,
-                expected: 1,
-                available: 0,
+            Error {
+                kind: ErrorKind::Truncated {
+                    expected: 1,
+                    available: 0,
+                    ..
+                },
+                offset: Some(u64::MAX),
+                ..
             }
         ));
         assert_eq!(state.bytes.get(), before);
@@ -505,10 +567,14 @@ fn total_input_budget_is_checked_before_second_image_and_remains_recoverable() -
         let error = document.add_image(&mut refused, 0, 3, gray(3)).unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "input bytes",
-                limit: 5,
-                attempted: 6
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "input bytes",
+                    limit: 5,
+                    attempted: 6,
+                    ..
+                },
+                ..
             }
         ));
         assert_eq!(state.bytes.get(), before);
@@ -586,9 +652,27 @@ fn source_failure_after_partial_image_prevents_any_later_success() -> Result<()>
                 .add_image(&mut source, 0, 12, gray(12))
                 .unwrap_err();
             match fault {
-                Fault::Zero => assert!(matches!(error, Error::TruncatedInput { .. })),
-                Fault::Overreport => assert!(matches!(error, Error::InvalidInput { .. })),
-                Fault::Io => assert!(matches!(error, Error::Io(_))),
+                Fault::Zero => assert!(matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Truncated { .. },
+                        ..
+                    }
+                )),
+                Fault::Overreport => assert!(matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Malformed,
+                        ..
+                    }
+                )),
+                Fault::Io => assert!(matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Io(_),
+                        ..
+                    }
+                )),
             }
             assert!(
                 state.bytes.get() > before,
@@ -626,7 +710,10 @@ fn cancellation_after_source_read_prevents_completion_after_signal_is_reset() ->
         let before = state.bytes.get();
         assert!(matches!(
             document.add_image(&mut source, 0, 12, gray(12)),
-            Err(Error::Cancelled)
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
         ));
         assert!(state.bytes.get() > before);
         assert_eq!(source.calls, 1);
@@ -660,9 +747,15 @@ fn sink_failures_during_page_emission_poison_document_even_after_sink_recovers()
                 .unwrap_err();
             match fault {
                 Fault::Zero => assert!(
-                    matches!(error, Error::Io(ref e) if e.kind() == io::ErrorKind::WriteZero)
+                    matches!(error, Error { kind: ErrorKind::Io(ref e), .. } if e.kind() == io::ErrorKind::WriteZero)
                 ),
-                Fault::Io => assert!(matches!(error, Error::Io(_))),
+                Fault::Io => assert!(matches!(
+                    error,
+                    Error {
+                        kind: ErrorKind::Io(_),
+                        ..
+                    }
+                )),
                 Fault::Overreport => unreachable!(),
             }
             assert_eq!(state.bytes.get(), before + 5);
@@ -694,7 +787,10 @@ fn cancellation_between_short_sink_writes_poison_document_after_partial_page() -
         state.cancel_after_bytes.set(Some(before + 5));
         assert!(matches!(
             document.add_placed_page(page(), &[placed(image)]),
-            Err(Error::Cancelled)
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
         ));
         assert!(state.bytes.get() >= before + 5);
         state.cancel_after_bytes.set(None);
@@ -725,11 +821,7 @@ fn output_budget_failure_during_placed_page_prevents_any_later_success() -> Resu
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "output bytes",
-                limit: 512,
-                attempted,
-            } if attempted > 512
+            Error { kind: ErrorKind::LimitExceeded { resource: "output bytes", limit: 512, attempted, .. }, .. } if attempted > 512
         ));
         assert!(
             state.bytes.get() > before,
@@ -757,7 +849,13 @@ fn flush_failure_cannot_return_a_successful_conversion_report() -> Result<()> {
         document.finish()
     })()
     .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Io(_),
+            ..
+        }
+    ));
     assert_eq!(state.flushes.get(), 1);
     assert!(state.bytes.get() > 1);
     Ok(())

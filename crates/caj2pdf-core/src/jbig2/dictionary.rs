@@ -12,19 +12,20 @@
 //! already framed the segment.
 
 use super::{
-    FieldCursor, FieldFault, PreflightKind, PreflightSite, SegmentHeader, SegmentSpan,
+    FieldCursor, FieldFault, SegmentHeader, SegmentSpan, Site,
     generic::template2_context,
     iaid::{IAID_BASE, checked_symbol_index, decode_iaid},
     integer::{BITMAP_BASE, IntegerProcedure, IntegerValue, decode_integer},
-    mq::{ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
+    mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
     refinement::{
-        ReferenceStore, RefinementDecoder, RefinementError, RefinementProgress,
-        RefinementReference, RefinementRequest,
+        ReferenceStore, RefinementDecoder, RefinementProgress, RefinementReference,
+        RefinementRequest,
     },
+    unsupported,
 };
 use crate::fallible::try_convert;
-use crate::{Cancellation, Error, Limits, Payload, RangedSource};
-use std::{error, fmt, mem};
+use crate::{Cancellation, Context, Error, Limits, Payload, RangedSource, Result};
+use std::mem;
 
 /// Coding mode identified from the segment-data flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,125 +127,13 @@ pub struct DictionaryReport {
     pub progress: DictionaryProgress,
 }
 
-#[derive(Debug)]
-pub struct DictionaryError {
-    pub segment: u32,
-    pub offset: u64,
-    pub progress: Box<DictionaryProgress>,
-    pub kind: DictionaryErrorKind,
-}
-
-#[derive(Debug)]
-pub enum DictionaryErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    UnsupportedAt {
-        x: i8,
-        y: i8,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Source(Error),
-    Mq(Box<ArithmeticError>),
-    Refinement(Box<RefinementError>),
-}
-
-pub type DictionaryResult<T> = Result<T, DictionaryError>;
-
-impl fmt::Display for DictionaryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 symbol dictionary segment {} at source byte {}: ",
-            self.segment, self.offset
-        )?;
-        match &self.kind {
-            DictionaryErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            DictionaryErrorKind::Truncated(field) => write!(f, "truncated {field}"),
-            DictionaryErrorKind::Malformed(field) => write!(f, "malformed {field}"),
-            DictionaryErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            DictionaryErrorKind::UnsupportedAt { x, y } => {
-                write!(f, "unsupported adaptive pixel ({x}, {y})")
-            }
-            DictionaryErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => {
-                write!(f, "{resource} limit {limit} exceeded by {attempted}")
-            }
-            DictionaryErrorKind::AllocationFailed => f.write_str("allocation failed"),
-            DictionaryErrorKind::Cancelled => f.write_str("cancelled"),
-            DictionaryErrorKind::Source(source) => write!(f, "source: {source}"),
-            DictionaryErrorKind::Mq(source) => write!(f, "MQ: {source}"),
-            DictionaryErrorKind::Refinement(source) => write!(f, "refinement: {source}"),
-        }
-    }
-}
-
-impl error::Error for DictionaryError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            DictionaryErrorKind::Source(error) => Some(error),
-            DictionaryErrorKind::Mq(error) => Some(error),
-            DictionaryErrorKind::Refinement(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-impl PreflightKind for DictionaryErrorKind {
-    type Error = DictionaryError;
-
-    fn locate(self, site: PreflightSite) -> DictionaryError {
-        DictionaryError {
-            segment: site.segment,
-            offset: site.offset,
-            progress: Box::new(DictionaryProgress {
-                header_bytes_fetched: site.header_fetched,
-                ..DictionaryProgress::default()
-            }),
-            kind: self,
-        }
-    }
-}
-
-fn check_limit(
-    resource: &'static str,
-    limit: u64,
-    attempted: u64,
-) -> Result<(), DictionaryErrorKind> {
+/// Fail with an unlocated limit error when `attempted` exceeds `limit`.
+fn check_limit(resource: &'static str, limit: u64, attempted: u64) -> Result<()> {
     if attempted > limit {
-        Err(DictionaryErrorKind::LimitExceeded {
-            resource,
-            limit,
-            attempted,
-        })
+        Err(Error::limit(resource, limit, attempted))
     } else {
         Ok(())
     }
-}
-
-/// Check a cap at a preflight site.
-fn preflight_cap(
-    site: PreflightSite,
-    resource: &'static str,
-    limit: u64,
-    attempted: u64,
-) -> DictionaryResult<()> {
-    check_limit(resource, limit, attempted).map_err(|kind| site.error(kind))
 }
 
 struct HeaderCursor<'a> {
@@ -253,17 +142,16 @@ struct HeaderCursor<'a> {
 }
 
 impl HeaderCursor<'_> {
-    fn error(&self, kind: DictionaryErrorKind) -> DictionaryError {
-        self.error_at(self.fields.at, kind)
+    fn error(&self, error: Error) -> Error {
+        self.error_at(self.fields.at, error)
     }
 
-    fn error_at(&self, offset: u64, kind: DictionaryErrorKind) -> DictionaryError {
-        PreflightSite {
+    fn error_at(&self, offset: u64, error: Error) -> Error {
+        Site {
             segment: self.header.number,
             offset,
-            header_fetched: self.fields.fetched,
         }
-        .error(kind)
+        .locate(error)
     }
 
     fn read<const N: usize, S: RangedSource, C: Cancellation>(
@@ -271,27 +159,15 @@ impl HeaderCursor<'_> {
         source: &mut S,
         name: &'static str,
         cancellation: &C,
-    ) -> DictionaryResult<[u8; N]> {
+    ) -> Result<[u8; N]> {
         let mut bytes = [0u8; N];
         let result = self.fields.fill(source, cancellation, &mut bytes);
         result.map_err(|fault| self.fault(fault, name))?;
         Ok(bytes)
     }
 
-    fn fault(&self, fault: FieldFault, name: &'static str) -> DictionaryError {
-        match fault {
-            FieldFault::Overflow => {
-                self.error(DictionaryErrorKind::InvalidSpan("header offset overflow"))
-            }
-            FieldFault::PastEnd | FieldFault::Ended { .. } => {
-                self.error(DictionaryErrorKind::Truncated(name))
-            }
-            FieldFault::Cancelled => self.error(DictionaryErrorKind::Cancelled),
-            FieldFault::Source(error) => self.error(DictionaryErrorKind::Source(error)),
-            FieldFault::Overread => {
-                self.error(DictionaryErrorKind::Malformed("source read length"))
-            }
-        }
+    fn fault(&self, fault: FieldFault, name: &'static str) -> Error {
+        self.error(fault.error(self.fields.at, name))
     }
 }
 
@@ -303,23 +179,18 @@ fn data_header_bounds(
     limits: &Limits,
     cancellation: &dyn Cancellation,
     source_size: u64,
-) -> DictionaryResult<u64> {
-    let site = PreflightSite {
+) -> Result<u64> {
+    let site = Site {
         segment: header.number,
         offset: header.data.offset,
-        header_fetched: 0,
     };
     if cancellation.is_cancelled() {
-        return Err(site.error(DictionaryErrorKind::Cancelled));
+        return Err(site.locate(Error::cancelled()));
     }
     if header.segment_type != 0 {
-        return Err(site.error(DictionaryErrorKind::Unsupported {
-            feature: "segment type",
-            value: u64::from(header.segment_type),
-        }));
+        return Err(site.unsupported("segment type"));
     }
-    preflight_cap(
-        site,
+    site.cap(
         "dictionary data bytes",
         limits.max_input_bytes,
         header.data.length,
@@ -328,9 +199,9 @@ fn data_header_bounds(
         .data
         .offset
         .checked_add(header.data.length)
-        .ok_or_else(|| site.error(DictionaryErrorKind::InvalidSpan("data end overflow")))?;
+        .ok_or_else(|| site.malformed("data end overflow"))?;
     if end > source_size {
-        return Err(site.error(DictionaryErrorKind::InvalidSpan("data outside source")));
+        return Err(site.malformed("data outside source"));
     }
     Ok(end)
 }
@@ -346,7 +217,7 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     header: &SegmentHeader,
     limits: &Limits,
     cancellation: &C,
-) -> DictionaryResult<DictionaryDataHeader> {
+) -> Result<DictionaryDataHeader> {
     let end = data_header_bounds(header, limits, cancellation, source.size())?;
     let mut cursor = HeaderCursor {
         header,
@@ -360,7 +231,7 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     };
     let flags = u16::from_be_bytes(cursor.read(source, "dictionary flags", cancellation)?);
     let flags_error = |cursor: &HeaderCursor<'_>, reason| {
-        cursor.error_at(header.data.offset, DictionaryErrorKind::Malformed(reason))
+        cursor.error_at(header.data.offset, Error::invalid(reason))
     };
     if flags & 0xe000 != 0 {
         return Err(flags_error(&cursor, "reserved dictionary flags"));
@@ -412,7 +283,7 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         if y > 0 || (y == 0 && x >= 0) {
             return Err(cursor.error_at(
                 header.data.offset + 2,
-                DictionaryErrorKind::Malformed("adaptive pixel references undecoded pixel"),
+                Error::invalid("adaptive pixel references undecoded pixel"),
             ));
         }
     }
@@ -435,26 +306,28 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     if new_symbols > limits.max_symbols {
         return Err(cursor.error_at(
             new_offset,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "new symbols",
-                limit: u64::from(limits.max_symbols),
-                attempted: u64::from(new_symbols),
-            },
+            Error::limit(
+                "new symbols",
+                u64::from(limits.max_symbols),
+                u64::from(new_symbols),
+            ),
         ));
     }
     if exported_symbols > limits.max_symbols {
         return Err(cursor.error_at(
             exported_offset,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "exported symbols",
-                limit: u64::from(limits.max_symbols),
-                attempted: u64::from(exported_symbols),
-            },
+            Error::limit(
+                "exported symbols",
+                u64::from(limits.max_symbols),
+                u64::from(exported_symbols),
+            ),
         ));
     }
     let body_length = end - cursor.fields.at;
     if !huffman && body_length < 2 {
-        return Err(cursor.error(DictionaryErrorKind::Truncated("MQ body terminal pair")));
+        return Err(cursor.error(
+            Error::truncated(cursor.fields.at, 2, body_length).because("MQ body terminal pair"),
+        ));
     }
     Ok(DictionaryDataHeader {
         flags,
@@ -518,13 +391,13 @@ pub struct DictionaryStores<'a> {
 /// Validate the imported report against its segment and the caller's view of
 /// its store before any arithmetic, outside the generic decoder.
 fn validate_imported(
-    site: PreflightSite,
+    site: Site,
     segment: &SegmentHeader,
     imported: ImportedDictionary<'_>,
     store: (u64, u64),
-) -> DictionaryResult<()> {
+) -> Result<()> {
     let (store_size, store_base) = store;
-    let bad = |reason| site.error(DictionaryErrorKind::Malformed(reason));
+    let bad = |reason| site.malformed(reason);
     let imported_segment = imported.segment;
     let report = imported.report;
     if segment.referred_to.as_slice() != [imported_segment.number] {
@@ -627,72 +500,47 @@ fn check_header(
     stores: [(u64, u64); 2],
     context_count: usize,
     limits: &Limits,
-) -> DictionaryResult<Plan> {
-    let site = PreflightSite {
+) -> Result<Plan> {
+    let site = Site {
         segment: segment.number,
         offset: header.body.offset,
-        header_fetched: header.header_bytes,
     };
-    let unsupported =
-        |feature, value| site.error(DictionaryErrorKind::Unsupported { feature, value });
-    let malformed = |reason| site.error(DictionaryErrorKind::Malformed(reason));
+    let unsupported = |feature| site.unsupported(feature);
+    let malformed = |reason| site.malformed(reason);
     let refine = match header.mode {
         DictionaryMode::ArithmeticDirect => false,
         DictionaryMode::ArithmeticRefinementAggregate => true,
         DictionaryMode::HuffmanDirect | DictionaryMode::HuffmanRefinementAggregate => {
-            return Err(unsupported(
-                "Huffman symbol dictionary",
-                u64::from(header.flags),
-            ));
+            return Err(unsupported("Huffman symbol dictionary"));
         }
     };
     if !refine && header.template != 2 {
-        return Err(unsupported(
-            "dictionary generic template",
-            u64::from(header.template),
-        ));
+        return Err(unsupported("dictionary generic template"));
     }
     if header.bitmap_context_used || header.bitmap_context_retained {
-        return Err(unsupported(
-            "bitmap context carry",
-            u64::from(header.flags & 0x300),
-        ));
+        return Err(unsupported("bitmap context carry"));
     }
     if refine && (header.flags != 0x1802 || header.at[0] != (2, -1)) {
-        return Err(unsupported(
-            "second dictionary flags or adaptive template",
-            u64::from(header.flags),
-        ));
+        return Err(unsupported("second dictionary flags or adaptive template"));
     }
     if segment.page_association != 1 {
-        return Err(unsupported(
-            "dictionary page association",
-            u64::from(segment.page_association),
-        ));
+        return Err(unsupported("dictionary page association"));
     }
     if stores[1].1 != stores[1].0 {
-        return Err(site.error(DictionaryErrorKind::InvalidSpan(
-            "new store base differs from the store length",
-        )));
+        return Err(site.malformed("new store base differs from the store length"));
     }
     let imported_exports = match import {
         _ if !refine => {
             if !segment.referred_to.is_empty() {
-                return Err(unsupported(
-                    "imported dictionary references",
-                    segment.referred_to.len() as u64,
-                ));
+                return Err(unsupported("imported dictionary references"));
             }
             // The parsed template-2 AT was already checked as backwards-only.
             if header.at[0] != (2, -1) {
-                return Err(PreflightSite {
+                return Err(Site {
                     offset: segment.data.offset + 2,
                     ..site
                 }
-                .error(DictionaryErrorKind::UnsupportedAt {
-                    x: header.at[0].0,
-                    y: header.at[0].1,
-                }));
+                .unsupported("adaptive pixel"));
             }
             0
         }
@@ -703,7 +551,7 @@ fn check_header(
         }
         Some(import) => {
             validate_imported(
-                PreflightSite {
+                Site {
                     offset: segment.data.offset,
                     ..site
                 },
@@ -717,7 +565,7 @@ fn check_header(
     // Imported and declared counts are each bounded by u32 header fields.
     let total = imported_exports + u64::from(header.new_symbols);
     if refine {
-        preflight_cap(site, "total symbols", u64::from(limits.max_symbols), total)?;
+        site.cap("total symbols", u64::from(limits.max_symbols), total)?;
     }
     if u64::from(header.exported_symbols) > total {
         return Err(malformed("exported count exceeds available symbols"));
@@ -739,8 +587,7 @@ fn check_header(
     let new_metadata = u64::from(header.new_symbols) * mem::size_of::<SymbolDescriptor>() as u64;
     let export_metadata =
         u64::from(header.exported_symbols) * mem::size_of::<StoredSymbol>() as u64;
-    preflight_cap(
-        site,
+    site.cap(
         "catalog allocation bytes",
         limits.max_allocation_bytes,
         new_metadata + export_metadata,
@@ -748,11 +595,14 @@ fn check_header(
     Ok(Plan { refine, code_len })
 }
 
-fn reserve_catalog<T>(count: usize, site: PreflightSite) -> DictionaryResult<Vec<T>> {
+fn reserve_catalog<T>(count: usize, site: Site, limits: &Limits) -> Result<Vec<T>> {
     let mut entries = Vec::new();
-    entries
-        .try_reserve_exact(count)
-        .map_err(|_| site.error(DictionaryErrorKind::AllocationFailed))?;
+    entries.try_reserve_exact(count).map_err(|_| {
+        site.locate(limits.allocation_refused(
+            "catalog allocation bytes",
+            (count as u64).saturating_mul(mem::size_of::<T>() as u64),
+        ))
+    })?;
     Ok(entries)
 }
 
@@ -762,29 +612,16 @@ type SymbolGeometry = (u32, u32, u64, u64);
 
 /// Validate one decoded symbol size before any bitmap work. Not generic, so
 /// every decoder instantiation shares it; the caller locates the returned
-/// error kind at the current MQ offset.
-fn symbol_geometry(
-    width: i64,
-    height: i64,
-    limits: &Limits,
-) -> Result<SymbolGeometry, DictionaryErrorKind> {
+/// error at the current MQ offset.
+fn symbol_geometry(width: i64, height: i64, limits: &Limits) -> Result<SymbolGeometry> {
     if width < 0 || height < 0 {
-        return Err(DictionaryErrorKind::Malformed("negative symbol dimension"));
+        return Err(Error::invalid("negative symbol dimension"));
     }
     if width == 0 || height == 0 {
-        return Err(DictionaryErrorKind::Unsupported {
-            feature: "zero-dimension symbol bitmap",
-            value: 0,
-        });
+        return Err(unsupported("zero-dimension symbol bitmap"));
     }
-    let width = try_convert(
-        width,
-        DictionaryErrorKind::Malformed("symbol width exceeds 32 bits"),
-    )?;
-    let height = try_convert(
-        height,
-        DictionaryErrorKind::Malformed("symbol height exceeds 32 bits"),
-    )?;
+    let width = try_convert(width, Error::invalid("symbol width exceeds 32 bits"))?;
+    let height = try_convert(height, Error::invalid("symbol height exceeds 32 bits"))?;
     // A product of two u32 dimensions fits u64 exactly.
     let pixels = u64::from(width) * u64::from(height);
     check_limit("symbol pixels", limits.max_image_pixels, pixels)?;
@@ -829,7 +666,7 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
-    ) -> DictionaryResult<Self> {
+    ) -> Result<Self> {
         let header = read_dictionary_data_header(&mut { input }, segment, limits, cancellation)?;
         let plan = check_header(
             segment,
@@ -842,13 +679,12 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             contexts.len(),
             limits,
         )?;
-        let site = PreflightSite {
+        let site = Site {
             segment: segment.number,
             offset: header.body.offset,
-            header_fetched: header.header_bytes,
         };
-        let new_symbols = reserve_catalog(header.new_symbols as usize, site)?;
-        let exported_symbols = reserve_catalog(header.exported_symbols as usize, site)?;
+        let new_symbols = reserve_catalog(header.new_symbols as usize, site, limits)?;
+        let exported_symbols = reserve_catalog(header.exported_symbols as usize, site, limits)?;
         // T.88 §7.4.2.2 resets all arithmetic-integer statistics at each new
         // dictionary, and no bitmap context reuse is accepted.
         contexts.reset();
@@ -856,13 +692,8 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             offset: header.body.offset,
             length: header.body.length,
         };
-        let mq = MqDecoder::new(input, span, table, contexts, limits).map_err(|error| {
-            PreflightSite {
-                offset: error.offset.unwrap_or(site.offset),
-                ..site
-            }
-            .error(DictionaryErrorKind::Mq(Box::new(error)))
-        })?;
+        let mq = MqDecoder::new(input, span, table, contexts, limits)
+            .map_err(|error| site.locate(error))?;
         let progress = DictionaryProgress {
             header_bytes_fetched: header.header_bytes,
             mq: Some(mq.snapshot()),
@@ -899,10 +730,11 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
     /// Decode all new symbols, ordered exports, and the exact MQ terminal
     /// sequence. `Ok` is the only state in which the catalog and the new
     /// store are valid.
-    pub fn decode(mut self) -> DictionaryResult<DictionaryReport> {
-        let segment = self.segment;
-        let initial_offset = self.mq.snapshot().input_offset;
-        let initial_progress = self.progress();
+    pub fn decode(mut self) -> Result<DictionaryReport> {
+        let site = Site {
+            segment: self.segment,
+            offset: self.mq.snapshot().input_offset,
+        };
         let mut session = Session {
             segment: self.segment,
             header: self.header,
@@ -924,12 +756,7 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
                 self.limits,
                 self.cancellation,
             )
-            .map_err(|error| DictionaryError {
-                segment,
-                offset: error.offset.unwrap_or(initial_offset),
-                progress: Box::new(initial_progress),
-                kind: DictionaryErrorKind::Refinement(Box::new(error)),
-            })?;
+            .map_err(|error| site.locate(error))?;
             Unit::Refined(Box::new(host))
         } else {
             Unit::Direct {
@@ -944,9 +771,13 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
         drop(unit);
         decoded?;
         let expected = self.mq.snapshot().symbols_decoded;
+        let offset = self.mq.snapshot().input_offset;
         let snapshot = self.mq.finish(expected).map_err(|error| {
-            let offset = error.offset.unwrap_or(self.mq.snapshot().input_offset);
-            self.error(DictionaryErrorKind::Mq(Box::new(error)), offset)
+            Site {
+                segment: self.segment,
+                offset,
+            }
+            .locate(error)
         })?;
         self.progress.mq = Some(snapshot);
         Ok(DictionaryReport {
@@ -954,15 +785,6 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             catalog: self.catalog,
             progress: self.progress,
         })
-    }
-
-    fn error(&self, kind: DictionaryErrorKind, offset: u64) -> DictionaryError {
-        DictionaryError {
-            segment: self.segment,
-            offset,
-            progress: Box::new(self.progress()),
-            kind,
-        }
     }
 }
 
@@ -1003,51 +825,25 @@ struct Session<'s, C: Cancellation> {
 }
 
 impl<C: Cancellation> Session<'_, C> {
-    /// An error with the session's progress, the coding unit's snapshot, and
-    /// the refinement host's progress when there is one.
-    fn error_with(
-        &self,
-        mq: Option<ArithmeticSnapshot>,
-        refinement: Option<RefinementProgress>,
-        kind: DictionaryErrorKind,
-    ) -> DictionaryError {
-        let mut progress = *self.progress;
-        if let Some(refinement) = refinement {
-            progress.refinement = refinement;
-        }
-        progress.mq = mq;
-        DictionaryError {
-            segment: self.segment,
-            offset: mq.map_or(self.header.body.offset, |snapshot| snapshot.input_offset),
-            progress: Box::new(progress),
-            kind,
-        }
+    /// Locate an unlocated error at the next MQ byte of the coding unit.
+    fn locate(&self, mq: Option<ArithmeticSnapshot>, error: Error) -> Error {
+        error.or_at(
+            mq.map_or(self.header.body.offset, |snapshot| snapshot.input_offset),
+            Context::Jbig2 {
+                segment: Some(self.segment),
+            },
+        )
     }
 
-    fn error(&self, unit: &Unit<'_, '_, C>, kind: DictionaryErrorKind) -> DictionaryError {
+    fn error(&self, unit: &Unit<'_, '_, C>, error: Error) -> Error {
         match unit {
-            Unit::Direct { mq, .. } => self.error_with(Some(mq.snapshot()), None, kind),
-            Unit::Refined(host) => {
-                let progress = host.progress();
-                self.error_with(progress.mq, Some(progress), kind)
-            }
+            Unit::Direct { mq, .. } => self.locate(Some(mq.snapshot()), error),
+            Unit::Refined(host) => self.locate(host.progress().mq, error),
         }
     }
 
-    /// Locate an error at its own offset when it has one.
-    fn located(
-        &self,
-        unit: &Unit<'_, '_, C>,
-        offset: Option<u64>,
-        kind: DictionaryErrorKind,
-    ) -> DictionaryError {
-        let mut error = self.error(unit, kind);
-        error.offset = offset.unwrap_or(error.offset);
-        error
-    }
-
-    fn malformed(&self, unit: &Unit<'_, '_, C>, reason: &'static str) -> DictionaryError {
-        self.error(unit, DictionaryErrorKind::Malformed(reason))
+    fn malformed(&self, unit: &Unit<'_, '_, C>, reason: &'static str) -> Error {
+        self.error(unit, Error::invalid(reason))
     }
 
     fn cap(
@@ -1056,46 +852,35 @@ impl<C: Cancellation> Session<'_, C> {
         resource: &'static str,
         maximum: u64,
         attempted: u64,
-    ) -> DictionaryResult<()> {
-        check_limit(resource, maximum, attempted).map_err(|kind| self.error(unit, kind))
+    ) -> Result<()> {
+        check_limit(resource, maximum, attempted).map_err(|error| self.error(unit, error))
     }
 
-    fn check_cancelled(&self, unit: &Unit<'_, '_, C>) -> DictionaryResult<()> {
+    fn check_cancelled(&self, unit: &Unit<'_, '_, C>) -> Result<()> {
         if self.cancellation.is_cancelled() {
-            Err(self.error(unit, DictionaryErrorKind::Cancelled))
+            Err(self.error(unit, Error::cancelled()))
         } else {
             Ok(())
         }
     }
 
     /// The next value of a `u32` counter, refusing a wrap.
-    fn next_count(
-        &self,
-        unit: &Unit<'_, '_, C>,
-        value: u32,
-        field: &'static str,
-    ) -> DictionaryResult<u32> {
+    fn next_count(&self, unit: &Unit<'_, '_, C>, value: u32, field: &'static str) -> Result<u32> {
         value
             .checked_add(1)
-            .ok_or_else(|| self.error(unit, DictionaryErrorKind::InvalidSpan(field)))
+            .ok_or_else(|| self.malformed(unit, field))
     }
 
     fn integer(
         &self,
         unit: &mut Unit<'_, '_, C>,
         procedure: IntegerProcedure,
-    ) -> DictionaryResult<IntegerValue> {
-        decode_integer(unit.mq(), procedure).map_err(|error| {
-            let offset = error.offset;
-            self.located(unit, offset, DictionaryErrorKind::Mq(Box::new(error)))
-        })
+    ) -> Result<IntegerValue> {
+        decode_integer(unit.mq(), procedure).map_err(|error| self.error(unit, error))
     }
 
-    fn iaid(&self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<u64> {
-        decode_iaid(unit.mq(), self.plan.code_len).map_err(|error| {
-            let offset = error.offset;
-            self.located(unit, offset, DictionaryErrorKind::Mq(Box::new(error)))
-        })
+    fn iaid(&self, unit: &mut Unit<'_, '_, C>) -> Result<u64> {
+        decode_iaid(unit.mq(), self.plan.code_len).map_err(|error| self.error(unit, error))
     }
 
     fn signed(
@@ -1103,7 +888,7 @@ impl<C: Cancellation> Session<'_, C> {
         unit: &Unit<'_, '_, C>,
         value: IntegerValue,
         field: &'static str,
-    ) -> DictionaryResult<i64> {
+    ) -> Result<i64> {
         match value {
             IntegerValue::Signed(value) => Ok(value),
             IntegerValue::OutOfBand => Err(self.malformed(unit, field)),
@@ -1130,14 +915,9 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// Check one decoded size before any bitmap work, including the three
     /// working rows of a direct bitmap; a refinement host checks its own.
-    fn geometry(
-        &self,
-        unit: &Unit<'_, '_, C>,
-        width: i64,
-        height: i64,
-    ) -> DictionaryResult<SymbolGeometry> {
+    fn geometry(&self, unit: &Unit<'_, '_, C>, width: i64, height: i64) -> Result<SymbolGeometry> {
         let geometry =
-            symbol_geometry(width, height, self.limits).map_err(|kind| self.error(unit, kind))?;
+            symbol_geometry(width, height, self.limits).map_err(|error| self.error(unit, error))?;
         if let Unit::Direct { .. } = unit {
             let scratch = u64::from(geometry.0).div_ceil(8) * 3;
             self.cap(
@@ -1150,7 +930,7 @@ impl<C: Cancellation> Session<'_, C> {
         Ok(geometry)
     }
 
-    fn decode_all(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
+    fn decode_all(&mut self, unit: &mut Unit<'_, '_, C>) -> Result<()> {
         self.decode_symbols(unit)?;
         self.decode_exports(unit)?;
         self.check_cancelled(unit)
@@ -1158,7 +938,7 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// T.88 §6.5.5 steps 4b–4c: height classes of new symbols, each either a
     /// direct bitmap or the single-reference refinement of an earlier symbol.
-    fn decode_symbols(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
+    fn decode_symbols(&mut self, unit: &mut Unit<'_, '_, C>) -> Result<()> {
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
             self.check_cancelled(unit)?;
@@ -1215,7 +995,7 @@ impl<C: Cancellation> Session<'_, C> {
         unit: &mut Unit<'_, '_, C>,
         width: u32,
         height: u32,
-    ) -> DictionaryResult<SymbolDescriptor> {
+    ) -> Result<SymbolDescriptor> {
         let instances = self.integer(unit, IntegerProcedure::Iaai)?;
         let instances = self.signed(unit, instances, "REFAGGNINST OOB")?;
         if instances == 0 {
@@ -1227,13 +1007,7 @@ impl<C: Cancellation> Session<'_, C> {
         }
         if instances > 1 {
             self.progress.iaai.aggregation += 1;
-            return Err(self.error(
-                unit,
-                DictionaryErrorKind::Unsupported {
-                    feature: "REFAGGNINST aggregation",
-                    value: instances as u64,
-                },
-            ));
+            return Err(self.error(unit, unsupported("REFAGGNINST aggregation")));
         }
         self.progress.iaai.single_reference += 1;
         let raw_id = self.iaid(unit)?;
@@ -1270,14 +1044,7 @@ impl<C: Cancellation> Session<'_, C> {
         };
         match host.decode_bitmap(store, request) {
             Ok(report) => Ok(report.target),
-            Err(error) => {
-                let offset = error.offset;
-                Err(self.located(
-                    unit,
-                    offset,
-                    DictionaryErrorKind::Refinement(Box::new(error)),
-                ))
-            }
+            Err(error) => Err(self.error(unit, error)),
         }
     }
 
@@ -1291,10 +1058,9 @@ impl<C: Cancellation> Session<'_, C> {
         height: u32,
         pixels: u64,
         bytes: u64,
-    ) -> DictionaryResult<SymbolDescriptor> {
-        let fail = |session: &Self, mq: &MqDecoder<'_>, kind| {
-            session.error_with(Some(mq.snapshot()), None, kind)
-        };
+    ) -> Result<SymbolDescriptor> {
+        let fail =
+            |session: &Self, mq: &MqDecoder<'_>, error| session.locate(Some(mq.snapshot()), error);
         let relative_store_offset = self.progress.stored_bitmap_bytes;
         // The store is in memory, so its length fits a `u64`.
         let attempted = (store.len() as u64).saturating_add(bytes);
@@ -1302,29 +1068,35 @@ impl<C: Cancellation> Session<'_, C> {
             return Err(fail(
                 self,
                 mq,
-                DictionaryErrorKind::LimitExceeded {
-                    resource: "symbol store bytes",
-                    limit: self.limits.max_allocation_bytes,
+                Error::limit(
+                    "symbol store bytes",
+                    self.limits.max_allocation_bytes,
                     attempted,
-                },
+                ),
             ));
         }
         // `bytes` fits the allocation limit, hence a `usize` on this target.
         if store.try_reserve(bytes as usize).is_err() {
-            return Err(fail(self, mq, DictionaryErrorKind::AllocationFailed));
+            let refused = self
+                .limits
+                .allocation_refused("symbol store bytes", attempted);
+            return Err(fail(self, mq, refused));
         }
         // At most 2^29 bytes; even wasm32's usize can represent it.
         let stride = width.div_ceil(8) as usize;
         for row in &mut self.rows {
             if row.len() < stride && row.try_reserve_exact(stride - row.len()).is_err() {
-                return Err(fail(self, mq, DictionaryErrorKind::AllocationFailed));
+                let refused = self
+                    .limits
+                    .allocation_refused("row scratch bytes", stride as u64);
+                return Err(fail(self, mq, refused));
             }
             row.resize(stride, 0);
             row.fill(0);
         }
         for _ in 0..height {
             if self.cancellation.is_cancelled() {
-                return Err(fail(self, mq, DictionaryErrorKind::Cancelled));
+                return Err(fail(self, mq, Error::cancelled()));
             }
             for x in 0..width {
                 let [previous_two, previous_one, current] = &self.rows;
@@ -1332,12 +1104,7 @@ impl<C: Cancellation> Session<'_, C> {
                     BITMAP_BASE + template2_context(previous_two, previous_one, current, width, x);
                 let bit = match mq.decode_bit(context) {
                     Ok(bit) => bit,
-                    Err(error) => {
-                        let offset = error.offset;
-                        let mut located = fail(self, mq, DictionaryErrorKind::Mq(Box::new(error)));
-                        located.offset = offset.unwrap_or(located.offset);
-                        return Err(located);
-                    }
+                    Err(error) => return Err(fail(self, mq, error)),
                 };
                 if bit {
                     self.rows[2][x as usize / 8] |= 0x80 >> (x % 8);
@@ -1366,7 +1133,7 @@ impl<C: Cancellation> Session<'_, C> {
     /// T.88 §6.5.10: alternating export runs over the imported exports and
     /// the new symbols. The first IAEX decode precedes the repeat-until
     /// condition, so even a zero-total dictionary consumes one zero run.
-    fn decode_exports(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
+    fn decode_exports(&mut self, unit: &mut Unit<'_, '_, C>) -> Result<()> {
         let total = self.imported.len() + self.catalog.new_symbols.len();
         let mut index = 0usize;
         let mut export = false;

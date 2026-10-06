@@ -44,7 +44,7 @@ impl<'a, S> CountingSource<'a, S> {
     }
 
     /// Reject a count larger than the destination as
-    /// [`Error::InvalidInput`] with `reason`.
+    /// an invalid-input [`Error`] with `reason`.
     pub fn rejecting_overread(self, reason: &'static str) -> Self {
         Self {
             overread: Some(reason),
@@ -63,7 +63,7 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
         if read <= destination.len() {
             *self.bytes_read = self.bytes_read.saturating_add(len_u64(read));
         } else if let Some(reason) = self.overread {
-            return Err(Error::InvalidInput { reason });
+            return Err(Error::invalid(reason));
         }
         Ok(read)
     }
@@ -79,9 +79,7 @@ impl RangedSource for &[u8] {
         let start = usize::try_from(offset)
             .ok()
             .filter(|&start| start <= self.len())
-            .ok_or(Error::InvalidInput {
-                reason: "read starts beyond source size",
-            })?;
+            .ok_or(Error::invalid("read starts beyond source size"))?;
         let count = destination.len().min(self.len() - start);
         destination[..count].copy_from_slice(&self[start..start + count]);
         Ok(count)
@@ -105,9 +103,7 @@ impl<'a> Payload<'a> {
     pub fn new(offset: u64, bytes: &'a [u8]) -> Result<Self> {
         offset
             .checked_add(len_u64(bytes.len()))
-            .ok_or(Error::InvalidInput {
-                reason: "payload end overflows 64-bit offset",
-            })?;
+            .ok_or(Error::invalid("payload end overflows 64-bit offset"))?;
         Ok(Self { offset, bytes })
     }
 
@@ -147,9 +143,9 @@ impl RangedSource for Payload<'_> {
     }
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let relative = offset.checked_sub(self.offset).ok_or(Error::InvalidInput {
-            reason: "read starts before the payload",
-        })?;
+        let relative = offset
+            .checked_sub(self.offset)
+            .ok_or(Error::invalid("read starts before the payload"))?;
         self.bytes.read_at(relative, destination)
     }
 }
@@ -180,9 +176,7 @@ pub fn read_payload<'a, S: RangedSource, C: Cancellation>(
         // Each chunk starts below `length`, which fits a `usize`.
         let at = offset
             .checked_add(len_u64(index * chunk_bytes))
-            .ok_or(Error::InvalidInput {
-                reason: "payload offset overflows 64-bit offset",
-            })?;
+            .ok_or(Error::invalid("payload offset overflows 64-bit offset"))?;
         read_exact_at(source, at, chunk, limits, cancellation)?;
     }
     Payload::new(offset, buffer)
@@ -206,27 +200,21 @@ impl Cancellation for NeverCancel {
 
 fn check_cancelled<C: Cancellation>(cancellation: &C) -> Result<()> {
     if cancellation.is_cancelled() {
-        Err(Error::Cancelled)
+        Err(crate::ErrorKind::Cancelled.into())
     } else {
         Ok(())
     }
 }
 
 fn check_range(source_size: u64, offset: u64, length: u64) -> Result<()> {
-    let end = offset.checked_add(length).ok_or(Error::InvalidInput {
-        reason: "range end overflows 64-bit offset",
-    })?;
+    let end = offset
+        .checked_add(length)
+        .ok_or(Error::invalid("range end overflows 64-bit offset"))?;
     if offset > source_size {
-        return Err(Error::InvalidInput {
-            reason: "range starts beyond source size",
-        });
+        return Err(Error::invalid("range starts beyond source size"));
     }
     if end > source_size {
-        return Err(Error::TruncatedInput {
-            offset,
-            expected: length,
-            available: source_size - offset,
-        });
+        return Err(Error::truncated(offset, length, source_size - offset));
     }
     Ok(())
 }
@@ -247,11 +235,11 @@ pub fn read_exact_at<S: RangedSource, C: Cancellation>(
     let length = len_u64(destination.len());
     limits.check_input_size(length)?;
     if destination.len() > limits.io_chunk_bytes {
-        return Err(Error::LimitExceeded {
-            resource: "I/O request bytes",
-            limit: len_u64(limits.io_chunk_bytes),
-            attempted: length,
-        });
+        return Err(Error::limit(
+            "I/O request bytes",
+            len_u64(limits.io_chunk_bytes),
+            length,
+        ));
     }
     check_range(source.size(), offset, length)?;
     check_cancelled(cancellation)?;
@@ -260,24 +248,16 @@ pub fn read_exact_at<S: RangedSource, C: Cancellation>(
     while done < destination.len() {
         let current = offset
             .checked_add(len_u64(done))
-            .ok_or(Error::InvalidInput {
-                reason: "read offset overflows 64-bit offset",
-            })?;
+            .ok_or(Error::invalid("read offset overflows 64-bit offset"))?;
         let remaining = &mut destination[done..];
         let read = source.read_at(current, remaining)?;
         if read > remaining.len() {
-            return Err(Error::InvalidInput {
-                reason: "source reported more bytes than requested",
-            });
+            return Err(Error::invalid("source reported more bytes than requested"));
         }
         done += read;
         check_cancelled(cancellation)?;
         if read == 0 {
-            return Err(Error::TruncatedInput {
-                offset,
-                expected: length,
-                available: len_u64(done),
-            });
+            return Err(Error::truncated(offset, length, len_u64(done)));
         }
     }
     Ok(())
@@ -297,15 +277,13 @@ pub(crate) fn write_counted<W: Write + ?Sized, C: Cancellation>(
 ) -> Result<()> {
     let attempted = output_bytes_written
         .checked_add(len_u64(bytes.len()))
-        .ok_or(Error::InvalidInput {
-            reason: "output byte count overflows 64 bits",
-        })?;
+        .ok_or(Error::invalid("output byte count overflows 64 bits"))?;
     if attempted > limits.max_output_bytes {
-        return Err(Error::LimitExceeded {
-            resource: "output bytes",
-            limit: limits.max_output_bytes,
+        return Err(Error::limit(
+            "output bytes",
+            limits.max_output_bytes,
             attempted,
-        });
+        ));
     }
     check_cancelled(cancellation)?;
     // A zero chunk size is refused by `Limits::validate` at the entry point.
@@ -321,6 +299,7 @@ pub(crate) fn write_counted<W: Write + ?Sized, C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ErrorKind;
     use crate::test_support::CancelAfter;
     use std::io;
 
@@ -362,7 +341,10 @@ mod tests {
         let mut count = 4;
         assert!(matches!(
             write_counted(&mut sink, b"xy", &mut count, &limits, &NeverCancel),
-            Err(Error::LimitExceeded { attempted: 6, .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { attempted: 6, .. },
+                ..
+            })
         ));
         assert_eq!((count, sink.len()), (4, 0));
         count = u64::MAX;
@@ -374,7 +356,10 @@ mod tests {
                 &Limits::default(),
                 &NeverCancel
             ),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
     }
 
@@ -387,7 +372,13 @@ mod tests {
         let mut count = 0;
         let error =
             write_counted(&mut sink, b"abcde", &mut count, &chunked(2), &NeverCancel).unwrap_err();
-        assert!(matches!(error, Error::Io(_)));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Io(_),
+                ..
+            }
+        ));
         assert_eq!((count, sink.bytes.as_slice()), (2, &b"abc"[..]));
     }
 
@@ -399,18 +390,36 @@ mod tests {
         let cancellation = CancelAfter::new(1);
         assert!(matches!(
             write_counted(&mut sink, b"abc", &mut count, &chunked(1), &cancellation),
-            Err(Error::Cancelled)
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
         ));
         assert_eq!((count, sink.as_slice()), (1, &b"a"[..]));
     }
 
     #[test]
     fn core_errors_cross_an_io_write_adapter_unchanged() {
-        let carried = io::Error::from(Error::Cancelled);
-        assert!(matches!(Error::from(carried), Error::Cancelled));
+        let carried = io::Error::from(Error::cancelled());
+        assert!(matches!(
+            Error::from(carried),
+            Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }
+        ));
         let plain = io::Error::other("disk failed");
-        assert!(matches!(Error::from(plain), Error::Io(_)));
-        let io = io::Error::from(Error::Io(io::Error::new(io::ErrorKind::BrokenPipe, "x")));
+        assert!(matches!(
+            Error::from(plain),
+            Error {
+                kind: ErrorKind::Io(_),
+                ..
+            }
+        ));
+        let io = io::Error::from(Error::from(ErrorKind::Io(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "x",
+        ))));
         assert_eq!(io.kind(), io::ErrorKind::BrokenPipe);
     }
 }

@@ -3,8 +3,8 @@
 //! One routing rule for documents converted with optional native fonts.
 
 use super::*;
+use crate::hnc8::TextFraming;
 use crate::hnc8::native_page::admits_native_mode;
-use crate::hnc8::{ErrorKind, TextFraming};
 use std::io::Write;
 
 /// Whether native composition is chosen for this document.
@@ -29,11 +29,7 @@ use std::io::Write;
 /// descriptor uses image composition, which reports it. A failed source read
 /// or cancellation is returned. Reads are ranged and bounded by `limits`; no
 /// image payload is read and no text is retained.
-pub fn uses_native_text<S, C>(
-    source: &mut S,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<bool, ComposeError>
+pub fn uses_native_text<S, C>(source: &mut S, limits: &Limits, cancellation: &C) -> Result<bool>
 where
     S: RangedSource,
     C: Cancellation,
@@ -42,19 +38,19 @@ where
     let mut reader = match Hnc8Reader::open(source, limits, cancellation) {
         Ok(reader) if !admits_native_mode(reader.header()) => return Ok(false),
         Ok(reader) => reader,
-        Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+        Err(error) => return image_unless_fatal(error, Hnc8Stage::Container),
     };
     loop {
         let page = match reader.next_page() {
             Ok(Some(page)) => page,
             Ok(None) => return Ok(false),
-            Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+            Err(error) => return image_unless_fatal(error, Hnc8Stage::Container),
         };
         loop {
             match reader.next_image() {
                 Ok(Some(_)) => {}
                 Ok(None) => break,
-                Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+                Err(error) => return image_unless_fatal(error, Hnc8Stage::Container),
             }
         }
         if page.text.length == 0 {
@@ -65,16 +61,16 @@ where
         }
         return match reader.inspect_text() {
             Ok(text) => Ok(text.framing == TextFraming::Native),
-            Err(error) => image_unless_fatal(error, ComposeStage::Text).map(|_| true),
+            Err(error) => image_unless_fatal(error, Hnc8Stage::Text).map(|_| true),
         };
     }
 }
 
 /// A located document defect selects image composition, which reports it;
 /// only failures independent of the document bytes are returned.
-fn image_unless_fatal(error: Hnc8Error, stage: ComposeStage) -> Result<bool, ComposeError> {
+fn image_unless_fatal(error: Error, stage: Hnc8Stage) -> Result<bool> {
     match error.kind {
-        ErrorKind::Cancelled | ErrorKind::Source { .. } => Err(container(error, stage)),
+        ErrorKind::Cancelled | ErrorKind::Io(_) => Err(container(error, stage)),
         _ => Ok(false),
     }
 }
@@ -98,7 +94,7 @@ pub fn convert_document_pdf<S, F, W, V, C>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError>
+) -> Result<ComposeReport>
 where
     S: RangedSource,
     F: RangedSource,

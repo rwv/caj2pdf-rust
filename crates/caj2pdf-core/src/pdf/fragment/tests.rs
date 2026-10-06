@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::Context;
+use crate::test_support::pdf_class;
 use crate::test_support::{CancelAfter, NEVER};
 use std::io::Write;
 use std::{cell::Cell, io};
@@ -283,11 +285,11 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
             let expected = match case {
                 0 => {
                     replace_in_object(&mut source, objects[3], b"/Count 2", b"/Count 3");
-                    PdfErrorKind::Malformed
+                    "malformed"
                 }
                 1 => {
                     replace_in_object(&mut source, objects[1], b"/Parent 7", b"/Parent 5");
-                    PdfErrorKind::Malformed
+                    "malformed"
                 }
                 2 => {
                     replace_in_object(
@@ -296,11 +298,11 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
                         b"/Kids [9 0 R 7 0 R]",
                         b"/Kids [9 0 R 5 0 R]",
                     );
-                    PdfErrorKind::Malformed
+                    "malformed"
                 }
                 3 => {
                     pages.reverse();
-                    PdfErrorKind::AmbiguousRepair
+                    "ambiguous"
                 }
                 _ => {
                     objects.push(add_object(
@@ -308,7 +310,7 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
                         1,
                         b"<< /Type /Catalog /Pages 5 0 R >>",
                     ));
-                    PdfErrorKind::AmbiguousRepair
+                    "ambiguous"
                 }
             };
             let mut sink = BytesSink::default();
@@ -326,10 +328,7 @@ fn malformed_page_tree_links_counts_cycles_and_catalog_fail_before_output() {
                 &NEVER,
             )
             .unwrap_err();
-            assert!(
-                matches!(error, Error::Pdf { kind, .. } if kind == expected),
-                "case {case}: {error}"
-            );
+            assert!(pdf_class(&error) == Some(expected), "case {case}: {error}");
             assert!(sink.bytes.is_empty());
         }
     };
@@ -354,7 +353,11 @@ fn ambiguous_parent_and_repeated_pages_fail_before_writing() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf { .. })
+            Err(Error {
+                kind: _,
+                context: Context::Pdf { .. },
+                ..
+            })
         ));
         assert!(sink.bytes.is_empty());
 
@@ -373,8 +376,9 @@ fn ambiguous_parent_and_repeated_pages_fail_before_writing() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             })
         ));
@@ -404,7 +408,10 @@ fn a_sink_failure_never_returns_a_success_report() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Io(_))
+            Err(Error {
+                kind: ErrorKind::Io(_),
+                ..
+            })
         ));
         assert!(!sink.bytes.is_empty());
     };
@@ -431,8 +438,9 @@ fn malformed_indirect_stream_length_fails_before_output() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -463,9 +471,12 @@ fn output_limits_bound_writes_and_input_limits_precede_them() {
                 &limits,
                 &NEVER
             ),
-            Err(Error::LimitExceeded {
-                resource: "output bytes",
-                limit: 100,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "output bytes",
+                    limit: 100,
+                    ..
+                },
                 ..
             })
         ));
@@ -490,13 +501,7 @@ fn output_limits_bound_writes_and_input_limits_precede_them() {
         assert!(
             matches!(
                 error,
-                Error::PdfLimitExceeded {
-                    object: Some((number, 0)),
-                    resource: "input bytes",
-                    limit,
-                    attempted,
-                    ..
-                } if number == objects[1].reference.number
+                Error { kind: ErrorKind::LimitExceeded { resource: "input bytes", limit, attempted, .. }, context: Context::Pdf { object: Some((number, 0)), .. }, .. } if number == objects[1].reference.number
                     && limit == first
                     && attempted == first + objects[1].range.length
             ),
@@ -531,8 +536,9 @@ fn outline_destinations_must_target_ordered_pages() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "outline destination does not target an ordered Page object",
                 ..
             })
@@ -559,8 +565,9 @@ fn outline_destinations_must_target_ordered_pages() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::UnsupportedFeature,
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -590,12 +597,7 @@ fn outline_count_limit_is_checked_before_writing() {
         };
         assert!(matches!(
             reconstruct_fragment_with_bookmarks(&mut source, &mut sink, &plan, &[], &limits, &NEVER),
-            Err(Error::PdfLimitExceeded {
-                resource: "bookmarks",
-                offset,
-                object: Some((12, 0)),
-                ..
-            }) if offset == outline.range.offset
+            Err(Error { kind: ErrorKind::LimitExceeded { resource: "bookmarks", .. }, offset: Some(offset), context: Context::Pdf { object: Some((12, 0)), .. }, .. }) if offset == outline.range.offset
         ));
         assert!(sink.bytes.is_empty());
 
@@ -632,19 +634,15 @@ fn requested_object_counts_are_bounded_and_located() {
     assert_eq!(requested_objects(limit - 4, 1, None).unwrap(), limit);
     assert!(matches!(
         requested_objects(limit - 3, 1, Some(&first)),
-        Err(Error::PdfLimitExceeded {
-            offset: 40,
-            object: Some((7, 0)),
-            resource: "PDF object count",
-            attempted,
-            ..
-        }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
+        Err(Error { kind: ErrorKind::LimitExceeded { resource: "PDF object count", attempted, .. }, offset: Some(40), context: Context::Pdf { object: Some((7, 0)), .. }, .. }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
     ));
     for (objects, bookmarks) in [(usize::MAX - 1, 0), (0, usize::MAX), (usize::MAX - 2, 1)] {
         assert!(matches!(
             requested_objects(objects, bookmarks, None),
-            Err(Error::InvalidInput {
-                reason: "PDF object count overflows address space"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF object count overflows address space",
+                ..
             })
         ));
     }
@@ -705,7 +703,17 @@ fn duplicate_overlapping_and_truncated_spans_fail_before_output() {
             )
             .unwrap_err();
             assert!(
-                matches!(error, Error::Pdf { .. } | Error::TruncatedInput { .. }),
+                matches!(
+                    error,
+                    Error {
+                        kind: _,
+                        context: Context::Pdf { .. },
+                        ..
+                    } | Error {
+                        kind: ErrorKind::Truncated { .. },
+                        ..
+                    }
+                ),
                 "case {case}: {error}"
             );
             assert!(sink.bytes.is_empty());
@@ -733,8 +741,9 @@ fn missing_reference_generation_and_syntax_limit_are_typed() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "indirect reference targets a missing object",
                 ..
             })
@@ -757,8 +766,9 @@ fn missing_reference_generation_and_syntax_limit_are_typed() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::UnsupportedFeature,
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -784,8 +794,12 @@ fn missing_reference_generation_and_syntax_limit_are_typed() {
                 &limits,
                 &NEVER
             ),
-            Err(Error::PdfLimitExceeded {
-                resource: "PDF object syntax bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF object syntax bytes",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             })
         ));
@@ -853,8 +867,9 @@ fn missing_root_rejects_nested_nodes_and_non_page_kids() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             })
         ));
@@ -876,8 +891,9 @@ fn missing_root_rejects_nested_nodes_and_non_page_kids() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -994,8 +1010,9 @@ fn repeated_page_tree_links_cannot_expand_the_walk_stack() {
     };
     assert!(matches!(
         validate_existing_page_tree(&plan, &records, &kinds, &Limits::default()),
-        Err(Error::Pdf {
-            kind: PdfErrorKind::AmbiguousRepair,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Pdf { repair: true, .. },
             ..
         })
     ));
@@ -1013,11 +1030,11 @@ fn page_inventory_and_branch_parent_must_agree() {
                         11,
                         b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 100 100] >>",
                     ));
-                    PdfErrorKind::AmbiguousRepair
+                    "ambiguous"
                 }
                 _ => {
                     replace_in_object(&mut source, objects[2], b"/Parent 5", b"/Parent 9");
-                    PdfErrorKind::Malformed
+                    "malformed"
                 }
             };
             let plan = FragmentPlan {
@@ -1035,10 +1052,7 @@ fn page_inventory_and_branch_parent_must_agree() {
                 &NEVER,
             )
             .unwrap_err();
-            assert!(
-                matches!(error, Error::Pdf { kind, .. } if kind == expected),
-                "case {case}: {error}"
-            );
+            assert!(pdf_class(&error) == Some(expected), "case {case}: {error}");
             assert!(sink.bytes.is_empty());
         }
     };
@@ -1064,8 +1078,9 @@ fn page_media_box_must_be_direct_or_inherited_from_the_page_tree() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -1088,8 +1103,9 @@ fn page_media_box_must_be_direct_or_inherited_from_the_page_tree() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             })
         ));
@@ -1175,8 +1191,9 @@ fn page_contents_references_only_streams_or_one_indirect_stream_array() {
             } else {
                 let rejected = matches!(
                     result,
-                    Err(Error::Pdf {
-                        kind: PdfErrorKind::Malformed,
+                    Err(Error {
+                        kind: ErrorKind::Malformed,
+                        context: Context::Pdf { repair: false, .. },
                         ..
                     })
                 );
@@ -1265,8 +1282,9 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
                     &Limits::default(),
                     &NEVER,
                 ),
-                Err(Error::Pdf {
-                    kind: PdfErrorKind::Malformed,
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Pdf { repair: false, .. },
                     ..
                 })
             ));
@@ -1290,8 +1308,9 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             })
         ));
@@ -1326,8 +1345,9 @@ fn malformed_spans_and_orphaned_ordered_pages_fail_before_output() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             })
         ));
@@ -1380,7 +1400,10 @@ fn cancellation_before_input_and_during_flush_never_reports_success() {
                 &Limits::default(),
                 &cancelled,
             ),
-            Err(Error::Cancelled)
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
         ));
         assert!(sink.bytes.is_empty());
 
@@ -1398,7 +1421,10 @@ fn cancellation_before_input_and_during_flush_never_reports_success() {
                 &Limits::default(),
                 &cancellation,
             ),
-            Err(Error::Cancelled)
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
         ));
         assert!(!sink.bytes.is_empty());
     };
@@ -1509,7 +1535,14 @@ fn invalid_fragment_bookmarks_fail_before_any_output() {
                 &Limits::default(),
                 &NEVER,
             );
-            assert!(matches!(result, Err(Error::Pdf { .. })));
+            assert!(matches!(
+                result,
+                Err(Error {
+                    kind: _,
+                    context: Context::Pdf { .. },
+                    ..
+                })
+            ));
             assert!(sink.bytes.is_empty());
         }
         let limits = Limits {
@@ -1529,7 +1562,14 @@ fn invalid_fragment_bookmarks_fail_before_any_output() {
             &limits,
             &NEVER,
         );
-        assert!(matches!(result, Err(Error::PdfLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                context: Context::Pdf { .. },
+                ..
+            })
+        ));
         assert!(sink.bytes.is_empty());
     };
 }
@@ -1610,8 +1650,10 @@ fn source_that_over_reports_reads_is_rejected() {
                 &Limits::default(),
                 &NEVER,
             ),
-            Err(Error::InvalidInput {
-                reason: "PDF source reported more bytes than requested"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF source reported more bytes than requested",
+                ..
             })
         ));
         assert!(sink.bytes.is_empty());
@@ -1661,10 +1703,16 @@ fn fragment_span_total_overflow_is_an_input_limit_before_reads() {
         assert!(
             matches!(
                 error,
-                Error::PdfLimitExceeded {
-                    object: Some((3, 0)),
-                    resource: "input bytes",
-                    attempted: u64::MAX,
+                Error {
+                    kind: ErrorKind::LimitExceeded {
+                        resource: "input bytes",
+                        attempted: u64::MAX,
+                        ..
+                    },
+                    context: Context::Pdf {
+                        object: Some((3, 0)),
+                        ..
+                    },
                     ..
                 }
             ),
@@ -1697,13 +1745,7 @@ fn page_limit_names_the_first_ordered_page_span() {
         assert!(
             matches!(
                 error,
-                Error::PdfLimitExceeded {
-                    resource: "pages",
-                    object: Some((9, 0)),
-                    offset,
-                    limit: 1,
-                    attempted: 2,
-                } if offset == objects[0].range.offset
+                Error { kind: ErrorKind::LimitExceeded { resource: "pages", limit: 1, attempted: 2, .. }, offset: Some(offset), context: Context::Pdf { object: Some((9, 0)), .. }, .. } if offset == objects[0].range.offset
             ),
             "{error}"
         );
@@ -1736,10 +1778,14 @@ fn outline_depth_is_bounded_before_output() {
         assert!(
             matches!(
                 error,
-                Error::PdfLimitExceeded {
-                    resource: "PDF outline depth",
-                    limit: 256,
-                    attempted: 257,
+                Error {
+                    kind: ErrorKind::LimitExceeded {
+                        resource: "PDF outline depth",
+                        limit: 256,
+                        attempted: 257,
+                        ..
+                    },
+                    context: Context::Pdf { .. },
                     ..
                 }
             ),
@@ -1897,7 +1943,10 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
                 &Limits::default(),
                 &cancellation,
             ) {
-                Err(Error::Cancelled) => allowed += 1,
+                Err(Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }) => allowed += 1,
                 result => {
                     let report = result.expect("only cancellation may stop the run");
                     assert!(allowed >= 100, "only {allowed} cancellation checks");
@@ -1930,12 +1979,7 @@ fn references_beyond_the_object_profile_are_unsupported() {
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    kind: PdfErrorKind::UnsupportedFeature,
-                    object: Some((12, 0)),
-                    offset,
-                    reason: "indirect reference exceeds the supported PDF profile",
-                } if offset == extra.range.offset
+                Error { kind: ErrorKind::UnsupportedFormat, offset: Some(offset), context: Context::Pdf { object: Some((12, 0)), repair: false }, reason: "indirect reference exceeds the supported PDF profile", .. } if offset == extra.range.offset
             ),
             "{error}"
         );

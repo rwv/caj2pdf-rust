@@ -16,7 +16,7 @@ use crate::caj::CajPageRow;
 use crate::fallible::reserve;
 use crate::pdf::writer::MAX_PDF_OBJECTS;
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
-use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
+use crate::{Cancellation, Error, ErrorKind, Limits, RangedSource, Result};
 use std::collections::BTreeMap;
 
 /// Bytes past the page table's body end that may finish the final object.
@@ -220,16 +220,14 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
 ) -> Result<FragmentScan> {
     limits.validate()?;
     if body_start >= minimum_end || minimum_end > source.size() {
-        return Err(Error::Caj {
-            offset: body_start,
-            record: None,
-            reason: "CAJ PDF fragment body range is invalid",
-        });
+        return Err(
+            Error::malformed(body_start, "CAJ PDF fragment body range is invalid").in_caj(None),
+        );
     }
     let minimum_relative = minimum_end - body_start;
     limits
         .check_input_size(minimum_relative)
-        .map_err(|error| error.locate_caj_limit(body_start, None))?;
+        .map_err(|error| error.at(body_start).in_caj(None))?;
     let scan_end = minimum_end
         .saturating_add(MAX_FRAGMENT_TAIL_EXTENSION)
         .min(source.size());
@@ -380,11 +378,11 @@ fn index_object(pass: &mut Pass<'_>, framed: Framed) -> Result<u64> {
     if let Some(value) = framed.integer {
         let count = pass.lengths.len() as u64;
         if count >= u64::from(MAX_PDF_OBJECTS) {
-            return Err(Error::LimitExceeded {
-                resource: "fragment Length index",
-                limit: u64::from(MAX_PDF_OBJECTS),
-                attempted: count + 1,
-            });
+            return Err(Error::limit(
+                "fragment Length index",
+                u64::from(MAX_PDF_OBJECTS),
+                count + 1,
+            ));
         }
         let first = *pass.lengths.entry(reference).or_insert(value);
         pass.conflicting_lengths |= first != value;
@@ -471,7 +469,7 @@ fn frame_object<S: RangedSource, C: Cancellation>(
         return Err(reader.problem(
             start,
             Some(reference),
-            PdfErrorKind::UnsupportedFeature,
+            ErrorKind::UnsupportedFormat,
             "CAJ PDF fragment has a nonzero object generation",
         ));
     }
@@ -634,12 +632,14 @@ fn finish<S: RangedSource, C: Cancellation>(
         if let Some(marker) = find_endstream(reader, after, reader.range.length)?
             && reader.check_stream_tail(marker, None).is_ok()
         {
-            return Err(reader.problem(
-                marker,
-                None,
-                PdfErrorKind::AmbiguousRepair,
-                "repaired final stream has a later stream terminator",
-            ));
+            return Err(reader
+                .problem(
+                    marker,
+                    None,
+                    ErrorKind::Malformed,
+                    "repaired final stream has a later stream terminator",
+                )
+                .ambiguous_repair());
         }
     }
     reader
@@ -659,12 +659,14 @@ fn finish<S: RangedSource, C: Cancellation>(
             .binary_search_by_key(&object.range.offset, |actual| actual.object.range.offset)
             .is_ok_and(|index| pass.objects[index].object == object);
         if !confirmed {
-            return Err(reader.problem(
-                object.range.offset.saturating_sub(body_start),
-                Some(object.reference),
-                PdfErrorKind::AmbiguousRepair,
-                "recovery candidate is not a complete fragment object",
-            ));
+            return Err(reader
+                .problem(
+                    object.range.offset.saturating_sub(body_start),
+                    Some(object.reference),
+                    ErrorKind::Malformed,
+                    "recovery candidate is not a complete fragment object",
+                )
+                .ambiguous_repair());
         }
     }
     compact_replays(reader, &mut pass.objects)?;
@@ -771,12 +773,14 @@ fn compact_replays<S: RangedSource, C: Cancellation>(
                 compared += amount as u64;
             }
             if !equal {
-                return Err(reader.problem(
-                    object.range.offset - body_start,
-                    Some(object.reference),
-                    PdfErrorKind::AmbiguousRepair,
-                    "duplicate indirect object differs from original",
-                ));
+                return Err(reader
+                    .problem(
+                        object.range.offset - body_start,
+                        Some(object.reference),
+                        ErrorKind::Malformed,
+                        "duplicate indirect object differs from original",
+                    )
+                    .ambiguous_repair());
             }
         } else {
             objects.swap(kept, index);
@@ -800,11 +804,7 @@ pub(super) fn push_capped<T>(
     resource: &'static str,
 ) -> Result<()> {
     let attempted = items.len() as u64 + 1;
-    let limit = Error::LimitExceeded {
-        resource,
-        limit: cap,
-        attempted,
-    };
+    let limit = Error::limit(resource, cap, attempted);
     if attempted > cap {
         return Err(limit);
     }
@@ -814,13 +814,7 @@ pub(super) fn push_capped<T>(
 }
 
 fn is_malformed(error: &Error) -> bool {
-    matches!(
-        error,
-        Error::Pdf {
-            kind: PdfErrorKind::Malformed,
-            ..
-        }
-    )
+    error.is_malformed_pdf()
 }
 
 #[cfg(test)]

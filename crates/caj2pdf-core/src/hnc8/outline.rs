@@ -2,8 +2,8 @@
 
 //! Independently observed HN-A outline records; see docs/research/hnc8-outline-fields.md.
 
-use super::{ErrorKind, Hnc8Reader, Location, Result, Variant, read_fixed};
-use crate::{Bookmark, BookmarkVisitor, Cancellation, Error, RangedSource, gb18030};
+use super::{Hnc8Reader, Location, Variant, read_fixed};
+use crate::{Bookmark, BookmarkVisitor, Cancellation, RangedSource, Result, gb18030};
 use std::fmt;
 
 /// Defects whose location [`OutlineReport`] retains; later ones are only counted.
@@ -125,16 +125,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         loc: Location,
     ) -> Result<OutlineReport> {
         if self.cancellation.is_cancelled() {
-            return Err(loc.error(ErrorKind::Cancelled));
+            return Err(loc.cancelled());
         }
         let Some(count) = self.declared_bookmark_count() else {
-            return Err(loc.error(ErrorKind::Unsupported {
-                field: "outline variant",
-                value: 0,
-            }));
+            return Err(loc.unsupported("outline variant"));
         };
         if max_depth == 0 {
-            return Err(loc.malformed("outline depth", "depth limit must be positive"));
+            return Err(loc.malformed("outline depth: depth limit must be positive"));
         }
         if output_pages > self.limits.max_pages {
             return Err(loc.limit(
@@ -190,11 +187,8 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 }
                 let title = match gb18030::decode(&record[..title_end]) {
                     Ok(title) => title,
-                    Err(error) => {
-                        break 'entry Err((
-                            offset + error.offset as u64,
-                            "title is not valid GB18030",
-                        ));
+                    Err(at) => {
+                        break 'entry Err((offset + at as u64, "title is not valid GB18030"));
                     }
                 };
                 let page_at = offset + 280;
@@ -255,13 +249,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     depth: written - 1,
                     page_index,
                 })
-                .map_err(|source| match source {
-                    Error::Cancelled => at.error(ErrorKind::Cancelled),
-                    source => at.error(ErrorKind::Source {
-                        field: "outline visitor",
-                        source,
-                    }),
-                })?;
+                .map_err(|source| at.locate(source))?;
             report.written += 1;
             written_level = written;
         }

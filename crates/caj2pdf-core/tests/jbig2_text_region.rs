@@ -8,13 +8,13 @@ mod common;
 use common::CancelAfter;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, RangedSource,
+    Cancellation, Context, Error, ErrorKind, Limits, RangedSource,
     jbig2::{
         SegmentHeader, SegmentSpan, read_segment_header,
         text::{
             ReferenceCorner, RegionCombination, SymbolCombination, TextHeaderAnomaly,
-            TextHeaderPolicy, TextRegionError, TextRegionErrorKind, TextRegionHeader,
-            read_text_region_header, read_text_region_header_with_policy,
+            TextHeaderPolicy, TextRegionHeader, read_text_region_header,
+            read_text_region_header_with_policy,
         },
     },
 };
@@ -66,8 +66,12 @@ impl RangedSource for Source {
         }
         match self.fault {
             Fault::Overreport => return Ok(destination.len() + 1),
-            Fault::Fail => return Err(Error::Io(io::Error::other("test source failure"))),
-            Fault::Cancelled => return Err(Error::Cancelled),
+            Fault::Fail => {
+                return Err(Error::from(ErrorKind::Io(io::Error::other(
+                    "test source failure",
+                ))));
+            }
+            Fault::Cancelled => return Err(Error::cancelled()),
             Fault::ZeroAt(at) if offset >= at => return Ok(0),
             _ => {}
         }
@@ -177,7 +181,7 @@ impl Region {
 fn parse_with(
     source: &mut Source,
     cancellation: &impl Cancellation,
-) -> Result<TextRegionHeader, TextRegionError> {
+) -> Result<TextRegionHeader, Error> {
     parse_limited(source, Limits::default(), cancellation)
 }
 
@@ -185,23 +189,20 @@ fn parse_limited(
     source: &mut Source,
     limits: Limits,
     cancellation: &impl Cancellation,
-) -> Result<TextRegionHeader, TextRegionError> {
+) -> Result<TextRegionHeader, Error> {
     let header = parse_header(&source.bytes);
     read_text_region_header(source, &header, &dictionary(2, 1), &limits, cancellation)
 }
 
-fn parse(region: &Region) -> Result<TextRegionHeader, TextRegionError> {
+fn parse(region: &Region) -> Result<TextRegionHeader, Error> {
     parse_with(&mut Source::new(region.segment()), &CancelAfter::Never)
 }
 
-fn error(region: &Region) -> TextRegionError {
+fn error(region: &Region) -> Error {
     parse(region).expect_err("header must be rejected")
 }
 
-fn parse_policy(
-    region: &Region,
-    policy: TextHeaderPolicy,
-) -> Result<TextRegionHeader, TextRegionError> {
+fn parse_policy(region: &Region, policy: TextHeaderPolicy) -> Result<TextRegionHeader, Error> {
     let mut source = Source::new(region.segment());
     let header = parse_header(&source.bytes);
     read_text_region_header_with_policy(
@@ -350,19 +351,19 @@ fn measured_refinement_template_conflict_is_located_with_raw_flags() {
         flags: 0xa40c,
         ..Region::default()
     });
-    assert_eq!(error.segment, 3);
-    assert_eq!(error.offset, DATA_OFFSET + 17);
-    assert_eq!(error.bytes_fetched, 19);
+    assert_eq!(error.context, Context::Jbig2 { segment: Some(3) });
+    assert_eq!(error.offset, Some(DATA_OFFSET + 17));
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::MalformedFlags {
-            field: "SBRTEMPLATE without SBREFINE",
-            raw: 0xa40c
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "SBRTEMPLATE without SBREFINE",
+            ..
         }
     ));
     assert_eq!(
         error.to_string(),
-        "JBIG2 text region segment 3 at source byte 29: malformed SBRTEMPLATE without SBREFINE (flags 0xa40c)"
+        "malformed JBIG2 at byte 29, segment 3: SBRTEMPLATE without SBREFINE"
     );
 }
 
@@ -398,10 +399,11 @@ fn explicit_hn_c8_policy_retains_raw_anomaly_and_canonical_body() {
     );
     assert_eq!(accepted.flags.combination, canonical.flags.combination);
     assert!(matches!(
-        parse_policy(&malformed, TextHeaderPolicy::Strict)
-            .unwrap_err()
-            .kind,
-        TextRegionErrorKind::MalformedFlags { raw: 0xa40c, .. }
+        parse_policy(&malformed, TextHeaderPolicy::Strict).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
 }
 
@@ -416,9 +418,10 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
             TextHeaderPolicy::HnC8UnusedRefinementTemplate,
         )
         .unwrap_err();
-        assert_eq!(error.offset, DATA_OFFSET + 17);
+        assert_eq!(error.offset, Some(DATA_OFFSET + 17));
         assert!(
-            matches!(error.kind, TextRegionErrorKind::MalformedFlags { raw: found, .. } if found == raw)
+            matches!(error.kind, ErrorKind::Malformed),
+            "{raw:#06x}: {error}"
         );
     }
     let valid_refinement = parse_policy(
@@ -449,8 +452,12 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Malformed("reference differs from the supplied dictionary")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference differs from the supplied dictionary",
+            ..
+        }
     ));
     assert!(source.reads.is_empty());
 
@@ -464,8 +471,12 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Malformed("reserved region segment flags")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reserved region segment flags",
+            ..
+        }
     ));
 
     let mut source = Source::new(bytes.clone());
@@ -481,10 +492,11 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Unsupported {
-            feature: "text region segment type",
-            value: 7
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "text region segment type",
+            ..
         }
     ));
     assert!(source.reads.is_empty());
@@ -502,8 +514,12 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Malformed("immediate region without a page")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "immediate region without a page",
+            ..
+        }
     ));
     assert!(source.reads.is_empty());
 }
@@ -570,13 +586,9 @@ fn malformed_huffman_flags_are_located() {
             huffman_flags: Some(huffman),
             ..Region::default()
         });
-        assert_eq!(error.offset, DATA_OFFSET + 19, "{huffman:#06x}");
-        match error.kind {
-            TextRegionErrorKind::MalformedFlags { field: got, raw } => {
-                assert_eq!((got, raw), (field, huffman));
-            }
-            other => panic!("unexpected {other:?}"),
-        }
+        assert_eq!(error.offset, Some(DATA_OFFSET + 19), "{huffman:#06x}");
+        assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
+        assert_eq!(error.reason, field, "{huffman:#06x}");
     }
 }
 
@@ -586,18 +598,26 @@ fn region_information_is_validated() {
         region_flags: 0x08,
         ..Region::default()
     });
-    assert_eq!(reserved.offset, DATA_OFFSET + 16);
+    assert_eq!(reserved.offset, Some(DATA_OFFSET + 16));
     assert!(matches!(
-        reserved.kind,
-        TextRegionErrorKind::Malformed("reserved region segment flags")
+        reserved,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reserved region segment flags",
+            ..
+        }
     ));
     let operator = error(&Region {
         region_flags: 5,
         ..Region::default()
     });
     assert!(matches!(
-        operator.kind,
-        TextRegionErrorKind::Malformed("region combination operator")
+        operator,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "region combination operator",
+            ..
+        }
     ));
     for (width, height, offset) in [(0, 5, DATA_OFFSET), (5, 0, DATA_OFFSET + 4)] {
         let empty = error(&Region {
@@ -605,12 +625,13 @@ fn region_information_is_validated() {
             height,
             ..Region::default()
         });
-        assert_eq!(empty.offset, offset);
+        assert_eq!(empty.offset, Some(offset));
         assert!(matches!(
-            empty.kind,
-            TextRegionErrorKind::Unsupported {
-                feature: "empty text region",
-                value: 0
+            empty,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "empty text region",
+                ..
             }
         ));
     }
@@ -638,12 +659,15 @@ fn pixels_and_instances_respect_the_image_pixel_limit() {
         &CancelAfter::Never,
     )
     .unwrap_err();
-    assert_eq!(error.offset, DATA_OFFSET);
+    assert_eq!(error.offset, Some(DATA_OFFSET));
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::LimitExceeded {
-            resource: "text region pixels",
-            attempted: 2048,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "text region pixels",
+                attempted: 2048,
+                ..
+            },
             ..
         }
     ));
@@ -659,20 +683,19 @@ fn pixels_and_instances_respect_the_image_pixel_limit() {
         &CancelAfter::Never,
     )
     .unwrap_err();
-    assert_eq!(error.offset, DATA_OFFSET + 19);
+    assert_eq!(error.offset, Some(DATA_OFFSET + 19));
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::LimitExceeded {
-            resource: "text region symbol instances",
-            attempted: 2049,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "text region symbol instances",
+                attempted: 2049,
+                ..
+            },
             ..
         }
     ));
-    assert!(
-        error
-            .to_string()
-            .ends_with("text region symbol instances limit 2048 exceeded by 2049")
-    );
+    assert!(error.to_string().ends_with("maximum 2048, attempted 2049"));
 }
 
 #[test]
@@ -696,10 +719,11 @@ fn truncated_fields_and_mq_terminal_pair() {
     ] {
         let segment = frame(3, 6, &[2], 1, &data[..length]);
         let error = parse_with(&mut Source::new(segment), &CancelAfter::Never).unwrap_err();
-        match error.kind {
-            TextRegionErrorKind::Truncated(got) => assert_eq!(got, field, "{length}"),
-            other => panic!("unexpected {other:?} at {length}"),
-        }
+        assert!(
+            matches!(error.kind, ErrorKind::Truncated { .. }),
+            "{error} at {length}"
+        );
+        assert_eq!(error.reason, field, "{length}");
     }
     let huffman = Region {
         flags: 0x0001,
@@ -713,8 +737,12 @@ fn truncated_fields_and_mq_terminal_pair() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Truncated("text region Huffman flags")
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "text region Huffman flags",
+            ..
+        }
     ));
     let adaptive = Region {
         flags: 0x0002,
@@ -728,15 +756,19 @@ fn truncated_fields_and_mq_terminal_pair() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Truncated("text region refinement AT")
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "text region refinement AT",
+            ..
+        }
     ));
 }
 
 fn with_header(
     source_bytes: Vec<u8>,
     edit: impl FnOnce(&mut SegmentHeader, &mut SegmentHeader),
-) -> TextRegionError {
+) -> Error {
     let mut region = parse_header(&source_bytes);
     let mut dict = dictionary(2, 1);
     edit(&mut region, &mut dict);
@@ -750,7 +782,6 @@ fn with_header(
     )
     .unwrap_err();
     assert!(source.reads.is_empty(), "framing errors must precede reads");
-    assert_eq!(error.bytes_fetched, 0);
     error
 }
 
@@ -758,9 +789,9 @@ fn with_header(
 fn segment_type_reference_and_page_are_checked_before_reads() {
     let valid = Region::default().segment();
     for (kind, expected) in [
-        (4, "unsupported text region segment type (4)"),
-        (7, "unsupported text region segment type (7)"),
-        (0, "malformed segment type is not a text region"),
+        (4, "segment 3: text region segment type"),
+        (7, "segment 3: text region segment type"),
+        (0, "segment 3: segment type is not a text region"),
     ] {
         let error = with_header(
             frame(3, kind, &[2], 1, &Region::default().data()),
@@ -780,17 +811,9 @@ fn segment_type_reference_and_page_are_checked_before_reads() {
         frame(3, 6, &[1, 2], 1, &Region::default().data()),
         |_, _| {},
     );
-    assert!(
-        error
-            .to_string()
-            .ends_with("unsupported text region reference count (2)")
-    );
+    assert!(error.to_string().ends_with(": text region reference count"));
     let error = with_header(frame(3, 6, &[], 1, &Region::default().data()), |_, _| {});
-    assert!(
-        error
-            .to_string()
-            .ends_with("unsupported text region reference count (0)")
-    );
+    assert!(error.to_string().ends_with(": text region reference count"));
     let error = with_header(frame(3, 6, &[1], 1, &Region::default().data()), |_, _| {});
     assert!(
         error
@@ -833,17 +856,9 @@ fn segment_type_reference_and_page_are_checked_before_reads() {
 fn spans_are_checked_before_reads() {
     let valid = Region::default().segment();
     let error = with_header(valid.clone(), |region, _| region.data.offset = u64::MAX - 2);
-    assert!(
-        error
-            .to_string()
-            .ends_with("invalid span: data end overflow")
-    );
+    assert!(error.to_string().ends_with(": data end overflow"));
     let error = with_header(valid.clone(), |region, _| region.data.length += 1);
-    assert!(
-        error
-            .to_string()
-            .ends_with("invalid span: data outside source")
-    );
+    assert!(error.to_string().ends_with(": data outside source"));
     let error = with_header(valid.clone(), |region, _| {
         region.header_length = DATA_OFFSET + 1
     });
@@ -866,10 +881,13 @@ fn spans_are_checked_before_reads() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::LimitExceeded {
-            resource: "text region data bytes",
-            limit: 10,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "text region data bytes",
+                limit: 10,
+                ..
+            },
             ..
         }
     ));
@@ -894,11 +912,18 @@ fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
         &CancelAfter::Never,
     )
     .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Truncated("text region header")
-    ));
-    assert_eq!((error.offset, error.bytes_fetched), (u64::MAX - 5, 0));
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                reason: "text region header",
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert_eq!(error.offset, Some(u64::MAX - 5));
     assert!(source.reads.is_empty());
 }
 
@@ -945,18 +970,14 @@ fn requests_are_bounded_and_short_reads_resume() {
 #[test]
 fn source_faults_are_typed_and_located() {
     let cases = [
+        (Fault::ZeroAt(DATA_OFFSET + 5), ": text region header", 5),
+        (Fault::ZeroAt(DATA_OFFSET + 19), ": SBNUMINSTANCES", 19),
         (
-            Fault::ZeroAt(DATA_OFFSET + 5),
-            "truncated text region header",
-            5,
+            Fault::Overreport,
+            ": source returned more bytes than requested",
+            0,
         ),
-        (
-            Fault::ZeroAt(DATA_OFFSET + 19),
-            "truncated SBNUMINSTANCES",
-            19,
-        ),
-        (Fault::Overreport, "malformed source read length", 0),
-        (Fault::Fail, "source: ", 0),
+        (Fault::Fail, ": test source failure", 0),
         (Fault::Cancelled, "cancelled", 0),
     ];
     for (fault, message, fetched) in cases {
@@ -965,8 +986,7 @@ fn source_faults_are_typed_and_located() {
         source.max_read = 5;
         let error = parse_with(&mut source, &CancelAfter::Never).unwrap_err();
         assert!(error.to_string().contains(message), "{error}");
-        assert_eq!(error.bytes_fetched, fetched);
-        assert_eq!(error.offset, DATA_OFFSET + fetched);
+        assert_eq!(error.offset, Some(DATA_OFFSET + fetched));
     }
 }
 
@@ -989,15 +1009,18 @@ fn cancellation_is_checked_before_and_between_reads() {
         )
         .unwrap_err();
         assert!(
-            matches!(error.kind, TextRegionErrorKind::Cancelled),
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }
+            ),
             "{after}"
         );
         assert_eq!(source.reads.len(), after);
         let fetched = (7 * after as u64).min(19);
-        assert_eq!(
-            (error.bytes_fetched, error.offset),
-            (fetched, DATA_OFFSET + fetched)
-        );
+        assert_eq!(error.offset, Some(DATA_OFFSET + fetched));
     }
 }
 

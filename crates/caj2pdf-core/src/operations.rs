@@ -188,6 +188,7 @@ mod tests {
         Detection, InputFormat, PDF_HEADER_SEARCH_BYTES, SIGNATURE_BYTES, detect_format,
         detect_source,
     };
+    use crate::ErrorKind;
     use crate::test_support::{CancelAfter, NEVER};
     use crate::{Error, Limits, RangedSource, Result};
 
@@ -350,13 +351,29 @@ mod tests {
         short.size = 64;
         let error = detect(&mut short, &Limits::default()).unwrap_err();
         assert!(
-            matches!(error, Error::TruncatedInput { offset: 5, .. }),
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Truncated { .. },
+                    offset: Some(5),
+                    ..
+                }
+            ),
             "{error:?}"
         );
 
         let mut source = Source::new(b"%PDF-1.7".to_vec());
         let error =
             detect_source(&mut source, &Limits::default(), &CancelAfter::always()).unwrap_err();
-        assert!(matches!(error, Error::Cancelled), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 }

@@ -7,9 +7,8 @@
 //! `SBNUMINSTANCES`, then exposes the remaining body as an exact source range.
 //! It never reads the body, decodes symbol instances, or composes pixels.
 
-use super::{FieldCursor, FieldFault, SegmentHeader, SegmentSpan};
-use crate::{Cancellation, Error, Limits, RangedSource};
-use std::{error, fmt};
+use super::{FieldCursor, FieldFault, SegmentHeader, SegmentSpan, unsupported};
+use crate::{Cancellation, Context, Error, Limits, RangedSource, Result};
 
 /// Immediate text region segment type (T.88 §7.3).
 pub const IMMEDIATE_TEXT_REGION: u8 = 6;
@@ -139,78 +138,6 @@ impl TextRegionHeader {
     }
 }
 
-/// A located text-region header failure. `offset` is the semantic field
-/// position; `bytes_fetched` counts physical source bytes read so far.
-#[derive(Debug)]
-pub struct TextRegionError {
-    pub segment: u32,
-    pub offset: u64,
-    pub bytes_fetched: u64,
-    pub kind: TextRegionErrorKind,
-}
-
-#[derive(Debug)]
-pub enum TextRegionErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    /// A flags field violates a T.88 constraint; the raw value is retained.
-    MalformedFlags {
-        field: &'static str,
-        raw: u16,
-    },
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    Cancelled,
-    Source(Error),
-}
-
-pub type TextRegionResult<T> = Result<T, TextRegionError>;
-
-impl fmt::Display for TextRegionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 text region segment {} at source byte {}: ",
-            self.segment, self.offset
-        )?;
-        match &self.kind {
-            TextRegionErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            TextRegionErrorKind::Truncated(field) => write!(f, "truncated {field}"),
-            TextRegionErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
-            TextRegionErrorKind::MalformedFlags { field, raw } => {
-                write!(f, "malformed {field} (flags {raw:#06x})")
-            }
-            TextRegionErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            TextRegionErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            TextRegionErrorKind::Cancelled => f.write_str("cancelled"),
-            TextRegionErrorKind::Source(source) => write!(f, "source: {source}"),
-        }
-    }
-}
-
-impl error::Error for TextRegionError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            TextRegionErrorKind::Source(source) => Some(source),
-            _ => None,
-        }
-    }
-}
-
 struct Cursor<'a, S, C> {
     source: &'a mut S,
     cancellation: &'a C,
@@ -219,38 +146,36 @@ struct Cursor<'a, S, C> {
 }
 
 impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
-    fn error_at(&self, offset: u64, kind: TextRegionErrorKind) -> TextRegionError {
-        TextRegionError {
-            segment: self.segment,
+    fn error_at(&self, offset: u64, error: Error) -> Error {
+        error.or_at(
             offset,
-            bytes_fetched: self.fields.fetched,
-            kind,
-        }
+            Context::Jbig2 {
+                segment: Some(self.segment),
+            },
+        )
     }
 
-    fn error(&self, kind: TextRegionErrorKind) -> TextRegionError {
-        self.error_at(self.fields.at, kind)
+    fn error(&self, error: Error) -> Error {
+        self.error_at(self.fields.at, error)
     }
 
     /// Read exactly `N` header bytes with bounded requests.
-    fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
+    fn read<const N: usize>(&mut self, field: &'static str) -> Result<[u8; N]> {
         let mut bytes = [0u8; N];
         let result = self.fields.fill(self.source, self.cancellation, &mut bytes);
         result.map_err(|fault| self.fault(fault, field))?;
         Ok(bytes)
     }
 
-    fn fault(&self, fault: FieldFault, field: &'static str) -> TextRegionError {
-        match fault {
-            FieldFault::Overflow | FieldFault::PastEnd | FieldFault::Ended { .. } => {
-                self.error(TextRegionErrorKind::Truncated(field))
+    /// A field whose end overflows is truncated, as one past the end is.
+    fn fault(&self, fault: FieldFault, field: &'static str) -> Error {
+        let at = self.fields.at;
+        self.error(match fault {
+            FieldFault::Overflow { expected } => {
+                Error::truncated(at, expected, self.fields.end.saturating_sub(at)).because(field)
             }
-            FieldFault::Cancelled => self.error(TextRegionErrorKind::Cancelled),
-            FieldFault::Source(error) => self.error(TextRegionErrorKind::Source(error)),
-            FieldFault::Overread => {
-                self.error(TextRegionErrorKind::Malformed("source read length"))
-            }
-        }
+            fault => fault.error(at, field),
+        })
     }
 }
 
@@ -271,7 +196,7 @@ pub fn read_text_region_header<S: RangedSource, C: Cancellation>(
     dictionary: &SegmentHeader,
     limits: &Limits,
     cancellation: &C,
-) -> TextRegionResult<TextRegionHeader> {
+) -> Result<TextRegionHeader> {
     read_text_region_header_with_policy(
         source,
         header,
@@ -292,82 +217,66 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     policy: TextHeaderPolicy,
-) -> TextRegionResult<TextRegionHeader> {
-    let fail = |kind| TextRegionError {
-        segment: header.number,
-        offset: header.data.offset,
-        bytes_fetched: 0,
-        kind,
+) -> Result<TextRegionHeader> {
+    let fail = |error: Error| {
+        error.or_at(
+            header.data.offset,
+            Context::Jbig2 {
+                segment: Some(header.number),
+            },
+        )
     };
     if cancellation.is_cancelled() {
-        return Err(fail(TextRegionErrorKind::Cancelled));
+        return Err(fail(Error::cancelled()));
     }
     match header.segment_type {
         IMMEDIATE_TEXT_REGION => {}
         INTERMEDIATE_TEXT_REGION | IMMEDIATE_LOSSLESS_TEXT_REGION => {
-            return Err(fail(TextRegionErrorKind::Unsupported {
-                feature: "text region segment type",
-                value: u64::from(header.segment_type),
-            }));
+            return Err(fail(unsupported("text region segment type")));
         }
         _ => {
-            return Err(fail(TextRegionErrorKind::Malformed(
-                "segment type is not a text region",
-            )));
+            return Err(fail(Error::invalid("segment type is not a text region")));
         }
     }
     if header.page_association == 0 {
-        return Err(fail(TextRegionErrorKind::Malformed(
-            "immediate region without a page",
-        )));
+        return Err(fail(Error::invalid("immediate region without a page")));
     }
     if header.referred_to.len() != 1 {
-        return Err(fail(TextRegionErrorKind::Unsupported {
-            feature: "text region reference count",
-            value: header.referred_to.len() as u64,
-        }));
+        return Err(fail(unsupported("text region reference count")));
     }
     if header.referred_to[0] != dictionary.number {
-        return Err(fail(TextRegionErrorKind::Malformed(
+        return Err(fail(Error::invalid(
             "reference differs from the supplied dictionary",
         )));
     }
     if dictionary.segment_type != 0 {
-        return Err(fail(TextRegionErrorKind::Malformed(
+        return Err(fail(Error::invalid(
             "referred segment is not a symbol dictionary",
         )));
     }
     if dictionary.number >= header.number {
-        return Err(fail(TextRegionErrorKind::Malformed(
-            "dictionary does not precede region",
-        )));
+        return Err(fail(Error::invalid("dictionary does not precede region")));
     }
     if dictionary.page_association != 0 && dictionary.page_association != header.page_association {
-        return Err(fail(TextRegionErrorKind::Malformed(
-            "dictionary page association differs",
-        )));
+        return Err(fail(Error::invalid("dictionary page association differs")));
     }
     if header.data.length > limits.max_input_bytes {
-        return Err(fail(TextRegionErrorKind::LimitExceeded {
-            resource: "text region data bytes",
-            limit: limits.max_input_bytes,
-            attempted: header.data.length,
-        }));
+        return Err(fail(Error::limit(
+            "text region data bytes",
+            limits.max_input_bytes,
+            header.data.length,
+        )));
     }
     if header.header_length > header.data.offset {
-        return Err(fail(TextRegionErrorKind::InvalidSpan(
-            "segment header start underflow",
-        )));
+        return Err(fail(Error::invalid("segment header start underflow")));
     }
     let end = header
         .data
         .offset
         .checked_add(header.data.length)
-        .ok_or_else(|| fail(TextRegionErrorKind::InvalidSpan("data end overflow")))?;
+        .ok_or_else(|| fail(Error::invalid("data end overflow")))?;
     if end > source.size() {
-        return Err(fail(TextRegionErrorKind::InvalidSpan(
-            "data outside source",
-        )));
+        return Err(fail(Error::invalid("data outside source")));
     }
 
     let mut cursor = Cursor {
@@ -389,12 +298,12 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
         u16::from_be_bytes([prefix[REGION_INFO_BYTES], prefix[REGION_INFO_BYTES + 1]]),
         policy,
     )
-    .map_err(|kind| cursor.error_at(start + REGION_INFO_BYTES as u64, kind))?;
+    .map_err(|error| cursor.error_at(start + REGION_INFO_BYTES as u64, error))?;
 
     let huffman_flags = if flags.huffman {
         let offset = cursor.fields.at;
         let raw = u16::from_be_bytes(cursor.read("text region Huffman flags")?);
-        check_huffman_flags(raw, flags.refine).map_err(|kind| cursor.error_at(offset, kind))?;
+        check_huffman_flags(raw, flags.refine).map_err(|error| cursor.error_at(offset, error))?;
         Some(raw)
     } else {
         None
@@ -410,16 +319,18 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     if u64::from(instances) > limits.max_image_pixels {
         return Err(cursor.error_at(
             instances_offset,
-            TextRegionErrorKind::LimitExceeded {
-                resource: "text region symbol instances",
-                limit: limits.max_image_pixels,
-                attempted: u64::from(instances),
-            },
+            Error::limit(
+                "text region symbol instances",
+                limits.max_image_pixels,
+                u64::from(instances),
+            ),
         ));
     }
     let body_length = end - cursor.fields.at;
     if !flags.huffman && body_length < 2 {
-        return Err(cursor.error(TextRegionErrorKind::Truncated("MQ body terminal pair")));
+        return Err(cursor.error(
+            Error::truncated(cursor.fields.at, 2, body_length).because("MQ body terminal pair"),
+        ));
     }
     Ok(TextRegionHeader {
         segment: header.number,
@@ -443,7 +354,7 @@ fn parse_region<S: RangedSource, C: Cancellation>(
     bytes: &[u8; PREFIX_BYTES],
     cursor: &Cursor<'_, S, C>,
     limits: &Limits,
-) -> TextRegionResult<RegionInfo> {
+) -> Result<RegionInfo> {
     let start = cursor.fields.start;
     let (width, height) = (be32(&bytes[0..4]), be32(&bytes[4..8]));
     let (x, y) = (be32(&bytes[8..12]), be32(&bytes[12..16]));
@@ -451,7 +362,7 @@ fn parse_region<S: RangedSource, C: Cancellation>(
     if bytes[16] & 0xf8 != 0 {
         return Err(cursor.error_at(
             flags_offset,
-            TextRegionErrorKind::Malformed("reserved region segment flags"),
+            Error::invalid("reserved region segment flags"),
         ));
     }
     let combination = match bytes[16] & 7 {
@@ -461,32 +372,21 @@ fn parse_region<S: RangedSource, C: Cancellation>(
         3 => RegionCombination::Xnor,
         4 => RegionCombination::Replace,
         _ => {
-            return Err(cursor.error_at(
-                flags_offset,
-                TextRegionErrorKind::Malformed("region combination operator"),
-            ));
+            return Err(
+                cursor.error_at(flags_offset, Error::invalid("region combination operator"))
+            );
         }
     };
     for (attempted, offset) in [(width, start), (height, start + 4)] {
         if attempted == 0 {
-            return Err(cursor.error_at(
-                offset,
-                TextRegionErrorKind::Unsupported {
-                    feature: "empty text region",
-                    value: 0,
-                },
-            ));
+            return Err(cursor.error_at(offset, unsupported("empty text region")));
         }
     }
     let pixels = u64::from(width) * u64::from(height);
     if pixels > limits.max_image_pixels {
         return Err(cursor.error_at(
             start,
-            TextRegionErrorKind::LimitExceeded {
-                resource: "text region pixels",
-                limit: limits.max_image_pixels,
-                attempted: pixels,
-            },
+            Error::limit("text region pixels", limits.max_image_pixels, pixels),
         ));
     }
     Ok(RegionInfo {
@@ -501,17 +401,14 @@ fn parse_region<S: RangedSource, C: Cancellation>(
 fn parse_flags(
     raw: u16,
     policy: TextHeaderPolicy,
-) -> Result<(TextRegionFlags, Option<TextHeaderAnomaly>), TextRegionErrorKind> {
+) -> Result<(TextRegionFlags, Option<TextHeaderAnomaly>)> {
     let refine = raw & 2 != 0;
     let refinement_template = (raw >> 15) as u8;
     let anomaly = if !refine && refinement_template != 0 {
         if policy == TextHeaderPolicy::HnC8UnusedRefinementTemplate && raw == 0xa40c {
             Some(TextHeaderAnomaly::UnusedRefinementTemplate)
         } else {
-            return Err(TextRegionErrorKind::MalformedFlags {
-                field: "SBRTEMPLATE without SBREFINE",
-                raw,
-            });
+            return Err(Error::invalid("SBRTEMPLATE without SBREFINE"));
         }
     } else {
         None
@@ -547,8 +444,8 @@ fn parse_flags(
 
 /// Figure 37 constraints: bit 15 reserved, selector value 2 forbidden for
 /// `SBHUFFFS` and the refinement tables, which must be zero without refinement.
-fn check_huffman_flags(raw: u16, refine: bool) -> Result<(), TextRegionErrorKind> {
-    let malformed = |field| Err(TextRegionErrorKind::MalformedFlags { field, raw });
+fn check_huffman_flags(raw: u16, refine: bool) -> Result<()> {
+    let malformed = |field| Err(Error::invalid(field));
     if raw & 0x8000 != 0 {
         return malformed("reserved Huffman flag");
     }

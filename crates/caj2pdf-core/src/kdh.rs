@@ -41,42 +41,31 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
         let size = source.size();
         limits.check_input_size(size)?;
         if size < PDF_START {
-            return Err(Error::TruncatedInput {
-                offset: 0,
-                expected: PDF_START,
-                available: size,
-            });
+            return Err(Error::truncated(0, PDF_START, size));
         }
 
         let mut header = [0_u8; PDF_START as usize];
         read_in_chunks(source, 0, &mut header, limits, cancellation)?;
         if &header[..HEADER_SIGNATURE.len()] != HEADER_SIGNATURE {
-            return Err(Error::Kdh {
-                offset: 0,
-                reason: "KDH signature is invalid",
-            });
+            return Err(Error::malformed(0, "KDH signature is invalid").within(crate::Context::Kdh));
         }
         if header[0x28..0x2c] != [0, 0, 2, 0] {
-            return Err(Error::Kdh {
-                offset: 0x28,
-                reason: "KDH version field is invalid",
-            });
+            return Err(
+                Error::malformed(0x28, "KDH version field is invalid").within(crate::Context::Kdh)
+            );
         }
         if size - PDF_START < 8 {
-            return Err(Error::TruncatedInput {
-                offset: PDF_START,
-                expected: 8,
-                available: size - PDF_START,
-            });
+            return Err(Error::truncated(PDF_START, 8, size - PDF_START));
         }
         let mut pdf_header = [0_u8; 8];
         read_in_chunks(source, PDF_START, &mut pdf_header, limits, cancellation)?;
         xor_at(0, &mut pdf_header);
         if !pdf_header.starts_with(b"%PDF-") {
-            return Err(Error::Kdh {
-                offset: PDF_START,
-                reason: "decoded payload does not start with a PDF header",
-            });
+            return Err(Error::malformed(
+                PDF_START,
+                "decoded payload does not start with a PDF header",
+            )
+            .within(crate::Context::Kdh));
         }
 
         let mut buffer = vec![0_u8; min(limits.io_chunk_bytes, SCAN_CHUNK)];
@@ -98,18 +87,17 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
                     {
                         let (valid, bytes_read) =
                             xref_target_is_plausible(source, xref, size, limits, cancellation)?;
-                        let overflow = Error::InvalidInput {
-                            reason: "KDH input byte count overflows",
-                        };
+                        let overflow = Error::invalid("KDH input byte count overflows");
                         candidate_bytes_read = candidate_bytes_read
                             .checked_add(bytes_read)
                             .ok_or(overflow)?;
                         if valid {
                             if eof.is_some() {
-                                return Err(Error::Kdh {
-                                    offset: marker,
-                                    reason: "ambiguous PDF end in KDH trailer",
-                                });
+                                return Err(Error::malformed(
+                                    marker,
+                                    "ambiguous PDF end in KDH trailer",
+                                )
+                                .within(crate::Context::Kdh));
                             }
                             eof = Some((marker, xref));
                         }
@@ -118,10 +106,10 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
             }
             at += count as u64;
         }
-        let (eof, _) = eof.ok_or(Error::Kdh {
-            offset: size,
-            reason: "decoded PDF startxref and EOF were not found",
-        })?;
+        let (eof, _) = eof.ok_or(
+            Error::malformed(size, "decoded PDF startxref and EOF were not found")
+                .within(crate::Context::Kdh),
+        )?;
         let after_marker = eof + 5;
         let mut eol = [0_u8; 2];
         let eol_read = min(size - after_marker, 2) as usize;
@@ -149,9 +137,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
             .checked_add(8)
             .and_then(|bytes| bytes.checked_add(eol_read as u64))
             .and_then(|bytes| bytes.checked_add(candidate_bytes_read))
-            .ok_or(Error::InvalidInput {
-                reason: "KDH input byte count overflows",
-            })?;
+            .ok_or(Error::invalid("KDH input byte count overflows"))?;
         Ok(Self {
             source,
             pdf_len,
@@ -217,9 +203,7 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if offset > self.pdf_len {
-            return Err(Error::InvalidInput {
-                reason: "KDH PDF read starts beyond payload end",
-            });
+            return Err(Error::invalid("KDH PDF read starts beyond payload end"));
         }
         let count = min(self.pdf_len - offset, destination.len() as u64) as usize;
         if count == 0 {
@@ -229,16 +213,12 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
             .source
             .read_at(PDF_START + offset, &mut destination[..count])?;
         if read > count {
-            return Err(Error::InvalidInput {
-                reason: "KDH source reported more bytes than requested",
-            });
+            return Err(Error::invalid(
+                "KDH source reported more bytes than requested",
+            ));
         }
         if read == 0 {
-            return Err(Error::TruncatedInput {
-                offset: PDF_START + offset,
-                expected: count as u64,
-                available: 0,
-            });
+            return Err(Error::truncated(PDF_START + offset, count as u64, 0));
         }
         xor_at(offset, &mut destination[..read]);
         Ok(read)
@@ -255,44 +235,18 @@ pub fn convert_kdh<S: RangedSource, W: Write, C: Cancellation>(
     let mut decoded = KdhPdfSource::open(source, limits, cancellation)?;
     let scan_bytes_read = decoded.scan_bytes_read();
     let mut report = copy_pdf(&mut decoded, sink, limits, cancellation).map_err(map_pdf_offset)?;
-    report.input_bytes_read =
-        report
-            .input_bytes_read
-            .checked_add(scan_bytes_read)
-            .ok_or(Error::InvalidInput {
-                reason: "KDH input byte count overflows",
-            })?;
+    report.input_bytes_read = report
+        .input_bytes_read
+        .checked_add(scan_bytes_read)
+        .ok_or(Error::invalid("KDH input byte count overflows"))?;
     Ok(report)
 }
 
-fn map_pdf_offset(error: Error) -> Error {
-    match error {
-        Error::Pdf {
-            offset,
-            object,
-            kind,
-            reason,
-        } => Error::Pdf {
-            offset: offset.saturating_add(PDF_START),
-            object,
-            kind,
-            reason,
-        },
-        Error::PdfLimitExceeded {
-            offset,
-            object,
-            resource,
-            limit,
-            attempted,
-        } => Error::PdfLimitExceeded {
-            offset: offset.saturating_add(PDF_START),
-            object,
-            resource,
-            limit,
-            attempted,
-        },
-        other => other,
+fn map_pdf_offset(mut error: Error) -> Error {
+    if let crate::Context::Pdf { .. } = error.context {
+        error.offset = error.offset.map(|offset| offset.saturating_add(PDF_START));
     }
+    error
 }
 
 fn read_in_chunks<S: RangedSource, C: Cancellation>(

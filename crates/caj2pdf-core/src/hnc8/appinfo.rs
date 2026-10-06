@@ -6,10 +6,10 @@
 //! XML parser. A defect here is located but must not fail page conversion.
 
 use super::inflate::{ExactInflate, InflateFault, InflateFaultKind};
-use super::{ErrorKind, Hnc8Error, Hnc8Reader, Location, Result, Variant, read_fixed};
+use super::{Hnc8Reader, Location, Variant, read_fixed};
 use crate::fallible::{len_u64, reserve_exact};
 use crate::hnc8::TEXT_DECODER_RESERVATION_BYTES;
-use crate::{Cancellation, RangedSource};
+use crate::{Cancellation, Error, ErrorKind, RangedSource, Result};
 use std::fmt;
 
 /// Ceiling for both the compressed and the inflated package.
@@ -24,8 +24,13 @@ const TRAILER_WINDOW: u64 = 32;
 const HEADER_BYTES: u64 = 8;
 const CHUNK_BYTES: usize = 64 * 1024;
 const MAX_DEPTH: usize = 16;
-const XML: &str = "application-info XML";
 const BOM: &str = "\u{feff}";
+/// The trailer defects that make the application-info tail absent rather
+/// than a failure.
+pub(super) const TRAILER_DEFECTS: [&str; 2] = [
+    "application-info trailer: marker is not followed by a final decimal offset",
+    "application-info trailer: offset overflows 64 bits",
+];
 
 /// Values read from a C8 application-info package. Text is trimmed of XML
 /// white space and entity-decoded; an empty value is `None`.
@@ -49,15 +54,26 @@ pub struct ApplicationInfoDefect {
     pub reason: &'static str,
 }
 
-impl From<&Hnc8Error> for ApplicationInfoDefect {
-    fn from(error: &Hnc8Error) -> Self {
+/// A malformed package names its field before the first `": "` of the
+/// reason; any other failure names the field or resource it concerns.
+impl From<&Error> for ApplicationInfoDefect {
+    fn from(error: &Error) -> Self {
+        let (field, reason) = match &error.kind {
+            ErrorKind::Malformed => error
+                .reason
+                .split_once(": ")
+                .unwrap_or((error.reason, "malformed")),
+            ErrorKind::UnsupportedFormat => (error.reason, "unsupported"),
+            ErrorKind::Encrypted => (error.reason, "encrypted"),
+            ErrorKind::Truncated { .. } => (error.reason, "truncated"),
+            ErrorKind::LimitExceeded { resource, .. } => (*resource, "limit"),
+            ErrorKind::Io(_) => (error.reason, "source"),
+            ErrorKind::Cancelled => (error.reason, "cancelled"),
+        };
         Self {
-            offset: error.offset,
-            field: error.kind.field(),
-            reason: match error.kind {
-                ErrorKind::Malformed { reason, .. } => reason,
-                ref other => other.as_str(),
-            },
+            offset: error.offset.unwrap_or(0),
+            field,
+            reason,
         }
     }
 }
@@ -128,7 +144,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             image: None,
         };
         if self.cancellation.is_cancelled() {
-            return Err(loc.error(ErrorKind::Cancelled));
+            return Err(loc.cancelled());
         }
         let Some(package) = self.find_package(loc)? else {
             return Ok(None);
@@ -176,7 +192,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             {
                 Some(at) => Err(loc
                     .at(window_start + len_u64(at))
-                    .malformed(field, "marker is not followed by a final decimal offset")),
+                    .malformed(TRAILER_DEFECTS[0])),
                 None => Ok(None),
             };
         }
@@ -184,7 +200,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         let start = std::str::from_utf8(&window[window.len() - digits..])
             .expect("ASCII digits")
             .parse::<u64>()
-            .map_err(|_| loc.at(marker).malformed(field, "offset overflows 64 bits"))?;
+            .map_err(|_| loc.at(marker).malformed(TRAILER_DEFECTS[1]))?;
         Ok(Some(Trailer { marker, start }))
     }
 
@@ -195,16 +211,16 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         };
         let lengths = "application-info lengths";
         if start < self.header.page_index.offset + self.header.page_index.length {
-            return Err(loc
-                .at(marker)
-                .malformed(lengths, "package starts inside the header or page index"));
+            return Err(loc.at(marker).malformed(
+                "application-info lengths: package starts inside the header or page index",
+            ));
         }
         if start > marker || marker - start < HEADER_BYTES {
-            return Err(loc.at(marker).error(ErrorKind::Truncated {
-                field: lengths,
-                expected: HEADER_BYTES,
-                available: marker.saturating_sub(start),
-            }));
+            return Err(loc.at(marker).truncated(
+                lengths,
+                HEADER_BYTES,
+                marker.saturating_sub(start),
+            ));
         }
         let mut header = [0; HEADER_BYTES as usize];
         read_fixed(
@@ -231,13 +247,15 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             }
         }
         if decoded == 0 {
-            return Err(loc.at(start).malformed(lengths, "declared empty package"));
+            return Err(loc
+                .at(start)
+                .malformed("application-info lengths: declared empty package"));
         }
         let offset = start + HEADER_BYTES;
         if offset + u64::from(compressed) != marker {
-            return Err(loc
-                .at(start)
-                .malformed(lengths, "compressed length does not end at the marker"));
+            return Err(loc.at(start).malformed(
+                "application-info lengths: compressed length does not end at the marker",
+            ));
         }
         Ok(Some(Package {
             offset,
@@ -271,16 +289,22 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         let mut inflate = ExactInflate::new(package.offset, compressed, decoded);
         let fault = |fault: InflateFault| {
             let reason = match fault.kind {
-                InflateFaultKind::Invalid => "invalid stream or checksum",
-                InflateFaultKind::Excess => "output exceeds the declared length",
-                InflateFaultKind::EndMismatch => "stream ends before the declared lengths",
-                InflateFaultKind::Stalled => "truncated stream",
+                InflateFaultKind::Invalid => {
+                    "application-info zlib stream: invalid stream or checksum"
+                }
+                InflateFaultKind::Excess => {
+                    "application-info zlib stream: output exceeds the declared length"
+                }
+                InflateFaultKind::EndMismatch => {
+                    "application-info zlib stream: stream ends before the declared lengths"
+                }
+                InflateFaultKind::Stalled => "application-info zlib stream: truncated stream",
             };
-            loc.at(fault.offset).malformed(field, reason)
+            loc.at(fault.offset).malformed(reason)
         };
         loop {
             if self.cancellation.is_cancelled() {
-                return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
+                return Err(loc.at(inflate.position()).cancelled());
             }
             if let Some((at, length)) = inflate.next_read(input.len()) {
                 read_fixed(
@@ -338,8 +362,9 @@ fn is_name_byte(byte: u8) -> bool {
 /// is checked; attributes are skipped after a quoting check; declarations,
 /// unknown entities and text outside the root are rejected.
 fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
-    let bad = |reason| loc.malformed(XML, reason);
-    let xml = std::str::from_utf8(bytes).map_err(|_| bad("package is not UTF-8"))?;
+    let bad = |reason| loc.malformed(reason);
+    let xml = std::str::from_utf8(bytes)
+        .map_err(|_| bad("application-info XML: package is not UTF-8"))?;
     let body = xml.strip_prefix(BOM).unwrap_or(xml);
     let mut info = ApplicationInfo::default();
     let mut stack = [""; MAX_DEPTH];
@@ -355,36 +380,47 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
             if let Some((_, value)) = &mut capture {
                 decode_text(text, value, loc)?;
             } else if depth == 0 && !text.bytes().all(is_space) {
-                return Err(bad("text outside the root element"));
+                return Err(bad("application-info XML: text outside the root element"));
             }
             rest = &rest[end..];
         } else if let Some(tail) = rest.strip_prefix("<?") {
-            let end = tail
-                .find("?>")
-                .ok_or(bad("unterminated processing instruction"))?;
+            let end = tail.find("?>").ok_or(bad(
+                "application-info XML: unterminated processing instruction",
+            ))?;
             if rest.len() == body.len() && tail.starts_with("xml") {
-                check_encoding(&tail[3..end]).ok_or(bad("declared encoding is not UTF-8"))?;
+                check_encoding(&tail[3..end])
+                    .ok_or(bad("application-info XML: declared encoding is not UTF-8"))?;
             }
             rest = &tail[end + 2..];
         } else if let Some(tail) = rest.strip_prefix("<!--") {
-            let end = tail.find("-->").ok_or(bad("unterminated comment"))?;
+            let end = tail
+                .find("-->")
+                .ok_or(bad("application-info XML: unterminated comment"))?;
             rest = &tail[end + 3..];
         } else if let Some(tail) = rest.strip_prefix("<![CDATA[") {
-            let end = tail.find("]]>").ok_or(bad("unterminated character data"))?;
+            let end = tail
+                .find("]]>")
+                .ok_or(bad("application-info XML: unterminated character data"))?;
             if depth == 0 {
-                return Err(bad("character data outside the root element"));
+                return Err(bad(
+                    "application-info XML: character data outside the root element",
+                ));
             }
             if let Some((_, value)) = &mut capture {
                 push(value, &tail[..end], loc)?;
             }
             rest = &tail[end + 3..];
         } else if rest.starts_with("<!") {
-            return Err(bad("declarations are not accepted"));
+            return Err(bad("application-info XML: declarations are not accepted"));
         } else if let Some(tail) = rest.strip_prefix("</") {
-            let end = tail.find('>').ok_or(bad("unterminated end tag"))?;
+            let end = tail
+                .find('>')
+                .ok_or(bad("application-info XML: unterminated end tag"))?;
             let name = tail[..end].trim_end_matches([' ', '\t', '\r', '\n']);
             if depth == 0 || stack[depth - 1] != name {
-                return Err(bad("end tag does not match the open element"));
+                return Err(bad(
+                    "application-info XML: end tag does not match the open element",
+                ));
             }
             depth -= 1;
             root_closed = depth == 0;
@@ -393,12 +429,15 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
             }
             rest = &tail[end + 1..];
         } else {
-            let (name, empty, length) = start_tag(rest).ok_or(bad("malformed start tag"))?;
+            let (name, empty, length) =
+                start_tag(rest).ok_or(bad("application-info XML: malformed start tag"))?;
             if capture.is_some() {
-                return Err(bad("unexpected element inside DOI or DURL"));
+                return Err(bad(
+                    "application-info XML: unexpected element inside DOI or DURL",
+                ));
             }
             if depth == 0 && (root_closed || name != "Package") {
-                return Err(bad("root element is not one Package"));
+                return Err(bad("application-info XML: root element is not one Package"));
             }
             let path = &stack[..depth];
             let field = match name {
@@ -408,7 +447,7 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
             };
             if let Some(field) = field.filter(|_| path == ["Package", "FileProperty-Package"]) {
                 if std::mem::replace(&mut seen[field as usize], true) {
-                    return Err(bad("duplicate DOI or DURL"));
+                    return Err(bad("application-info XML: duplicate DOI or DURL"));
                 }
                 if !empty {
                     capture = Some((field, String::new()));
@@ -419,7 +458,7 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
             }
             if !empty {
                 if depth == MAX_DEPTH {
-                    return Err(bad("elements nest too deeply"));
+                    return Err(bad("application-info XML: elements nest too deeply"));
                 }
                 stack[depth] = name;
                 depth += 1;
@@ -430,7 +469,9 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
         }
     }
     if !root_closed || depth != 0 {
-        return Err(bad("root element is missing or unclosed"));
+        return Err(bad(
+            "application-info XML: root element is missing or unclosed",
+        ));
     }
     Ok(info)
 }
@@ -526,7 +567,7 @@ fn decode_text(mut text: &str, value: &mut String, loc: Location) -> Result<()> 
         let tail = &text[at + 1..];
         let end = tail
             .find(';')
-            .ok_or(loc.malformed(XML, "unterminated entity reference"))?;
+            .ok_or(loc.malformed("application-info XML: unterminated entity reference"))?;
         let decoded = match &tail[..end] {
             "lt" => Some('<'),
             "gt" => Some('>'),
@@ -535,7 +576,7 @@ fn decode_text(mut text: &str, value: &mut String, loc: Location) -> Result<()> 
             "apos" => Some('\''),
             reference => character_reference(reference),
         }
-        .ok_or(loc.malformed(XML, "unknown entity or character reference"))?;
+        .ok_or(loc.malformed("application-info XML: unknown entity or character reference"))?;
         push(value, decoded.encode_utf8(&mut [0; 4]), loc)?;
         text = &tail[end + 1..];
     }

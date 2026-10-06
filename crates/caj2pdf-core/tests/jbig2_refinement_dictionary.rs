@@ -8,17 +8,18 @@ mod common;
 use caj2pdf_core::jbig2::{
     SegmentHeader, SegmentSpan,
     dictionary::{
-        DictionaryCatalog, DictionaryError, DictionaryErrorKind, DictionaryProgress,
-        DictionaryReport, DictionaryStores, ImportedDictionary, StoredSymbol, SymbolDescriptor,
-        SymbolDictionaryDecoder, SymbolStore, coding_unit_contexts, read_dictionary_data_header,
+        DictionaryCatalog, DictionaryProgress, DictionaryReport, DictionaryStores,
+        ImportedDictionary, StoredSymbol, SymbolDescriptor, SymbolDictionaryDecoder, SymbolStore,
+        coding_unit_contexts, read_dictionary_data_header,
     },
     iaid::IAID_BASE,
     integer::{BITMAP_BASE, IntegerProcedure, IntegerValue, decode_integer},
     mq::{ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
     read_segment_header,
-    refinement::RefinementErrorKind,
 };
-use caj2pdf_core::{Cancellation, Limits, NeverCancel, Payload, RangedSource};
+use caj2pdf_core::{
+    Cancellation, Context, Error, ErrorKind, Limits, NeverCancel, Payload, RangedSource,
+};
 
 struct Bytes {
     bytes: Vec<u8>,
@@ -93,7 +94,7 @@ fn table() -> MqTable {
 
 /// The contexts of a refinement dictionary whose IAID width is `code_len`.
 fn coding_unit(code_len: u32, limits: &Limits) -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
+    ContextBank::new(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
 }
 
 fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<IntegerValue>> {
@@ -161,7 +162,7 @@ fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryRep
 }
 
 struct Observation {
-    result: Result<DictionaryReport, DictionaryError>,
+    result: Result<DictionaryReport, Error>,
     output: Vec<u8>,
     gr_contexts: Vec<usize>,
     gr_state_zero: u8,
@@ -293,28 +294,30 @@ fn iaai_zero_and_aggregation_are_located_typed_refusals() {
     let error = zero.result.unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Malformed("REFAGGNINST zero")
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "REFAGGNINST zero",
+                ..
+            }
         ),
         "{error}"
     );
-    assert_eq!(error.progress.iaai.zero, 1);
-    assert_eq!(error.progress.iaai.single_reference, 0);
     assert!(zero.output.is_empty());
 
     let many = run(&MANY_PREFIX, 1, 1, 2);
     let error = many.result.unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Unsupported {
-                feature: "REFAGGNINST aggregation",
-                value: 2
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "REFAGGNINST aggregation",
+                ..
             }
         ),
         "{error}"
     );
-    assert_eq!(error.progress.iaai.aggregation, 1);
     assert!(many.output.is_empty());
 }
 
@@ -328,10 +331,7 @@ fn one_reference_prefix_reaches_bitmap_and_stays_in_one_mq_unit() {
             assert_eq!(report.catalog.new_symbols.len(), 1);
             assert_eq!(observed.output.len(), 1);
         }
-        Err(error) => {
-            assert_eq!(error.progress.iaai.single_reference, 1);
-            assert!(error.progress.mq.unwrap().symbols_decoded > 15);
-        }
+        Err(error) => assert_eq!(error.context, Context::Jbig2 { segment: Some(2) }),
     }
 }
 
@@ -403,14 +403,11 @@ fn declared_catalog_allocation_is_checked_before_mq_or_store_access() {
         ..PreflightCase::default()
     };
     let error = preflight_error(setup, |_, _| {});
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
+    assert!(matches!(error, Error { kind: ErrorKind::LimitExceeded {
             resource: "catalog allocation bytes",
             limit: 20_000,
             attempted,
-        } if attempted > 20_000
-    ));
+        }, .. } if attempted > 20_000));
 }
 
 #[test]
@@ -450,14 +447,9 @@ fn two_refined_symbols_retain_one_gr_context_bank_until_dictionary_failure() {
     // leave state 2, proving the dictionary retained GR statistics. A later
     // malformed control value is intentionally outside this prefix test.
     let observed = run(&TWO_REFINEMENTS_PREFIX, 1, 2, 0);
-    let error = observed.result.unwrap_err();
-    assert_eq!(error.progress.completed_symbols, 2, "{error}");
-    assert_eq!(error.progress.iaai.single_reference, 2);
-    assert_eq!(error.progress.refinement.completed_bitmaps, 2);
+    observed.result.unwrap_err();
     // One height class of height one and two decoded pixels means both
     // symbol widths are one; the second IADW is zero.
-    assert_eq!(error.progress.height_classes, 1);
-    assert_eq!(error.progress.refinement.pixels_decoded, 2);
     assert_eq!(observed.output.len(), 2);
     assert_eq!(observed.gr_contexts, vec![0]);
     assert_eq!(observed.gr_state_zero, 2);
@@ -561,14 +553,16 @@ fn the_symbol_limit_counts_imported_and_new_symbols_before_mq() {
     let observed = run_limited(&COMPLETE_ONE, 1, 1, 0, limits);
     let error = observed.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "total symbols",
-            limit: 1,
-            attempted: 2,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "total symbols",
+                limit: 1,
+                attempted: 2,
+            },
+            ..
         }
     ));
-    assert!(error.progress.mq.is_none());
     assert!(observed.output.is_empty());
 }
 
@@ -588,18 +582,19 @@ fn body_mutations_have_bounded_output_and_progress() {
                 observed.output.len() <= 8,
                 "position {position} mask {mask}"
             );
-            let progress = match observed.result {
-                Ok(report) => report.progress,
-                Err(error) => error.progress.as_ref().to_owned(),
-            };
-            assert!(progress.header_bytes_fetched <= 12);
-            assert!(progress.completed_symbols <= 1);
-            assert!(progress.export_runs <= 8);
+            match observed.result {
+                Ok(report) => {
+                    assert!(report.progress.header_bytes_fetched <= 12);
+                    assert!(report.progress.completed_symbols <= 1);
+                    assert!(report.progress.export_runs <= 8);
+                }
+                Err(error) => assert_eq!(error.context, Context::Jbig2 { segment: Some(2) }),
+            }
         }
     }
 }
 
-fn forged_error(count: u32, mutate: impl FnOnce(&mut DictionaryReport)) -> DictionaryError {
+fn forged_error(count: u32, mutate: impl FnOnce(&mut DictionaryReport)) -> Error {
     let (imported_header, mut report, imported_source) = imported(count, 1, &[0x80]);
     mutate(&mut report);
     let (source, header) = segment(2, Some(1), 0x1802, 0, 0, &[0x97, 0xff, 0xac]);
@@ -630,12 +625,10 @@ fn forged_error(count: u32, mutate: impl FnOnce(&mut DictionaryReport)) -> Dicti
         &limits,
         &NeverCancel,
     );
-    let error = match result {
+    match result {
         Ok(_) => panic!("forged report was accepted"),
         Err(error) => error,
-    };
-    assert!(error.progress.mq.is_none());
-    error
+    }
 }
 
 struct PreflightCase {
@@ -671,16 +664,14 @@ impl Default for PreflightCase {
 fn preflight_error(
     setup: PreflightCase,
     mutate_imported: impl FnOnce(&mut SegmentHeader, &mut DictionaryReport),
-) -> DictionaryError {
-    let error = preflight_result(setup, mutate_imported).unwrap_err();
-    assert!(error.progress.mq.is_none());
-    error
+) -> Error {
+    preflight_result(setup, mutate_imported).unwrap_err()
 }
 
 fn preflight_result(
     setup: PreflightCase,
     mutate_imported: impl FnOnce(&mut SegmentHeader, &mut DictionaryReport),
-) -> Result<(), DictionaryError> {
+) -> Result<(), Error> {
     let (imported_source, mut imported_header, mut report) = {
         let (header, report, source) = imported(1, 1, &[0x80]);
         (source, header, report)
@@ -733,24 +724,36 @@ fn forged_imported_reports_fail_before_mq_and_store_access() {
         report.catalog.new_symbols[0].row_stride = 2;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("noncanonical imported bitmap descriptor")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "noncanonical imported bitmap descriptor",
+            ..
+        }
     ));
 
     let error = forged_error(2, |report| {
         report.catalog.exported_symbols.swap(0, 1);
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported exports do not follow new-symbol order")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported exports do not follow new-symbol order",
+            ..
+        }
     ));
 
     let error = forged_error(1, |report| {
         report.progress.mq = None;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported dictionary is not a complete direct report")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported dictionary is not a complete direct report",
+            ..
+        }
     ));
 }
 
@@ -778,7 +781,7 @@ fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
     ] {
         let error = preflight_error(PreflightCase::default(), mutate);
         assert!(
-            matches!(error.kind, DictionaryErrorKind::Malformed(found) if found == reason),
+            matches!(error, Error { kind: ErrorKind::Malformed, reason: found, .. } if found == reason),
             "{error}"
         );
     }
@@ -790,8 +793,12 @@ fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
         report.catalog.new_symbols[0].relative_store_offset = u64::MAX;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported descriptor end overflow")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported descriptor end overflow",
+            ..
+        }
     ));
 
     let error = preflight_error(
@@ -802,8 +809,12 @@ fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported store base outside the store")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported store base outside the store",
+            ..
+        }
     ));
 }
 
@@ -828,7 +839,9 @@ fn imported_bitmap_metadata_and_store_bounds_are_checked_before_mq() {
         ),
     ] {
         let error = forged_error(1, mutate);
-        assert!(matches!(error.kind, DictionaryErrorKind::Malformed(found) if found == reason));
+        assert!(
+            matches!(error, Error { kind: ErrorKind::Malformed, reason: found, .. } if found == reason)
+        );
     }
 
     let error = forged_error(2, |report| {
@@ -838,8 +851,12 @@ fn imported_bitmap_metadata_and_store_bounds_are_checked_before_mq() {
             .relative_store_offset = 0;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("overlapping or unordered imported descriptors")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "overlapping or unordered imported descriptors",
+            ..
+        }
     ));
 }
 
@@ -853,16 +870,18 @@ fn the_symbol_pixel_limit_blocks_output_before_refinement() {
     let error = observed.result.unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "symbol pixels",
-                limit: 0,
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "symbol pixels",
+                    limit: 0,
+                    ..
+                },
                 ..
             }
         ),
         "{error}"
     );
-    assert_eq!(error.progress.completed_symbols, 0);
     assert!(observed.output.is_empty());
 }
 
@@ -875,8 +894,13 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         },
         |_, _| {},
     );
-    assert!(matches!(error.kind, DictionaryErrorKind::Malformed(_)));
-    assert!(error.progress.header_bytes_fetched > 0);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
 
     // A direct dictionary imports nothing.
     let error = preflight_error(
@@ -887,10 +911,11 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Unsupported {
-            feature: "imported dictionary references",
-            value: 1,
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "imported dictionary references",
+            ..
         }
     ));
 
@@ -902,9 +927,10 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Unsupported {
-            feature: "bitmap context carry",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "bitmap context carry",
             ..
         }
     ));
@@ -917,9 +943,10 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Unsupported {
-            feature: "second dictionary flags or adaptive template",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "second dictionary flags or adaptive template",
             ..
         }
     ));
@@ -932,9 +959,10 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Unsupported {
-            feature: "dictionary page association",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "dictionary page association",
             ..
         }
     ));
@@ -947,24 +975,36 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("expected exactly the supplied dictionary reference")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "expected exactly the supplied dictionary reference",
+            ..
+        }
     ));
 
     let error = preflight_error(PreflightCase::default(), |header, _| {
         header.segment_type = 38;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported dictionary segment metadata")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported dictionary segment metadata",
+            ..
+        }
     ));
 
     let error = preflight_error(PreflightCase::default(), |_, report| {
         report.header.body.offset += 1;
     });
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported dictionary is not a complete direct report")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported dictionary is not a complete direct report",
+            ..
+        }
     ));
 
     let error = preflight_error(
@@ -975,8 +1015,12 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("imported store base outside the store")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "imported store base outside the store",
+            ..
+        }
     ));
 
     let error = preflight_error(
@@ -987,8 +1031,11 @@ fn second_dictionary_preflight_rejects_wrong_mode_reference_and_store_views() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::InvalidSpan("new store base differs from the store length")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
 }
 
@@ -1002,8 +1049,12 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("exported count exceeds available symbols")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "exported count exceeds available symbols",
+            ..
+        }
     ));
 
     let error = preflight_error(
@@ -1014,8 +1065,12 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
         |_, _| {},
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("IAID width or GR context layout mismatch")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "IAID width or GR context layout mismatch",
+            ..
+        }
     ));
 
     let error = preflight_error(
@@ -1027,8 +1082,12 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
     );
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Truncated("MQ body terminal pair")
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                reason: "MQ body terminal pair",
+                ..
+            }
         ),
         "{error}"
     );
@@ -1076,34 +1135,12 @@ fn public_error_messages_keep_locations_and_nested_sources() {
     )
     .result
     .unwrap_err();
-    let fabricate = |kind| DictionaryError {
-        segment: 2,
-        offset: 23,
-        progress: Box::new(DictionaryProgress::default()),
-        kind,
-    };
-    let cases = [
-        (header, false),
-        (unsupported, false),
-        (malformed, false),
-        (limit, false),
-        (invalid, false),
-        (mq, true),
-        (fabricate(DictionaryErrorKind::AllocationFailed), false),
-        (fabricate(DictionaryErrorKind::Cancelled), false),
-    ];
-    for (error, has_source) in cases {
+    for error in [header, unsupported, malformed, limit, invalid, mq] {
         let display = error.to_string();
-        assert!(
-            display.contains("dictionary segment 2 at source byte"),
-            "{display}"
-        );
+        assert!(display.contains(", segment 2: "), "{display}");
+        assert!(error.offset.is_some(), "{display}");
         common::assert_display_propagates_fmt_error(&error);
-        assert_eq!(
-            std::error::Error::source(&error).is_some(),
-            has_source,
-            "{display}"
-        );
+        assert!(std::error::Error::source(&error).is_none(), "{display}");
     }
 }
 
@@ -1164,16 +1201,13 @@ fn bounded_synthetic_control_witnesses_keep_typed_locations() {
         let observed = run_limited(body, 1, 1, 0, limits);
         let error = observed.result.unwrap_err();
         let label = match error.kind {
-            DictionaryErrorKind::Malformed(s) => format!("malformed:{s}"),
-            DictionaryErrorKind::Unsupported { feature, .. } => {
-                format!("unsupported:{feature}")
-            }
-            other => format!("other:{other:?}"),
+            ErrorKind::Malformed => format!("malformed:{}", error.reason),
+            ErrorKind::UnsupportedFormat => format!("unsupported:{}", error.reason),
+            ref other => format!("other:{other:?}"),
         };
         assert_eq!(label, expected);
-        assert_eq!(error.segment, 2);
-        assert!(error.offset > 0, "{expected}");
-        assert!(error.progress.completed_symbols <= 1);
+        assert_eq!(error.context, Context::Jbig2 { segment: Some(2) });
+        assert!(error.offset > Some(0), "{expected}");
         assert!(observed.output.len() <= 8);
     }
 }
@@ -1185,9 +1219,7 @@ fn a_later_symbol_refines_an_earlier_new_symbol() {
     // malformed width control is outside this prefix check.
     let body = [0x95, 0x13, 0x98, 0x97, 0x6f, 0x41, 0x9a, 0x7f, 0xff, 0xac];
     let observed = run(&body, 1, 2, 0);
-    let error = observed.result.unwrap_err();
-    assert_eq!(error.progress.completed_symbols, 2, "{error}");
-    assert_eq!(error.progress.iaai.single_reference, 2);
+    observed.result.unwrap_err();
     assert_eq!(observed.output.len(), 2);
 }
 
@@ -1198,11 +1230,13 @@ fn export_count_mismatch_refuses_partial_cross_store_catalog() {
     let observed = run(&COMPLETE_BOTH_EXPORTS, 1, 1, 1);
     let error = observed.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("exported symbol total")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "exported symbol total",
+            ..
+        }
     ));
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.export_runs, 2);
     assert_eq!(observed.output.len(), 1);
 }
 
@@ -1218,10 +1252,13 @@ fn malformed_iaex_mutations_remain_bounded_and_expose_overshoot() {
         match observed.result {
             Ok(report) => assert_eq!(report.progress.export_runs, 1),
             Err(error) => {
-                assert!(error.progress.export_runs <= 2);
                 saw_overshoot |= matches!(
-                    error.kind,
-                    DictionaryErrorKind::Malformed("export run overshoot")
+                    error,
+                    Error {
+                        kind: ErrorKind::Malformed,
+                        reason: "export run overshoot",
+                        ..
+                    }
                 );
             }
         }
@@ -1242,10 +1279,8 @@ fn truncated_terminal_after_complete_exports_is_located() {
         2,
     );
     let error = observed.result.unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)));
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.export_runs, 2);
-    assert!(error.offset > 0);
+    assert!(error.reason.contains("MQ"));
+    assert!(error.offset > Some(0));
     assert_eq!(observed.output.len(), 1);
 }
 
@@ -1275,20 +1310,23 @@ fn signed_height_class_deltas_reach_the_next_symbol_control() {
         );
         let observed = run(body, 1, 1, 0);
         let error = observed.result.unwrap_err();
-        assert_eq!(error.progress.height_classes, 2);
-        assert_eq!(error.progress.completed_symbols, 0);
         assert!(observed.output.is_empty());
         match expected_delta {
             IntegerValue::Signed(-1) => assert!(matches!(
-                error.kind,
-                DictionaryErrorKind::Unsupported {
-                    feature: "REFAGGNINST aggregation",
-                    value: 4,
+                error,
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    reason: "REFAGGNINST aggregation",
+                    ..
                 }
             )),
             IntegerValue::Signed(0) => assert!(matches!(
-                error.kind,
-                DictionaryErrorKind::Malformed("negative symbol dimension")
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "negative symbol dimension",
+                    ..
+                }
             )),
             _ => unreachable!(),
         }
@@ -1296,9 +1334,9 @@ fn signed_height_class_deltas_reach_the_next_symbol_control() {
 }
 
 #[test]
-fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
-    let mut saw_host = false;
-    let mut saw_completed_prefix = false;
+fn cancellation_checkpoints_cover_store_and_exports() {
+    let mut saw_before_store = false;
+    let mut saw_after_store = false;
     for allowed in 0..180 {
         let cancellation = common::CancelAfter::new(allowed);
         let observed = run_with_imported_io(
@@ -1313,22 +1351,14 @@ fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
         );
         if let Err(error) = observed.result {
             assert!(observed.output.len() <= 1);
-            match &error.kind {
-                DictionaryErrorKind::Cancelled => {
-                    saw_completed_prefix |=
-                        error.progress.completed_symbols == 1 && error.progress.export_runs == 1;
-                }
-                DictionaryErrorKind::Refinement(nested)
-                    if matches!(nested.kind, RefinementErrorKind::Cancelled) =>
-                {
-                    saw_host = true
-                }
-                _ => {}
+            if matches!(error.kind, ErrorKind::Cancelled) {
+                saw_before_store |= observed.output.is_empty();
+                saw_after_store |= observed.output.len() == 1;
             }
         }
     }
-    assert!(saw_host);
-    assert!(saw_completed_prefix);
+    assert!(saw_before_store);
+    assert!(saw_after_store);
 }
 
 #[test]
@@ -1342,16 +1372,14 @@ fn negative_width_delta_reaches_a_positive_second_symbol_geometry() {
     );
     let observed = run(&body, 1, 2, 0);
     let error = observed.result.unwrap_err();
-    assert_eq!(error.progress.height_classes, 1);
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.refinement.pixels_decoded, 2);
     assert_eq!(observed.output.len(), 1);
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Unsupported {
-                feature: "REFAGGNINST aggregation",
-                value: 40,
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "REFAGGNINST aggregation",
+                ..
             }
         ),
         "{error:?}"
@@ -1368,8 +1396,12 @@ fn negative_initial_width_delta_is_rejected_before_bitmap_io() {
     let observed = run(&body, 1, 1, 0);
     let error = observed.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("negative symbol dimension")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "negative symbol dimension",
+            ..
+        }
     ));
     assert!(observed.output.is_empty());
 }
@@ -1384,11 +1416,13 @@ fn height_class_oob_is_a_located_refusal_before_bitmap_output() {
     let observed = run(&body, 1, 1, 0);
     let error = observed.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("IADH out of band")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "IADH out of band",
+            ..
+        }
     ));
-    assert_eq!(error.progress.height_classes, 1);
-    assert_eq!(error.progress.completed_symbols, 0);
     assert!(observed.output.is_empty());
 }
 
@@ -1399,9 +1433,12 @@ fn final_iaex_count_mismatch_rejects_an_underexported_import() {
     let observed = run(&[0x87, 0xff, 0xac], 1, 0, 1);
     let error = observed.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("exported symbol total")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "exported symbol total",
+            ..
+        }
     ));
-    assert_eq!(error.progress.export_runs, 1);
     assert!(observed.output.is_empty());
 }

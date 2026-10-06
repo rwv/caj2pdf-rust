@@ -5,10 +5,13 @@
 //! only source indices, coordinates, SHA-256 values, and header metadata.
 //! A normal test run reads no private document and reports zero matches.
 
+mod common;
+
 use caj2pdf_core::{
-    Limits, NeverCancel, RangedSource,
-    hnc8::{ErrorKind, Hnc8Error, Hnc8Reader, JpegColor, Variant, read_type2_jpeg_info},
+    Error as CoreError, ErrorKind, Limits, NeverCancel, RangedSource,
+    hnc8::{Hnc8Reader, JpegColor, Variant, read_type2_jpeg_info},
 };
+use common::errors::{field_of, kind_name, page_image};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -328,11 +331,11 @@ impl RangedSource for CountedSource {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         if destination.len() > IO_CHUNK {
-            return Err(caj2pdf_core::Error::LimitExceeded {
-                resource: "corpus source request bytes",
-                limit: IO_CHUNK as u64,
-                attempted: destination.len() as u64,
-            });
+            return Err(CoreError::limit(
+                "corpus source request bytes",
+                IO_CHUNK as u64,
+                destination.len() as u64,
+            ));
         }
         self.largest_request = self.largest_request.max(destination.len());
         self.file.seek(SeekFrom::Start(offset))?;
@@ -342,21 +345,20 @@ impl RangedSource for CountedSource {
     }
 }
 
-fn expected_anomaly(index: usize, error: &Hnc8Error) -> bool {
+fn expected_anomaly(index: usize, error: &CoreError) -> bool {
     if index != 1 {
         return false;
     }
-    let (page, image, offset, field, kind) = match (error.page, error.image) {
+    let (page, image, offset, field, kind) = match page_image(error) {
         (Some(2), Some(1)) => (2, Some(1), 12_886, "image type", "unsupported"),
         (Some(3), None) => (3, None, 264, "image count", "malformed"),
         (Some(4), None) => (4, None, 276, "text span", "truncated"),
         _ => return false,
     };
-    error.page == Some(page)
-        && error.image == image
-        && error.offset == offset
-        && error.kind.field() == field
-        && error.kind.as_str() == kind
+    page_image(error) == (Some(page), image)
+        && error.offset == Some(offset)
+        && field_of(error) == field
+        && kind_name(error) == kind
 }
 
 fn peak_rss_kib() -> TestResult<u64> {
@@ -574,11 +576,21 @@ fn run_all() -> TestResult<()> {
                             matched += 1;
                         }
                     }
-                    Err(error) if matches!(error.kind, ErrorKind::Unsupported { .. }) => {
+                    Err(error)
+                        if matches!(
+                            error,
+                            CoreError {
+                                kind: ErrorKind::UnsupportedFormat,
+                                ..
+                            }
+                        ) =>
+                    {
                         unsupported += 1;
                         println!(
                             "IMAGE_UNSUPPORTED\tsource_index={index}\tpage={}\timage={}\toffset={}",
-                            expected.page, expected.number, error.offset
+                            expected.page,
+                            expected.number,
+                            error.offset.unwrap_or_default()
                         );
                     }
                     Err(error) => {
@@ -587,9 +599,9 @@ fn run_all() -> TestResult<()> {
                             "IMAGE_FAIL\tsource_index={index}\tpage={}\timage={}\toffset={}\tfield={}\tkind={}",
                             expected.page,
                             expected.number,
-                            error.offset,
-                            error.kind.field(),
-                            error.kind.as_str()
+                            error.offset.unwrap_or_default(),
+                            field_of(&error),
+                            kind_name(&error)
                         );
                     }
                 }

@@ -6,9 +6,12 @@
 
 #[path = "../../src/test_support/arith_encoder.rs"]
 pub mod arith_encoder;
+#[path = "../../src/test_support/errors.rs"]
+pub mod errors;
 pub mod hnc8_document;
 
-use caj2pdf_core::Cancellation;
+use caj2pdf_core::hnc8::Variant;
+use caj2pdf_core::{Cancellation, Context, Error, ErrorKind, Hnc8Stage};
 use std::fmt::{self, Display};
 use std::{cell::Cell, rc::Rc};
 

@@ -13,17 +13,16 @@ mod decode;
 mod faults;
 
 use caj2pdf_core::{
-    Limits, Payload, RangedSource,
+    Context, Error, ErrorKind, Limits, Payload, RangedSource,
     jbig2::{
         SegmentHeader, SegmentSpan,
         dictionary::{
-            DictionaryError, DictionaryErrorKind, DictionaryMode, DictionaryReport,
-            DictionaryStores, SymbolDescriptor, SymbolDictionaryDecoder, SymbolStore,
-            read_dictionary_data_header,
+            DictionaryMode, DictionaryReport, DictionaryStores, SymbolDescriptor,
+            SymbolDictionaryDecoder, SymbolStore, read_dictionary_data_header,
         },
         iaid::IAID_BASE,
         integer::{BITMAP_BASE, INTEGER_CONTEXT_COUNT},
-        mq::{ArithmeticErrorKind, ContextBank, ContextState, MqTable},
+        mq::{ContextBank, ContextState, MqTable},
         read_segment_header,
     },
 };
@@ -40,10 +39,10 @@ enum Fault {
 }
 
 impl Fault {
-    fn error(self) -> caj2pdf_core::Error {
+    fn error(self) -> Error {
         match self {
-            Self::Io => caj2pdf_core::Error::Io(io::Error::other("injected I/O failure")),
-            Self::Cancelled => caj2pdf_core::Error::Cancelled,
+            Self::Io => Error::from(ErrorKind::Io(io::Error::other("injected I/O failure"))),
+            Self::Cancelled => Error::cancelled(),
         }
     }
 }
@@ -154,7 +153,7 @@ fn table() -> MqTable {
 
 /// The integer and bitmap contexts of a direct dictionary.
 fn direct_contexts() -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(IAID_BASE, &Limits::default()).unwrap()
+    ContextBank::new(IAID_BASE, &Limits::default()).unwrap()
 }
 
 /// The exported descriptors of a direct dictionary, all in its new store.

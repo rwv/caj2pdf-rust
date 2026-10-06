@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::hnc8::C8PageFonts;
+use crate::test_support::page_image;
 
 pub(super) fn native_text(records: &[Record]) -> Vec<u8> {
     let mut words = vec![[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1]];
@@ -146,7 +147,7 @@ fn native_document_checks_resource_contract_before_output() {
             &NeverCancel,
         )
         .unwrap_err();
-        assert!(matches!(error.kind, ComposeErrorKind::InvalidOptions(_)));
+        assert!(matches!(error.kind, ErrorKind::Malformed));
         assert!(sink.bytes.is_empty());
     }
 }
@@ -174,7 +175,7 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!(error.page, Some(2));
+    assert_eq!(page_image(&error).0, Some(2));
     assert!(!sink.bytes.ends_with(b"%%EOF\n"));
 }
 
@@ -270,7 +271,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
         let error = result.unwrap_err();
         assert!(!sink.bytes.ends_with(b"%%EOF\n"), "mode {mode}");
         if matches!(mode, 2 | 3 | 6 | 7) {
-            assert_eq!(error.page, Some(1), "mode {mode}: {error}");
+            assert_eq!(page_image(&error).0, Some(1), "mode {mode}: {error}");
         }
         if mode == 1 {
             assert!(sink.bytes.is_empty());
@@ -383,7 +384,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             &NeverCancel,
         );
         if corrupt {
-            assert_eq!(result.unwrap_err().page, Some(3));
+            assert_eq!(page_image(&result.unwrap_err()).0, Some(3));
             assert!(!sink.bytes.ends_with(b"%%EOF\n"));
         } else {
             let report = result.unwrap();

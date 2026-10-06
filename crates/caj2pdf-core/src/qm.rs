@@ -6,19 +6,16 @@
 //! No official test vectors, CAJ framing, or image prediction are included
 //! in this module. Its input span contains arithmetic bytes after any
 //! container framing and byte unstuffing have been handled by the caller.
-//! The context bank, errors, snapshot and counters are shared with the T.88
-//! MQ decoder in [`crate::arith`].
+//! The context bank, snapshot and counters are shared with the T.88 MQ
+//! decoder in [`crate::arith`].
 
 mod standard;
 pub use standard::STANDARD_STATES;
 
-pub use crate::arith::{
-    ArithmeticError, ArithmeticErrorKind, ArithmeticResult, ArithmeticSnapshot, CodedSpan, Coder,
-    ContextBank, ContextState,
-};
+pub use crate::arith::{ArithmeticSnapshot, CodedSpan, ContextBank, ContextState};
 
-use crate::arith::{Counters, check_span};
-use crate::{Limits, Payload};
+use crate::arith::{Counters, INVALID_CONTEXT, SYMBOL_COUNT, check_span};
+use crate::{Error, Limits, Payload, Result};
 
 /// Number of probability-estimation states in T.82 Table 24.
 pub const QM_STATE_COUNT: usize = 113;
@@ -69,8 +66,8 @@ impl<'a> ArithmeticDecoder<'a> {
         table: &'a QmTable,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-    ) -> ArithmeticResult<Self> {
-        let data = check_span(Coder::T82, span, input, limits)?;
+    ) -> Result<Self> {
+        let data = check_span(span, input, limits)?;
         contexts.reset();
         let mut decoder = Self {
             data,
@@ -93,9 +90,9 @@ impl<'a> ArithmeticDecoder<'a> {
 
     /// Decode one bit for a checked context. After an error the stripe's
     /// registers are undefined; the caller must abandon it.
-    pub fn decode_symbol(&mut self, context: usize) -> ArithmeticResult<bool> {
+    pub fn decode_symbol(&mut self, context: usize) -> Result<bool> {
         if self.contexts.get(context).is_none() {
-            return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
+            return Err(self.at(INVALID_CONTEXT));
         }
         let bit = self.decode_symbol_inner(context);
         self.counters.symbols_decoded += 1;
@@ -118,26 +115,15 @@ impl<'a> ArithmeticDecoder<'a> {
     }
 
     /// Check that exactly `expected_symbols` were decoded.
-    pub fn finish(self, expected_symbols: u64) -> ArithmeticResult<()> {
+    pub fn finish(self, expected_symbols: u64) -> Result<()> {
         if self.counters.symbols_decoded != expected_symbols {
-            return Err(self.at(
-                None,
-                ArithmeticErrorKind::SymbolCount {
-                    expected: expected_symbols,
-                    decoded: self.counters.symbols_decoded,
-                },
-            ));
+            return Err(self.at(SYMBOL_COUNT));
         }
         Ok(())
     }
 
-    fn at(&self, context: Option<usize>, kind: ArithmeticErrorKind) -> ArithmeticError {
-        ArithmeticError {
-            coder: Some(Coder::T82),
-            offset: Some(self.span.offset + self.physical_bytes_consumed),
-            context,
-            kind,
-        }
+    fn at(&self, reason: &'static str) -> Error {
+        Error::invalid(reason).at(self.span.offset + self.physical_bytes_consumed)
     }
 
     fn next_byte(&mut self) -> u8 {
@@ -243,7 +229,7 @@ mod tests {
         span: CodedSpan,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-    ) -> ArithmeticResult<ArithmeticDecoder<'a>> {
+    ) -> Result<ArithmeticDecoder<'a>> {
         const TABLE: QmTable = QmTable::standard();
         ArithmeticDecoder::new(bytes.into(), span, &TABLE, contexts, limits)
     }
@@ -262,10 +248,9 @@ mod tests {
             &mut contexts,
             &limits,
         );
-        assert!(matches!(
-            invalid_span.err().unwrap().kind,
-            ArithmeticErrorKind::InvalidSpan(_)
-        ));
+        let invalid_span = invalid_span.err().unwrap();
+        assert!(matches!(invalid_span.kind, crate::ErrorKind::Malformed));
+        assert_eq!(invalid_span.offset, Some(u64::MAX));
         let mut small_input = limits;
         small_input.max_input_bytes = 2;
         let input_limit = decoder(
@@ -282,7 +267,7 @@ mod tests {
         assert_eq!(input_limit.offset, Some(1));
         assert!(matches!(
             input_limit.kind,
-            ArithmeticErrorKind::Source(crate::Error::LimitExceeded { .. })
+            crate::ErrorKind::LimitExceeded { .. }
         ));
     }
 
@@ -314,14 +299,11 @@ mod tests {
                 .err()
                 .unwrap();
             assert_eq!(error.offset, Some(span.offset));
-            assert!(matches!(
-                error.kind,
-                ArithmeticErrorKind::InvalidSpan("outside source size")
-            ));
+            assert_eq!(error.reason, crate::arith::OUTSIDE_SOURCE);
             assert_eq!(
                 error.to_string(),
                 format!(
-                    "T.82 arithmetic decoder at source byte {}: invalid span: outside source size",
+                    "invalid input at byte {}: coded span is outside the source",
                     span.offset
                 )
             );
@@ -340,14 +322,14 @@ mod tests {
         let invalid_context = stripe.decode_symbol(1).unwrap_err();
         assert_eq!(
             invalid_context.to_string(),
-            "T.82 arithmetic decoder at source byte 3, context 1: invalid context index or count"
+            "invalid input at byte 3: invalid arithmetic context index or count"
         );
         assert!(std::error::Error::source(&invalid_context).is_none());
         assert!(!stripe.decode_symbol(0).unwrap());
         let incomplete = stripe.finish(2).unwrap_err();
         assert_eq!(
             incomplete.to_string(),
-            "T.82 arithmetic decoder at source byte 3: expected 2 symbols, decoded 1"
+            "invalid input at byte 3: decoded symbol count differs from the expected count"
         );
     }
 
@@ -449,8 +431,7 @@ mod tests {
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         let error = stripe.decode_symbol(1).unwrap_err();
-        assert_eq!(error.context, Some(1));
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
+        assert_eq!(error.reason, INVALID_CONTEXT);
         assert!(!stripe.decode_symbol(0).unwrap());
         stripe.finish(1).unwrap();
     }
@@ -461,13 +442,7 @@ mod tests {
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert!(stripe.decode_symbol(0).unwrap());
-        assert!(matches!(
-            stripe.finish(2).unwrap_err().kind,
-            ArithmeticErrorKind::SymbolCount {
-                expected: 2,
-                decoded: 1,
-            }
-        ));
+        assert_eq!(stripe.finish(2).unwrap_err().reason, SYMBOL_COUNT);
 
         let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert!(stripe.decode_symbol(0).unwrap());

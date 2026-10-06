@@ -10,11 +10,12 @@
 use super::{
     dictionary::SymbolDescriptor,
     integer::BITMAP_BASE,
-    mq::{ArithmeticError, ArithmeticSnapshot, MqDecoder},
+    mq::{ArithmeticSnapshot, MqDecoder},
+    unsupported,
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Limits};
-use std::{error, fmt, mem};
+use crate::{Cancellation, Error, Limits, Result};
+use std::mem;
 
 const CONTEXT_COUNT: usize = 1024;
 
@@ -68,77 +69,6 @@ pub struct RefinementReport {
     pub progress: RefinementProgress,
 }
 
-#[derive(Debug)]
-pub struct RefinementError {
-    /// Reference-store or MQ source offset, when applicable.
-    pub offset: Option<u64>,
-    pub bitmap_index: u32,
-    pub row: u32,
-    pub x: u32,
-    pub progress: Box<RefinementProgress>,
-    pub kind: RefinementErrorKind,
-}
-
-#[derive(Debug)]
-pub enum RefinementErrorKind {
-    Malformed(&'static str),
-    InvalidSpan(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Mq(Box<ArithmeticError>),
-}
-
-pub type RefinementResult<T> = Result<T, RefinementError>;
-
-impl fmt::Display for RefinementError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 refinement bitmap {} row {} x {}",
-            self.bitmap_index, self.row, self.x
-        )?;
-        if let Some(offset) = self.offset {
-            write!(f, " at source byte {offset}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            RefinementErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
-            RefinementErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            RefinementErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            RefinementErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => {
-                write!(f, "{resource} limit {limit} exceeded by {attempted}")
-            }
-            RefinementErrorKind::AllocationFailed => f.write_str("row allocation failed"),
-            RefinementErrorKind::Cancelled => f.write_str("cancelled"),
-            RefinementErrorKind::Mq(source) => write!(f, "MQ: {source}"),
-        }
-    }
-}
-
-impl error::Error for RefinementError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            RefinementErrorKind::Mq(source) => Some(source),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Geometry {
     reference_offset: u64,
@@ -174,7 +104,7 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         output: &'a mut Vec<u8>,
         limits: &'a Limits,
         cancellation: &'a C,
-    ) -> RefinementResult<Self> {
+    ) -> Result<Self> {
         Self::new_continuing(
             mq,
             output,
@@ -193,19 +123,9 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         limits: &'a Limits,
         cancellation: &'a C,
         previous: RefinementProgress,
-    ) -> RefinementResult<Self> {
-        let invalid = |kind| RefinementError {
-            offset: None,
-            bitmap_index: previous.completed_bitmaps,
-            row: 0,
-            x: 0,
-            progress: Box::new(previous),
-            kind,
-        };
+    ) -> Result<Self> {
         if mq.context_count() < BITMAP_BASE + CONTEXT_COUNT {
-            return Err(invalid(RefinementErrorKind::InvalidSpan(
-                "coding unit lacks the GR context range",
-            )));
+            return Err(Error::invalid("coding unit lacks the GR context range"));
         }
         Ok(Self {
             mq,
@@ -228,149 +148,58 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         self.mq
     }
 
-    fn error(
-        &self,
-        kind: RefinementErrorKind,
-        offset: Option<u64>,
-        row: u32,
-        x: u32,
-    ) -> RefinementError {
-        RefinementError {
-            offset,
-            bitmap_index: self.progress.completed_bitmaps,
-            row,
-            x,
-            progress: Box::new(self.progress()),
-            kind,
-        }
-    }
-
-    fn invalid_span(&self, reason: &'static str, row: u32) -> RefinementError {
-        self.error(RefinementErrorKind::InvalidSpan(reason), None, row, 0)
-    }
-
-    fn limit(
-        &self,
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-        row: u32,
-        x: u32,
-    ) -> RefinementError {
-        self.error(
-            RefinementErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            },
-            None,
-            row,
-            x,
-        )
-    }
-
-    fn check_cancelled(&self, row: u32) -> RefinementResult<()> {
+    fn check_cancelled(&self) -> Result<()> {
         if self.cancellation.is_cancelled() {
-            Err(self.error(RefinementErrorKind::Cancelled, None, row, 0))
+            Err(Error::cancelled())
         } else {
             Ok(())
         }
     }
 
-    fn cap(&self, resource: &'static str, maximum: u64, attempted: u64) -> RefinementResult<()> {
+    fn cap(&self, resource: &'static str, maximum: u64, attempted: u64) -> Result<()> {
         if attempted > maximum {
-            Err(self.limit(resource, maximum, attempted, 0, 0))
+            Err(Error::limit(resource, maximum, attempted))
         } else {
             Ok(())
         }
     }
 
-    fn geometry(
-        &self,
-        reference_size: u64,
-        request: RefinementRequest,
-    ) -> RefinementResult<Geometry> {
+    fn geometry(&self, reference_size: u64, request: RefinementRequest) -> Result<Geometry> {
         // One-pixel bitmaps could otherwise complete more bitmaps than the
         // u32 index represents.
         let next = u64::from(self.progress.completed_bitmaps) + 1;
         self.cap("completed bitmaps", u64::from(u32::MAX), next)?;
         if request.template != 1 {
-            return Err(self.error(
-                RefinementErrorKind::Unsupported {
-                    feature: "refinement template",
-                    value: u64::from(request.template),
-                },
-                None,
-                0,
-                0,
-            ));
+            return Err(unsupported("refinement template"));
         }
         if request.typical_prediction {
-            return Err(self.error(
-                RefinementErrorKind::Unsupported {
-                    feature: "TPGRON",
-                    value: 1,
-                },
-                None,
-                0,
-                0,
-            ));
+            return Err(unsupported("TPGRON"));
         }
         let symbol = request.reference.symbol;
         if request.width == 0 || request.height == 0 || symbol.width == 0 || symbol.height == 0 {
-            return Err(self.error(
-                RefinementErrorKind::Unsupported {
-                    feature: "zero bitmap dimension",
-                    value: 0,
-                },
-                None,
-                0,
-                0,
-            ));
+            return Err(unsupported("zero bitmap dimension"));
         }
         let target_stride = u64::from(request.width).div_ceil(8);
         let reference_stride = u64::from(symbol.width).div_ceil(8);
         if u64::from(symbol.row_stride) != reference_stride {
-            return Err(self.error(
-                RefinementErrorKind::Malformed("noncanonical reference row stride"),
-                None,
-                0,
-                0,
-            ));
+            return Err(Error::invalid("noncanonical reference row stride"));
         }
         // A u32 width has a stride of at most 2^29 bytes. Multiplication by
         // a u32 height therefore fits u64, even before the configured caps.
         let reference_bytes = reference_stride * u64::from(symbol.height);
         if symbol.stored_bytes != reference_bytes {
-            return Err(self.error(
-                RefinementErrorKind::Malformed("reference stored byte length"),
-                None,
-                0,
-                0,
-            ));
+            return Err(Error::invalid("reference stored byte length"));
         }
         let reference_offset = request
             .reference
             .store_base
             .checked_add(symbol.relative_store_offset)
-            .ok_or_else(|| self.invalid_span("reference offset overflows u64", 0))?;
+            .ok_or_else(|| Error::invalid("reference offset overflows u64"))?;
         let reference_end = reference_offset
             .checked_add(reference_bytes)
-            .ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("reference end overflows u64"),
-                    Some(reference_offset),
-                    0,
-                    0,
-                )
-            })?;
+            .ok_or_else(|| Error::invalid("reference end overflows u64"))?;
         if reference_end > reference_size {
-            return Err(self.error(
-                RefinementErrorKind::InvalidSpan("reference outside its store"),
-                Some(reference_offset),
-                0,
-                0,
-            ));
+            return Err(Error::invalid("reference outside its store"));
         }
         let pixels = u64::from(request.width) * u64::from(request.height);
         let bytes = target_stride * u64::from(request.height);
@@ -382,23 +211,19 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         self.limits
             .check_allocation(target_stride as u64)
             .map_err(|_| {
-                self.limit(
+                Error::limit(
                     "target row allocation",
                     self.limits.max_allocation_bytes,
                     target_stride as u64,
-                    0,
-                    0,
                 )
             })?;
         self.limits
             .check_allocation(reference_stride as u64)
             .map_err(|_| {
-                self.limit(
+                Error::limit(
                     "reference row allocation",
                     self.limits.max_allocation_bytes,
                     reference_stride as u64,
-                    0,
-                    0,
                 )
             })?;
         Ok(Geometry {
@@ -412,31 +237,32 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         })
     }
 
-    fn row(&self, length: usize) -> RefinementResult<Vec<u8>> {
+    fn row(&self, length: usize) -> Result<Vec<u8>> {
         let mut row = Vec::new();
-        let failed = self.error(RefinementErrorKind::AllocationFailed, None, 0, 0);
+        let failed = self
+            .limits
+            .allocation_refused("refinement row bytes", length as u64);
         reserve_exact(&mut row, length, failed)?;
         row.resize(length, 0);
         Ok(row)
     }
 
     /// Reserve room for `bytes` more output bytes within the allocation limit.
-    fn reserve_output(&mut self, bytes: u64) -> RefinementResult<()> {
+    fn reserve_output(&mut self, bytes: u64) -> Result<()> {
         // The output store is in memory, so its length fits a `u64`.
         let attempted = (self.output.len() as u64).saturating_add(bytes);
         self.limits.check_allocation(attempted).map_err(|_| {
-            self.limit(
+            Error::limit(
                 "refinement store bytes",
                 self.limits.max_allocation_bytes,
                 attempted,
-                0,
-                0,
             )
         })?;
         // `bytes` fits the allocation limit, hence a `usize` on this target.
-        self.output
-            .try_reserve(bytes as usize)
-            .map_err(|_| self.error(RefinementErrorKind::AllocationFailed, None, 0, 0))
+        self.output.try_reserve(bytes as usize).map_err(|_| {
+            self.limits
+                .allocation_refused("refinement store bytes", attempted)
+        })
     }
 
     /// Append one packed bitmap; retain the GR contexts and MQ state for the
@@ -445,7 +271,7 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         &mut self,
         reference: ReferenceStore<'_>,
         request: RefinementRequest,
-    ) -> RefinementResult<RefinementReport> {
+    ) -> Result<RefinementReport> {
         let reference_size = match reference {
             ReferenceStore::Other(bytes) => bytes.len(),
             ReferenceStore::Output => self.output.len(),
@@ -464,7 +290,7 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         // rows a target row needs never evict one another.
         let mut cached: [Option<i64>; 3] = [None; 3];
         for y in 0..request.height {
-            self.check_cancelled(y)?;
+            self.check_cancelled()?;
             current.fill(0);
             let reference_y = i64::from(y) - i64::from(request.reference_dy);
             let needed = [reference_y - 1, reference_y, reference_y + 1];
@@ -502,10 +328,7 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                     reference_y,
                     x,
                 );
-                let bit = self.mq.decode_bit(BITMAP_BASE + context).map_err(|error| {
-                    let offset = error.offset;
-                    self.error(RefinementErrorKind::Mq(Box::new(error)), offset, y, x)
-                })?;
+                let bit = self.mq.decode_bit(BITMAP_BASE + context)?;
                 if bit {
                     current[(x / 8) as usize] |= 0x80 >> (x % 8);
                 }
@@ -642,6 +465,7 @@ fn template1_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ErrorKind;
     use crate::NeverCancel;
     use crate::jbig2::iaid::IAID_BASE;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqTable};
@@ -689,15 +513,11 @@ mod tests {
         let error = decoder
             .decode_bitmap(ReferenceStore::Other(&[0]), request)
             .unwrap_err();
-        assert_eq!(error.bitmap_index, u32::MAX);
-        assert!(matches!(
-            error.kind,
-            RefinementErrorKind::LimitExceeded {
+        assert!(matches!(error, Error { kind: ErrorKind::LimitExceeded {
                 resource: "completed bitmaps",
                 limit,
                 attempted,
-            } if limit == u64::from(u32::MAX) && attempted == limit + 1
-        ));
+            }, .. } if limit == u64::from(u32::MAX) && attempted == limit + 1));
     }
 
     #[test]

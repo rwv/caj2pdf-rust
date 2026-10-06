@@ -8,16 +8,15 @@ mod common;
 
 use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{
-        ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport, ComposeStage,
-        ComposeVisitor, Type3Stage, Variant,
-    },
+    Cancellation, Error, ErrorKind, Hnc8Stage, Limits, NeverCancel, RangedSource, Result,
+    Type3Stage,
+    hnc8::{ComposeOptions, ComposePage, ComposeReport, ComposeVisitor, Variant},
     jbig2::text::{TextHeaderAnomaly, TextHeaderPolicy},
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
 };
 use common::{
     CancelAfter,
+    errors::{page_image, stage_of, variant_of},
     hnc8_document::{Image, RENDER_DPI, document},
     mq_encoder,
 };
@@ -105,16 +104,18 @@ impl RangedSource for Source {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
         if self.fail_at == Some(offset) {
-            return Err(Error::Io(io::Error::other("injected source failure")));
+            return Err(Error::from(ErrorKind::Io(io::Error::other(
+                "injected source failure",
+            ))));
         }
         if let Some((watched, visit)) = self.fail_on_offset_visit
             && offset == watched
         {
             self.failed_offset_visits += 1;
             if self.failed_offset_visits == visit {
-                return Err(Error::Io(io::Error::other(
+                return Err(Error::from(ErrorKind::Io(io::Error::other(
                     "injected staged source failure",
-                )));
+                ))));
             }
         }
         if self.overreport_at == Some(offset) {
@@ -191,7 +192,7 @@ fn run_with<C: Cancellation>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError> {
+) -> Result<ComposeReport> {
     compose(source, sink, None, visitor, options, limits, cancellation)
 }
 
@@ -201,7 +202,7 @@ fn run<C: Cancellation>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError> {
+) -> Result<ComposeReport> {
     run_with(
         source,
         sink,
@@ -212,7 +213,7 @@ fn run<C: Cancellation>(
     )
 }
 
-fn run_error(bytes: Vec<u8>, options: ComposeOptions) -> (ComposeError, Vec<u8>) {
+fn run_error(bytes: Vec<u8>, options: ComposeOptions) -> (Error, Vec<u8>) {
     let mut source = Source::new(bytes);
     let mut sink = Sink::default();
     let error = run(
@@ -226,9 +227,9 @@ fn run_error(bytes: Vec<u8>, options: ComposeOptions) -> (ComposeError, Vec<u8>)
     (error, sink.bytes)
 }
 
-fn stage(error: &ComposeError) -> Option<Type3Stage> {
-    match error.kind {
-        ComposeErrorKind::Type3 { stage, .. } => Some(stage),
+fn type3_stage(error: &Error) -> Option<Type3Stage> {
+    match stage_of(error) {
+        Some(Hnc8Stage::Type3(stage)) => Some(stage),
         _ => None,
     }
 }
@@ -471,8 +472,14 @@ fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_image_ou
             no_image(&pdf),
             "failed preflight emitted an image at +{relative}"
         );
-        assert_eq!(error.stage, ComposeStage::Headers, "{error}");
-        assert_eq!((error.page, error.image), (Some(1), Some(1)));
+        assert!(
+            matches!(
+                stage_of(&error),
+                Some(Hnc8Stage::Headers | Hnc8Stage::Type3(Type3Stage::Profile))
+            ),
+            "{error}"
+        );
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
         assert!(error.offset.is_some());
     }
 }
@@ -525,8 +532,8 @@ fn located_stage_errors_cover_each_checked_metadata_boundary() {
         bytes[base + relative] = value;
         let (error, pdf) = run_error(bytes, ComposeOptions::default());
         assert!(no_image(&pdf), "{name} unexpectedly started an image");
-        assert_eq!((error.page, error.image), (Some(1), Some(1)), "{name}");
-        assert_eq!(stage(&error), Some(expected), "{name}: {error}");
+        assert_eq!(page_image(&error), (Some(1), Some(1)), "{name}");
+        assert_eq!(type3_stage(&error), Some(expected), "{name}: {error}");
     }
 
     let mut record = type3(9, 2, 0x10);
@@ -534,8 +541,7 @@ fn located_stage_errors_cover_each_checked_metadata_boundary() {
     let built = document(Variant::C8, &[vec![record]]);
     let (error, pdf) = run_error(built.bytes, ComposeOptions::default());
     assert!(no_image(&pdf));
-    assert_eq!(stage(&error), Some(Type3Stage::Profile), "{error}");
-    assert_eq!(error.stage, ComposeStage::Headers);
+    assert_eq!(type3_stage(&error), Some(Type3Stage::Profile), "{error}");
 }
 
 #[test]
@@ -574,11 +580,8 @@ fn dib_bit_count_empty_span_and_nonpositive_dimensions_are_refused() {
     corrupt[built.payloads[0][0] as usize + 14] = 8; // 8 bpp, not observed 1 bpp
     let (error, pdf) = run_error(corrupt, ComposeOptions::default());
     assert!(no_image(&pdf));
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
-        "{error}"
-    );
+    assert_eq!(page_image(&error), (Some(1), Some(1)));
+    assert!(error.reason.starts_with("type-3 DIB: "), "{error}");
     assert_eq!(error.offset, Some(built.payloads[0][0] + 12));
 
     let empty = document(
@@ -591,10 +594,7 @@ fn dib_bit_count_empty_span_and_nonpositive_dimensions_are_refused() {
         }]],
     );
     let (error, pdf) = run_error(empty.bytes, ComposeOptions::default());
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
-        "{error}"
-    );
+    assert!(error.reason.starts_with("type-3 DIB: "), "{error}");
     assert!(no_image(&pdf));
 
     for dimension in [4, 8] {
@@ -602,11 +602,8 @@ fn dib_bit_count_empty_span_and_nonpositive_dimensions_are_refused() {
         let at = built.payloads[0][0] as usize + dimension;
         bytes[at..at + 4].copy_from_slice(&0_i32.to_le_bytes());
         let (error, pdf) = run_error(bytes, ComposeOptions::default());
-        assert!(
-            matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
-            "{error}"
-        );
-        assert_eq!(error.stage, ComposeStage::Headers);
+        assert!(error.reason.starts_with("type-3 DIB: "), "{error}");
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
         assert!(no_image(&pdf));
     }
 }
@@ -628,12 +625,15 @@ fn symbol_limit_refuses_the_first_dictionary_before_image_output() {
     )
     .unwrap_err();
     assert!(no_image(&sink.bytes));
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert_eq!(stage(&error), Some(Type3Stage::FirstDictionary), "{error}");
+    assert_eq!(page_image(&error), (Some(1), Some(1)));
+    assert_eq!(
+        type3_stage(&error),
+        Some(Type3Stage::FirstDictionary),
+        "{error}"
+    );
     assert!(
-        error
-            .to_string()
-            .ends_with("export runs limit 0 exceeded by 1"),
+        error.to_string().contains("export runs limit exceeded")
+            && error.to_string().ends_with(": maximum 0, attempted 1"),
         "{error}"
     );
 }
@@ -655,12 +655,11 @@ fn page_pixel_limit_refuses_before_image_output() {
     )
     .unwrap_err();
     assert!(no_image(&sink.bytes));
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert_eq!(stage(&error), Some(Type3Stage::PageInfo), "{error}");
+    assert_eq!(page_image(&error), (Some(1), Some(1)));
+    assert_eq!(type3_stage(&error), Some(Type3Stage::PageInfo), "{error}");
     assert!(
-        error
-            .to_string()
-            .ends_with("page pixels limit 17 exceeded by 18"),
+        error.to_string().contains("page pixels limit exceeded")
+            && error.to_string().ends_with(": maximum 17, attempted 18"),
         "{error}"
     );
 }
@@ -672,7 +671,11 @@ fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
     let generic_tail = damaged.len() - 1;
     damaged[generic_tail] = 0xab; // not the MQ terminal marker 0xac
     let (error, pdf) = run_error(damaged, ComposeOptions::default());
-    assert_eq!(stage(&error), Some(Type3Stage::GenericRegion), "{error}");
+    assert_eq!(
+        type3_stage(&error),
+        Some(Type3Stage::GenericRegion),
+        "{error}"
+    );
     assert!(!no_image(&pdf)); // the caller discards this partial stream
 
     let mut sink = Sink::default();
@@ -700,20 +703,17 @@ fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
             &NeverCancel,
         )
         .unwrap_err();
-        assert_eq!(error.variant, Some(Variant::C8));
-        match (&error.kind, error.stage) {
-            (ComposeErrorKind::Io(Error::Io(_)), ComposeStage::Pdf) => {}
-            (
-                ComposeErrorKind::Type3 {
-                    stage: Type3Stage::PageCompose,
-                    ..
-                },
-                _,
-            ) => {}
-            _ => panic!("sink failure at write {fail_at}: {error:?}"),
-        }
-        if error.image.is_some() {
-            assert_eq!((error.page, error.image), (Some(1), Some(1)));
+        assert_eq!(variant_of(&error), Some(Variant::C8));
+        assert!(
+            matches!(error.kind, ErrorKind::Io(_))
+                && matches!(
+                    stage_of(&error),
+                    Some(Hnc8Stage::Pdf | Hnc8Stage::Type3(Type3Stage::PageCompose))
+                ),
+            "sink failure at write {fail_at}: {error:?}"
+        );
+        if page_image(&error).1.is_some() {
+            assert_eq!(page_image(&error), (Some(1), Some(1)));
             saw_image = true;
         }
     }
@@ -741,8 +741,8 @@ fn located_payload_read_and_decoder_input_failures_cover_each_stage() {
             &NeverCancel,
         ) {
             Err(error) => {
-                assert_eq!((error.page, error.image), (Some(1), Some(1)), "{error}");
-                if error.stage == ComposeStage::Decode {
+                assert_eq!(page_image(&error), (Some(1), Some(1)), "{error}");
+                if stage_of(&error) == Some(Hnc8Stage::Decode) {
                     decode_failure = Some(error);
                     break;
                 }
@@ -751,10 +751,7 @@ fn located_payload_read_and_decoder_input_failures_cover_each_stage() {
         }
     }
     let error = decode_failure.expect("the payload read must fail during decode");
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))),
-        "{error}"
-    );
+    assert!(matches!(error.kind, ErrorKind::Io(_)), "{error}");
 
     for (name, relative, expected) in [
         (
@@ -777,7 +774,7 @@ fn located_payload_read_and_decoder_input_failures_cover_each_stage() {
         let at = base as usize + relative as usize;
         damaged[at..at + 2].fill(0);
         let (error, _) = run_error(damaged, ComposeOptions::default());
-        assert_eq!(stage(&error), Some(expected), "{name}: {error}");
+        assert_eq!(type3_stage(&error), Some(expected), "{name}: {error}");
     }
 }
 
@@ -786,8 +783,8 @@ fn strict_text_header_refuses_anomaly_but_named_opt_in_records_it() {
     let built = document(Variant::C8, &[vec![type3(9, 2, 0xa40c)]]);
     let (strict, pdf) = run_error(built.bytes.clone(), ComposeOptions::default());
     assert!(no_image(&pdf));
-    assert_eq!((strict.page, strict.image), (Some(1), Some(1)));
-    assert!(stage(&strict).is_some(), "{strict}");
+    assert_eq!(page_image(&strict), (Some(1), Some(1)));
+    assert!(stage_of(&strict).is_some(), "{strict}");
 
     let mut sink = Sink::default();
     let mut anomalies = Anomalies::default();
@@ -877,11 +874,8 @@ fn limits_cancellation_and_io_faults_never_report_success() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))),
-        "{error}"
-    );
-    assert_eq!(error.stage, ComposeStage::Pdf);
+    assert!(matches!(error.kind, ErrorKind::Io(_)), "{error}");
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
 }
 
 #[test]

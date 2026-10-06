@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
 use crate::Limits;
 use crate::pdf::{BilevelImageSpec, OpenTypeFont};
+use crate::test_support::page_image;
 use std::io::Write;
 use std::{cell::Cell, rc::Rc};
 
@@ -388,8 +390,8 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         words.push([0x8004, 1]);
         let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
         let error = result.unwrap_err();
-        assert_eq!(error.page, Some(1));
-        assert!(error.offset >= 116);
+        assert_eq!(page_image(&error).0, Some(1));
+        assert!(error.offset >= Some(116));
         assert!(!finished);
     }
     let mut words = ordinary();
@@ -1068,9 +1070,10 @@ fn unverified_native_modes_cannot_use_mode_two_rendering() {
         let error = result.unwrap_err();
         assert!(
             matches!(
-                error.kind,
-                ErrorKind::Unsupported {
-                    field: "native page rendering mode",
+                error,
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    reason: "native page rendering mode",
                     ..
                 }
             ),
@@ -1163,8 +1166,8 @@ fn mode_zero_styles_axes_and_late_failures_remain_explicit() {
         words.push([0x8004, 1]);
         let (result, _, finished) = convert(&words, 0, &[], roles(), 18);
         let error = result.unwrap_err();
-        assert_eq!(error.page, Some(1));
-        assert!(error.offset >= 240);
+        assert_eq!(page_image(&error).0, Some(1));
+        assert!(error.offset >= Some(240));
         assert!(!finished);
     }
 }
@@ -1697,7 +1700,7 @@ fn large_title_punctuation_is_rejected_before_regular_offset_lookup() {
             let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
             let (result, _, finished) = convert(&words, 0, &[], roles(), 13);
             let error = result.unwrap_err();
-            assert_eq!(error.page, Some(1));
+            assert_eq!(page_image(&error).0, Some(1));
             assert!(!finished);
         }
     }
@@ -1939,7 +1942,7 @@ fn small_glyph_punctuation_is_rejected_before_regular_offset_lookup() {
             let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
             let (result, _, finished) = convert(&words, 0, &[], roles(), 13);
             let error = result.unwrap_err();
-            assert_eq!(error.page, Some(1));
+            assert_eq!(page_image(&error).0, Some(1));
             assert!(!finished);
         }
     }
@@ -2266,8 +2269,8 @@ fn glyphs_missing_from_the_fallback_font_still_fail_with_a_location() {
         assert_eq!(finished, accepted);
         if !accepted {
             let error = result.unwrap_err();
-            assert_eq!(error.page, Some(1));
-            assert!(error.offset >= 112);
+            assert_eq!(page_image(&error).0, Some(1));
+            assert!(error.offset >= Some(112));
             assert!(
                 error.to_string().contains("no supported BMP glyph"),
                 "{error}"

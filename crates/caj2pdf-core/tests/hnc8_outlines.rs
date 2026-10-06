@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Bookmark, BookmarkVisitor, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{ErrorKind, Hnc8Reader, OutlineRepair, OutlineReport},
+    Bookmark, BookmarkVisitor, Context, Error, ErrorKind, Limits, NeverCancel, RangedSource,
+    hnc8::{Hnc8Reader, OutlineRepair, OutlineReport},
     native::SeekableSource,
 };
 use std::io::Cursor;
@@ -36,7 +36,7 @@ fn read(
     limits: Limits,
     depth: u32,
     map: impl FnMut(u32) -> Option<u32>,
-) -> Result<(Vec<Bookmark>, OutlineReport), caj2pdf_core::hnc8::Hnc8Error> {
+) -> Result<(Vec<Bookmark>, OutlineReport), Error> {
     (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel)?;
@@ -182,11 +182,9 @@ struct FailedVisitor(bool);
 impl BookmarkVisitor for FailedVisitor {
     fn visit(&mut self, _: Bookmark) -> caj2pdf_core::Result<()> {
         Err(if self.0 {
-            Error::Cancelled
+            Error::cancelled()
         } else {
-            Error::InvalidInput {
-                reason: "injected visitor failure",
-            }
+            Error::invalid("injected visitor failure")
         })
     }
 }
@@ -201,15 +199,13 @@ fn visitor_failure_and_cancellation_are_located() {
             let error = reader
                 .visit_bookmarks(64, 3, |p| Some(p - 1), &mut FailedVisitor(cancelled))
                 .unwrap_err();
-            assert_eq!(error.offset, 348);
-            assert_eq!(
-                error.kind.field(),
-                if cancelled {
-                    "cancellation"
-                } else {
-                    "outline visitor"
-                }
-            );
+            assert_eq!(error.offset, Some(348));
+            assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
+            if cancelled {
+                assert!(matches!(error.kind, ErrorKind::Cancelled), "{error}");
+            } else {
+                assert_eq!(error.reason, "injected visitor failure");
+            }
         };
     }
 }
@@ -221,9 +217,10 @@ fn unsupported_outline_profiles_are_not_empty_successes() {
     bytes[144..148].copy_from_slice(&1_i32.to_le_bytes());
     let error = read(bytes, Limits::default(), 64, |p| Some(p - 1)).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "outline variant",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "outline variant",
             ..
         }
     ));
@@ -253,7 +250,7 @@ fn a_short_record_read_is_not_a_partial_bookmark() {
         let error = reader
             .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
             .unwrap_err();
-        assert_eq!(error.offset, 348);
+        assert_eq!(error.offset, Some(348));
         assert!(entries.0.is_empty());
         assert!(matches!(error.kind, ErrorKind::Truncated { .. }));
     };

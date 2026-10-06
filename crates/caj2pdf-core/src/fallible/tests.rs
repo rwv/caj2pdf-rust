@@ -4,6 +4,7 @@ use super::{
     checked_read_count, len_u64, push_bounded, reserve, reserve_exact, try_convert, usize_from_u32,
 };
 use crate::Error;
+use crate::ErrorKind;
 
 #[test]
 fn length_conversion_is_lossless() {
@@ -26,7 +27,11 @@ fn read_counts_may_not_exceed_the_request() {
     assert!(matches!(checked_read_count(4, 4, "unused"), Ok(4)));
     assert!(matches!(
         checked_read_count(5, 4, "overread"),
-        Err(Error::InvalidInput { reason: "overread" })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "overread",
+            ..
+        })
     ));
 }
 
@@ -60,10 +65,14 @@ fn bounded_index_growth_reports_the_attempted_capacity() {
     let mut items: Vec<u64> = Vec::new();
     assert!(matches!(
         push_bounded(&mut items, 1, 16, "test index"),
-        Err(Error::LimitExceeded {
-            resource: "test index",
-            limit: 16,
-            attempted: 32,
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "test index",
+                limit: 16,
+                attempted: 32,
+                ..
+            },
+            ..
         })
     ));
     assert!(items.is_empty());
@@ -73,7 +82,10 @@ fn bounded_index_growth_reports_the_attempted_capacity() {
     assert_eq!(items, [0, 1, 2, 3, 4, 5, 6, 7]);
     assert!(matches!(
         push_bounded(&mut items, 8, 64, "test index"),
-        Err(Error::LimitExceeded { attempted: 128, .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { attempted: 128, .. },
+            ..
+        })
     ));
     assert_eq!(items.len(), 8);
 }

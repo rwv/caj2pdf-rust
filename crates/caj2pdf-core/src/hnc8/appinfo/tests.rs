@@ -6,6 +6,7 @@
 use super::*;
 use crate::hnc8::Hnc8Reader;
 use crate::test_support::{CancelAfter, NEVER};
+use crate::test_support::{field_of, kind_name};
 use crate::{Limits, native::SeekableSource};
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::{Cursor, Write};
@@ -71,7 +72,7 @@ fn defect(result: Result<Option<ApplicationInfo>>) -> ApplicationInfoDefect {
 
 fn xml_error(xml: &str) -> &'static str {
     let found = defect(read(package(xml)));
-    assert_eq!(found.field, XML, "{xml:?}");
+    assert_eq!(found.field, "application-info XML", "{xml:?}");
     found.reason
 }
 
@@ -171,8 +172,8 @@ fn declared_offsets_and_lengths_are_checked_against_the_file() {
     ];
     for (bytes, kind) in cases {
         let error = read(bytes).unwrap_err();
-        assert_eq!(error.kind.field(), lengths);
-        assert_eq!(error.kind.as_str(), kind, "{error}");
+        assert_eq!(field_of(&error), lengths);
+        assert_eq!(kind_name(&error), kind, "{error}");
     }
     let mut huge = framed(c8(), 1, &stream);
     huge[c8().len()..c8().len() + 4]
@@ -257,7 +258,7 @@ fn allocation_limits_and_cancellation_are_reported() {
             &CancelAfter::new(allowed),
         );
         if let Err(error) = error {
-            assert_eq!(error.kind.as_str(), "cancelled");
+            assert_eq!(kind_name(&error), "cancelled");
             cancelled += 1;
         }
     }
@@ -270,7 +271,7 @@ fn allocation_limits_and_cancellation_are_reported() {
         reader.application_info()
     }
     .unwrap_err();
-    assert_eq!((error.offset, error.kind.as_str()), (0, "cancelled"));
+    assert_eq!((error.offset, kind_name(&error)), (Some(0), "cancelled"));
 }
 
 static ALWAYS: CancelAfter = CancelAfter::new(0);

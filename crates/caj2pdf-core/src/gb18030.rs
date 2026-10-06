@@ -9,42 +9,12 @@
 
 mod tables;
 
-use std::fmt;
 use tables::{FOUR_BYTE_RANGES, TWO_BYTE_VALUES};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DecodeErrorKind {
-    InvalidSequence,
-    IncompleteSequence,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DecodeError {
-    /// Byte offset within the supplied title, at the start of the bad sequence.
-    pub(crate) offset: usize,
-    pub(crate) kind: DecodeErrorKind,
-}
-
-impl fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            DecodeErrorKind::InvalidSequence => {
-                write!(f, "invalid GB18030 sequence at title byte {}", self.offset)
-            }
-            DecodeErrorKind::IncompleteSequence => {
-                write!(
-                    f,
-                    "incomplete GB18030 sequence at title byte {}",
-                    self.offset
-                )
-            }
-        }
-    }
-}
-
-/// Decode exactly the supplied bytes; malformed or incomplete input is rejected.
+/// Decode exactly the supplied bytes; malformed or incomplete input is
+/// rejected with the title byte offset where the bad sequence starts.
 /// The caller removes the title-field NUL padding before calling this.
-pub(crate) fn decode(bytes: &[u8]) -> Result<String, DecodeError> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<String, usize> {
     let mut decoded = String::with_capacity(bytes.len());
     let mut cursor = 0;
     while cursor < bytes.len() {
@@ -55,35 +25,17 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<String, DecodeError> {
             continue;
         }
         if !(0x81..=0xfe).contains(&lead) {
-            return Err(DecodeError {
-                offset: cursor,
-                kind: DecodeErrorKind::InvalidSequence,
-            });
+            return Err(cursor);
         }
-        let second = *bytes.get(cursor + 1).ok_or(DecodeError {
-            offset: cursor,
-            kind: DecodeErrorKind::IncompleteSequence,
-        })?;
+        let second = *bytes.get(cursor + 1).ok_or(cursor)?;
         let (codepoint, width) = if (0x30..=0x39).contains(&second) {
-            let third = *bytes.get(cursor + 2).ok_or(DecodeError {
-                offset: cursor,
-                kind: DecodeErrorKind::IncompleteSequence,
-            })?;
+            let third = *bytes.get(cursor + 2).ok_or(cursor)?;
             if !(0x81..=0xfe).contains(&third) {
-                return Err(DecodeError {
-                    offset: cursor,
-                    kind: DecodeErrorKind::InvalidSequence,
-                });
+                return Err(cursor);
             }
-            let fourth = *bytes.get(cursor + 3).ok_or(DecodeError {
-                offset: cursor,
-                kind: DecodeErrorKind::IncompleteSequence,
-            })?;
+            let fourth = *bytes.get(cursor + 3).ok_or(cursor)?;
             if !(0x30..=0x39).contains(&fourth) {
-                return Err(DecodeError {
-                    offset: cursor,
-                    kind: DecodeErrorKind::InvalidSequence,
-                });
+                return Err(cursor);
             }
             let pointer = (((u32::from(lead - 0x81) * 10 + u32::from(second - 0x30)) * 126
                 + u32::from(third - 0x81))
@@ -93,23 +45,14 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<String, DecodeError> {
             // The first range starts at pointer zero, so `index >= 1`.
             let (start, end, initial) = FOUR_BYTE_RANGES[index - 1];
             if pointer > end {
-                return Err(DecodeError {
-                    offset: cursor,
-                    kind: DecodeErrorKind::InvalidSequence,
-                });
+                return Err(cursor);
             }
             (initial + pointer - start, 4)
         } else {
-            let character = decode_two_byte(lead, second).ok_or(DecodeError {
-                offset: cursor,
-                kind: DecodeErrorKind::InvalidSequence,
-            })?;
+            let character = decode_two_byte(lead, second).ok_or(cursor)?;
             (u32::from(character), 2)
         };
-        let character = char::from_u32(codepoint).ok_or(DecodeError {
-            offset: cursor,
-            kind: DecodeErrorKind::InvalidSequence,
-        })?;
+        let character = char::from_u32(codepoint).ok_or(cursor)?;
         decoded.push(character);
         cursor += width;
     }
@@ -134,7 +77,7 @@ pub(crate) fn decode_two_byte(lead: u8, second: u8) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DecodeErrorKind, decode};
+    use super::decode;
 
     #[test]
     fn decodes_ascii_gbk_and_four_byte_characters_together() {
@@ -168,31 +111,21 @@ mod tests {
             b"\x84\x31\xa5\x30",
             b"\xe3\x32\x9a\x36",
         ] {
-            let error = decode(bytes).unwrap_err();
-            assert_eq!(error.kind, DecodeErrorKind::InvalidSequence);
-            assert_eq!(error.offset, 0);
+            assert_eq!(decode(bytes).unwrap_err(), 0);
         }
     }
 
     #[test]
     fn reports_the_start_of_a_truncated_sequence() {
         for bytes in [b"A\x81".as_slice(), b"A\x81\x30", b"A\x81\x30\x81"] {
-            let error = decode(bytes).unwrap_err();
-            assert_eq!(error.kind, DecodeErrorKind::IncompleteSequence);
-            assert_eq!(error.offset, 1);
+            assert_eq!(decode(bytes).unwrap_err(), 1);
         }
     }
 
     #[test]
-    fn describes_the_failure_kind_and_title_byte_offset() {
-        assert_eq!(
-            decode(b"ok\xff").unwrap_err().to_string(),
-            "invalid GB18030 sequence at title byte 2"
-        );
-        assert_eq!(
-            decode(b"abc\x95\x32\x82").unwrap_err().to_string(),
-            "incomplete GB18030 sequence at title byte 3"
-        );
+    fn reports_the_title_byte_offset() {
+        assert_eq!(decode(b"ok\xff").unwrap_err(), 2);
+        assert_eq!(decode(b"abc\x95\x32\x82").unwrap_err(), 3);
     }
 
     #[test]

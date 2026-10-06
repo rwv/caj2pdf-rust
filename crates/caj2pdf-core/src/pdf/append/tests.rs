@@ -3,6 +3,7 @@
 use super::*;
 use crate::pdf::MAX_CLASSIC_PDF_BYTES;
 use crate::test_support::{CancelAfter, NEVER};
+use crate::{Context, ErrorKind};
 use crate::{
     native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
@@ -266,7 +267,10 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
                 title: "too far".into(),
                 page_index: 1,
             }),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         assert!(matches!(
             appender.add_bookmark(Bookmark {
@@ -274,7 +278,10 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
                 title: "".into(),
                 page_index: 0,
             }),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         assert!(matches!(
             appender.add_bookmark(Bookmark {
@@ -282,8 +289,11 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
                 title: "deep".into(),
                 page_index: 0,
             }),
-            Err(Error::LimitExceeded {
-                resource: "PDF outline depth",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF outline depth",
+                    ..
+                },
                 ..
             })
         ));
@@ -293,7 +303,10 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
                 title: "X".repeat(300_000),
                 page_index: 0,
             }),
-            Err(Error::LimitExceeded { .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                ..
+            })
         ));
         appender.add_bookmark(Bookmark {
             depth: 0,
@@ -306,8 +319,11 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
                 title: "second".into(),
                 page_index: 0,
             }),
-            Err(Error::LimitExceeded {
-                resource: "bookmarks",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "bookmarks",
+                    ..
+                },
                 ..
             })
         ));
@@ -326,9 +342,15 @@ fn copy_output_limit_is_checked_before_sink_writes() -> Result<()> {
     };
     assert!(matches!(
         copy_pdf(&mut source, &mut output, &limits, &NEVER),
-        Err(Error::PdfLimitExceeded {
-            resource: "output bytes",
-            object: Some((1, 0)),
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "output bytes",
+                ..
+            },
+            context: Context::Pdf {
+                object: Some((1, 0)),
+                ..
+            },
             ..
         })
     ));
@@ -360,7 +382,10 @@ fn invalid_bookmark_rejects_without_claiming_success() -> Result<()> {
                 title: "orphan".into(),
                 page_index: 0,
             }),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         Ok::<(), Error>(())
     })()
@@ -385,11 +410,7 @@ fn new_outline_objects_stop_at_the_pdf_object_number_limit() -> Result<()> {
     })()?;
     assert!(matches!(
         result,
-        Err(Error::LimitExceeded {
-            resource: "PDF object number",
-            attempted,
-            ..
-        }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
+        Err(Error { kind: ErrorKind::LimitExceeded { resource: "PDF object number", attempted, .. }, .. }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
     ));
     Ok(())
 }
@@ -458,7 +479,13 @@ fn sink_failure_has_no_success_report() -> Result<()> {
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::failing(35, false);
     let result = copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER);
-    assert!(matches!(result, Err(Error::Io(_))));
+    assert!(matches!(
+        result,
+        Err(Error {
+            kind: ErrorKind::Io(_),
+            ..
+        })
+    ));
     assert_eq!(sink.bytes.len(), 35);
     Ok(())
 }
@@ -469,7 +496,13 @@ fn flush_failure_has_no_success_report() -> Result<()> {
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::failing(original.len(), true);
     let result = copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER);
-    assert!(matches!(result, Err(Error::Io(_))));
+    assert!(matches!(
+        result,
+        Err(Error {
+            kind: ErrorKind::Io(_),
+            ..
+        })
+    ));
     assert_eq!(sink.bytes.len(), original.len());
 
     // The same short-write sink succeeds once its flush does.
@@ -651,7 +684,10 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
         // The second sibling emits the first item and exhausts the sink.
         assert!(matches!(
             appender.add_bookmark(bookmark("second")),
-            Err(Error::Io(_))
+            Err(Error {
+                kind: ErrorKind::Io(_),
+                ..
+            })
         ));
         let retry = appender.add_bookmark(bookmark("third"));
         let finish = appender.finish();
@@ -660,8 +696,10 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
     for result in [poisoned.0.map(|_| ()), poisoned.1.map(|_| ())] {
         assert!(matches!(
             result,
-            Err(Error::InvalidInput {
-                reason: "PDF writer cannot continue after a sink failure"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF writer cannot continue after a sink failure",
+                ..
             })
         ));
     }
@@ -686,18 +724,30 @@ fn cancellation_around_the_final_flush_prevents_a_success_report() -> Result<()>
 
     // The penultimate check precedes the flush; the last one follows it.
     let (before_flush, sink, _) = copy(checks - 2);
-    assert!(matches!(before_flush, Err(Error::Cancelled)));
+    assert!(matches!(
+        before_flush,
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
     assert_eq!(sink.bytes, original);
     assert_eq!(sink.flushes, 0);
 
     let (after_flush, sink, _) = copy(checks - 1);
-    assert!(matches!(after_flush, Err(Error::Cancelled)));
+    assert!(matches!(
+        after_flush,
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
     assert_eq!(sink.flushes, 1);
     Ok(())
 }
 
 fn invalid(reason: &'static str) -> impl Fn(&Result<()>) -> bool {
-    move |result| matches!(result, Err(Error::InvalidInput { reason: actual }) if *actual == reason)
+    move |result| matches!(result, Err(Error { kind: ErrorKind::Malformed, reason: actual, .. }) if *actual == reason)
 }
 
 #[test]
@@ -761,11 +811,7 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
     };
     assert!(matches!(
         oversized,
-        Err(Error::LimitExceeded {
-            resource: "classic PDF file bytes",
-            attempted,
-            ..
-        }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
+        Err(Error { kind: ErrorKind::LimitExceeded { resource: "classic PDF file bytes", attempted, .. }, .. }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
     ));
 
     let mut sink = Vec::new();
@@ -779,8 +825,11 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
     };
     assert!(matches!(
         far_object,
-        Err(Error::LimitExceeded {
-            resource: "classic PDF object offset",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "classic PDF object offset",
+                ..
+            },
             ..
         })
     ));
@@ -897,16 +946,21 @@ fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
     })()?;
     assert!(matches!(
         failed,
-        Err(Error::LimitExceeded {
-            resource: "classic PDF file bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "classic PDF file bytes",
+                ..
+            },
             ..
         })
     ));
     for result in [retry, finish.map(|_| ())] {
         assert!(matches!(
             result,
-            Err(Error::InvalidInput {
-                reason: "PDF outline cannot continue after a failed bookmark operation"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF outline cannot continue after a failed bookmark operation",
+                ..
             })
         ));
     }

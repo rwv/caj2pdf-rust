@@ -4,7 +4,7 @@
 //! host.
 
 use super::*;
-use caj2pdf_core::{Limits, PdfErrorKind};
+use caj2pdf_core::Limits;
 use std::{fs::read, path::Path};
 
 const KDH_PDF_START: usize = 254;
@@ -213,79 +213,46 @@ fn format_codes_round_trip_and_reject_unknown_codes() {
 #[test]
 fn error_codes_are_stable() {
     let cases = [
-        (Error::UnsupportedFormat, 1),
-        (Error::InvalidInput { reason: "x" }, 2),
-        (
-            Error::TruncatedInput {
-                offset: 0,
-                expected: 1,
-                available: 0,
-            },
-            3,
-        ),
-        (
-            Error::LimitExceeded {
-                resource: "x",
-                limit: 0,
-                attempted: 1,
-            },
-            4,
-        ),
-        (Error::Io(io::Error::other("x")), 5),
-        (Error::Cancelled, 6),
-        (
-            Error::PdfLimitExceeded {
-                offset: 0,
-                object: None,
-                resource: "x",
-                limit: 0,
-                attempted: 1,
-            },
-            12,
-        ),
-        (
-            Error::Caj {
-                offset: 0,
-                record: None,
-                reason: "x",
-            },
-            13,
-        ),
-        (
-            Error::CajLimitExceeded {
-                offset: 0,
-                record: None,
-                resource: "x",
-                limit: 0,
-                attempted: 1,
-            },
-            14,
-        ),
-        (
-            Error::Kdh {
-                offset: 0,
-                reason: "x",
-            },
-            15,
-        ),
+        (Error::from(ErrorKind::UnsupportedFormat), 1),
+        (Error::invalid("x"), 2),
+        (Error::truncated(0, 1, 0), 3),
+        (Error::limit("x", 0, 1), 4),
+        (Error::from(ErrorKind::Io(io::Error::other("x"))), 5),
+        (Error::cancelled(), 6),
+        (Error::limit("x", 0, 1).at(0).in_pdf(None), 12),
+        (Error::malformed(0, "x").in_caj(None), 13),
+        (Error::limit("x", 0, 1).at(0).in_caj(None), 14),
+        (Error::malformed(0, "x").within(Context::Kdh), 15),
     ];
     for (error, code) in cases {
         assert_eq!(error_code(&error), code, "{error}");
     }
     let kinds = [
-        (PdfErrorKind::Malformed, 8),
-        (PdfErrorKind::Encrypted, 9),
-        (PdfErrorKind::UnsupportedFeature, 10),
-        (PdfErrorKind::AmbiguousRepair, 11),
+        (ErrorKind::Malformed, false, 8),
+        (ErrorKind::Encrypted, false, 9),
+        (ErrorKind::UnsupportedFormat, false, 10),
+        (ErrorKind::Malformed, true, 11),
     ];
-    for (kind, code) in kinds {
-        let error = Error::Pdf {
-            offset: 0,
+    for (kind, repair, code) in kinds {
+        let error = Error::from(kind).at(0).because("x").within(Context::Pdf {
             object: None,
-            kind,
-            reason: "x",
-        };
-        assert_eq!(error_code(&error), code);
+            repair,
+        });
+        assert_eq!(error_code(&error), code, "{error}");
+    }
+    let hnc8 = [
+        Error::malformed(0, "x").within(Context::Hnc8 {
+            variant: None,
+            page: Some(1),
+            image: None,
+            segment: None,
+            stage: None,
+        }),
+        Error::limit("x", 0, 1).in_jbig2(Some(2)),
+        Error::truncated(0, 1, 0).in_jbig2(None),
+    ];
+    for error in hnc8 {
+        assert_eq!(error_code(&error), 16, "{error}");
     }
 }
 
@@ -350,12 +317,26 @@ fn an_auto_detected_pdf_header_after_leading_bytes_converts_and_inspects() {
         let mut host = Memory::new(&input);
         let session = run(&mut host, limits(256), convert_op(Some(InputFormat::Pdf)));
         assert!(host.output.is_empty());
-        assert!(matches!(failure(&session), Error::Pdf { offset: 0, .. }));
+        assert!(matches!(
+            failure(&session),
+            Error {
+                kind: _,
+                offset: Some(0),
+                context: Context::Pdf { .. },
+                ..
+            }
+        ));
     }
     let late = [vec![b' '; 1020].as_slice(), &pdf].concat();
     let mut host = Memory::new(&late);
     let session = run(&mut host, limits(256), convert_op(None));
-    assert!(matches!(failure(&session), Error::UnsupportedFormat));
+    assert!(matches!(
+        failure(&session),
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -409,10 +390,16 @@ fn malformed_known_formats_and_unsupported_inputs_have_distinct_errors() {
         let session = run(&mut host, limits(64), convert_op(None));
         assert!(host.output.is_empty());
         if matches!(format, Some(InputFormat::Hn | InputFormat::C8)) {
-            assert!(matches!(failure(&session), Error::Hnc8(_)));
+            assert!(matches!(failure(&session).context, Context::Hnc8 { .. }));
             assert!(session.message().contains("HN/C8"));
         } else {
-            assert!(matches!(failure(&session), Error::UnsupportedFormat));
+            assert!(matches!(
+                failure(&session),
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    ..
+                }
+            ));
             assert_eq!(session.message(), "unsupported input format");
         }
         assert_eq!(session.format(), format);
@@ -421,15 +408,20 @@ fn malformed_known_formats_and_unsupported_inputs_have_distinct_errors() {
         format: Some(InputFormat::Hn),
     };
     let session = run(&mut Memory::new(b"HN\0\0"), limits(64), inspect_hn);
-    assert!(matches!(failure(&session), Error::Hnc8Metadata(_)));
+    assert!(matches!(failure(&session).context, Context::Hnc8 { .. }));
     assert_eq!(error_code(failure(&session)), 16);
-    assert!(std::error::Error::source(failure(&session)).is_some());
     let teb = run(
         &mut Memory::new(b"TEB"),
         limits(1),
         Operation::Inspect { format: None },
     );
-    assert!(matches!(failure(&teb), Error::UnsupportedFormat));
+    assert!(matches!(
+        failure(&teb),
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -461,7 +453,13 @@ fn inspects_pdf_caj_and_kdh_without_output() {
 fn failures_carry_typed_errors_and_messages_and_a_session_runs_once() {
     let truncated = fixture("truncated_kdh.kdh");
     let session = run(&mut Memory::new(&truncated), limits(64), convert_op(None));
-    assert!(matches!(failure(&session), Error::TruncatedInput { .. }));
+    assert!(matches!(
+        failure(&session),
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        }
+    ));
     assert!(session.message().starts_with("truncated input"));
 
     let small = Limits {
@@ -470,14 +468,26 @@ fn failures_carry_typed_errors_and_messages_and_a_session_runs_once() {
     };
     let mut host = Memory::new(b"%PDF");
     let mut session = run(&mut host, small, convert_op(None));
-    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
+    assert!(matches!(
+        failure(&session),
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
+    ));
     assert_eq!(host.reads, 0);
     // A completed session keeps its result until it is replaced.
     assert_eq!(
         session.run(&mut host, 4, limits(64), convert_op(None)),
         Status::Busy
     );
-    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
+    assert!(matches!(
+        failure(&session),
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -490,7 +500,13 @@ fn host_failures_and_cancellation_end_the_operation_with_typed_errors() {
             ..Memory::new(&pdf)
         };
         let session = run(&mut host, limits(64), convert_op(None));
-        assert!(matches!(failure(&session), Error::Io(_)));
+        assert!(matches!(
+            failure(&session),
+            Error {
+                kind: ErrorKind::Io(_),
+                ..
+            }
+        ));
         assert_eq!(error_code(failure(&session)), 5);
         assert_eq!(host.flushes, 0);
     }
@@ -501,7 +517,13 @@ fn host_failures_and_cancellation_end_the_operation_with_typed_errors() {
             ..Memory::new(&pdf)
         };
         let session = run(&mut host, limits(64), convert_op(None));
-        assert!(matches!(failure(&session), Error::Cancelled));
+        assert!(matches!(
+            failure(&session),
+            Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }
+        ));
         assert_eq!(error_code(failure(&session)), 6);
         assert_eq!(host.flushes, 0);
         assert!(host.output.len() < pdf.len());
@@ -512,10 +534,10 @@ fn host_failures_and_cancellation_end_the_operation_with_typed_errors() {
 fn error_messages_are_bounded_on_a_character_boundary() {
     let prefix = "I/O error: ".len();
     let long = format!("{}é", "x".repeat(MAX_MESSAGE_BYTES - prefix - 1));
-    let message = bounded_message(&Error::Io(io::Error::other(long)));
+    let message = bounded_message(&Error::from(ErrorKind::Io(io::Error::other(long))));
     assert_eq!(message.len(), MAX_MESSAGE_BYTES - 1);
     assert!(message.ends_with('x'));
-    assert_eq!(bounded_message(&Error::Cancelled), "operation cancelled");
+    assert_eq!(bounded_message(&Error::cancelled()), "operation cancelled");
 }
 
 #[test]
@@ -531,7 +553,10 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         assert_eq!(source.read_at(10, &mut destination).unwrap(), 0);
         assert!(matches!(
             source.read_at(11, &mut destination),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
     }
     assert_eq!((memory.reads, memory.max_read), (1, 3));
@@ -675,7 +700,7 @@ fn hnc8_located_failures_are_explicit() {
     assert_eq!(error_code(error), 16);
     assert!(session.message().contains("page 1"));
     assert!(session.message().contains("image 1"));
-    assert!(std::error::Error::source(error).is_some());
+    assert!(matches!(error.context, Context::Hnc8 { .. }));
 }
 
 #[test]
@@ -684,12 +709,14 @@ fn default_tables_do_not_turn_small_allocation_limits_into_invalid_input() {
     let mut bounded = limits(8);
     bounded.max_allocation_bytes = 8;
     let session = run(&mut Memory::new(&input), bounded, convert_op(None));
-    let Error::Hnc8(error) = failure(&session) else {
-        panic!("expected located allocation limit");
-    };
+    let error = failure(&session);
+    assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
     assert!(matches!(
-        error.kind,
-        caj2pdf_core::hnc8::ComposeErrorKind::Io(Error::LimitExceeded { .. })
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
     ));
 }
 
@@ -700,7 +727,7 @@ fn hnb_empty_source_rows_are_not_silently_omitted() {
     put_u32(&mut input, 0x90, 1);
     put_u32(&mut input, 0xd8, 0xd8 + 20);
     let session = run(&mut Memory::new(&input), limits(7), native_operation());
-    assert!(matches!(failure(&session), Error::Hnc8(_)));
+    assert!(matches!(failure(&session).context, Context::Hnc8 { .. }));
     assert!(
         session.message().contains("cannot omit source pages"),
         "{}",
@@ -782,7 +809,6 @@ fn hna_inspection_rejects_unreadable_outlines_and_resource_limits() {
         );
         assert_eq!(error_code(failure(&session)), 16);
         assert!(session.message().contains("byte"));
-        assert!(std::error::Error::source(failure(&session)).is_some());
     }
 }
 
@@ -862,7 +888,13 @@ fn font_limits_incomplete_roles_and_wrong_operations_are_explicit_errors() {
         limits(32),
         native_operation(),
     );
-    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
+    assert!(matches!(
+        failure(&session),
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
+    ));
     // Fonts without roles, fonts for a document without native text, and
     // fonts for an inspection are configuration errors.
     let pdf = fixture("valid_out_of_order_objects.pdf");
@@ -880,7 +912,10 @@ fn font_limits_incomplete_roles_and_wrong_operations_are_explicit_errors() {
         session.run(&mut host, input.len() as u64, limits(32), operation);
         assert!(matches!(
             session.result(),
-            Some(Err(Error::InvalidInput { .. }))
+            Some(Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }))
         ));
         assert!(host.output.is_empty());
     }

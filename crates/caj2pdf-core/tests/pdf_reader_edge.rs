@@ -2,11 +2,14 @@
 
 //! Adversarial, generated PDF inputs for the bounded reader contract.
 
+mod common;
+
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource, Result,
+    Cancellation, Context, Error, ErrorKind, Limits, NeverCancel, RangedSource, Result,
     native::SeekableSource,
     pdf::{PdfIndex, PdfRange, PdfRef, copy_pdf},
 };
+use common::errors::pdf_class;
 use std::{cell::Cell, io::Cursor};
 
 struct Fixture {
@@ -89,15 +92,12 @@ fn inspect(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
     )
 }
 
-fn assert_pdf_error(bytes: Vec<u8>, kind: PdfErrorKind) -> Error {
+fn assert_pdf_error(bytes: Vec<u8>, kind: &str) -> Error {
     let error = match inspect(bytes, &Limits::default()) {
         Err(error) => error,
         Ok(_) => panic!("invalid generated PDF was accepted"),
     };
-    assert!(
-        matches!(error, Error::Pdf { kind: actual, .. } if actual == kind),
-        "{error}"
-    );
+    assert!(pdf_class(&error) == Some(kind), "{error}");
     error
 }
 
@@ -169,16 +169,24 @@ fn one_byte_ranged_reads_preserve_binary_stream_markers_and_absolute_offset() {
 fn header_and_tail_errors_are_located_before_any_output() {
     let valid = ordinary_fixture().bytes;
     for bytes in [b"%PDF-1.".to_vec(), b"garbage at header".to_vec()] {
-        let error = assert_pdf_error(bytes, PdfErrorKind::Malformed);
-        assert!(matches!(error, Error::Pdf { offset: 0, .. }));
+        let error = assert_pdf_error(bytes, "malformed");
+        assert!(matches!(
+            error,
+            Error {
+                kind: _,
+                offset: Some(0),
+                context: Context::Pdf { .. },
+                ..
+            }
+        ));
     }
     let mut invalid_version = valid.clone();
     invalid_version[..8].copy_from_slice(b"%PDF-1.9");
-    assert_pdf_error(invalid_version, PdfErrorKind::Malformed);
+    assert_pdf_error(invalid_version, "malformed");
 
     let mut missing_eof = valid.clone();
     missing_eof.truncate(missing_eof.len() - b"%%EOF\n".len());
-    assert_pdf_error(missing_eof, PdfErrorKind::Malformed);
+    assert_pdf_error(missing_eof, "malformed");
 
     let mut overflow = valid.clone();
     let start = overflow
@@ -191,7 +199,7 @@ fn header_and_tail_errors_are_located_before_any_output() {
         b"startxref\n184467440737095516160\n%%EOF\n".iter().copied(),
     );
     assert_ne!(old, overflow[start..]);
-    let error = assert_pdf_error(overflow, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(overflow, "malformed");
     assert!(
         error.to_string().contains("startxref offset overflows"),
         "{error}"
@@ -200,7 +208,7 @@ fn header_and_tail_errors_are_located_before_any_output() {
     let mut invalid_xref_start = valid;
     let xref = ordinary_fixture().xref;
     invalid_xref_start[xref..xref + 4].copy_from_slice(b"1234");
-    assert_pdf_error(invalid_xref_start, PdfErrorKind::Malformed);
+    assert_pdf_error(invalid_xref_start, "malformed");
 }
 
 #[test]
@@ -236,9 +244,13 @@ fn source_range_and_index_access_are_checked() {
     let error = inspect(pdf.bytes.clone(), &input_limit).err().unwrap();
     assert!(matches!(
         error,
-        Error::PdfLimitExceeded {
-            resource: "input bytes",
-            offset: 0,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "input bytes",
+                ..
+            },
+            offset: Some(0),
+            context: Context::Pdf { .. },
             ..
         }
     ));
@@ -277,9 +289,12 @@ fn source_range_and_index_access_are_checked() {
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    kind: PdfErrorKind::Malformed,
-                    object: Some(_),
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Pdf {
+                        object: Some(_),
+                        repair: false
+                    },
                     ..
                 }
             ),
@@ -307,13 +322,13 @@ fn tail_requires_an_unambiguous_final_revision() {
             at..bytes.len() - b"%%EOF\n".len(),
             replacement.iter().copied(),
         );
-        let error = assert_pdf_error(bytes, PdfErrorKind::Malformed);
+        let error = assert_pdf_error(bytes, "malformed");
         assert!(error.to_string().contains("startxref and EOF"), "{error}");
     }
 
     let mut unsafe_footer = original.clone();
     unsafe_footer.extend_from_slice(b"WebFastLoadW untrusted xref 0 1");
-    assert_pdf_error(unsafe_footer, PdfErrorKind::AmbiguousRepair);
+    assert_pdf_error(unsafe_footer, "ambiguous");
 
     let mut safe_footer = original.clone();
     safe_footer.extend_from_slice(b"WebFastLoadW\x00binary\xff");
@@ -322,7 +337,7 @@ fn tail_requires_an_unambiguous_final_revision() {
 
     let mut out_of_window = original;
     out_of_window.extend(std::iter::repeat_n(b'A', 65_536));
-    assert_pdf_error(out_of_window, PdfErrorKind::Malformed);
+    assert_pdf_error(out_of_window, "malformed");
 }
 
 #[test]
@@ -355,8 +370,12 @@ fn trailer_and_object_syntax_budgets_are_located() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                resource: "PDF dictionary syntax bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF dictionary syntax bytes",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             }
         ),
@@ -384,9 +403,15 @@ fn trailer_and_object_syntax_budgets_are_located() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                resource: "PDF object syntax bytes",
-                object: Some((1, 0)),
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF object syntax bytes",
+                    ..
+                },
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -399,7 +424,7 @@ fn malformed_xref_rows_and_trailer_fields_are_rejected() {
     let original = ordinary_fixture();
     let mut invalid_row = original.bytes.clone();
     invalid_row[original.xref + b"xref\n0 5\n".len() + 20 + 17] = b'x';
-    assert_pdf_error(invalid_row, PdfErrorKind::Malformed);
+    assert_pdf_error(invalid_row, "malformed");
 
     let mut duplicate = original.bytes.clone();
     replace_once(
@@ -407,7 +432,7 @@ fn malformed_xref_rows_and_trailer_fields_are_rejected() {
         b"trailer\n",
         b"0 1\n0000000000 65535 f \ntrailer\n",
     );
-    let duplicate_error = assert_pdf_error(duplicate, PdfErrorKind::Malformed);
+    let duplicate_error = assert_pdf_error(duplicate, "malformed");
     assert!(duplicate_error.to_string().contains("duplicate xref entry"));
 
     for trailer in [
@@ -417,7 +442,7 @@ fn malformed_xref_rows_and_trailer_fields_are_rejected() {
     ] {
         let mut bytes = original.bytes.clone();
         replace_once(&mut bytes, b"/Size 5 /Root 1 0 R", trailer);
-        assert_pdf_error(bytes, PdfErrorKind::Malformed);
+        assert_pdf_error(bytes, "malformed");
     }
 }
 
@@ -428,7 +453,7 @@ fn xref_membership_and_object_headers_must_agree() {
 
     let mut too_small = original.bytes.clone();
     replace_once(&mut too_small, b"/Size 5 /Root", b"/Size 4 /Root");
-    let error = assert_pdf_error(too_small, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(too_small, "malformed");
     assert!(
         error.to_string().contains("exceeds trailer Size"),
         "{error}"
@@ -437,12 +462,16 @@ fn xref_membership_and_object_headers_must_agree() {
     let mut wrong_object = original.bytes.clone();
     wrong_object[first_row..first_row + 10]
         .copy_from_slice(format!("{:010}", original.offsets[1]).as_bytes());
-    let error = assert_pdf_error(wrong_object, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(wrong_object, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((1, 0)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -455,12 +484,16 @@ fn xref_membership_and_object_headers_must_agree() {
 
     let mut wrong_generation = original.bytes.clone();
     wrong_generation[first_row + 11..first_row + 16].copy_from_slice(b"00001");
-    let error = assert_pdf_error(wrong_generation, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(wrong_generation, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((1, 1)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((1, 1)),
+                    ..
+                },
                 ..
             }
         ),
@@ -469,12 +502,16 @@ fn xref_membership_and_object_headers_must_agree() {
 
     let mut freed_root = original.bytes;
     freed_root[first_row + 17] = b'f';
-    let error = assert_pdf_error(freed_root, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(freed_root, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((1, 0)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -496,9 +533,9 @@ fn missing_and_duplicate_trailer_keys_are_not_inferred() {
         let mut bytes = original.clone();
         replace_once(&mut bytes, b"/Size 5 /Root 1 0 R", replacement);
         let kind = if reason.starts_with("duplicate") {
-            PdfErrorKind::AmbiguousRepair
+            "ambiguous"
         } else {
-            PdfErrorKind::Malformed
+            "malformed"
         };
         let error = assert_pdf_error(bytes, kind);
         assert!(error.to_string().contains(reason), "{error}");
@@ -518,7 +555,7 @@ fn xref_subsection_numbers_and_offsets_are_checked() {
     ] {
         let mut bytes = original.bytes.clone();
         replace_once(&mut bytes, b"0 5\n", new);
-        let error = assert_pdf_error(bytes, PdfErrorKind::Malformed);
+        let error = assert_pdf_error(bytes, "malformed");
         assert!(error.to_string().contains(reason), "{error}");
     }
 
@@ -528,8 +565,12 @@ fn xref_subsection_numbers_and_offsets_are_checked() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                resource: "PDF object index",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF object index",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             }
         ),
@@ -539,12 +580,16 @@ fn xref_subsection_numbers_and_offsets_are_checked() {
     let mut bad_offset = original.bytes;
     let first_row = original.xref + b"xref\n0 5\n".len() + 20;
     bad_offset[first_row..first_row + 10].copy_from_slice(b"9999999999");
-    let error = assert_pdf_error(bad_offset, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(bad_offset, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((1, 0)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -581,7 +626,7 @@ fn comments_in_xref_are_accepted_but_unindexed_object_bytes_are_not() {
         format!("startxref\n{}\n", fixture.xref).as_bytes(),
         format!("startxref\n{}\n", fixture.xref + stray.len()).as_bytes(),
     );
-    let error = assert_pdf_error(unindexed, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(unindexed, "malformed");
     assert!(
         error
             .to_string()
@@ -596,7 +641,7 @@ fn previous_xref_must_move_backward_and_revision_chain_is_bounded() {
     let mut self_reference = original.bytes.clone();
     let xref = self_reference.len();
     append_revision(&mut self_reference, xref);
-    let error = assert_pdf_error(self_reference, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(self_reference, "malformed");
     assert!(
         error
             .to_string()
@@ -611,7 +656,7 @@ fn previous_xref_must_move_backward_and_revision_chain_is_bounded() {
         append_revision(&mut many, previous);
         previous = here;
     }
-    let error = assert_pdf_error(many, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(many, "malformed");
     assert!(
         error.to_string().contains("xref revision limit exceeded"),
         "{error}"
@@ -643,12 +688,16 @@ fn stream_length_and_framing_fail_at_the_stream_object() {
     ];
     for (body, scalar) in cases {
         let fixture = fixture(&body, scalar);
-        let error = assert_pdf_error(fixture.bytes, PdfErrorKind::Malformed);
+        let error = assert_pdf_error(fixture.bytes, "malformed");
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    object: Some((4, 0)) | Some((5, 0)),
+                Error {
+                    kind: _,
+                    context: Context::Pdf {
+                        object: Some((4, 0)) | Some((5, 0)),
+                        ..
+                    },
                     ..
                 }
             ),
@@ -677,12 +726,16 @@ fn indirect_stream_length_can_resolve_and_must_be_scalar() {
         &stream(payload, "5 0 R", b"\nendstream"),
         Some(&nested_stream),
     );
-    let error = assert_pdf_error(invalid.bytes, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(invalid.bytes, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((5, 0)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((5, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -696,14 +749,14 @@ fn stream_extents_and_indirect_references_cannot_escape_the_document() {
         &stream(b"q Q", "18446744073709551615", b"\nendstream"),
         None,
     );
-    let error = assert_pdf_error(enormous.bytes, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(enormous.bytes, "malformed");
     assert!(
         error.to_string().contains("stream extent overflows"),
         "{error}"
     );
 
     let past_eof = fixture(&stream(b"q Q", "9999999999", b"\nendstream"), None);
-    let error = assert_pdf_error(past_eof.bytes, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(past_eof.bytes, "malformed");
     assert!(
         error
             .to_string()
@@ -715,12 +768,16 @@ fn stream_extents_and_indirect_references_cannot_escape_the_document() {
         b"<< /Length 3 /Filter 99 0 R >>\nstream\nq Q\nendstream",
         None,
     );
-    let error = assert_pdf_error(dangling.bytes, PdfErrorKind::Malformed);
+    let error = assert_pdf_error(dangling.bytes, "malformed");
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((4, 0)),
+            Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((4, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -744,7 +801,16 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
     };
     let mut sink = Vec::<u8>::new();
     let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error, Error::TruncatedInput { .. }), "{error}");
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                ..
+            }
+        ),
+        "{error}"
+    );
     assert!(sink.is_empty());
 
     let mut source = SmallReads {
@@ -760,7 +826,13 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
     };
     let mut sink = Vec::<u8>::new();
     let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &signal).unwrap_err();
-    assert!(matches!(error, Error::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(sink.is_empty());
 }
 
@@ -777,8 +849,12 @@ fn xref_index_allocation_limit_has_pdf_location() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                resource: "allocation bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             }
         ),

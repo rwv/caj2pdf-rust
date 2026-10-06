@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::qm::ArithmeticErrorKind;
-use crate::test_support::CancelAfter;
+use crate::test_support::{CancelAfter, stage_of};
 use std::io::Write;
 use std::{cell::Cell, rc::Rc};
 
@@ -69,10 +68,7 @@ struct BytesSink {
 impl Write for BytesSink {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.fail {
-            return Err(Error::InvalidInput {
-                reason: "synthetic sink failure",
-            }
-            .into());
+            return Err(Error::invalid("synthetic sink failure").into());
         }
         let n = bytes.len().min(self.max_write.max(1));
         self.bytes.extend_from_slice(&bytes[..n]);
@@ -349,10 +345,12 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
             },
             &tiny,
         )
-        .unwrap_err()
-        .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "working allocation bytes",
+        .unwrap_err(),
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "working allocation bytes",
+                ..
+            },
             ..
         }
     ));
@@ -370,10 +368,12 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
             },
             &tiny,
         )
-        .unwrap_err()
-        .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "output bytes",
+        .unwrap_err(),
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "output bytes",
+                ..
+            },
             ..
         }
     ));
@@ -403,13 +403,14 @@ fn non_type_zero_outer_record_is_rejected_at_image_start() {
         )
         .err()
         .expect("non-type-zero image must be rejected");
-        assert_eq!(error.offset, 0);
+        assert_eq!(error.offset, Some(0));
         assert!(matches!(
-            error.kind,
-            Type0ErrorKind::Unsupported {
-                field: "HN/C8 image record type",
-                value
-            } if value == u64::from(record_type)
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "HN/C8 image record type",
+                ..
+            }
         ));
         assert!(sink.bytes.is_empty());
     }
@@ -429,66 +430,37 @@ fn independent_preflight_limits_identify_the_resource() {
         ..Limits::default()
     };
     assert!(matches!(
-        checked_info(header, span, &limits).unwrap_err().kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "image pixels",
-            limit: 8,
-            attempted: 9,
+        checked_info(header, span, &limits).unwrap_err(),
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "image pixels",
+                limit: 8,
+                attempted: 9,
+            },
+            ..
         }
     ));
 }
 
 #[test]
-fn public_errors_keep_source_location_and_nested_causes() {
+fn errors_are_located_hnc8_failures_and_sink_errors_are_pdf_failures() {
     use std::error::Error as _;
-    let offset = 71;
-    let values = [
-        Type0ErrorKind::InvalidSpan("span"),
-        Type0ErrorKind::Truncated("DIB"),
-        Type0ErrorKind::Malformed("palette"),
-        Type0ErrorKind::Unsupported {
-            field: "mode",
-            value: 2,
-        },
-        Type0ErrorKind::LimitExceeded {
-            resource: "pixels",
-            limit: 4,
-            attempted: 5,
-        },
-        Type0ErrorKind::AllocationFailed,
-        Type0ErrorKind::Cancelled,
-        Type0ErrorKind::Incomplete,
-    ];
-    for kind in values {
-        let error = Type0Error {
-            offset,
-            rows_written: 1,
-            output_bytes_written: 4,
-            kind,
-        };
-        assert!(error.to_string().contains("source byte 71"));
-        assert!(error.source().is_none());
-    }
-    let nested = [
-        Type0ErrorKind::Source(Error::InvalidInput { reason: "read" }),
-        Type0ErrorKind::Sink(Error::InvalidInput { reason: "write" }),
-        Type0ErrorKind::Arithmetic(ArithmeticError {
-            coder: Some(crate::arith::Coder::T82),
-            offset: Some(offset),
-            context: Some(7),
-            kind: ArithmeticErrorKind::InvalidContext,
-        }),
-    ];
-    for kind in nested {
-        let error = Type0Error {
-            offset,
-            rows_written: 0,
-            output_bytes_written: 0,
-            kind,
-        };
-        assert!(error.source().is_some());
-        assert!(error.to_string().contains("source byte 71"));
-    }
+    let error = unsupported(71, "DIB planes");
+    assert_eq!(
+        error.to_string(),
+        "unsupported HN/C8 at byte 71: DIB planes"
+    );
+    assert!(error.source().is_none());
+    let write = Error::from(ErrorKind::Io(std::io::Error::other("write")));
+    let error = sink(write, 71);
+    assert_eq!(
+        (error.offset, stage_of(&error)),
+        (Some(71), Some(Hnc8Stage::Pdf))
+    );
+    assert!(error.source().is_some());
+    let error = sink(Error::cancelled(), 71);
+    assert_eq!((error.offset, stage_of(&error)), (Some(71), None));
+    assert!(matches!(error.kind, ErrorKind::Cancelled));
 }
 
 #[test]
@@ -516,10 +488,7 @@ fn sink_failure_and_incomplete_finish_are_explicit() {
         &Cancel::Never,
     )
     .unwrap();
-    assert!(matches!(
-        decoder.decode_next_row().unwrap_err().kind,
-        Type0ErrorKind::Sink(_)
-    ));
+    assert!(stage_of(&decoder.decode_next_row().unwrap_err()) == Some(Hnc8Stage::Pdf));
 
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let source = bytes.clone();
@@ -538,10 +507,7 @@ fn sink_failure_and_incomplete_finish_are_explicit() {
         &Cancel::Never,
     )
     .unwrap();
-    assert!(matches!(
-        decoder.finish().unwrap_err().kind,
-        Type0ErrorKind::Incomplete
-    ));
+    assert!(decoder.finish().unwrap_err().reason == "not all type-0 rows were decoded");
 }
 
 struct BadSink;
@@ -579,8 +545,7 @@ fn zero_sink_writes_are_typed_errors() {
         )
         .unwrap();
         let error = decoder.decode_next_row().unwrap_err();
-        assert!(matches!(error.kind, Type0ErrorKind::Sink(_)));
-        assert_eq!((error.rows_written, error.output_bytes_written), (0, 0));
+        assert!(stage_of(&error) == Some(Hnc8Stage::Pdf));
     }
 }
 
@@ -607,7 +572,13 @@ fn span_bounds_and_context_counts_are_rejected() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, Type0ErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
 
     let source = bytes.clone();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
@@ -627,7 +598,13 @@ fn span_bounds_and_context_counts_are_rejected() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, Type0ErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
 
     for count in [CONTEXT_COUNT - 1, CONTEXT_COUNT + 1] {
         let source = bytes.clone();
@@ -649,8 +626,12 @@ fn span_bounds_and_context_counts_are_rejected() {
         .err()
         .unwrap();
         assert!(matches!(
-            error.kind,
-            Type0ErrorKind::Malformed("expected exactly 1024 arithmetic contexts")
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "expected exactly 1024 arithmetic contexts",
+                ..
+            }
         ));
     }
 }
@@ -692,8 +673,13 @@ fn cancellation_after_row_write_preserves_byte_progress() {
     )
     .unwrap();
     let error = decoder.decode_next_row().unwrap_err();
-    assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
-    assert_eq!((error.rows_written, error.output_bytes_written), (0, 4));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -842,22 +828,29 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
         assert!(sink.bytes.is_empty());
         errors.push(error);
     }
-    assert_eq!(errors[0].offset, 0);
-    assert!(matches!(errors[0].kind, Type0ErrorKind::Cancelled));
-    assert_eq!(errors[1].offset, 5 + DIB_BYTES);
+    assert_eq!(errors[0].offset, Some(0));
     assert!(matches!(
-        errors[1].kind,
-        Type0ErrorKind::Truncated("DIB and coded bytes")
+        errors[0],
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
     ));
-    assert_eq!(errors[2].offset, 0);
+    assert_eq!(errors[1].offset, Some(5 + DIB_BYTES));
     assert!(matches!(
-        errors[2].kind,
-        Type0ErrorKind::LimitExceeded {
+        errors[1],
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "DIB and coded bytes",
+            ..
+        }
+    ));
+    assert_eq!(errors[2].offset, Some(0));
+    assert!(matches!(errors[2], Error { kind: ErrorKind::LimitExceeded {
             resource: "image span bytes",
             limit,
             attempted,
-        } if limit == bytes.len() as u64 - 1 && attempted == bytes.len() as u64
-    ));
+        }, .. } if limit == bytes.len() as u64 - 1 && attempted == bytes.len() as u64));
 }
 
 #[test]
@@ -874,11 +867,14 @@ fn maximal_dimensions_are_refused_by_the_pixel_limit_without_allocating() {
         &Limits::default(),
     )
     .unwrap_err();
-    assert_eq!(error.offset, 104);
+    assert_eq!(error.offset, Some(104));
     assert!(matches!(
-        error.kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "image pixels",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "image pixels",
+                ..
+            },
             ..
         }
     ));
@@ -886,12 +882,12 @@ fn maximal_dimensions_are_refused_by_the_pixel_limit_without_allocating() {
 
 fn decode_every_row<W: Write, C: Cancellation>(
     mut decoder: Type0Decoder<'_, W, C>,
-) -> Type0Result<Type0Report> {
+) -> crate::Result<Type0Report> {
     while decoder.decode_next_row()? {}
     decoder.finish()
 }
 
-fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0Report>, Vec<u8>) {
+fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (crate::Result<Type0Report>, Vec<u8>) {
     let limits = Limits {
         io_chunk_bytes: 1,
         ..Limits::default()
@@ -925,21 +921,26 @@ fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
     // cancellation.
     assert!(checks > 10, "only {checks} cancellation checks");
 
-    let mut previous_rows = 0;
+    let mut previous_bytes = 0;
     for allowed in 0..checks {
         let cancel = CancelAfter::new(allowed);
         let (result, output) = decode_with_checks(&bytes, &cancel);
         let error = result.expect_err("every check point must stop the image");
         assert!(
-            matches!(error.kind, Type0ErrorKind::Cancelled),
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }
+            ),
             "check {} returned {error}",
             allowed + 1
         );
-        assert!((previous_rows..=2).contains(&error.rows_written));
-        assert_eq!(error.output_bytes_written, output.len() as u64);
-        previous_rows = error.rows_written;
+        assert!((previous_bytes..=8).contains(&output.len()));
+        previous_bytes = output.len();
     }
-    assert_eq!(previous_rows, 2);
+    assert_eq!(previous_bytes, 8);
 }
 
 #[test]
@@ -969,19 +970,17 @@ fn early_finish_is_refused_before_the_terminal_check() {
         .unwrap();
         let row = decoder.decode_next_row();
         (
-            row.map_err(|error| error.kind),
+            row.map_err(|error| stage_of(&error)),
             decoder.finish().unwrap_err(),
         )
     };
     let (row, incomplete) = decoder(false);
     assert!(matches!(row, Ok(true)));
-    assert!(matches!(incomplete.kind, Type0ErrorKind::Incomplete));
-    assert_eq!(incomplete.rows_written, 1);
+    assert!(incomplete.reason == "not all type-0 rows were decoded");
 
     let (row, failed) = decoder(true);
-    assert!(matches!(row, Err(Type0ErrorKind::Sink(_))));
-    assert!(matches!(failed.kind, Type0ErrorKind::Incomplete));
-    assert_eq!(failed.rows_written, 0);
+    assert!(matches!(row, Err(Some(Hnc8Stage::Pdf))));
+    assert!(failed.reason == "not all type-0 rows were decoded");
 }
 
 #[test]
@@ -989,10 +988,8 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
     let bytes = image(5, 1, &white(5, 1));
     let limits = Limits::default();
     let table = table();
-    let failing: fn() -> Error = || Error::InvalidInput {
-        reason: "synthetic flush failure",
-    };
-    let cancelled: fn() -> Error = || Error::Cancelled;
+    let failing: fn() -> Error = || Error::invalid("synthetic flush failure");
+    let cancelled: fn() -> Error = || Error::cancelled();
     let cases = [
         (Some(failing), false, true),
         (Some(cancelled), false, false),
@@ -1021,18 +1018,19 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
         .unwrap();
         assert!(decoder.decode_next_row().unwrap());
         let error = decoder.finish().unwrap_err();
-        assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
         // The all-MPS row consumed exactly the three initialization bytes.
-        assert_eq!(error.offset, DIB_BYTES + 3);
+        assert_eq!(error.offset, Some(DIB_BYTES + 3));
         if expect_sink_error {
-            assert!(matches!(
-                error.kind,
-                Type0ErrorKind::Sink(Error::InvalidInput {
-                    reason: "synthetic flush failure"
-                })
-            ));
+            assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
+            assert_eq!(error.reason, "synthetic flush failure");
         } else {
-            assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
+            assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }
+            ));
         }
         assert_eq!(sink.bytes, [0; 4]);
     }
@@ -1059,13 +1057,9 @@ fn finish_rejects_a_failed_decoder_and_cancellation_before_flush() {
         &Cancel::Never,
     )
     .unwrap();
-    assert!(matches!(
-        decoder.decode_next_row().unwrap_err().kind,
-        Type0ErrorKind::Sink(_)
-    ));
+    assert!(stage_of(&decoder.decode_next_row().unwrap_err()) == Some(Hnc8Stage::Pdf));
     let error = decoder.finish().unwrap_err();
-    assert!(matches!(error.kind, Type0ErrorKind::Incomplete));
-    assert_eq!(error.rows_written, 0);
+    assert!(error.reason == "not all type-0 rows were decoded");
 
     let flag = Rc::new(Cell::new(false));
     let cancel = Cancel::Flag(flag.clone());
@@ -1073,9 +1067,7 @@ fn finish_rejects_a_failed_decoder_and_cancellation_before_flush() {
     let source = bytes.clone();
     let mut sink = BytesSink {
         max_write: usize::MAX,
-        flush_error: Some(|| Error::InvalidInput {
-            reason: "flush must not run after cancellation",
-        }),
+        flush_error: Some(|| Error::invalid("flush must not run after cancellation")),
         ..BytesSink::default()
     };
     let mut decoder = Type0Decoder::new(
@@ -1091,6 +1083,11 @@ fn finish_rejects_a_failed_decoder_and_cancellation_before_flush() {
     assert!(decoder.decode_next_row().unwrap());
     flag.set(true);
     let error = decoder.finish().unwrap_err();
-    assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
-    assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 }

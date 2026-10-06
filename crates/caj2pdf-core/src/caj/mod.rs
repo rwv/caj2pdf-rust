@@ -53,11 +53,7 @@ pub struct CajMetadata {
 }
 
 fn malformed(offset: u64, record: Option<u32>, reason: &'static str) -> Error {
-    Error::Caj {
-        offset,
-        record,
-        reason,
-    }
+    Error::malformed(offset, reason).in_caj(record)
 }
 
 fn limit(
@@ -67,13 +63,9 @@ fn limit(
     maximum: u64,
     attempted: u64,
 ) -> Error {
-    Error::CajLimitExceeded {
-        offset,
-        record,
-        resource,
-        limit: maximum,
-        attempted,
-    }
+    Error::limit(resource, maximum, attempted)
+        .at(offset)
+        .in_caj(record)
 }
 
 fn check_allocation<T>(
@@ -190,7 +182,7 @@ pub fn parse_metadata<S: RangedSource, C: Cancellation>(
     let mut magic = [0u8; 4];
     read_field(source, 0, &mut magic, None, limits, cancellation)?;
     if &magic != MAGIC {
-        return Err(Error::UnsupportedFormat);
+        return Err(crate::ErrorKind::UnsupportedFormat.into());
     }
 
     let mut page_header = [0u8; 8];
@@ -430,9 +422,9 @@ pub fn parse_metadata<S: RangedSource, C: Cancellation>(
                 title_budget,
             ));
         }
-        let title = gb18030::decode(&bytes[..title_end]).map_err(|error| {
+        let title = gb18030::decode(&bytes[..title_end]).map_err(|at| {
             malformed(
-                record_offset + error.offset as u64,
+                record_offset + at as u64,
                 Some(record),
                 "CAJ TOC title is not valid GB18030",
             )
@@ -477,6 +469,7 @@ pub fn parse_metadata<S: RangedSource, C: Cancellation>(
 mod tests {
     use super::*;
     use crate::NeverCancel;
+    use crate::{Context, ErrorKind};
 
     struct Source {
         bytes: Vec<u8>,
@@ -636,11 +629,7 @@ mod tests {
         malformed.bytes[last_id_offset..last_id_offset + 4].fill(0);
         assert!(matches!(
             parse(&mut malformed, &limits),
-            Err(Error::Caj {
-                offset,
-                record: Some(record),
-                reason: "CAJ page object number must be positive",
-            }) if offset == last_id_offset as u64 && record == page_count
+            Err(Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Caj { record: Some(record) }, reason: "CAJ page object number must be positive", .. }) if offset == last_id_offset as u64 && record == page_count
         ));
     }
 
@@ -677,8 +666,9 @@ mod tests {
         short.bytes.truncate(0x114 + 100);
         assert!(matches!(
             parse(&mut short, &Limits::default()),
-            Err(Error::Caj {
-                record: Some(1),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Caj { record: Some(1) },
                 ..
             })
         ));
@@ -687,15 +677,21 @@ mod tests {
         overlap.bytes[0x14..0x18].copy_from_slice(&0x150u32.to_le_bytes());
         assert!(matches!(
             parse(&mut overlap, &Limits::default()),
-            Err(Error::Caj { offset: 0x14, .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x14),
+                context: Context::Caj { .. },
+                ..
+            })
         ));
 
         let mut gap = sample();
         gap.bytes[0x40c..0x410].copy_from_slice(&0x43au32.to_le_bytes());
         assert!(matches!(
             parse(&mut gap, &Limits::default()),
-            Err(Error::Caj {
-                record: Some(2),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Caj { record: Some(2) },
                 reason: "CAJ page spans are not contiguous",
                 ..
             })
@@ -708,8 +704,9 @@ mod tests {
         duplicate.bytes[0x414..0x418].copy_from_slice(&1u32.to_le_bytes());
         assert!(matches!(
             parse(&mut duplicate, &Limits::default()),
-            Err(Error::Caj {
-                record: Some(2),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Caj { record: Some(2) },
                 reason: "duplicate CAJ page object number",
                 ..
             })
@@ -720,9 +717,10 @@ mod tests {
         title.bytes[0x115] = 0;
         assert!(matches!(
             parse(&mut title, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x114,
-                record: Some(1),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x114),
+                context: Context::Caj { record: Some(1) },
                 ..
             })
         ));
@@ -731,9 +729,10 @@ mod tests {
         destination.bytes[0x114 + 280] = b'3';
         assert!(matches!(
             parse(&mut destination, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x22c,
-                record: Some(1),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x22c),
+                context: Context::Caj { record: Some(1) },
                 ..
             })
         ));
@@ -746,8 +745,9 @@ mod tests {
         level.bytes[second_level..second_level + 4].copy_from_slice(&3u32.to_le_bytes());
         assert!(matches!(
             parse(&mut level, &Limits::default()),
-            Err(Error::Caj {
-                record: Some(2),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Caj { record: Some(2) },
                 reason: "CAJ TOC level skips a parent",
                 ..
             })
@@ -760,9 +760,10 @@ mod tests {
         };
         assert!(matches!(
             parse(&mut pages, &limits),
-            Err(Error::CajLimitExceeded {
-                offset: 0x10,
-                attempted: 2,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { attempted: 2, .. },
+                offset: Some(0x10),
+                context: Context::Caj { .. },
                 ..
             })
         ));
@@ -775,8 +776,12 @@ mod tests {
         };
         assert!(matches!(
             parse(&mut allocation, &limits),
-            Err(Error::CajLimitExceeded {
-                resource: "CAJ page metadata",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "CAJ page metadata",
+                    ..
+                },
+                context: Context::Caj { .. },
                 ..
             })
         ));
@@ -788,7 +793,10 @@ mod tests {
         wrong_magic.bytes[0] = b'X';
         assert!(matches!(
             parse(&mut wrong_magic, &Limits::default()),
-            Err(Error::UnsupportedFormat)
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            })
         ));
 
         for count in [0i32, -1] {
@@ -796,8 +804,10 @@ mod tests {
             invalid_count.bytes[0x10..0x14].copy_from_slice(&count.to_le_bytes());
             assert!(matches!(
                 parse(&mut invalid_count, &Limits::default()),
-                Err(Error::Caj {
-                    offset: 0x10,
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    offset: Some(0x10),
+                    context: Context::Caj { .. },
                     reason: "CAJ page count must be positive",
                     ..
                 })
@@ -808,8 +818,10 @@ mod tests {
         truncated_table.bytes[0x14..0x18].copy_from_slice(&0x500u32.to_le_bytes());
         assert!(matches!(
             parse(&mut truncated_table, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x14,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x14),
+                context: Context::Caj { .. },
                 reason: "CAJ page table extends beyond source",
                 ..
             })
@@ -819,9 +831,10 @@ mod tests {
         zero_id.bytes[0x408..0x40c].fill(0);
         assert!(matches!(
             parse(&mut zero_id, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x408,
-                record: Some(1),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x408),
+                context: Context::Caj { record: Some(1) },
                 ..
             })
         ));
@@ -830,10 +843,12 @@ mod tests {
         overlapping_body.bytes[0x400..0x404].copy_from_slice(&0x400u32.to_le_bytes());
         assert!(matches!(
             parse(&mut overlapping_body, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x400,
-                record: Some(1),
-                reason: "CAJ PDF body overlaps the page table"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x400),
+                context: Context::Caj { record: Some(1) },
+                reason: "CAJ PDF body overlaps the page table",
+                ..
             })
         ));
 
@@ -841,10 +856,12 @@ mod tests {
         outside_body.bytes[0x404..0x408].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(matches!(
             parse(&mut outside_body, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x404,
-                record: Some(1),
-                reason: "CAJ page span extends beyond source"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x404),
+                context: Context::Caj { record: Some(1) },
+                reason: "CAJ page span extends beyond source",
+                ..
             })
         ));
 
@@ -854,8 +871,10 @@ mod tests {
         empty_body.bytes[0x410..0x414].fill(0);
         assert!(matches!(
             parse(&mut empty_body, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x400,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x400),
+                context: Context::Caj { .. },
                 reason: "CAJ PDF body is empty",
                 ..
             })
@@ -868,8 +887,10 @@ mod tests {
         negative_count.bytes[0x110..0x114].copy_from_slice(&(-1i32).to_le_bytes());
         assert!(matches!(
             parse(&mut negative_count, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x110,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x110),
+                context: Context::Caj { .. },
                 reason: "CAJ TOC count is negative",
                 ..
             })
@@ -879,10 +900,12 @@ mod tests {
         empty_title.bytes[0x114] = 0;
         assert!(matches!(
             parse(&mut empty_title, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x114,
-                record: Some(1),
-                reason: "empty CAJ TOC title"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x114),
+                context: Context::Caj { record: Some(1) },
+                reason: "empty CAJ TOC title",
+                ..
             })
         ));
 
@@ -890,10 +913,12 @@ mod tests {
         empty_page.bytes[0x22c] = b' ';
         assert!(matches!(
             parse(&mut empty_page, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x22c,
-                record: Some(1),
-                reason: "empty TOC page number"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x22c),
+                context: Context::Caj { record: Some(1) },
+                reason: "empty TOC page number",
+                ..
             })
         ));
 
@@ -901,10 +926,12 @@ mod tests {
         invalid_digit.bytes[0x22c] = b'a';
         assert!(matches!(
             parse(&mut invalid_digit, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x22c,
-                record: Some(1),
-                reason: "TOC page number is not ASCII decimal"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x22c),
+                context: Context::Caj { record: Some(1) },
+                reason: "TOC page number is not ASCII decimal",
+                ..
             })
         ));
 
@@ -912,8 +939,9 @@ mod tests {
         number_overflow.bytes[0x22c..0x238].copy_from_slice(b"429496729599");
         assert!(matches!(
             parse(&mut number_overflow, &Limits::default()),
-            Err(Error::Caj {
-                record: Some(1),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Caj { record: Some(1) },
                 reason: "TOC page number overflows",
                 ..
             })
@@ -923,10 +951,12 @@ mod tests {
         zero_level.bytes[0x244..0x248].fill(0);
         assert!(matches!(
             parse(&mut zero_level, &Limits::default()),
-            Err(Error::Caj {
-                offset: 0x244,
-                record: Some(1),
-                reason: "CAJ TOC level must be positive"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(0x244),
+                context: Context::Caj { record: Some(1) },
+                reason: "CAJ TOC level must be positive",
+                ..
             })
         ));
     }
@@ -940,10 +970,14 @@ mod tests {
         };
         assert!(matches!(
             parse(&mut toc_count, &bookmark_limit),
-            Err(Error::CajLimitExceeded {
-                offset: 0x110,
-                resource: "CAJ bookmarks",
-                attempted: 2,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "CAJ bookmarks",
+                    attempted: 2,
+                    ..
+                },
+                offset: Some(0x110),
+                context: Context::Caj { .. },
                 ..
             })
         ));
@@ -956,9 +990,13 @@ mod tests {
         };
         assert!(matches!(
             parse(&mut body, &body_limit),
-            Err(Error::CajLimitExceeded {
-                offset: 0x418,
-                resource: "CAJ PDF input bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "CAJ PDF input bytes",
+                    ..
+                },
+                offset: Some(0x418),
+                context: Context::Caj { .. },
                 ..
             })
         ));
@@ -973,10 +1011,13 @@ mod tests {
         };
         assert!(matches!(
             parse(&mut title, &title_limit),
-            Err(Error::CajLimitExceeded {
-                offset: 0x114,
-                record: Some(1),
-                resource: "CAJ title allocation bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "CAJ title allocation bytes",
+                    ..
+                },
+                offset: Some(0x114),
+                context: Context::Caj { record: Some(1) },
                 ..
             })
         ));

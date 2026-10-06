@@ -89,9 +89,8 @@ impl RangedSource for Source {
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         assert!(!self.sealed, "placing a completed image reread its source");
         self.max_request = self.max_request.max(destination.len());
-        let offset = usize::try_from(offset).map_err(|_| Error::InvalidInput {
-            reason: "synthetic source offset exceeds usize",
-        })?;
+        let offset = usize::try_from(offset)
+            .map_err(|_| Error::invalid("synthetic source offset exceeds usize"))?;
         let remaining = self.bytes.len().saturating_sub(offset);
         let count = remaining.min(destination.len()).min(3);
         destination[..count].copy_from_slice(&self.bytes[offset..offset + count]);

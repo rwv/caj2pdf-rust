@@ -3,6 +3,7 @@
 //! Original calculations and caller-input checks; no document bytes or tables.
 
 use super::*;
+use crate::ErrorKind;
 
 fn close(actual: f64, expected: f64) {
     assert!(
@@ -103,11 +104,17 @@ fn positive_pixel_range_has_no_integer_product_or_float_overflow() {
     for (width, height) in [(0, 1), (1, 0), (0, 0)] {
         assert!(matches!(
             empirical_page_from_pixels(width, height, [0.0; 2]),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         assert!(matches!(
             empirical_image_transform(page, width, height, point(0, 0)),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
     }
 }
@@ -119,7 +126,10 @@ fn forged_page_origins_sizes_overflow_and_precision_collapse_are_rejected() {
         for origin in [[value, 0.0], [0.0, value]] {
             assert!(matches!(
                 empirical_page_from_pixels(1, 1, origin),
-                Err(Error::InvalidInput { .. })
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                })
             ));
         }
     }
@@ -135,10 +145,19 @@ fn forged_page_origins_sizes_overflow_and_precision_collapse_are_rejected() {
             },
         ] {
             let bad = EmpiricalPageGeometry { size, ..valid };
-            assert!(matches!(bad.media_box(), Err(Error::InvalidInput { .. })));
+            assert!(matches!(
+                bad.media_box(),
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                })
+            ));
             assert!(matches!(
                 empirical_image_transform(bad, 1, 1, point(0, 0)),
-                Err(Error::InvalidInput { .. })
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                })
             ));
         }
     }
@@ -176,7 +195,13 @@ fn forged_page_origins_sizes_overflow_and_precision_collapse_are_rejected() {
             origin_points,
             size,
         };
-        assert!(matches!(bad.media_box(), Err(Error::InvalidInput { .. })));
+        assert!(matches!(
+            bad.media_box(),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
+        ));
     }
 }
 
@@ -200,8 +225,10 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
     ] {
         assert!(matches!(
             page.media_box(),
-            Err(Error::InvalidInput {
-                reason: "empirical PDF origin cannot preserve the page dimension precision"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "empirical PDF origin cannot preserve the page dimension precision",
+                ..
             })
         ));
     }
@@ -230,8 +257,10 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
         assert!(page.media_box().is_ok());
         assert!(matches!(
             empirical_image_transform(page, 1, 1, coordinate),
-            Err(Error::InvalidInput {
-                reason: "empirical PDF origin cannot preserve the selected coordinate precision"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "empirical PDF origin cannot preserve the selected coordinate precision",
+                ..
             })
         ));
         // An exact zero offset still has its intended meaning at that origin.
@@ -262,8 +291,10 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
         Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_3349),
         Err(error) => assert!(matches!(
             error,
-            Error::InvalidInput {
-                reason: "empirical PDF origin cannot preserve the selected coordinate precision"
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "empirical PDF origin cannot preserve the selected coordinate precision",
+                ..
             }
         )),
     }

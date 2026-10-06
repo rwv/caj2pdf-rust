@@ -8,8 +8,9 @@
 //! [`IAID_BASE`](super::iaid::IAID_BASE). This module does not own an MQ
 //! byte stream, finish it, or include probability states.
 
-use super::mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult, MqDecoder};
-use crate::arith::Coder;
+use super::mq::MqDecoder;
+use crate::arith::INVALID_CONTEXT;
+use crate::{Error, Result};
 
 pub const CONTEXTS_PER_PROCEDURE: usize = 512;
 pub const INTEGER_CONTEXT_COUNT: usize = 13 * CONTEXTS_PER_PROCEDURE;
@@ -68,19 +69,14 @@ fn take(
     base: usize,
     prev: &mut u16,
     decisions: &mut u8,
-) -> ArithmeticResult<bool> {
+) -> Result<bool> {
     let context = base + usize::from(*prev);
     if *decisions >= MAX_DECISIONS {
-        return Err(ArithmeticError {
-            coder: Some(Coder::T88),
-            offset: None,
-            context: Some(context),
-            kind: ArithmeticErrorKind::LimitExceeded {
-                resource: "T.88 integer decisions",
-                limit: u64::from(MAX_DECISIONS),
-                attempted: u64::from(*decisions) + 1,
-            },
-        });
+        return Err(Error::limit(
+            "T.88 integer decisions",
+            u64::from(MAX_DECISIONS),
+            u64::from(*decisions) + 1,
+        ));
     }
     let bit = decoder.decode_bit(context)?;
     *decisions += 1;
@@ -102,15 +98,10 @@ fn take(
 pub fn decode_integer(
     decoder: &mut MqDecoder<'_>,
     procedure: IntegerProcedure,
-) -> ArithmeticResult<IntegerValue> {
+) -> Result<IntegerValue> {
     let last = INTEGER_CONTEXT_COUNT - 1;
     if decoder.context(last).is_none() {
-        return Err(ArithmeticError {
-            coder: Some(Coder::T88),
-            offset: Some(decoder.snapshot().input_offset),
-            context: Some(last),
-            kind: ArithmeticErrorKind::InvalidContext,
-        });
+        return Err(decoder.at(INVALID_CONTEXT));
     }
     let base = procedure.base();
     let mut prev = 1u16;
@@ -142,6 +133,7 @@ pub fn decode_integer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ErrorKind;
     use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqTable};
     use crate::test_support::mq_encoder;
     use crate::{Limits, Payload};
@@ -363,12 +355,8 @@ mod tests {
             let mut decoder =
                 MqDecoder::new(source, whole(bytes), &table, &mut bank, &limits).unwrap();
             let error = decode_integer(&mut decoder, IntegerProcedure::Iadw).unwrap_err();
-            assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
+            assert_eq!(error.reason, "MQ coding unit lacks its terminal marker");
             assert_eq!(error.offset, Some(bytes.len() as u64));
-            let base = IntegerProcedure::Iadw.base();
-            assert!(error.context.is_some_and(|context| {
-                (base..base + CONTEXTS_PER_PROCEDURE).contains(&context)
-            }));
         }
     }
 
@@ -385,11 +373,14 @@ mod tests {
         let mut count = MAX_DECISIONS;
         let error = take(&mut decoder, 0, &mut prev, &mut count).unwrap_err();
         assert!(matches!(
-            error.kind,
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "T.88 integer decisions",
-                limit: 38,
-                attempted: 39,
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "T.88 integer decisions",
+                    limit: 38,
+                    attempted: 39,
+                },
+                ..
             }
         ));
         assert_eq!(decoder.snapshot().symbols_decoded, 0);
@@ -438,8 +429,7 @@ mod tests {
             MqDecoder::new(source, whole(&bytes), &table, &mut contexts, &limits).unwrap();
         let before = decoder.snapshot();
         let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
-        assert_eq!(error.context, Some(INTEGER_CONTEXT_COUNT - 1));
+        assert_eq!(error.reason, "invalid arithmetic context index or count");
         assert_eq!(decoder.snapshot(), before);
         decoder.finish(0).unwrap();
     }
@@ -464,10 +454,7 @@ mod tests {
         );
         let symbols = decoder.snapshot().symbols_decoded;
         let error = decoder.finish(symbols).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            ArithmeticErrorKind::InvalidMarker(0x90)
-        ));
+        assert_eq!(error.reason, "invalid MQ marker following 0xFF");
 
         let short = [0x80, 0];
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
@@ -475,7 +462,7 @@ mod tests {
         let mut decoder =
             MqDecoder::new(source, whole(&short), &table, &mut bank, &limits).unwrap();
         let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
-        assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
+        assert_eq!(error.reason, "MQ coding unit lacks its terminal marker");
         assert_eq!(error.offset, Some(short.len() as u64));
     }
 }

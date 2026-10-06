@@ -9,10 +9,9 @@
 use super::{
     dictionary::{StoredSymbol, SymbolDescriptor, SymbolStore},
     text::{SymbolCombination, TextHeaderAnomaly, TextRegionHeader},
-    text_instances::{TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError},
+    text_instances::{TextBitmap, TextInstance, TextInstanceDecoder},
 };
-use crate::{Cancellation, Limits};
-use std::{error, fmt};
+use crate::{Cancellation, Context, Error, Limits, Result};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TextComposeStage {
@@ -67,89 +66,32 @@ struct CheckedEvent {
     y1: u64,
 }
 
-#[derive(Debug)]
-pub enum TextComposeErrorKind {
-    InvalidSpan(&'static str),
-    Malformed(&'static str),
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Instance(Box<TextInstanceError>),
-}
-
-/// `offset` names the active region or store byte according to
-/// `progress.stage` and `kind`; instance failures preserve their MQ offset.
-#[derive(Debug)]
-pub struct TextComposeError {
-    pub segment: u32,
-    pub offset: u64,
-    pub progress: Box<TextComposeProgress>,
-    pub kind: TextComposeErrorKind,
-}
-
-pub type TextComposeResult<T> = Result<T, TextComposeError>;
-
-impl fmt::Display for TextComposeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 text composition segment {} at byte {} ({:?}, instance {}): ",
-            self.segment, self.offset, self.progress.stage, self.progress.completed_instances
-        )?;
-        match &self.kind {
-            TextComposeErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            TextComposeErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
-            TextComposeErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            TextComposeErrorKind::AllocationFailed => f.write_str("bitmap allocation failed"),
-            TextComposeErrorKind::Cancelled => f.write_str("cancelled"),
-            TextComposeErrorKind::Instance(error) => write!(f, "instance: {error}"),
-        }
+/// Locate an unlocated composition error in `segment`. Region and store
+/// coordinates are not input offsets, so none is attached.
+fn locate(segment: u32, error: Error) -> Error {
+    if error.context == Context::None {
+        error.in_jbig2(Some(segment))
+    } else {
+        error
     }
 }
 
-impl error::Error for TextComposeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            TextComposeErrorKind::Instance(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-fn limited(resource: &'static str, limit: u64, attempted: u64) -> TextComposeErrorKind {
-    TextComposeErrorKind::LimitExceeded {
-        resource,
-        limit,
-        attempted,
-    }
-}
-
-fn cap(resource: &'static str, limit: u64, attempted: u64) -> Result<(), TextComposeErrorKind> {
+fn cap(resource: &'static str, limit: u64, attempted: u64) -> Result<()> {
     if attempted > limit {
-        Err(limited(resource, limit, attempted))
+        Err(Error::limit(resource, limit, attempted))
     } else {
         Ok(())
     }
 }
 
-fn descriptor_bytes(descriptor: SymbolDescriptor) -> Result<(u64, u64), TextComposeErrorKind> {
+fn descriptor_bytes(descriptor: SymbolDescriptor) -> Result<(u64, u64)> {
     if descriptor.width == 0 || descriptor.height == 0 {
-        return Err(TextComposeErrorKind::Malformed("zero bitmap dimension"));
+        return Err(Error::invalid("zero bitmap dimension"));
     }
     let stride = u64::from(descriptor.width).div_ceil(8);
     let bytes = stride * u64::from(descriptor.height);
     if u64::from(descriptor.row_stride) != stride || descriptor.stored_bytes != bytes {
-        return Err(TextComposeErrorKind::Malformed(
-            "noncanonical bitmap descriptor",
-        ));
+        return Err(Error::invalid("noncanonical bitmap descriptor"));
     }
     Ok((stride, bytes))
 }
@@ -188,6 +130,7 @@ pub struct TextComposer<'a, 'd, C: Cancellation> {
     cancellation: &'a C,
     row_stride: usize,
     packed_bytes: u64,
+    allocation_limit: u64,
     progress: TextComposeProgress,
 }
 
@@ -206,32 +149,23 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         bitmap: &'a mut Vec<u8>,
         limits: &Limits,
         cancellation: &'a C,
-    ) -> TextComposeResult<Self> {
-        let bad = |kind| TextComposeError {
-            segment,
-            offset: 0,
-            progress: Box::new(TextComposeProgress::default()),
-            kind,
-        };
+    ) -> Result<Self> {
+        let bad = |error| locate(segment, error);
         if instances.segment() != segment || instances.header() != header {
-            return Err(bad(TextComposeErrorKind::Malformed(
+            return Err(bad(Error::invalid(
                 "instance stream segment or header differs",
             )));
         }
         if header.segment != segment {
-            return Err(bad(TextComposeErrorKind::Malformed(
+            return Err(bad(Error::invalid(
                 "text header segment differs from composer",
             )));
         }
         if header.region.width == 0 || header.region.height == 0 {
-            return Err(bad(TextComposeErrorKind::Malformed(
-                "zero region dimension",
-            )));
+            return Err(bad(Error::invalid("zero region dimension")));
         }
         if header.flags.huffman || header.flags.refinement_template != 1 && header.flags.refine {
-            return Err(bad(TextComposeErrorKind::Malformed(
-                "unsupported text stream profile",
-            )));
+            return Err(bad(Error::invalid("unsupported text stream profile")));
         }
         let pixels = u64::from(header.region.width) * u64::from(header.region.height);
         cap("region pixels", limits.max_image_pixels, pixels).map_err(&bad)?;
@@ -244,19 +178,15 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         )
         .map_err(&bad)?;
         let row_stride = usize::try_from(stride)
-            .map_err(|_| bad(limited("region row bytes", usize::MAX as u64, stride)))?;
+            .map_err(|_| bad(Error::limit("region row bytes", usize::MAX as u64, stride)))?;
         if header.instances > 0 && catalog.is_empty() {
-            return Err(bad(TextComposeErrorKind::Malformed(
-                "nonempty text region with no symbols",
-            )));
+            return Err(bad(Error::invalid("nonempty text region with no symbols")));
         }
         if imported_base > imported.len() as u64
             || new_base > new.len() as u64
             || refined_base > instances.refined_store().len() as u64
         {
-            return Err(bad(TextComposeErrorKind::InvalidSpan(
-                "bitmap store base beyond its store",
-            )));
+            return Err(bad(Error::invalid("bitmap store base beyond its store")));
         }
         Ok(Self {
             header,
@@ -272,6 +202,7 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
             cancellation,
             row_stride,
             packed_bytes,
+            allocation_limit: limits.max_allocation_bytes,
             progress: TextComposeProgress::default(),
         })
     }
@@ -280,18 +211,13 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         self.progress
     }
 
-    fn error(&self, offset: u64, kind: TextComposeErrorKind) -> TextComposeError {
-        TextComposeError {
-            segment: self.segment,
-            offset,
-            progress: Box::new(self.progress),
-            kind,
-        }
+    fn error(&self, error: Error) -> Error {
+        locate(self.segment, error)
     }
 
-    fn check_cancelled(&self, offset: u64) -> TextComposeResult<()> {
+    fn check_cancelled(&self) -> Result<()> {
         if self.cancellation.is_cancelled() {
-            Err(self.error(offset, TextComposeErrorKind::Cancelled))
+            Err(self.error(Error::cancelled()))
         } else {
             Ok(())
         }
@@ -305,30 +231,19 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         }
     }
 
-    fn checked_event(&self, instance: TextInstance) -> TextComposeResult<Option<CheckedEvent>> {
+    fn checked_event(&self, instance: TextInstance) -> Result<Option<CheckedEvent>> {
         if instance.index != self.progress.completed_instances
             || instance.index >= self.header.instances
         {
-            return Err(self.error(
-                0,
-                TextComposeErrorKind::Malformed("instance order or count"),
-            ));
+            return Err(self.error(Error::invalid("instance order or count")));
         }
         if i32::try_from(instance.x).is_err() || i32::try_from(instance.y).is_err() {
-            return Err(self.error(
-                0,
-                TextComposeErrorKind::Malformed("placement outside signed 32-bit range"),
-            ));
+            return Err(self.error(Error::invalid("placement outside signed 32-bit range")));
         }
         let reference = self
             .catalog
             .get(instance.symbol_id as usize)
-            .ok_or_else(|| {
-                self.error(
-                    0,
-                    TextComposeErrorKind::Malformed("symbol ID outside catalog"),
-                )
-            })?;
+            .ok_or_else(|| self.error(Error::invalid("symbol ID outside catalog")))?;
         let (store, base, descriptor) = match instance.bitmap {
             TextBitmap::Stored(stored) if !instance.ri && stored == *reference => {
                 let (store, base) = match stored.store {
@@ -336,12 +251,9 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
                     SymbolStore::New => (BitmapStore::New, self.new_base),
                 };
                 if stored.store_base != base {
-                    return Err(self.error(
-                        0,
-                        TextComposeErrorKind::Malformed(
-                            "bitmap handle store base differs from view",
-                        ),
-                    ));
+                    return Err(
+                        self.error(Error::invalid("bitmap handle store base differs from view"))
+                    );
                 }
                 (store, base, stored.symbol)
             }
@@ -351,37 +263,23 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
                 (BitmapStore::Refined, self.refined_base, symbol)
             }
             _ => {
-                return Err(self.error(
-                    0,
-                    TextComposeErrorKind::Malformed(
-                        "bitmap handle or RI differs from catalog/store",
-                    ),
-                ));
+                return Err(self.error(Error::invalid(
+                    "bitmap handle or RI differs from catalog/store",
+                )));
             }
         };
         if descriptor.width != instance.width || descriptor.height != instance.height {
-            return Err(self.error(
-                0,
-                TextComposeErrorKind::Malformed("bitmap geometry differs from placement"),
-            ));
+            return Err(self.error(Error::invalid("bitmap geometry differs from placement")));
         }
-        let (_, bytes) = descriptor_bytes(descriptor).map_err(|kind| self.error(0, kind))?;
+        let (_, bytes) = descriptor_bytes(descriptor).map_err(|error| self.error(error))?;
         let start = base
             .checked_add(descriptor.relative_store_offset)
-            .ok_or_else(|| {
-                self.error(
-                    0,
-                    TextComposeErrorKind::InvalidSpan("symbol start overflows"),
-                )
-            })?;
-        let end = start.checked_add(bytes).ok_or_else(|| {
-            self.error(0, TextComposeErrorKind::InvalidSpan("symbol end overflows"))
-        })?;
+            .ok_or_else(|| self.error(Error::invalid("symbol start overflows")))?;
+        let end = start
+            .checked_add(bytes)
+            .ok_or_else(|| self.error(Error::invalid("symbol end overflows")))?;
         if end > self.store(store).len() as u64 {
-            return Err(self.error(
-                start,
-                TextComposeErrorKind::InvalidSpan("symbol outside bitmap store"),
-            ));
+            return Err(self.error(Error::invalid("symbol outside bitmap store")));
         }
         let right = instance.x + i64::from(instance.width);
         let bottom = instance.y + i64::from(instance.height);
@@ -403,7 +301,7 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         }))
     }
 
-    fn compose_event(&mut self, instance: TextInstance) -> TextComposeResult<()> {
+    fn compose_event(&mut self, instance: TextInstance) -> Result<()> {
         self.progress.stage = TextComposeStage::Instance;
         let Some(CheckedEvent {
             store,
@@ -458,15 +356,19 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
 
     /// Compose every instance into the bitmap, which first holds the default
     /// pixel. Any failure leaves a partial bitmap.
-    pub fn compose(mut self) -> TextComposeResult<TextComposeReport> {
+    pub fn compose(mut self) -> Result<TextComposeReport> {
         self.progress.stage = TextComposeStage::Initialize;
-        self.check_cancelled(0)?;
+        self.check_cancelled()?;
         // The packed size was capped by `max_allocation_bytes`, so it fits a
         // `usize` on this target.
         let packed = self.packed_bytes as usize;
         self.bitmap.clear();
         if self.bitmap.try_reserve_exact(packed).is_err() {
-            return Err(self.error(0, TextComposeErrorKind::AllocationFailed));
+            return Err(self.error(Error::limit(
+                "region bitmap bytes",
+                self.allocation_limit,
+                self.packed_bytes,
+            )));
         }
         let fill = if self.header.flags.default_pixel {
             0xff
@@ -480,21 +382,18 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         }
         loop {
             self.progress.stage = TextComposeStage::Instance;
-            self.check_cancelled(self.packed_bytes)?;
-            let event = self.instances.next_instance().map_err(|error| {
-                let offset = error.offset;
-                self.error(offset, TextComposeErrorKind::Instance(Box::new(error)))
-            })?;
+            self.check_cancelled()?;
+            let event = self
+                .instances
+                .next_instance()
+                .map_err(|error| self.error(error))?;
             match event {
                 Some(instance) => self.compose_event(instance)?,
                 None if self.progress.completed_instances == self.header.instances => break,
                 None => {
-                    return Err(self.error(
-                        0,
-                        TextComposeErrorKind::Malformed(
-                            "instance stream ended before declared count",
-                        ),
-                    ));
+                    return Err(self.error(Error::invalid(
+                        "instance stream ended before declared count",
+                    )));
                 }
             }
         }

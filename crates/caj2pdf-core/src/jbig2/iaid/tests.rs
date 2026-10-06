@@ -92,13 +92,8 @@ fn largest_default_width_and_truncated_stream_error() {
     )
     .unwrap();
     let error = decode_iaid(&mut decoder, 15).unwrap_err();
-    assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
+    assert_eq!(error.reason, "MQ coding unit lacks its terminal marker");
     assert_eq!(error.offset, Some(2));
-    assert!(
-        error
-            .context
-            .is_some_and(|context| (IAID_BASE..IAID_BASE + 32_768).contains(&context))
-    );
 }
 
 #[test]
@@ -121,15 +116,13 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
     .unwrap();
     let before = decoder.snapshot();
     // This is 32 on wasm32 and 64 on x86_64: the first invalid `usize`
-    // shift fails without naming a context.
-    for (len, context) in [
-        (4, Some(IAID_BASE + 15)),
-        (usize::BITS, None),
-        (u32::MAX, None),
-    ] {
+    // shift fails too.
+    for len in [4, usize::BITS, u32::MAX] {
         let error = decode_iaid(&mut decoder, len).unwrap_err();
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
-        assert_eq!(error.context, context, "width {len}");
+        assert_eq!(
+            error.reason, "invalid arithmetic context index or count",
+            "width {len}"
+        );
         assert_eq!(decoder.snapshot(), before);
     }
     assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);

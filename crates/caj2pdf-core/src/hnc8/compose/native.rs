@@ -40,7 +40,7 @@ pub fn convert_c8_native_pdf<S, F, W, C>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError>
+) -> Result<ComposeReport>
 where
     S: RangedSource,
     F: RangedSource,
@@ -61,17 +61,15 @@ where
             .chain(roles.latin_state31)
             .any(|index| index >= count)
     {
-        return Err(At::NONE.error((
-            ComposeStage::Preflight,
-            ComposeErrorKind::InvalidOptions(
-                "C8 font roles require 1..=8 explicit resources with valid indices",
-            ),
-        )));
+        return Err(At::NONE.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("C8 font roles require 1..=8 explicit resources with valid indices"),
+        ));
     }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
-        .map_err(|error| container(error, ComposeStage::Container))?;
+        .map_err(|error| container(error, Hnc8Stage::Container))?;
     let header = reader.header();
     let at = At {
         variant: Some(header.variant),
@@ -79,21 +77,25 @@ where
         ..At::NONE
     };
     if !matches!(header.variant, Variant::C8 | Variant::HnB) {
-        return Err(at.error((
-            ComposeStage::Preflight,
-            ComposeErrorKind::Unsupported("native composition requires C8 or HN-B"),
-        )));
+        return Err(at.error(
+            Hnc8Stage::Preflight,
+            unsupported("native composition requires C8 or HN-B"),
+        ));
     }
     let mut document =
-        PdfDocument::new(sink, limits, cancellation).map_err(at.io(ComposeStage::Pdf))?;
+        PdfDocument::new(sink, limits, cancellation).map_err(at.locator(Hnc8Stage::Pdf))?;
     let mut handles: Vec<FontObject> =
-        page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
+        page_vector(count, limits, "C8 font handles").map_err(at.locator(Hnc8Stage::Preflight))?;
     let mut font_bytes = 0u64;
     for C8FontSource { source, face } in fonts.sources.iter_mut() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .map_err(at.io(ComposeStage::Preflight))?;
-        handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
+        handles.push(
+            document
+                .add_font(&font)
+                .map_err(at.locator(Hnc8Stage::Pdf))?,
+        );
     }
     // Fixed profile bound avoids a second allocation for references.
     let references = [
@@ -122,7 +124,7 @@ where
     let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
-        .map_err(|error| container(error, ComposeStage::Container))?
+        .map_err(|error| container(error, Hnc8Stage::Container))?
     {
         let at = At::page(header, page);
         let count = admit_page_images(
@@ -132,12 +134,12 @@ where
             limits,
         )?;
         let mut images = page_vector(count, limits, "native page image handles")
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mut top_first = page_vector(count, limits, "native page image orientation")
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
         while let Some(record) = reader
             .next_image()
-            .map_err(|error| container(error, ComposeStage::Container))?
+            .map_err(|error| container(error, Hnc8Stage::Container))?
         {
             let image_at = at.image(record);
             let (checked, plan, visible_width, display_width, height) = preflight_image(
@@ -183,7 +185,7 @@ where
             &images,
             &top_first,
         )
-        .map_err(|error| container(error, ComposeStage::Text))?
+        .map_err(|error| container(error, Hnc8Stage::Text))?
             + 1;
         report.no_image_pages += u32::from(count == 0);
     }
@@ -192,10 +194,10 @@ where
     for (handle, C8FontSource { source, face }) in handles.iter().zip(fonts.sources.iter_mut()) {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .map_err(at.io(ComposeStage::Pdf))?;
+            .map_err(at.locator(Hnc8Stage::Pdf))?;
         document
             .embed_font(handle, &mut font)
-            .map_err(at.io(ComposeStage::Pdf))?;
+            .map_err(at.locator(Hnc8Stage::Pdf))?;
     }
     report.conversion = finish_document(&mut reader, document, &mut report, at)?;
     report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);

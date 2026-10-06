@@ -4,8 +4,8 @@
 //! This is a structural profile reader, not a JPEG entropy decoder or a PDF
 //! color-management decision.
 
-use super::{ErrorKind, ImageRecord, Location, Result, Span};
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
+use super::{ImageRecord, Location, Span};
+use crate::{Cancellation, ErrorKind, Limits, RangedSource, Result, read_exact_at};
 
 const BUFFER_BYTES: usize = 4096;
 
@@ -51,11 +51,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
 
     fn fill(&mut self, field: &'static str) -> Result<()> {
         if self.position == self.end {
-            return Err(self.at(self.position).error(ErrorKind::Truncated {
-                field,
-                expected: 1,
-                available: 0,
-            }));
+            return Err(self.at(self.position).truncated(field, 1, 0));
         }
         let count = (self.end - self.position)
             .min(BUFFER_BYTES as u64)
@@ -68,16 +64,11 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
             self.limits,
             self.cancellation,
         )
-        .map_err(|error| match error {
-            Error::Cancelled => self.at(offset).error(ErrorKind::Cancelled),
-            Error::TruncatedInput { available, .. } => self
+        .map_err(|error| match error.kind {
+            ErrorKind::Truncated { available, .. } => self
                 .at(offset.saturating_add(available))
-                .error(ErrorKind::Truncated {
-                    field,
-                    expected: count as u64,
-                    available,
-                }),
-            source => self.at(offset).error(ErrorKind::Source { field, source }),
+                .truncated(field, count as u64, available),
+            _ => self.at(offset).locate(error),
         })?;
         self.buffered = count;
         self.used = 0;
@@ -113,7 +104,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
     fn marker(&mut self, field: &'static str) -> Result<(u64, u8)> {
         let offset = self.position;
         if self.byte(field)? != 0xff {
-            return Err(self.at(offset).malformed(field, "expected marker prefix"));
+            return Err(self.at(offset).malformed("expected JPEG marker prefix"));
         }
         let code = loop {
             let code = self.byte(field)?;
@@ -124,7 +115,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         if code == 0 {
             return Err(self
                 .at(offset)
-                .malformed(field, "stuffed byte outside entropy data"));
+                .malformed("JPEG stuffed byte outside entropy data"));
         }
         Ok((offset, code))
     }
@@ -137,16 +128,12 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         if length < 2 {
             return Err(self
                 .at(offset)
-                .malformed(field, "segment length is below two"));
+                .malformed("JPEG segment length is below two"));
         }
         let content = u64::from(length - 2);
         let available = self.end - self.position;
         if content > available {
-            return Err(self.at(self.position).error(ErrorKind::Truncated {
-                field,
-                expected: content,
-                available,
-            }));
+            return Err(self.at(self.position).truncated(field, content, available));
         }
         Ok(self.position + content)
     }
@@ -154,11 +141,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
     fn require_remaining(&self, end: u64, count: u64, field: &'static str) -> Result<()> {
         let available = end - self.position;
         if count > available {
-            return Err(self.at(self.position).error(ErrorKind::Truncated {
-                field,
-                expected: count,
-                available,
-            }));
+            return Err(self.at(self.position).truncated(field, count, available));
         }
         Ok(())
     }
@@ -197,10 +180,10 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
     fn app(&mut self, marker: u8, marker_offset: u64) -> Result<()> {
         let end = self.cursor.segment_end("JPEG APP segment")?;
         if marker == 0xee {
-            return Err(self.cursor.at(marker_offset).error(ErrorKind::Unsupported {
-                field: "JPEG APP14 marker",
-                value: u64::from(marker),
-            }));
+            return Err(self
+                .cursor
+                .at(marker_offset)
+                .unsupported("JPEG APP14 marker"));
         }
         let remaining = end - self.cursor.position;
         if marker == 0xe0 && remaining >= 5 {
@@ -213,13 +196,13 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                     return Err(self
                         .cursor
                         .at(marker_offset)
-                        .malformed("JFIF APP0", "duplicate JFIF marker"));
+                        .malformed("JFIF APP0: duplicate JFIF marker"));
                 }
                 if self.markers != 2 {
-                    return Err(self.cursor.at(marker_offset).error(ErrorKind::Unsupported {
-                        field: "JFIF APP0 placement",
-                        value: u64::from(self.markers),
-                    }));
+                    return Err(self
+                        .cursor
+                        .at(marker_offset)
+                        .unsupported("JFIF APP0 placement"));
                 }
                 self.cursor.require_remaining(end, 9, "JFIF APP0 fields")?;
                 let fields_offset = self.cursor.position;
@@ -228,23 +211,23 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                     *value = self.cursor.byte("JFIF APP0 fields")?;
                 }
                 if fields[0] != 1 || fields[1] > 2 || fields[2] > 2 {
-                    return Err(self.cursor.at(fields_offset).error(ErrorKind::Unsupported {
-                        field: "JFIF version or density unit",
-                        value: u64::from_be_bytes([0, 0, 0, 0, 0, fields[0], fields[1], fields[2]]),
-                    }));
+                    return Err(self
+                        .cursor
+                        .at(fields_offset)
+                        .unsupported("JFIF version or density unit"));
                 }
                 if fields[3..5] == [0, 0] || fields[5..7] == [0, 0] {
                     return Err(self
                         .cursor
                         .at(fields_offset + 3)
-                        .malformed("JFIF density", "zero density"));
+                        .malformed("JFIF density: zero density"));
                 }
                 let thumbnail_bytes = u64::from(fields[7]) * u64::from(fields[8]) * 3;
                 if end - self.cursor.position != thumbnail_bytes {
                     return Err(self
                         .cursor
                         .at(self.cursor.position)
-                        .malformed("JFIF thumbnail", "length differs from dimensions"));
+                        .malformed("JFIF thumbnail: length differs from dimensions"));
                 }
                 self.app0_jfif = true;
             }
@@ -256,16 +239,13 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
     fn dqt(&mut self) -> Result<()> {
         let end = self.cursor.segment_end("JPEG DQT")?;
         if self.cursor.position == end {
-            return Err(self.cursor.at(end).malformed("JPEG DQT", "empty segment"));
+            return Err(self.cursor.at(end).malformed("JPEG DQT: empty segment"));
         }
         while self.cursor.position < end {
             let at = self.cursor.position;
             let selector = self.cursor.byte("JPEG DQT selector")?;
             if selector >> 4 != 0 || selector & 15 > 3 {
-                return Err(self.cursor.at(at).error(ErrorKind::Unsupported {
-                    field: "JPEG DQT selector",
-                    value: u64::from(selector),
-                }));
+                return Err(self.cursor.at(at).unsupported("JPEG DQT selector"));
             }
             self.cursor.require_remaining(end, 64, "JPEG DQT values")?;
             self.cursor.skip(64, "JPEG DQT values")?;
@@ -277,7 +257,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
     fn dht(&mut self) -> Result<()> {
         let end = self.cursor.segment_end("JPEG DHT")?;
         if self.cursor.position == end {
-            return Err(self.cursor.at(end).malformed("JPEG DHT", "empty segment"));
+            return Err(self.cursor.at(end).malformed("JPEG DHT: empty segment"));
         }
         while self.cursor.position < end {
             let at = self.cursor.position;
@@ -285,10 +265,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             let class = selector >> 4;
             let table = selector & 15;
             if class > 1 || table > 3 {
-                return Err(self.cursor.at(at).error(ErrorKind::Unsupported {
-                    field: "JPEG DHT selector",
-                    value: u64::from(selector),
-                }));
+                return Err(self.cursor.at(at).unsupported("JPEG DHT selector"));
             }
             self.cursor.require_remaining(end, 16, "JPEG DHT counts")?;
             let mut symbols = 0_u16;
@@ -299,7 +276,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 return Err(self
                     .cursor
                     .at(at)
-                    .malformed("JPEG DHT", "more than 256 symbols"));
+                    .malformed("JPEG DHT: more than 256 symbols"));
             }
             self.cursor
                 .require_remaining(end, u64::from(symbols), "JPEG DHT symbols")?;
@@ -319,7 +296,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(marker_offset)
-                .malformed("JPEG DRI", "expected two-byte restart interval"));
+                .malformed("JPEG DRI: expected two-byte restart interval"));
         }
         let high = self.cursor.byte("JPEG DRI")?;
         let low = self.cursor.byte("JPEG DRI")?;
@@ -332,7 +309,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(marker_offset)
-                .malformed("JPEG frame", "duplicate frame header"));
+                .malformed("JPEG frame: duplicate frame header"));
         }
         let end = self.cursor.segment_end("JPEG SOF0")?;
         self.cursor.require_remaining(end, 6, "JPEG SOF0 fields")?;
@@ -349,43 +326,34 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         let components_offset = self.cursor.position;
         let components = self.cursor.byte("JPEG components")?;
         if end - self.cursor.position != u64::from(components) * 3 {
-            return Err(self.cursor.at(components_offset).malformed(
-                "JPEG SOF0",
-                "component field count differs from segment length",
-            ));
+            return Err(self
+                .cursor
+                .at(components_offset)
+                .malformed("JPEG SOF0: component field count differs from segment length"));
         }
         if precision != 8 {
             return Err(self
                 .cursor
                 .at(precision_offset)
-                .error(ErrorKind::Unsupported {
-                    field: "JPEG precision",
-                    value: u64::from(precision),
-                }));
+                .unsupported("JPEG precision"));
         }
         if height == 0 {
             return Err(self
                 .cursor
                 .at(precision_offset + 1)
-                .error(ErrorKind::Unsupported {
-                    field: "JPEG DNL height",
-                    value: 0,
-                }));
+                .unsupported("JPEG DNL height"));
         }
         if width == 0 {
             return Err(self
                 .cursor
                 .at(precision_offset + 3)
-                .malformed("JPEG width", "zero width"));
+                .malformed("JPEG width: zero width"));
         }
         if components != 1 && components != 3 {
             return Err(self
                 .cursor
                 .at(components_offset)
-                .error(ErrorKind::Unsupported {
-                    field: "JPEG components",
-                    value: u64::from(components),
-                }));
+                .unsupported("JPEG components"));
         }
         let mut ids = [0; 3];
         let mut quant_tables = [0; 3];
@@ -399,7 +367,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 return Err(self
                     .cursor
                     .at(at)
-                    .malformed("JPEG component ID", "duplicate component ID"));
+                    .malformed("JPEG component ID: duplicate component ID"));
             }
             let horizontal = sampling >> 4;
             let vertical = sampling & 15;
@@ -407,13 +375,13 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 return Err(self
                     .cursor
                     .at(at + 1)
-                    .malformed("JPEG sampling", "factor outside 1..=4"));
+                    .malformed("JPEG sampling: factor outside 1..=4"));
             }
             if quant > 3 {
-                return Err(self.cursor.at(at + 2).error(ErrorKind::Unsupported {
-                    field: "JPEG quantization selector",
-                    value: u64::from(quant),
-                }));
+                return Err(self
+                    .cursor
+                    .at(at + 2)
+                    .unsupported("JPEG quantization selector"));
             }
             ids[index] = id;
             quant_tables[index] = quant;
@@ -423,7 +391,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(marker_offset)
-                .malformed("JPEG sampling", "too many MCU blocks"));
+                .malformed("JPEG sampling: too many MCU blocks"));
         }
         self.frame = Some(Frame {
             marker_offset,
@@ -441,7 +409,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         let frame = self.frame.ok_or_else(|| {
             self.cursor
                 .at(marker_offset)
-                .malformed("JPEG SOS", "scan precedes frame")
+                .malformed("JPEG SOS: scan precedes frame")
         })?;
         let end = self.cursor.segment_end("JPEG SOS")?;
         self.cursor
@@ -452,34 +420,28 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(components_offset)
-                .malformed("JPEG SOS", "scan field count differs from segment length"));
+                .malformed("JPEG SOS: scan field count differs from segment length"));
         }
         if components != frame.components {
             return Err(self
                 .cursor
                 .at(components_offset)
-                .error(ErrorKind::Unsupported {
-                    field: "JPEG scan components",
-                    value: u64::from(components),
-                }));
+                .unsupported("JPEG scan components"));
         }
         for index in 0..usize::from(components) {
             let at = self.cursor.position;
             let id = self.cursor.byte("JPEG SOS component ID")?;
             let selectors = self.cursor.byte("JPEG Huffman selectors")?;
             if id != frame.ids[index] {
-                return Err(self.cursor.at(at).malformed(
-                    "JPEG SOS component ID",
-                    "component order differs from frame",
-                ));
+                return Err(self
+                    .cursor
+                    .at(at)
+                    .malformed("JPEG SOS component ID: component order differs from frame"));
             }
             let dc = selectors >> 4;
             let ac = selectors & 15;
             if dc > 1 || ac > 1 {
-                return Err(self.cursor.at(at + 1).error(ErrorKind::Unsupported {
-                    field: "JPEG Huffman selectors",
-                    value: u64::from(selectors),
-                }));
+                return Err(self.cursor.at(at + 1).unsupported("JPEG Huffman selectors"));
             }
             if self.quant_mask & (1 << frame.quant_tables[index]) == 0
                 || self.dc_mask & (1 << dc) == 0
@@ -488,7 +450,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 return Err(self
                     .cursor
                     .at(at)
-                    .malformed("JPEG tables", "scan references an undefined table"));
+                    .malformed("JPEG tables: scan references an undefined table"));
             }
         }
         let spectral_offset = self.cursor.position;
@@ -499,10 +461,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(spectral_offset)
-                .error(ErrorKind::Unsupported {
-                    field: "JPEG scan parameters",
-                    value: u64::from_be_bytes([0, 0, 0, 0, 0, start, end_spectral, approximation]),
-                }));
+                .unsupported("JPEG scan parameters"));
         }
         Ok(())
     }
@@ -528,7 +487,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                     return Err(self
                         .cursor
                         .at(at)
-                        .malformed("JPEG entropy marker", "fill byte before stuffed zero"));
+                        .malformed("JPEG entropy marker: fill byte before stuffed zero"));
                 }
                 continue;
             }
@@ -538,13 +497,13 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                     return Err(self
                         .cursor
                         .at(at)
-                        .malformed("JPEG restart", "restart without active DRI"));
+                        .malformed("JPEG restart: restart without active DRI"));
                 }
                 if code != 0xd0 + expected_restart {
                     return Err(self
                         .cursor
                         .at(at)
-                        .malformed("JPEG restart", "restart sequence mismatch"));
+                        .malformed("JPEG restart: restart sequence mismatch"));
                 }
                 expected_restart = (expected_restart + 1) & 7;
                 continue;
@@ -559,7 +518,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             return Err(self
                 .cursor
                 .at(soi_offset)
-                .malformed("JPEG SOI", "expected start-of-image marker"));
+                .malformed("JPEG SOI: expected start-of-image marker"));
         }
         loop {
             let (offset, marker) = self.next_marker()?;
@@ -581,7 +540,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                             return Err(self
                                 .cursor
                                 .at(self.cursor.position)
-                                .malformed("JPEG trailing bytes", "bytes follow EOI"));
+                                .malformed("JPEG trailing bytes: bytes follow EOI"));
                         }
                         let frame = self.frame.expect("SOS required frame");
                         let color = if frame.components == 1 {
@@ -589,12 +548,10 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                         } else if frame.ids[..3] == [1, 2, 3] && self.app0_jfif {
                             JpegColor::Ycbcr
                         } else {
-                            return Err(self.cursor.at(frame.marker_offset).error(
-                                ErrorKind::Unsupported {
-                                    field: "JPEG color transform",
-                                    value: 255,
-                                },
-                            ));
+                            return Err(self
+                                .cursor
+                                .at(frame.marker_offset)
+                                .unsupported("JPEG color transform"));
                         };
                         return Ok(JpegInfo {
                             payload,
@@ -609,10 +566,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                         });
                     }
                     if next == 0xdc {
-                        return Err(self.cursor.at(next_offset).error(ErrorKind::Unsupported {
-                            field: "JPEG DNL marker",
-                            value: u64::from(next),
-                        }));
+                        return Err(self.cursor.at(next_offset).unsupported("JPEG DNL marker"));
                     }
                     if next == 0xda
                         || next == 0xc4
@@ -621,45 +575,39 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                         || next == 0xfe
                         || (0xe0..=0xef).contains(&next)
                     {
-                        return Err(self.cursor.at(next_offset).error(ErrorKind::Unsupported {
-                            field: "JPEG multiple scans",
-                            value: u64::from(next),
-                        }));
+                        return Err(self
+                            .cursor
+                            .at(next_offset)
+                            .unsupported("JPEG multiple scans"));
                     }
                     return Err(self
                         .cursor
                         .at(next_offset)
-                        .malformed("JPEG entropy marker", "unexpected marker after scan"));
+                        .malformed("JPEG entropy marker: unexpected marker after scan"));
                 }
                 0xd9 => {
                     return Err(self
                         .cursor
                         .at(offset)
-                        .malformed("JPEG EOI", "end-of-image precedes scan"));
+                        .malformed("JPEG EOI: end-of-image precedes scan"));
                 }
                 0xdc => {
-                    return Err(self.cursor.at(offset).error(ErrorKind::Unsupported {
-                        field: "JPEG DNL marker",
-                        value: u64::from(marker),
-                    }));
+                    return Err(self.cursor.at(offset).unsupported("JPEG DNL marker"));
                 }
                 0xcc | 0xde | 0xdf | 0xc1..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf => {
-                    return Err(self.cursor.at(offset).error(ErrorKind::Unsupported {
-                        field: "JPEG frame or arithmetic marker",
-                        value: u64::from(marker),
-                    }));
+                    return Err(self
+                        .cursor
+                        .at(offset)
+                        .unsupported("JPEG frame or arithmetic marker"));
                 }
                 0xd0..=0xd8 => {
                     return Err(self
                         .cursor
                         .at(offset)
-                        .malformed("JPEG marker order", "standalone marker outside scan"));
+                        .malformed("JPEG marker order: standalone marker outside scan"));
                 }
                 _ => {
-                    return Err(self.cursor.at(offset).error(ErrorKind::Unsupported {
-                        field: "JPEG marker",
-                        value: u64::from(marker),
-                    }));
+                    return Err(self.cursor.at(offset).unsupported("JPEG marker"));
                 }
             }
         }
@@ -683,50 +631,47 @@ pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
         image: Some(record.image_number),
     };
     if cancellation.is_cancelled() {
-        return Err(location.error(ErrorKind::Cancelled));
+        return Err(location.cancelled());
     }
     if record.page_number == 0 || record.image_number == 0 {
         return Err(location
             .at(record.descriptor_offset)
-            .malformed("image identity", "page and image numbers must be positive"));
+            .malformed("image identity: page and image numbers must be positive"));
     }
     if !matches!(record.record_type, 1 | 2) {
         return Err(location
             .at(record.descriptor_offset)
-            .error(ErrorKind::Unsupported {
-                field: "image type",
-                value: u64::from(record.record_type),
-            }));
+            .unsupported("image type"));
     }
     let descriptor_end = record.descriptor_offset.checked_add(12).ok_or_else(|| {
         location
             .at(record.descriptor_offset)
-            .malformed("image descriptor", "offset overflows u64")
+            .malformed("image descriptor: offset overflows u64")
     })?;
     if record.payload.offset < descriptor_end {
         return Err(location
             .at(record.descriptor_offset + 4)
-            .malformed("image payload", "payload overlaps descriptor"));
+            .malformed("image payload: payload overlaps descriptor"));
     }
     if record.payload.length == 0 {
         return Err(location
             .at(record.descriptor_offset + 8)
-            .malformed("image payload", "zero-length payload"));
+            .malformed("image payload: zero-length payload"));
     }
     let end = record.payload.checked_end().ok_or_else(|| {
         location
             .at(record.payload.offset)
-            .malformed("image payload", "end overflows u64")
+            .malformed("image payload: end overflows u64")
     })?;
     if source.size() > limits.max_input_bytes {
         return Err(location.limit("source bytes", limits.max_input_bytes, source.size()));
     }
     if end > source.size() {
-        return Err(location.error(ErrorKind::Truncated {
-            field: "image payload",
-            expected: record.payload.length,
-            available: source.size().saturating_sub(record.payload.offset),
-        }));
+        return Err(location.truncated(
+            "image payload",
+            record.payload.length,
+            source.size().saturating_sub(record.payload.offset),
+        ));
     }
     if record.payload.length > limits.max_allocation_bytes {
         return Err(location.at(record.descriptor_offset + 8).limit(

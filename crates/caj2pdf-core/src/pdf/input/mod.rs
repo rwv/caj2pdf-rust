@@ -19,9 +19,9 @@ use super::FragmentObject;
 use super::page_walk::{PageStep, PageWalk};
 use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
-use crate::error::PdfErrorKind;
 use crate::fallible::{len_u64, push_bounded, reserve_exact};
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
+use crate::{Context, ErrorKind};
 use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
     Dictionary, ObjectHead, ObjectTail, Syntax, destination_page, exact_name, exact_reference,
@@ -139,13 +139,13 @@ impl PdfIndex {
             .trailer_size
             .max(self.max_referenced_object.saturating_add(1));
         if next > MAX_PDF_OBJECTS {
-            Err(Error::PdfLimitExceeded {
-                offset: self.range.offset.saturating_add(self.xref_offset),
-                object: None,
-                resource: "PDF object number",
-                limit: u64::from(MAX_PDF_OBJECTS),
-                attempted: u64::from(next),
-            })
+            Err(Error::limit(
+                "PDF object number",
+                u64::from(MAX_PDF_OBJECTS),
+                u64::from(next),
+            )
+            .at(self.range.offset.saturating_add(self.xref_offset))
+            .in_pdf(None))
         } else {
             Ok(next)
         }
@@ -158,12 +158,12 @@ impl PdfIndex {
             .and_then(|slot| *slot);
         match slot {
             Some((generation, location)) if generation == reference.generation => Ok(location),
-            _ => Err(Error::Pdf {
-                offset: self.range.offset,
-                object: Some((reference.number, reference.generation)),
-                kind: PdfErrorKind::Malformed,
-                reason: "PDF reference does not resolve to a live object",
-            }),
+            _ => Err(Error::pdf(
+                ErrorKind::Malformed,
+                self.range.offset,
+                Some((reference.number, reference.generation)),
+                "PDF reference does not resolve to a live object",
+            )),
         }
     }
 
@@ -177,16 +177,16 @@ impl PdfIndex {
         limits.validate()?;
         limits
             .check_input_size(range.length)
-            .map_err(|error| error.locate_pdf_limit(range.offset, None))?;
-        let end = range.end().ok_or(Error::InvalidInput {
-            reason: "PDF source range overflows",
-        })?;
+            .map_err(|error| error.at(range.offset).in_pdf(None))?;
+        let end = range
+            .end()
+            .ok_or(Error::invalid("PDF source range overflows"))?;
         if end > source.size() {
-            return Err(Error::TruncatedInput {
-                offset: range.offset,
-                expected: range.length,
-                available: source.size().saturating_sub(range.offset),
-            });
+            return Err(Error::truncated(
+                range.offset,
+                range.length,
+                source.size().saturating_sub(range.offset),
+            ));
         }
         let mut reader = Reader::new(source, range, limits, cancellation)?;
         reader.check_header()?;
@@ -195,18 +195,14 @@ impl PdfIndex {
         let location_bytes = slots
             .len()
             .checked_mul(std::mem::size_of::<Option<(u16, ObjectLocation)>>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF object location index size overflows",
-            })?;
+            .ok_or(Error::invalid("PDF object location index size overflows"))?;
         let total_index_bytes = location_bytes
             .checked_add(
                 slots
                     .len()
                     .saturating_mul(std::mem::size_of::<Option<XrefSlot>>()),
             )
-            .ok_or(Error::InvalidInput {
-                reason: "PDF combined object index size overflows",
-            })?;
+            .ok_or(Error::invalid("PDF combined object index size overflows"))?;
         limits
             .check_allocation(total_index_bytes as u64)
             .map_err(reader.locator(xref_offset, None))?;
@@ -337,20 +333,27 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         &self,
         relative: u64,
         object: Option<PdfRef>,
-        kind: PdfErrorKind,
+        kind: ErrorKind,
         reason: &'static str,
     ) -> Error {
         located_problem(self.range, relative, object, kind, reason)
     }
 
     fn malformed(&self, relative: u64, object: Option<PdfRef>, reason: &'static str) -> Error {
-        self.problem(relative, object, PdfErrorKind::Malformed, reason)
+        self.problem(relative, object, ErrorKind::Malformed, reason)
     }
 
+    /// Locate a resource-limit error; every other error is returned unchanged.
     fn locate_limit(&self, relative: u64, object: Option<PdfRef>, error: Error) -> Error {
-        error.locate_pdf_limit(
+        if !matches!(error.kind, ErrorKind::LimitExceeded { .. }) {
+            return error;
+        }
+        error.or_at(
             self.absolute(relative),
-            object.map(|item| (item.number, item.generation)),
+            Context::Pdf {
+                object: object.map(|item| (item.number, item.generation)),
+                repair: false,
+            },
         )
     }
 
@@ -382,24 +385,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         issue: parser::ParseIssue,
     ) -> Error {
         if let Some((resource, limit, attempted)) = issue.limit {
-            Error::PdfLimitExceeded {
-                offset: self.absolute(relative + issue.at as u64),
-                object: object.map(|item| (item.number, item.generation)),
-                resource,
-                limit,
-                attempted,
-            }
+            Error::limit(resource, limit, attempted)
+                .at(self.absolute(relative + issue.at as u64))
+                .in_pdf(object.map(|item| (item.number, item.generation)))
         } else {
-            self.problem(
-                relative + issue.at as u64,
-                object,
-                if issue.ambiguous {
-                    PdfErrorKind::AmbiguousRepair
-                } else {
-                    PdfErrorKind::Malformed
-                },
-                issue.reason,
-            )
+            let error = self.malformed(relative + issue.at as u64, object, issue.reason);
+            if issue.ambiguous {
+                error.ambiguous_repair()
+            } else {
+                error
+            }
         }
     }
 
@@ -467,7 +462,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.problem(
                 0,
                 None,
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "PDF 2.x is outside the supported input profile",
             ));
         }
@@ -542,12 +537,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     .iter()
                     .any(|marker| suffix.windows(marker.len()).any(|window| window == *marker));
                 if !known_caj_footer {
-                    return Err(self.problem(
-                        logical_end,
-                        None,
-                        PdfErrorKind::AmbiguousRepair,
-                        "bytes after PDF EOF are not a recognized CAJ footer",
-                    ));
+                    return Err(self
+                        .problem(
+                            logical_end,
+                            None,
+                            ErrorKind::Malformed,
+                            "bytes after PDF EOF are not a recognized CAJ footer",
+                        )
+                        .ambiguous_repair());
                 }
             }
             return Ok((offset, logical_end));
@@ -664,11 +661,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     return Err(self.locate_limit(
                         at,
                         None,
-                        Error::LimitExceeded {
-                            resource: "PDF dictionary syntax bytes",
-                            limit: maximum,
-                            attempted: maximum.saturating_add(1),
-                        },
+                        Error::limit(
+                            "PDF dictionary syntax bytes",
+                            maximum,
+                            maximum.saturating_add(1),
+                        ),
                     ));
                 }
                 Err(issue) => {
@@ -690,9 +687,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 let slots_len = trailer.size as usize;
                 let bytes = slots_len
                     .checked_mul(std::mem::size_of::<Option<XrefSlot>>())
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF xref index size overflows",
-                    })?;
+                    .ok_or(Error::invalid("PDF xref index size overflows"))?;
                 self.limits
                     .check_allocation(bytes as u64)
                     .map_err(self.locator(cursor, None))?;
@@ -770,11 +765,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Err(self.locate_limit(
                     subsection_at,
                     None,
-                    Error::LimitExceeded {
-                        resource: "PDF object index",
-                        limit: u64::from(MAX_PDF_OBJECTS) + 1,
-                        attempted: start + count,
-                    },
+                    Error::limit(
+                        "PDF object index",
+                        u64::from(MAX_PDF_OBJECTS) + 1,
+                        start + count,
+                    ),
                 ));
             }
             self.skip_space(&mut cursor)?;
@@ -866,11 +861,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.locate_limit(
                 at,
                 Some(reference),
-                Error::LimitExceeded {
-                    resource: "PDF xref decoded bytes",
-                    limit: cap,
-                    attempted: decoded_len.saturating_add(1),
-                },
+                Error::limit("PDF xref decoded bytes", cap, decoded_len.saturating_add(1)),
             ));
         }
         let length = dictionary
@@ -880,7 +871,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.problem(
                     at,
                     Some(reference),
-                    PdfErrorKind::UnsupportedFeature,
+                    ErrorKind::UnsupportedFormat,
                     "xref stream requires a direct Length",
                 )
             })?;
@@ -888,18 +879,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.locate_limit(
                 at,
                 Some(reference),
-                Error::LimitExceeded {
-                    resource: "PDF xref encoded bytes",
-                    limit: cap,
-                    attempted: length,
-                },
+                Error::limit("PDF xref encoded bytes", cap, length),
             ));
         }
         if dictionary.value(b"DecodeParms").is_some() || dictionary.value(b"F").is_some() {
             return Err(self.problem(
                 at,
                 Some(reference),
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "xref stream decode parameters are unsupported",
             ));
         }
@@ -908,7 +895,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.problem(
                     at,
                     Some(reference),
-                    PdfErrorKind::UnsupportedFeature,
+                    ErrorKind::UnsupportedFormat,
                     "xref stream filter is unsupported",
                 )
             })?;
@@ -916,7 +903,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.problem(
                 at,
                 Some(reference),
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "xref stream filter is unsupported",
             ));
         }
@@ -927,33 +914,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         self.check_stream_tail(after_data, Some(reference))?;
         let encoded = self.bytes(data_at, length as usize)?;
         let decoded = if filter.is_some() {
-            match inflate_xref(
+            inflate_xref(
                 &encoded,
                 decoded_len as usize,
                 self.limits.io_chunk_bytes,
                 self.cancellation,
-            ) {
-                Ok(bytes) => bytes,
-                Err(InflateXrefError::TooLong) => {
-                    return Err(self.locate_limit(
-                        data_at,
-                        Some(reference),
-                        Error::LimitExceeded {
-                            resource: "PDF xref decoded bytes",
-                            limit: decoded_len,
-                            attempted: decoded_len + 1,
-                        },
-                    ));
-                }
-                Err(InflateXrefError::Malformed) => {
-                    return Err(self.malformed(
-                        data_at,
-                        Some(reference),
-                        "xref stream Flate data is invalid",
-                    ));
-                }
-                Err(InflateXrefError::Cancelled) => return Err(Error::Cancelled),
-            }
+            )
+            .map_err(|error| match error.kind {
+                ErrorKind::Malformed => self.malformed(data_at, Some(reference), error.reason),
+                _ => self.locate_limit(data_at, Some(reference), error),
+            })?
         } else {
             if encoded.len() != decoded_len as usize {
                 return Err(self.malformed(
@@ -971,7 +941,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 // A one-byte row can fit millions of entries in the bounded
                 // stream, so check cancellation during row parsing as well.
                 if records.len() % 1024 == 0 && self.cancellation.is_cancelled() {
-                    return Err(Error::Cancelled);
+                    return Err(crate::ErrorKind::Cancelled.into());
                 }
                 // Exact decoded length was checked against the declared row
                 // geometry, but still reject any future parser drift safely.
@@ -1005,7 +975,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         return Err(self.problem(
                             data_at,
                             Some(reference),
-                            PdfErrorKind::UnsupportedFeature,
+                            ErrorKind::UnsupportedFormat,
                             "compressed PDF objects are unsupported",
                         ));
                     }
@@ -1013,7 +983,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         return Err(self.problem(
                             data_at,
                             Some(reference),
-                            PdfErrorKind::UnsupportedFeature,
+                            ErrorKind::UnsupportedFormat,
                             "xref entry type is unsupported",
                         ));
                     }
@@ -1053,7 +1023,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.problem(
                 at,
                 None,
-                PdfErrorKind::Encrypted,
+                ErrorKind::Encrypted,
                 "encrypted PDFs are unsupported",
             ));
         }
@@ -1061,7 +1031,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.problem(
                 at,
                 None,
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "hybrid xref streams are unsupported",
             ));
         }
@@ -1074,11 +1044,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.locate_limit(
                 at,
                 None,
-                Error::LimitExceeded {
-                    resource: "PDF object index",
-                    limit: u64::from(MAX_PDF_OBJECTS) + 1,
-                    attempted: size_raw,
-                },
+                Error::limit("PDF object index", u64::from(MAX_PDF_OBJECTS) + 1, size_raw),
             ));
         }
         let size = size_raw as u32;
@@ -1155,11 +1121,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     return Err(self.locate_limit(
                         at,
                         expected,
-                        Error::LimitExceeded {
-                            resource: "PDF object syntax bytes",
-                            limit: maximum,
-                            attempted: maximum.saturating_add(1),
-                        },
+                        Error::limit(
+                            "PDF object syntax bytes",
+                            maximum,
+                            maximum.saturating_add(1),
+                        ),
                     ));
                 }
                 Err(issue) => {
@@ -1413,7 +1379,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.problem(
                 catalog_location.offset,
                 Some(index.catalog),
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "signed PDF edits are unsupported",
             ));
         }
@@ -1422,7 +1388,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.problem(
                     catalog_location.offset,
                     Some(index.catalog),
-                    PdfErrorKind::UnsupportedFeature,
+                    ErrorKind::UnsupportedFormat,
                     "direct or malformed AcroForm dictionaries are unsupported",
                 )
             })?;
@@ -1445,7 +1411,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     return Err(self.problem(
                         location.offset,
                         Some(form_ref),
-                        PdfErrorKind::UnsupportedFeature,
+                        ErrorKind::UnsupportedFormat,
                         "AcroForm signature indicators are unsupported",
                     ));
                 }
@@ -1854,9 +1820,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let target_bytes = slots
             .len()
             .checked_mul(std::mem::size_of::<Option<u16>>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF outline destination index size overflows",
-            })?;
+            .ok_or(Error::invalid(
+                "PDF outline destination index size overflows",
+            ))?;
         self.limits
             .check_allocation(target_bytes as u64)
             .map_err(self.locator(root_offset, Some(root_ref)))?;
@@ -1899,11 +1865,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             *seen = true;
-            item_count = item_count.checked_add(1).ok_or(Error::LimitExceeded {
-                resource: "PDF outline items",
-                limit: u64::from(self.limits.max_bookmarks),
-                attempted: u64::MAX,
-            })?;
+            item_count = item_count.checked_add(1).ok_or(Error::limit(
+                "PDF outline items",
+                u64::from(self.limits.max_bookmarks),
+                u64::MAX,
+            ))?;
             self.limits
                 .check_bookmarks(item_count)
                 .map_err(self.locator(location.offset, Some(task.reference)))?;
@@ -1940,7 +1906,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Err(self.problem(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::UnsupportedFeature,
+                    ErrorKind::UnsupportedFormat,
                     "outline actions are outside the supported input profile",
                 ));
             }
@@ -1949,7 +1915,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     self.problem(
                         location.offset,
                         Some(task.reference),
-                        PdfErrorKind::UnsupportedFeature,
+                        ErrorKind::UnsupportedFormat,
                         "outline destination must be a direct page array",
                     )
                 })?;
@@ -2070,12 +2036,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     duplicate_media_box = true;
                     continue;
                 }
-                return Err(self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::AmbiguousRepair,
-                    "duplicate PDF dictionary keys have conflicting or unsupported values",
-                ));
+                return Err(self
+                    .problem(
+                        at,
+                        Some(reference),
+                        ErrorKind::Malformed,
+                        "duplicate PDF dictionary keys have conflicting or unsupported values",
+                    )
+                    .ambiguous_repair());
             }
         }
         if duplicate_media_box {
@@ -2151,22 +2119,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Err(self.locate_limit(
                 at,
                 Some(reference),
-                Error::LimitExceeded {
-                    resource: "PDF repair object bytes",
-                    limit: cap,
-                    attempted: next_retained,
-                },
+                Error::limit("PDF repair object bytes", cap, next_retained),
             ));
         }
         let mut body = Vec::new();
         let refused = self.locate_limit(
             at,
             Some(reference),
-            Error::LimitExceeded {
-                resource: "PDF repair object allocation",
-                limit: cap,
-                attempted: needed as u64,
-            },
+            Error::limit("PDF repair object allocation", cap, needed as u64),
         );
         reserve_exact(&mut body, needed, refused)?;
         body.extend_from_slice(b"<<\n");
@@ -2196,9 +2156,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let object_count = index.object_locations.iter().flatten().count();
         let bytes = object_count
             .checked_mul(std::mem::size_of::<(u32, ObjectLocation)>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF object span index size overflows",
-            })?;
+            .ok_or(Error::invalid("PDF object span index size overflows"))?;
         self.limits
             .check_allocation(bytes as u64)
             .map_err(self.locator(index.xref_offset, None))?;
@@ -2280,11 +2238,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                     return Err(self.locate_limit(
                                         start,
                                         None,
-                                        Error::LimitExceeded {
-                                            resource: "PDF orphan gap repair bytes",
-                                            limit: cap,
-                                            attempted: retained,
-                                        },
+                                        Error::limit("PDF orphan gap repair bytes", cap, retained),
                                     ));
                                 }
                                 push_bounded(
@@ -2386,26 +2340,31 @@ fn parse_orphan_gap(bytes: &[u8]) -> Option<u32> {
     (rest.is_empty() || rest == b"e").then_some(number)
 }
 
-enum InflateXrefError {
-    Malformed,
-    TooLong,
-    Cancelled,
-}
-
+/// Inflate exactly `expected` bytes; invalid data is an unlocated malformed
+/// error, and more data an unlocated limit error.
 fn inflate_xref<C: Cancellation>(
     encoded: &[u8],
     expected: usize,
     chunk_bytes: usize,
     cancellation: &C,
-) -> std::result::Result<Vec<u8>, InflateXrefError> {
-    let length = expected.checked_add(1).ok_or(InflateXrefError::TooLong)?;
+) -> Result<Vec<u8>> {
+    let too_long = || {
+        let expected = len_u64(expected);
+        Error::limit(
+            "PDF xref decoded bytes",
+            expected,
+            expected.saturating_add(1),
+        )
+    };
+    let invalid = || Error::invalid("xref stream Flate data is invalid");
+    let length = expected.checked_add(1).ok_or_else(too_long)?;
     let mut decoded = Vec::new();
-    reserve_exact(&mut decoded, length, InflateXrefError::TooLong)?;
+    reserve_exact(&mut decoded, length, too_long())?;
     decoded.resize(length, 0);
     let mut inflater = Decompress::new(true);
     loop {
         if cancellation.is_cancelled() {
-            return Err(InflateXrefError::Cancelled);
+            return Err(ErrorKind::Cancelled.into());
         }
         let before_in = inflater.total_in();
         let before_out = inflater.total_out();
@@ -2421,21 +2380,21 @@ fn inflate_xref<C: Cancellation>(
                 &mut decoded[before_out as usize..output_end],
                 FlushDecompress::None,
             )
-            .map_err(|_| InflateXrefError::Malformed)?;
+            .map_err(|_| invalid())?;
         if inflater.total_out() as usize > expected {
-            return Err(InflateXrefError::TooLong);
+            return Err(too_long());
         }
         if status == Status::StreamEnd {
             if inflater.total_in() as usize != encoded.len()
                 || inflater.total_out() as usize != expected
             {
-                return Err(InflateXrefError::Malformed);
+                return Err(invalid());
             }
             decoded.truncate(expected);
             return Ok(decoded);
         }
         if inflater.total_in() == before_in && inflater.total_out() == before_out {
-            return Err(InflateXrefError::Malformed);
+            return Err(invalid());
         }
     }
 }
@@ -2445,15 +2404,15 @@ fn located_problem(
     range: PdfRange,
     relative: u64,
     object: Option<PdfRef>,
-    kind: PdfErrorKind,
+    kind: ErrorKind,
     reason: &'static str,
 ) -> Error {
-    Error::Pdf {
-        offset: range.offset.saturating_add(relative),
-        object: object.map(|item| (item.number, item.generation)),
+    Error::pdf(
         kind,
+        range.offset.saturating_add(relative),
+        object.map(|item| (item.number, item.generation)),
         reason,
-    }
+    )
 }
 
 /// The first read of an object head at `at` that may parse at most
@@ -2471,7 +2430,7 @@ fn first_head_read(
             range,
             at,
             expected,
-            PdfErrorKind::Malformed,
+            ErrorKind::Malformed,
             "indirect object is truncated",
         ));
     }
@@ -2498,7 +2457,7 @@ fn check_live_object_end(
             range,
             offset,
             Some(reference),
-            PdfErrorKind::Malformed,
+            ErrorKind::Malformed,
             "live PDF object extends past logical EOF",
         ));
     }
@@ -2565,10 +2524,9 @@ fn reject_duplicate_names(
     limits: &Limits,
 ) -> Result<()> {
     let locate = |error: Error| {
-        error.locate_pdf_limit(
-            range.offset.saturating_add(at),
-            object.map(|item| (item.number, item.generation)),
-        )
+        error
+            .at(range.offset.saturating_add(at))
+            .in_pdf(object.map(|item| (item.number, item.generation)))
     };
     let bytes = len_u64(dictionary.entries.len()).saturating_mul(size_of::<usize>() as u64);
     limits.check_allocation(bytes).map_err(locate)?;
@@ -2589,9 +2547,10 @@ fn reject_duplicate_names(
             range,
             at,
             object,
-            PdfErrorKind::AmbiguousRepair,
+            ErrorKind::Malformed,
             "duplicate PDF dictionary keys have undefined value",
-        ));
+        )
+        .ambiguous_repair());
     }
     Ok(())
 }
@@ -2607,8 +2566,8 @@ fn inspect_head(
 ) -> Result<FragmentInspection> {
     let object = Some(head.reference);
     let problem = |kind, reason| located_problem(range, at, object, kind, reason);
-    let malformed = |reason| problem(PdfErrorKind::Malformed, reason);
-    let unsupported = |reason| problem(PdfErrorKind::UnsupportedFeature, reason);
+    let malformed = |reason| problem(ErrorKind::Malformed, reason);
+    let unsupported = |reason| problem(ErrorKind::UnsupportedFormat, reason);
     if let Some(dictionary) = &head.dictionary {
         reject_duplicate_names(dictionary, range, at, object, limits)?;
     }
@@ -2841,9 +2800,8 @@ pub(crate) fn inspect_generated_object(
     bytes: &[u8],
     limits: &Limits,
 ) -> Result<FragmentInspection> {
-    let head = parse_object_head(bytes.to_vec()).map_err(|_| Error::InvalidInput {
-        reason: "generated PDF object does not parse",
-    })?;
+    let head = parse_object_head(bytes.to_vec())
+        .map_err(|_| Error::invalid("generated PDF object does not parse"))?;
     let range = PdfRange {
         offset: 0,
         length: len_u64(bytes.len()),

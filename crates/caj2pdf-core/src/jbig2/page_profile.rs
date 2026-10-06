@@ -12,7 +12,7 @@ use super::{
     page_info::PageInfo,
     text::{TextHeaderAnomaly, TextRegionHeader},
 };
-use std::{error, fmt};
+use crate::{Error, ErrorKind, Result};
 
 /// Number, type, and references of each segment: the page information, the
 /// direct and the refinement dictionary, the text region, the generic region.
@@ -77,50 +77,15 @@ impl PageProfile {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PageProfileErrorKind {
-    Malformed(&'static str),
-    Unsupported { feature: &'static str, value: u64 },
+/// A metadata rejection at the first offending segment, when one is known.
+fn malformed(segment: Option<u32>, reason: &'static str) -> Error {
+    Error::invalid(reason).in_jbig2(segment)
 }
 
-/// Metadata rejection; `segment` identifies the first offending segment.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PageProfileError {
-    pub segment: Option<u32>,
-    pub kind: PageProfileErrorKind,
-}
-
-pub type PageProfileResult<T> = Result<T, PageProfileError>;
-
-impl fmt::Display for PageProfileError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unsupported HN/C8 JBIG2 page profile")?;
-        if let Some(segment) = self.segment {
-            write!(f, " at segment {segment}")?;
-        }
-        match self.kind {
-            PageProfileErrorKind::Malformed(reason) => write!(f, ": malformed {reason}"),
-            PageProfileErrorKind::Unsupported { feature, value } => {
-                write!(f, ": unsupported {feature} ({value})")
-            }
-        }
-    }
-}
-
-impl error::Error for PageProfileError {}
-
-fn malformed(segment: Option<u32>, reason: &'static str) -> PageProfileError {
-    PageProfileError {
-        segment,
-        kind: PageProfileErrorKind::Malformed(reason),
-    }
-}
-
-fn unsupported(segment: Option<u32>, feature: &'static str, value: u64) -> PageProfileError {
-    PageProfileError {
-        segment,
-        kind: PageProfileErrorKind::Unsupported { feature, value },
-    }
+fn unsupported(segment: Option<u32>, feature: &'static str) -> Error {
+    Error::from(ErrorKind::UnsupportedFormat)
+        .because(feature)
+        .in_jbig2(segment)
 }
 
 /// Require the exact immediate, full-page OR composition topology measured in
@@ -134,24 +99,21 @@ pub fn validate_observed_page_profile(
     page: PageInfo,
     text: &TextRegionHeader,
     generic: GenericRegionHeader,
-) -> PageProfileResult<PageProfile> {
+) -> Result<PageProfile> {
     let segments = &directory.segments;
     if segments.len() != OBSERVED_SEGMENTS.len() {
-        return Err(unsupported(None, "segment count", segments.len() as u64));
+        return Err(unsupported(None, "segment count"));
     }
     for (segment, &(number, segment_type, references)) in segments.iter().zip(&OBSERVED_SEGMENTS) {
         let at = Some(segment.number);
         if segment.number != number {
-            let value = u64::from(segment.number);
-            return Err(unsupported(at, "segment number/order", value));
+            return Err(unsupported(at, "segment number/order"));
         }
         if segment.segment_type != segment_type {
-            let value = u64::from(segment.segment_type);
-            return Err(unsupported(at, "segment type/order", value));
+            return Err(unsupported(at, "segment type/order"));
         }
         if segment.page_association != 1 {
-            let value = u64::from(segment.page_association);
-            return Err(unsupported(at, "page association", value));
+            return Err(unsupported(at, "page association"));
         }
         if segment.referred_to.as_slice() != references {
             return Err(malformed(at, "unexpected segment references"));
@@ -197,15 +159,10 @@ pub fn validate_observed_page_profile(
     // Only the eventually-lossless flag: default pixel 0, OR, no auxiliary
     // buffers or refinements.
     if page.flags_raw != 0x01 || page.striping_raw != 0 {
-        let value = u64::from(page.flags_raw) << 16 | u64::from(page.striping_raw);
-        return Err(unsupported(Some(0), "page flags or striping", value));
+        return Err(unsupported(Some(0), "page flags or striping"));
     }
     if page.height == u32::MAX {
-        return Err(unsupported(
-            Some(0),
-            "unknown page height",
-            u64::from(u32::MAX),
-        ));
+        return Err(unsupported(Some(0), "unknown page height"));
     }
     // `PageInfo` fields are public, so its derived geometry is rechecked.
     let stride = u64::from(page.width).div_ceil(8);
@@ -240,11 +197,11 @@ pub fn validate_observed_page_profile(
         ),
     ] {
         if value != expected {
-            return Err(unsupported(Some(segment), feature, u64::from(value)));
+            return Err(unsupported(Some(segment), feature));
         }
     }
-    if let Some((feature, value)) = text.unsupported_feature() {
-        return Err(unsupported(Some(3), feature, value));
+    if let Some((feature, _)) = text.unsupported_feature() {
+        return Err(unsupported(Some(3), feature));
     }
     Ok(PageProfile {
         page,
@@ -257,6 +214,7 @@ pub fn validate_observed_page_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Context;
     use crate::jbig2::{
         SegmentHeader, SegmentSpan,
         generic::GenericRegionInfo,
@@ -416,11 +374,9 @@ mod tests {
         extra.segments.push(segment(5, 38, &[]));
         assert!(matches!(
             validate_observed_page_profile(&extra, page(), &text(), generic()),
-            Err(PageProfileError {
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "segment count",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "segment count",
                 ..
             })
         ));
@@ -429,11 +385,9 @@ mod tests {
         wrong_order.segments.swap(3, 4);
         assert!(matches!(
             validate_observed_page_profile(&wrong_order, page(), &text(), generic()),
-            Err(PageProfileError {
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "segment number/order",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "segment number/order",
                 ..
             })
         ));
@@ -442,9 +396,11 @@ mod tests {
         wrong_reference.segments[3].referred_to = vec![1];
         assert!(matches!(
             validate_observed_page_profile(&wrong_reference, page(), &text(), generic()),
-            Err(PageProfileError {
-                segment: Some(3),
-                kind: PageProfileErrorKind::Malformed("unexpected segment references"),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(3) },
+                reason: "unexpected segment references",
+                ..
             })
         ));
 
@@ -452,9 +408,11 @@ mod tests {
         mismatched_body.body.offset += 1;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &mismatched_body, generic()),
-            Err(PageProfileError {
-                segment: Some(3),
-                kind: PageProfileErrorKind::Malformed("text body does not match segment data"),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(3) },
+                reason: "text body does not match segment data",
+                ..
             })
         ));
 
@@ -462,11 +420,11 @@ mod tests {
         unrelated_generic.data.offset += 1;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &text(), unrelated_generic),
-            Err(PageProfileError {
-                segment: Some(4),
-                kind: PageProfileErrorKind::Malformed(
-                    "generic header does not match segment directory"
-                ),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(4) },
+                reason: "generic header does not match segment directory",
+                ..
             })
         ));
 
@@ -474,11 +432,11 @@ mod tests {
         wrong_mq_span.mq_span.offset += 1;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &text(), wrong_mq_span),
-            Err(PageProfileError {
-                segment: Some(4),
-                kind: PageProfileErrorKind::Malformed(
-                    "generic header does not match segment directory"
-                ),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(4) },
+                reason: "generic header does not match segment directory",
+                ..
             })
         ));
     }
@@ -490,29 +448,30 @@ mod tests {
         let error =
             validate_observed_page_profile(&directory(), unrelated_page, &text(), generic())
                 .expect_err("page parsed from another source span must be refused");
-        assert_eq!(
+        assert!(matches!(
             error,
-            PageProfileError {
-                segment: Some(0),
-                kind: PageProfileErrorKind::Malformed(
-                    "page information does not match segment data"
-                ),
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(0) },
+                reason: "page information does not match segment data",
+                ..
             }
-        );
+        ));
 
         let mut extra_body_directory = directory();
         extra_body_directory.segments[0].data.length = 20;
         let mut extra_body_page = page();
         extra_body_page.data.length = 20;
+        let oversized = validate_observed_page_profile(
+            &extra_body_directory,
+            extra_body_page,
+            &text(),
+            generic(),
+        )
+        .expect_err("a matching but oversized page body must be refused");
         assert_eq!(
-            validate_observed_page_profile(
-                &extra_body_directory,
-                extra_body_page,
-                &text(),
-                generic(),
-            )
-            .expect_err("a matching but oversized page body must be refused"),
-            error
+            (oversized.context, oversized.reason),
+            (error.context, error.reason)
         );
     }
 
@@ -534,15 +493,15 @@ mod tests {
         ] {
             let error = validate_observed_page_profile(&directory(), page(), &text(), forged)
                 .expect_err("generic metadata from another segment must be refused");
-            assert_eq!(
+            assert!(matches!(
                 error,
-                PageProfileError {
-                    segment: Some(4),
-                    kind: PageProfileErrorKind::Malformed(
-                        "generic header does not match segment directory"
-                    ),
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Jbig2 { segment: Some(4) },
+                    reason: "generic header does not match segment directory",
+                    ..
                 }
-            );
+            ));
         }
     }
 
@@ -564,15 +523,15 @@ mod tests {
         ] {
             let error = validate_observed_page_profile(&directory(), page(), &forged, generic())
                 .expect_err("text metadata from another segment must be refused");
-            assert_eq!(
+            assert!(matches!(
                 error,
-                PageProfileError {
-                    segment: Some(3),
-                    kind: PageProfileErrorKind::Malformed(
-                        "text header does not match segment directory"
-                    ),
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Jbig2 { segment: Some(3) },
+                    reason: "text header does not match segment directory",
+                    ..
                 }
-            );
+            ));
         }
     }
 
@@ -582,12 +541,11 @@ mod tests {
         wrong_page.segments[4].page_association = 2;
         assert!(matches!(
             validate_observed_page_profile(&wrong_page, page(), &text(), generic()),
-            Err(PageProfileError {
-                segment: Some(4),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "page association",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(4) },
+                reason: "page association",
+                ..
             })
         ));
 
@@ -595,12 +553,11 @@ mod tests {
         wrong_text.region.combination = RegionCombination::Xor;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &wrong_text, generic()),
-            Err(PageProfileError {
-                segment: Some(3),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "text external operator",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(3) },
+                reason: "text external operator",
+                ..
             })
         ));
 
@@ -608,12 +565,11 @@ mod tests {
         wrong_generic.info.x = 1;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &text(), wrong_generic),
-            Err(PageProfileError {
-                segment: Some(4),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "generic region x",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(4) },
+                reason: "generic region x",
+                ..
             })
         ));
     }
@@ -624,9 +580,11 @@ mod tests {
         wrong_packing.packed_bytes = 3;
         assert!(matches!(
             validate_observed_page_profile(&directory(), wrong_packing, &text(), generic()),
-            Err(PageProfileError {
-                segment: Some(0),
-                kind: PageProfileErrorKind::Malformed("page packed geometry differs"),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(0) },
+                reason: "page packed geometry differs",
+                ..
             })
         ));
 
@@ -634,9 +592,11 @@ mod tests {
         wrong_pixels.pixels -= 1;
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &text(), wrong_pixels),
-            Err(PageProfileError {
-                segment: Some(4),
-                kind: PageProfileErrorKind::Malformed("generic pixel count differs"),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Jbig2 { segment: Some(4) },
+                reason: "generic pixel count differs",
+                ..
             })
         ));
 
@@ -644,12 +604,11 @@ mod tests {
         wrong_flags.flags_raw = 0x41;
         assert!(matches!(
             validate_observed_page_profile(&directory(), wrong_flags, &text(), generic()),
-            Err(PageProfileError {
-                segment: Some(0),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "page flags or striping",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(0) },
+                reason: "page flags or striping",
+                ..
             })
         ));
     }
@@ -671,12 +630,11 @@ mod tests {
         compatible.huffman_flags = Some(1);
         assert!(matches!(
             validate_observed_page_profile(&directory(), page(), &compatible, generic()),
-            Err(PageProfileError {
-                segment: Some(3),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "Huffman text region",
-                    ..
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(3) },
+                reason: "Huffman text region",
+                ..
             })
         ));
     }
@@ -687,12 +645,8 @@ mod tests {
         wrong_type.segments[4].segment_type = 36;
         let error = validate_observed_page_profile(&wrong_type, page(), &text(), generic())
             .expect_err("refinement region is outside the observed profile");
-        assert_eq!(error.segment, Some(4));
-        assert!(
-            error
-                .to_string()
-                .contains("segment 4: unsupported segment type/order (36)")
-        );
+        assert_eq!(error.context, Context::Jbig2 { segment: Some(4) });
+        assert!(error.to_string().contains("segment 4: segment type/order"));
 
         let mut bad_page = page();
         bad_page.width = 0;
@@ -700,7 +654,7 @@ mod tests {
             .expect_err("forged zero width must be refused");
         assert_eq!(
             error.to_string(),
-            "unsupported HN/C8 JBIG2 page profile at segment 0: malformed zero page dimension"
+            "malformed JBIG2, segment 0: zero page dimension"
         );
 
         let mut bad_page = page();
@@ -708,16 +662,16 @@ mod tests {
         let error = validate_observed_page_profile(&directory(), bad_page, &text(), generic())
             .expect_err("nonzero page default changes OR semantics");
         assert!(matches!(
-            error.kind,
-            PageProfileErrorKind::Unsupported {
-                feature: "page flags or striping",
-                value: 0x5_0000,
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "page flags or striping",
+                ..
             }
         ));
-        assert!(
-            unsupported(None, "segment count", 6)
-                .to_string()
-                .contains("profile: unsupported segment count (6)")
+        assert_eq!(
+            unsupported(None, "segment count").to_string(),
+            "unsupported JBIG2: segment count"
         );
     }
 
@@ -726,7 +680,6 @@ mod tests {
         let refused = |page: PageInfo| {
             validate_observed_page_profile(&directory(), page, &text(), generic())
                 .expect_err("outside the observed page profile")
-                .kind
         };
         // Reserved, lossy, refinements, default pixel, operators, auxiliary
         // buffers, and operator override.
@@ -738,10 +691,12 @@ mod tests {
             assert!(
                 matches!(
                     refused(flagged),
-                    PageProfileErrorKind::Unsupported {
-                        feature: "page flags or striping",
-                        value,
-                    } if value == u64::from(flags) << 16
+                    Error {
+                        kind: ErrorKind::UnsupportedFormat,
+                        context: Context::Jbig2 { segment: Some(0) },
+                        reason: "page flags or striping",
+                        ..
+                    }
                 ),
                 "flags {flags:#04x}"
             );
@@ -753,10 +708,12 @@ mod tests {
             };
             assert!(matches!(
                 refused(striped),
-                PageProfileErrorKind::Unsupported {
-                    feature: "page flags or striping",
-                    value,
-                } if value == 0x1_0000 | u64::from(striping)
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    context: Context::Jbig2 { segment: Some(0) },
+                    reason: "page flags or striping",
+                    ..
+                }
             ));
         }
         let unknown = PageInfo {
@@ -765,8 +722,10 @@ mod tests {
         };
         assert!(matches!(
             refused(unknown),
-            PageProfileErrorKind::Unsupported {
-                feature: "unknown page height",
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(0) },
+                reason: "unknown page height",
                 ..
             }
         ));
@@ -774,12 +733,11 @@ mod tests {
         detached.segments[0].page_association = 0;
         assert!(matches!(
             validate_observed_page_profile(&detached, page(), &text(), generic()),
-            Err(PageProfileError {
-                segment: Some(0),
-                kind: PageProfileErrorKind::Unsupported {
-                    feature: "page association",
-                    value: 0,
-                },
+            Err(Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Jbig2 { segment: Some(0) },
+                reason: "page association",
+                ..
             })
         ));
     }
@@ -791,10 +749,11 @@ mod tests {
         let error = validate_observed_page_profile(&directory(), page(), &bad_text, generic())
             .expect_err("text placed below page origin");
         assert!(matches!(
-            error.kind,
-            PageProfileErrorKind::Unsupported {
-                feature: "text region y",
-                value: 1,
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "text region y",
+                ..
             }
         ));
 
@@ -803,10 +762,11 @@ mod tests {
         let error = validate_observed_page_profile(&directory(), page(), &text(), bad_generic)
             .expect_err("generic row width differs");
         assert!(matches!(
-            error.kind,
-            PageProfileErrorKind::Unsupported {
-                feature: "generic row stride",
-                value: 1,
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "generic row stride",
+                ..
             }
         ));
 
@@ -815,10 +775,11 @@ mod tests {
         let error = validate_observed_page_profile(&directory(), page(), &text(), bad_generic)
             .expect_err("XOR changes page pixels");
         assert!(matches!(
-            error.kind,
-            PageProfileErrorKind::Unsupported {
-                feature: "generic external operator",
-                value: 2,
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "generic external operator",
+                ..
             }
         ));
     }

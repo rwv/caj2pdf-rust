@@ -9,6 +9,7 @@ use crate::hnc8::{
     ApplicationInfoDefect, ApplicationInfoStatus, ErrorKind, MAX_APPLICATION_INFO_BYTES,
 };
 use crate::test_support::CancelAfter;
+use crate::test_support::stage_of;
 
 const XML: &str = "<?xml version='1.0' encoding='UTF-8' ?>\n<Package><Note-Package>\
 <NoteItems><Item/><Item/></NoteItems></Note-Package><FileProperty-Package>\
@@ -28,7 +29,7 @@ fn append_package(bytes: &mut Vec<u8>, xml: &[u8], decoded: u32) {
     bytes.extend(format!("APPINFOSIGN {start}").as_bytes());
 }
 
-fn image_only(tail: Option<(&[u8], u32)>) -> (Result<ComposeReport, ComposeError>, Vec<u8>) {
+fn image_only(tail: Option<(&[u8], u32)>) -> (Result<ComposeReport>, Vec<u8>) {
     let mut case = Harness::type0();
     if let Some((xml, decoded)) = tail {
         append_package(&mut case.source.bytes, xml, decoded);
@@ -127,9 +128,9 @@ fn cancellation_while_reading_the_package_still_fails() {
         .map(|allowed| run(&CancelAfter::new(allowed)))
         .find_map(|result| {
             result.err().filter(|error| {
-                error.stage == ComposeStage::Container
-                    && matches!(&error.kind, ComposeErrorKind::Container(inner)
-                        if inner.offset > 0 && matches!(inner.kind, ErrorKind::Cancelled))
+                stage_of(error) == Some(Hnc8Stage::Container)
+                    && error.offset > Some(0)
+                    && matches!(error.kind, ErrorKind::Cancelled)
             })
         });
     assert!(cancelled.is_some());

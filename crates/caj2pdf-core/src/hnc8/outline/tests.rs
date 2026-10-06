@@ -4,7 +4,6 @@
 //! checks the written hierarchy and the bounded defect record.
 
 use super::*;
-use crate::hnc8::Hnc8Error;
 use crate::{Limits, NeverCancel, native::SeekableSource};
 use std::io::Cursor;
 
@@ -42,7 +41,7 @@ fn visit(
     bytes: Vec<u8>,
     depth: u32,
     map: impl FnMut(u32) -> Option<u32>,
-) -> std::result::Result<(Written, OutlineReport), Hnc8Error> {
+) -> crate::Result<(Written, OutlineReport)> {
     (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let limits = Limits::default();

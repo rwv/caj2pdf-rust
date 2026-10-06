@@ -4,12 +4,15 @@
 
 use crate::fallible::reserve_exact;
 use crate::qm::{
-    ArithmeticDecoder, ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState,
-    QM_STATE_COUNT, QmState, QmTable,
+    ArithmeticDecoder, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, QM_STATE_COUNT,
+    QmState, QmTable,
 };
-use crate::{Cancellation, Error, Limits, Payload, RangedSource, read_exact_at, write_counted};
+use crate::{
+    Cancellation, Context, Error, ErrorKind, Hnc8Stage, Limits, Payload, RangedSource, Result,
+    read_exact_at, write_counted,
+};
 use std::io::Write;
-use std::{error, fmt, mem};
+use std::mem;
 
 const DIB_BYTES: u64 = 48;
 const CONTEXT_COUNT: usize = 1024;
@@ -48,99 +51,45 @@ pub struct Type0Report {
     pub progress: Type0Progress,
 }
 
-#[derive(Debug)]
-pub enum Type0ErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    Unsupported {
-        field: &'static str,
-        value: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Source(Error),
-    Sink(Error),
-    Arithmetic(ArithmeticError),
-    Incomplete,
+/// A type-0 image is an HN/C8 image; the caller adds the page and image.
+const HNC8: Context = Context::HNC8;
+
+fn malformed(offset: u64, reason: &'static str) -> Error {
+    Error::malformed(offset, reason).within(HNC8)
 }
 
-#[derive(Debug)]
-pub struct Type0Error {
-    /// Absolute byte offset in the supplied source, when the operation failed.
-    pub offset: u64,
-    pub rows_written: u32,
-    pub output_bytes_written: u64,
-    pub kind: Type0ErrorKind,
+fn unsupported(offset: u64, reason: &'static str) -> Error {
+    Error::unsupported(offset, reason).within(HNC8)
 }
 
-pub type Type0Result<T> = Result<T, Type0Error>;
+fn limit(offset: u64, resource: &'static str, maximum: u64, attempted: u64) -> Error {
+    Error::limit(resource, maximum, attempted)
+        .at(offset)
+        .within(HNC8)
+}
 
-impl fmt::Display for Type0Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CAJ type-0 image at source byte {}: ", self.offset)?;
-        match &self.kind {
-            Type0ErrorKind::InvalidSpan(reason) => write!(f, "invalid image span: {reason}"),
-            Type0ErrorKind::Truncated(field) => write!(f, "truncated {field}"),
-            Type0ErrorKind::Malformed(field) => write!(f, "malformed {field}"),
-            Type0ErrorKind::Unsupported { field, value } => {
-                write!(f, "unsupported {field} ({value})")
-            }
-            Type0ErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => {
-                write!(f, "{resource} limit {limit} exceeded by {attempted}")
-            }
-            Type0ErrorKind::AllocationFailed => f.write_str("row allocation failed"),
-            Type0ErrorKind::Cancelled => f.write_str("cancelled"),
-            Type0ErrorKind::Source(source) => write!(f, "source: {source}"),
-            Type0ErrorKind::Sink(source) => write!(f, "sink: {source}"),
-            Type0ErrorKind::Arithmetic(source) => write!(f, "arithmetic: {source}"),
-            Type0ErrorKind::Incomplete => f.write_str("not all rows were decoded"),
-        }
+fn cancelled(offset: u64) -> Error {
+    Error::cancelled().at(offset).within(HNC8)
+}
+
+/// A refused sink write is reported at the PDF stage.
+fn sink(error: Error, offset: u64) -> Error {
+    match error.kind {
+        ErrorKind::Cancelled => cancelled(offset),
+        _ => error.or_at(
+            offset,
+            Context::Hnc8 {
+                variant: None,
+                page: None,
+                image: None,
+                segment: None,
+                stage: Some(Hnc8Stage::Pdf),
+            },
+        ),
     }
 }
 
-impl error::Error for Type0Error {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            Type0ErrorKind::Source(error) | Type0ErrorKind::Sink(error) => Some(error),
-            Type0ErrorKind::Arithmetic(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-fn at(offset: u64, kind: Type0ErrorKind) -> Type0Error {
-    Type0Error {
-        offset,
-        rows_written: 0,
-        output_bytes_written: 0,
-        kind,
-    }
-}
-
-fn malformed(offset: u64, reason: &'static str) -> Type0Error {
-    at(offset, Type0ErrorKind::Malformed(reason))
-}
-
-fn limit(offset: u64, resource: &'static str, maximum: u64, attempted: u64) -> Type0Error {
-    at(
-        offset,
-        Type0ErrorKind::LimitExceeded {
-            resource,
-            limit: maximum,
-            attempted,
-        },
-    )
-}
+const OUTSIDE_SOURCE: &str = "image span is outside the source";
 
 fn le_u16(header: &[u8; 48], start: usize) -> u16 {
     u16::from_le_bytes([header[start], header[start + 1]])
@@ -155,16 +104,10 @@ fn le_u32(header: &[u8; 48], start: usize) -> u32 {
     ])
 }
 
-fn checked_info(header: &[u8; 48], span: Type0Span, limits: &Limits) -> Type0Result<Type0Info> {
+fn checked_info(header: &[u8; 48], span: Type0Span, limits: &Limits) -> Result<Type0Info> {
     let base = span.offset;
     if le_u32(header, 0) != 40 {
-        return Err(at(
-            base,
-            Type0ErrorKind::Unsupported {
-                field: "DIB header size",
-                value: u64::from(le_u32(header, 0)),
-            },
-        ));
+        return Err(unsupported(base, "DIB header size"));
     }
     let width_i = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let height_i = i32::from_le_bytes([header[8], header[9], header[10], header[11]]);
@@ -174,50 +117,20 @@ fn checked_info(header: &[u8; 48], span: Type0Span, limits: &Limits) -> Type0Res
     let width = width_i as u32;
     let height = height_i as u32;
     if le_u16(header, 12) != 1 {
-        return Err(at(
-            base + 12,
-            Type0ErrorKind::Unsupported {
-                field: "DIB planes",
-                value: u64::from(le_u16(header, 12)),
-            },
-        ));
+        return Err(unsupported(base + 12, "DIB planes"));
     }
     if le_u16(header, 14) != 1 {
-        return Err(at(
-            base + 14,
-            Type0ErrorKind::Unsupported {
-                field: "DIB bit count",
-                value: u64::from(le_u16(header, 14)),
-            },
-        ));
+        return Err(unsupported(base + 14, "DIB bit count"));
     }
     if le_u32(header, 16) != 0 {
-        return Err(at(
-            base + 16,
-            Type0ErrorKind::Unsupported {
-                field: "DIB compression",
-                value: u64::from(le_u32(header, 16)),
-            },
-        ));
+        return Err(unsupported(base + 16, "DIB compression"));
     }
     let colors = le_u32(header, 32);
     if colors != 0 && colors != 2 {
-        return Err(at(
-            base + 32,
-            Type0ErrorKind::Unsupported {
-                field: "DIB colors used",
-                value: u64::from(colors),
-            },
-        ));
+        return Err(unsupported(base + 32, "DIB colors used"));
     }
     if header[40..43] != [0xff; 3] || header[44..47] != [0; 3] {
-        return Err(at(
-            base + 40,
-            Type0ErrorKind::Unsupported {
-                field: "DIB palette",
-                value: 0,
-            },
-        ));
+        return Err(unsupported(base + 40, "DIB palette"));
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
@@ -286,9 +199,12 @@ fn checked_info(header: &[u8; 48], span: Type0Span, limits: &Limits) -> Type0Res
     })
 }
 
-fn blank_row(stride: usize, offset: u64) -> Type0Result<Vec<u8>> {
+fn blank_row(stride: usize, offset: u64, limits: &Limits) -> Result<Vec<u8>> {
     let mut row = Vec::new();
-    let failed = at(offset, Type0ErrorKind::AllocationFailed);
+    let failed = limits
+        .allocation_refused("type-0 row bytes", stride as u64)
+        .at(offset)
+        .within(HNC8);
     reserve_exact(&mut row, stride, failed)?;
     row.resize(stride, 0);
     Ok(row)
@@ -333,33 +249,24 @@ fn check_span(
     image: Type0Span,
     limits: &Limits,
     cancellation: &dyn Cancellation,
-) -> Type0Result<()> {
+) -> Result<()> {
     if cancellation.is_cancelled() {
-        return Err(at(image.offset, Type0ErrorKind::Cancelled));
+        return Err(cancelled(image.offset));
     }
     if image.record_type != 0 {
-        return Err(at(
-            image.offset,
-            Type0ErrorKind::Unsupported {
-                field: "HN/C8 image record type",
-                value: u64::from(image.record_type),
-            },
-        ));
+        return Err(unsupported(image.offset, "HN/C8 image record type"));
     }
-    let end = image.offset.checked_add(image.length).ok_or_else(|| {
-        at(
-            image.offset,
-            Type0ErrorKind::InvalidSpan("end overflows u64"),
-        )
-    })?;
+    let end = image
+        .offset
+        .checked_add(image.length)
+        .ok_or_else(|| malformed(image.offset, "image span end overflows u64"))?;
     if image.length <= DIB_BYTES {
-        return Err(at(end, Type0ErrorKind::Truncated("DIB and coded bytes")));
+        return Err(Error::truncated(end, DIB_BYTES + 1, image.length)
+            .because("DIB and coded bytes")
+            .within(HNC8));
     }
     if end > source_size {
-        return Err(at(
-            image.offset,
-            Type0ErrorKind::InvalidSpan("outside source size"),
-        ));
+        return Err(malformed(image.offset, OUTSIDE_SOURCE));
     }
     if image.length > limits.max_input_bytes {
         return Err(limit(
@@ -377,7 +284,7 @@ fn read_info<S: RangedSource, C: Cancellation>(
     image: Type0Span,
     limits: &Limits,
     cancellation: &C,
-) -> Type0Result<Type0Info> {
+) -> Result<Type0Info> {
     let mut header = [0_u8; DIB_BYTES as usize];
     let mut done = 0;
     while done < header.len() {
@@ -390,15 +297,7 @@ fn read_info<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .map_err(|error| {
-            at(
-                absolute,
-                match error {
-                    Error::Cancelled => Type0ErrorKind::Cancelled,
-                    other => Type0ErrorKind::Source(other),
-                },
-            )
-        })?;
+        .map_err(|error| error.or_at(absolute, HNC8))?;
         done += count;
     }
     checked_info(&header, image, limits)
@@ -416,7 +315,7 @@ pub fn read_type0_info<S: RangedSource, C: Cancellation>(
     image: Type0Span,
     limits: &Limits,
     cancellation: &C,
-) -> Type0Result<Type0Info> {
+) -> Result<Type0Info> {
     check_span(source.size(), image, limits, cancellation)?;
     read_info(source, image, limits, cancellation)
 }
@@ -449,7 +348,7 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
-    ) -> Type0Result<Self> {
+    ) -> Result<Self> {
         check_span(input.size(), image, limits, cancellation)?;
         if contexts.get(CONTEXT_COUNT - 1).is_none() || contexts.get(CONTEXT_COUNT).is_some() {
             return Err(malformed(
@@ -460,27 +359,17 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
         let header = input
             .get(image.offset, DIB_BYTES)
             .and_then(|header| <&[u8; DIB_BYTES as usize]>::try_from(header).ok())
-            .ok_or_else(|| {
-                at(
-                    image.offset,
-                    Type0ErrorKind::InvalidSpan("outside source size"),
-                )
-            })?;
+            .ok_or_else(|| malformed(image.offset, OUTSIDE_SOURCE))?;
         let info = checked_info(header, image, limits)?;
-        let previous_two = blank_row(info.dib_stride, image.offset)?;
-        let previous = blank_row(info.dib_stride, image.offset)?;
-        let current = blank_row(info.dib_stride, image.offset)?;
+        let previous_two = blank_row(info.dib_stride, image.offset, limits)?;
+        let previous = blank_row(info.dib_stride, image.offset, limits)?;
+        let current = blank_row(info.dib_stride, image.offset, limits)?;
         let coded = CodedSpan {
             offset: image.offset + DIB_BYTES,
             length: image.length - DIB_BYTES,
         };
-        let arithmetic =
-            ArithmeticDecoder::new(input, coded, table, contexts, limits).map_err(|error| {
-                at(
-                    error.offset.unwrap_or(coded.offset),
-                    Type0ErrorKind::Arithmetic(error),
-                )
-            })?;
+        let arithmetic = ArithmeticDecoder::new(input, coded, table, contexts, limits)
+            .map_err(|error| error.or_at(coded.offset, HNC8))?;
         Ok(Self {
             arithmetic,
             sink,
@@ -506,38 +395,24 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
         }
     }
 
-    fn failed(&self, kind: Type0ErrorKind) -> Type0Error {
-        let offset = match &kind {
-            Type0ErrorKind::Arithmetic(error) => error
-                .offset
-                .unwrap_or(self.arithmetic.snapshot().input_offset),
-            _ => self.arithmetic.snapshot().input_offset,
-        };
-        Type0Error {
-            offset,
-            rows_written: self.rows_written,
-            output_bytes_written: self.output_bytes_written,
-            kind,
-        }
-    }
-
-    fn arithmetic_failure(&self, error: ArithmeticError) -> Type0Error {
-        self.failed(Type0ErrorKind::Arithmetic(error))
+    /// Locate an error at the next coded byte unless it has its own offset.
+    fn failed(&self, error: Error) -> Error {
+        error.or_at(self.arithmetic.snapshot().input_offset, HNC8)
     }
 
     /// Decode and write exactly one display-order DIB-stride row.
-    pub fn decode_next_row(&mut self) -> Type0Result<bool> {
+    pub fn decode_next_row(&mut self) -> Result<bool> {
         if self.rows_written == self.info.height {
             return Ok(false);
         }
         if self.cancellation.is_cancelled() {
-            return Err(self.failed(Type0ErrorKind::Cancelled));
+            return Err(cancelled(self.arithmetic.snapshot().input_offset));
         }
         self.current.fill(0);
         let copy_previous = self
             .arithmetic
             .decode_symbol(CONTROL_CONTEXT)
-            .map_err(|error| self.arithmetic_failure(error))?;
+            .map_err(|error| self.failed(error))?;
         if copy_previous {
             self.current.copy_from_slice(&self.previous);
         } else {
@@ -552,7 +427,7 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
                 let bit = self
                     .arithmetic
                     .decode_symbol(cx)
-                    .map_err(|error| self.arithmetic_failure(error))?;
+                    .map_err(|error| self.failed(error))?;
                 if bit {
                     let x = x as usize;
                     self.current[x / 8] |= 0x80 >> (x % 8);
@@ -566,10 +441,7 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
             self.limits,
             self.cancellation,
         )
-        .map_err(|error| match error {
-            Error::Cancelled => self.failed(Type0ErrorKind::Cancelled),
-            other => self.failed(Type0ErrorKind::Sink(other)),
-        })?;
+        .map_err(|error| sink(error, self.arithmetic.snapshot().input_offset))?;
         mem::swap(&mut self.previous_two, &mut self.previous);
         mem::swap(&mut self.previous, &mut self.current);
         self.rows_written += 1;
@@ -577,46 +449,27 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
     }
 
     /// Validate row count and flush only after all rows were written.
-    pub fn finish(self) -> Type0Result<Type0Report> {
-        if self.rows_written != self.info.height {
-            return Err(self.failed(Type0ErrorKind::Incomplete));
-        }
-        if self.cancellation.is_cancelled() {
-            return Err(self.failed(Type0ErrorKind::Cancelled));
-        }
+    pub fn finish(self) -> Result<Type0Report> {
         let snapshot = self.arithmetic.snapshot();
         let offset = snapshot.input_offset;
+        if self.rows_written != self.info.height {
+            return Err(malformed(offset, "not all type-0 rows were decoded"));
+        }
+        if self.cancellation.is_cancelled() {
+            return Err(cancelled(offset));
+        }
         let rows_written = self.rows_written;
         let output_bytes_written = self.output_bytes_written;
         // The expected count is the decoder's own, so this cannot fail.
         self.arithmetic
             .finish(snapshot.symbols_decoded)
-            .map_err(|error| Type0Error {
-                offset: error.offset.unwrap_or(offset),
-                rows_written,
-                output_bytes_written,
-                kind: Type0ErrorKind::Arithmetic(error),
-            })?;
+            .map_err(|error| error.or_at(offset, HNC8))?;
         self.sink
             .flush()
-            .map_err(Error::from)
-            .map_err(|error| Type0Error {
-                offset,
-                rows_written,
-                output_bytes_written,
-                kind: match error {
-                    Error::Cancelled => Type0ErrorKind::Cancelled,
-                    other => Type0ErrorKind::Sink(other),
-                },
-            })?;
+            .map_err(|error| sink(Error::from(error), offset))?;
         // A flush can take long enough for the caller to give up.
         if self.cancellation.is_cancelled() {
-            return Err(Type0Error {
-                offset,
-                rows_written,
-                output_bytes_written,
-                kind: Type0ErrorKind::Cancelled,
-            });
+            return Err(cancelled(offset));
         }
         Ok(Type0Report {
             image: self.image,

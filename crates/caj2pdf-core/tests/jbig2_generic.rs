@@ -7,13 +7,11 @@
 mod common;
 
 use caj2pdf_core::{
-    Limits, Payload, RangedSource,
+    Error, ErrorKind, Limits, Payload, RangedSource,
     jbig2::{
         SegmentHeader, SegmentSpan,
-        generic::{
-            GenericError, GenericErrorKind, GenericRegionDecoder, read_generic_region_header,
-        },
-        mq::{ArithmeticErrorKind, ContextBank, MqTable},
+        generic::{GenericRegionDecoder, read_generic_region_header},
+        mq::{ContextBank, MqTable},
         read_segment_header,
     },
 };
@@ -120,7 +118,7 @@ fn table() -> MqTable {
     MqTable::standard()
 }
 fn contexts(limits: &Limits) -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(1024, limits).unwrap()
+    ContextBank::new(1024, limits).unwrap()
 }
 const SHORT_STREAM: &[u8] = &[0xfc, 0xaf, 0xff, 0xac];
 
@@ -269,7 +267,15 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         (3, 2, 0, 0, (2, -1), SHORT_STREAM, "template"),
         (3, 2, 0, 12, (2, -1), SHORT_STREAM, "prediction"),
         (3, 2, 0, 4, (0, 0), SHORT_STREAM, "adaptive"),
-        (3, 2, 0, 4, (1, -1), SHORT_STREAM, "unsupported adaptive"),
+        (
+            3,
+            2,
+            0,
+            4,
+            (1, -1),
+            SHORT_STREAM,
+            "unsupported JBIG2 at byte 29, segment 1: adaptive",
+        ),
         (3, 2, 0, 4, (2, -1), &[0][..], "terminal"),
     ] {
         let mut source = record(w, h, region, flags, at, payload);
@@ -309,10 +315,11 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::Unsupported {
-            feature: "segment type",
-            value: 4
+        err,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "segment type",
+            ..
         }
     ));
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
@@ -333,8 +340,12 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::Malformed("region x plus width overflows")
+        err,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "region x plus width overflows",
+            ..
+        }
     ));
 
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
@@ -356,8 +367,12 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::Truncated("template-2 adaptive pixel")
+        err,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "template-2 adaptive pixel",
+            ..
+        }
     ));
 }
 
@@ -372,7 +387,7 @@ fn preflights_area_output_allocation_and_input_limits() {
                 max_image_pixels: 26,
                 ..Limits::default()
             },
-            "region pixels limit 26 exceeded by 27",
+            "maximum 26, attempted 27",
         ),
         (
             Limits {
@@ -462,9 +477,12 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::LimitExceeded {
-            resource: "region pixels",
+        err,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "region pixels",
+                ..
+            },
             ..
         }
     ));
@@ -487,8 +505,12 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::Malformed("region y plus height overflows")
+        err,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "region y plus height overflows",
+            ..
+        }
     ));
 
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
@@ -509,8 +531,11 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::InvalidSpan("segment end overflows")
+        err,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
 
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
@@ -531,8 +556,11 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::InvalidSpan("segment data outside source")
+        err,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
     source.bytes.push(last);
     hdr.data.length = 17;
@@ -549,8 +577,12 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Err(e) => e,
     };
     assert!(matches!(
-        err.kind,
-        GenericErrorKind::Truncated("generic flags")
+        err,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "generic flags",
+            ..
+        }
     ));
 
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
@@ -571,7 +603,13 @@ fn additional_constructor_bounds_and_located_source_errors() {
         Ok(_) => panic!("accepted pre-cancelled region"),
         Err(e) => e,
     };
-    assert!(matches!(err.kind, GenericErrorKind::Cancelled));
+    assert!(matches!(
+        err,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -597,10 +635,14 @@ fn truncated_payload_and_sink_failure_are_typed() {
     };
     assert!(
         matches!(
-            err.kind,
-            GenericErrorKind::Truncated(_)
-                | GenericErrorKind::Malformed(_)
-                | GenericErrorKind::InvalidSpan(_)
+            err,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                ..
+            } | Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
         ),
         "{err}"
     );
@@ -622,8 +664,8 @@ fn truncated_payload_and_sink_failure_are_typed() {
     )
     .unwrap();
     let err = decoder.decode_next_row().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Sink(_)));
-    assert!(err.to_string().contains("sink"));
+    assert!(matches!(err.kind, ErrorKind::Io(_)), "{err}");
+    assert!(err.to_string().contains("segment 1"), "{err}");
     assert!(std::error::Error::source(&err).is_some());
 }
 
@@ -656,8 +698,8 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());
     let err = decoder.finish().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Sink(_)), "{err}");
-    assert_eq!(err.output_bytes_written, 2);
+    assert!(matches!(err.kind, ErrorKind::Io(_)), "{err}");
+    assert!(err.to_string().contains("test flush failure"), "{err}");
     assert_eq!(sink.bytes, [0xff, 0x80]);
     assert!(!sink.flushed);
 }
@@ -686,8 +728,13 @@ fn cancellation_after_a_row_write_is_reported() {
     )
     .unwrap();
     let err = decoder.decode_next_row().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Cancelled));
-    assert_eq!(err.output_bytes_written, 1);
+    assert!(matches!(
+        err,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     drop(decoder);
     assert_eq!(sink.bytes, [0xe0]);
 }
@@ -714,8 +761,13 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
     .unwrap();
     flag.set(true);
     let err = decoder.decode_next_row().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Cancelled));
-    assert_eq!(err.pixels_decoded, 0);
+    assert!(matches!(
+        err,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     drop(decoder);
     assert!(sink.bytes.is_empty());
 
@@ -739,15 +791,13 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
     .unwrap();
     decoder.decode_next_row().unwrap();
     let err = decoder.finish().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Cancelled));
-    assert_eq!(
-        (
-            err.rows_written,
-            err.pixels_decoded,
-            err.output_bytes_written
-        ),
-        (1, 3, 1)
-    );
+    assert!(matches!(
+        err,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert_eq!(sink.bytes, [0xe0]);
     assert!(sink.flushed);
 }
@@ -772,8 +822,8 @@ fn rejects_terminal_errors_and_incomplete_finish() {
     )
     .unwrap();
     let err = decoder.finish().unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Incomplete));
-    assert!(err.to_string().contains("not all rows"));
+    assert_eq!(err.reason, "not all generic rows were decoded");
+    assert!(err.to_string().contains("segment 1"), "{err}");
     assert!(std::error::Error::source(&err).is_none());
     for bad_tail in [[0xff, 0xab], [0x00, 0xac]] {
         let mut bytes = SHORT_STREAM.to_vec();
@@ -795,9 +845,8 @@ fn rejects_terminal_errors_and_incomplete_finish() {
         .unwrap();
         decoder.decode_next_row().unwrap();
         let err = decoder.finish().unwrap_err();
-        assert!(matches!(err.kind, GenericErrorKind::Mq(_)), "{err}");
-        assert!(err.to_string().contains("MQ: "), "{err}");
-        assert!(std::error::Error::source(&err).is_some());
+        assert!(err.reason.contains("MQ"), "{err}");
+        assert!(std::error::Error::source(&err).is_none());
         assert!(!sink.flushed);
     }
 }
@@ -821,16 +870,8 @@ fn unexpected_internal_marker_keeps_the_mq_source_location() {
     )
     .unwrap();
     let err = decoder.decode_next_row().unwrap_err();
-    match &err.kind {
-        GenericErrorKind::Mq(inner) => {
-            assert!(matches!(
-                inner.kind,
-                ArithmeticErrorKind::InvalidMarker(0x90)
-            ));
-            assert_eq!(Some(err.offset), inner.offset);
-        }
-        _ => panic!("expected located MQ marker error: {err}"),
-    }
+    assert_eq!(err.reason, "invalid MQ marker following 0xFF", "{err}");
+    assert!(err.offset.is_some(), "{err}");
     assert!(sink.bytes.is_empty());
 }
 
@@ -899,11 +940,16 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
             }
             Err(err) => {
                 assert!(
-                    matches!(err.kind, GenericErrorKind::Cancelled),
+                    matches!(
+                        err,
+                        Error {
+                            kind: ErrorKind::Cancelled,
+                            ..
+                        }
+                    ),
                     "poll {polls}: {err}"
                 );
-                assert!(err.output_bytes_written <= 2);
-                assert_eq!(sink.bytes.len() as u64, err.output_bytes_written);
+                assert!(sink.bytes.len() <= 2);
                 cancelled_runs += 1;
             }
         }
@@ -940,7 +986,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
         let Err(err) = attempt(width, 16).0 else {
             panic!("accepted a 16-byte working allocation");
         };
-        let GenericErrorKind::LimitExceeded {
+        let ErrorKind::LimitExceeded {
             resource: "region working allocation bytes",
             limit: 16,
             attempted,
@@ -948,7 +994,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
         else {
             panic!("unexpected error kind: {:?}", err.kind);
         };
-        assert_eq!(err.offset, 11);
+        assert_eq!(err.offset, Some(11));
         attempted
     };
     let one_byte_rows = required(8);
@@ -958,16 +1004,19 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
     assert!(at_cap.is_ok());
     let (below_cap, _) = attempt(8, one_byte_rows - 1);
     assert!(matches!(
-        below_cap.unwrap_err().kind,
-        GenericErrorKind::LimitExceeded {
-            resource: "region working allocation bytes",
+        below_cap.unwrap_err(),
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "region working allocation bytes",
+                ..
+            },
             ..
         }
     ));
 }
 
 #[test]
-fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
+fn span_errors_have_stable_messages() {
     let limits = Limits::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
@@ -989,20 +1038,7 @@ fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
     };
     assert_eq!(
         err.to_string(),
-        "JBIG2 generic region segment 1 at source byte 11: \
-         invalid span: segment data outside source"
+        "malformed JBIG2 at byte 11, segment 1: segment data outside source"
     );
-    // Row reservation failure needs a real allocator failure; the message is
-    // still part of the public error contract.
-    let allocation = GenericError {
-        offset: 11,
-        segment: 1,
-        rows_written: 0,
-        pixels_decoded: 0,
-        output_bytes_written: 0,
-        kind: GenericErrorKind::AllocationFailed,
-    };
-    assert!(allocation.to_string().ends_with(": row allocation failed"));
-    assert!(std::error::Error::source(&allocation).is_none());
-    common::assert_display_propagates_fmt_error(&allocation);
+    common::assert_display_propagates_fmt_error(&err);
 }

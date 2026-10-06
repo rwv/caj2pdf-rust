@@ -125,7 +125,13 @@ to the file you choose.
   Rust engine enforces them.
 - Errors are `Caj2PdfError` with a stable `code` (for example
   `MALFORMED_CAJ`, `PDF_LIMIT_EXCEEDED`, `TRUNCATED_INPUT`) and the core's
-  located message. `UnsupportedFormatError` adds `format`. Sink errors,
+  located message. The code follows the core error's kind and format
+  context: `IO` and `CANCELLED` for any format; `HNC8` for any other HN/C8
+  or JBIG2 failure; `TRUNCATED_INPUT`; the PDF codes (`MALFORMED_PDF`,
+  `ENCRYPTED_PDF`, `UNSUPPORTED_PDF_FEATURE`, `AMBIGUOUS_PDF_REPAIR`,
+  `PDF_LIMIT_EXCEEDED`), `CAJ_LIMIT_EXCEEDED`, `MALFORMED_CAJ` and
+  `MALFORMED_KDH` for those formats; then `LIMIT_EXCEEDED`,
+  `UNSUPPORTED_FORMAT` and `INVALID_INPUT`. `UnsupportedFormatError` adds `format`. Sink errors,
   abort reasons and errors from inputs read on the calling thread (Node
   Blobs) propagate unchanged; a read that fails inside the Worker rejects
   with an `Error` of the same `name` and `message`.
@@ -253,7 +259,8 @@ malformed JBIG2 headers remain errors. Image-only pages receive no OCR text
 layer; [Unicode, whitespace and reading-order limits](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md)
 remain separate from native glyph rendering. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
-`HNC8`. Standard numeric state adoption is recorded in #189.
+`HNC8`; an I/O failure or a cancellation during an HN/C8 operation reports `IO` or
+`CANCELLED` like any other. Standard numeric state adoption is recorded in #189.
 
 ### v0.x migration
 
@@ -264,8 +271,8 @@ Zero extents are rejected. The physical unit remains empirical; see the
 
 HN/C8 conversion no longer always throws `UnsupportedFormatError`: callers must
 handle `HNC8` and invalid configuration errors. Existing
-PDF/CAJ/KDH calls do not need `hnc8`. Rust users must handle the new
-`Error::Hnc8` and `Error::Hnc8Metadata` variants when matching exhaustively.
+PDF/CAJ/KDH calls do not need `hnc8`. Rust users match HN/C8 failures by
+their `Context::Hnc8` error context.
 HN/C8 inspection now succeeds for valid metadata; malformed headers/outlines
 use `HNC8` instead of a blanket unsupported-format error. C8/HN-B unknown
 bookmark counts remain `null`, while validated empty HN-A outlines return zero.

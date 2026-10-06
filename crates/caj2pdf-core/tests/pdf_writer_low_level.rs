@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use caj2pdf_core::{Cancellation, Error, Limits, NeverCancel, pdf::PdfWriter};
+use caj2pdf_core::{Cancellation, Error, ErrorKind, Limits, NeverCancel, pdf::PdfWriter};
 use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
@@ -137,17 +137,29 @@ fn stream_length_counts_binary_payload_but_not_endstream_delimiter() {
         pdf.write_object(catalog, b"<< /Type /Catalog >>")?;
         assert!(matches!(
             pdf.begin_stream(image, image, b""),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         pdf.begin_stream(image, length, b"/Subtype /Image")?;
         assert!(matches!(
             pdf.write_bytes(b"not a plain object"),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         pdf.write_stream_bytes(&payload[..10])?;
         pdf.write_stream_bytes(&payload[10..])?;
         pdf.end_stream()?;
-        assert!(matches!(pdf.end_stream(), Err(Error::InvalidInput { .. })));
+        assert!(matches!(
+            pdf.end_stream(),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
+        ));
         pdf.finish(catalog)
     })()
     .expect("stream PDF");
@@ -206,23 +218,44 @@ fn missing_duplicate_and_open_objects_are_rejected() {
         let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
         let root = pdf.reserve_object()?;
         let missing = pdf.reserve_object()?;
-        assert!(matches!(pdf.end_object(), Err(Error::InvalidInput { .. })));
+        assert!(matches!(
+            pdf.end_object(),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
+        ));
         assert!(matches!(
             pdf.write_stream_bytes(b"x"),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         pdf.begin_object(root)?;
         assert!(matches!(
             pdf.begin_object(missing),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         pdf.write_bytes(b"<< /Type /Catalog >>")?;
         pdf.end_object()?;
         assert!(matches!(
             pdf.begin_object(root),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
-        assert!(matches!(pdf.finish(root), Err(Error::InvalidInput { .. })));
+        assert!(matches!(
+            pdf.finish(root),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
+        ));
         Ok::<(), Error>(())
     })()
     .unwrap();
@@ -249,14 +282,18 @@ fn finish_requires_a_written_catalog_reserved_by_this_writer() {
         let root = pdf.reserve_object()?;
         assert!(matches!(
             pdf.begin_object(foreign),
-            Err(Error::InvalidInput {
-                reason: "PDF object number was not reserved"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF object number was not reserved",
+                ..
             })
         ));
         assert!(matches!(
             pdf.finish(root),
-            Err(Error::InvalidInput {
-                reason: "PDF catalog object has not been written"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF catalog object has not been written",
+                ..
             })
         ));
         Ok::<(), Error>(())
@@ -280,7 +317,13 @@ fn xref_preflight_fails_before_emitting_any_xref_bytes() {
         let root = pdf.reserve_object()?;
         pdf.write_object(root, b"<< /Type /Catalog >>")?;
         let written = pdf.position();
-        assert!(matches!(pdf.finish(root), Err(Error::LimitExceeded { .. })));
+        assert!(matches!(
+            pdf.finish(root),
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                ..
+            })
+        ));
         Ok::<u64, Error>(written)
     })()
     .unwrap();
@@ -306,8 +349,11 @@ fn object_index_growth_obeys_allocation_limit() {
         }
         assert!(matches!(
             pdf.reserve_object(),
-            Err(Error::LimitExceeded {
-                resource: "allocation bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    ..
+                },
                 ..
             })
         ));
@@ -325,7 +371,7 @@ fn zero_and_failing_sinks_return_io_errors_and_poison_partial_writer() {
     };
     assert!(matches!(
         PdfWriter::new(&mut zero, &Limits::default(), &NeverCancel),
-        Err(Error::Io(ref error)) if error.kind() == io::ErrorKind::WriteZero
+        Err(Error { kind: ErrorKind::Io(ref error), .. }) if error.kind() == io::ErrorKind::WriteZero
     ));
 
     let mut failing = ProbeSink {
@@ -337,12 +383,21 @@ fn zero_and_failing_sinks_return_io_errors_and_poison_partial_writer() {
         let limits = Limits::default();
         let mut pdf = PdfWriter::new(&mut failing, &limits, &NeverCancel)?;
         let root = pdf.reserve_object()?;
-        assert!(matches!(pdf.begin_object(root), Err(Error::Io(_))));
+        assert!(matches!(
+            pdf.begin_object(root),
+            Err(Error {
+                kind: ErrorKind::Io(_),
+                ..
+            })
+        ));
         // Only the completed header write counts.
         assert_eq!(pdf.position(), 15);
         assert!(matches!(
             pdf.reserve_object(),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         Ok::<(), Error>(())
     })()
@@ -360,7 +415,10 @@ fn cancellation_and_flush_failure_propagate() {
     };
     assert!(matches!(
         PdfWriter::new(&mut cancel_sink, &Limits::default(), &flag),
-        Err(Error::Cancelled)
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
     ));
     // Cancellation is observed after the whole header write.
     assert_eq!(cancel_sink.bytes.len(), 15);
@@ -378,7 +436,10 @@ fn cancellation_and_flush_failure_propagate() {
             pdf.write_object(root, b"<< /Type /Catalog >>")?;
             pdf.finish(root)
         })(),
-        Err(Error::Io(_))
+        Err(Error {
+            kind: ErrorKind::Io(_),
+            ..
+        })
     ));
     assert_eq!(flush_sink.flushes, 1);
 }

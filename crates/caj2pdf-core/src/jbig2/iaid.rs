@@ -9,11 +9,11 @@
 
 use super::{
     integer::{BITMAP_BASE, BITMAP_CONTEXT_COUNT},
-    mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult, MqDecoder},
+    mq::MqDecoder,
 };
-use crate::arith::Coder;
+use crate::arith::INVALID_CONTEXT;
 use crate::fallible::try_convert;
-use std::{error, fmt};
+use crate::{Error, Result};
 
 /// The first IAID context of a coding unit.
 pub const IAID_BASE: usize = BITMAP_BASE + BITMAP_CONTEXT_COUNT;
@@ -25,16 +25,11 @@ pub const IAID_BASE: usize = BITMAP_BASE + BITMAP_CONTEXT_COUNT;
 /// [`IAID_BASE`]; missing capacity is rejected before a decision. Every call
 /// consumes exactly `code_len` MQ symbols. Context adaptation persists across
 /// calls until the caller resets the bank.
-pub fn decode_iaid(decoder: &mut MqDecoder<'_>, code_len: u32) -> ArithmeticResult<u64> {
+pub fn decode_iaid(decoder: &mut MqDecoder<'_>, code_len: u32) -> Result<u64> {
     let ids = 1usize.checked_shl(code_len);
     let last = ids.and_then(|ids| IAID_BASE.checked_add(ids - 1));
     if last.is_none_or(|last| decoder.context(last).is_none()) {
-        return Err(ArithmeticError {
-            coder: Some(Coder::T88),
-            offset: Some(decoder.snapshot().input_offset),
-            context: last,
-            kind: ArithmeticErrorKind::InvalidContext,
-        });
+        return Err(decoder.at(INVALID_CONTEXT));
     }
     let mut prev = 1u64;
     for _ in 0..code_len {
@@ -48,62 +43,26 @@ pub fn decode_iaid(decoder: &mut MqDecoder<'_>, code_len: u32) -> ArithmeticResu
     Ok(prev - ids.unwrap_or_default() as u64)
 }
 
-/// Failure at the text/dictionary symbol-array indexing boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SymbolIdError {
-    EmptySymbolSet,
-    TooManySymbols { count: u64 },
-    SymbolArrayLength { declared: u64, actual: usize },
-    OutOfRange { id: u64, count: u64 },
-}
-
-impl fmt::Display for SymbolIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EmptySymbolSet => f.write_str("symbol count must be nonzero"),
-            Self::TooManySymbols { count } => {
-                write!(f, "symbol count {count} exceeds the address space")
-            }
-            Self::SymbolArrayLength { declared, actual } => {
-                write!(f, "declared {declared} symbols, but the array has {actual}")
-            }
-            Self::OutOfRange { id, count } => {
-                write!(f, "symbol ID {id} is outside 0..{count}")
-            }
-        }
-    }
-}
-
-impl error::Error for SymbolIdError {}
+pub const EMPTY_SYMBOL_SET: &str = "symbol count must be nonzero";
+pub const TOO_MANY_SYMBOLS: &str = "symbol count exceeds the address space";
+pub const SYMBOL_ARRAY_LENGTH: &str = "symbol array length differs from the declared count";
+pub const SYMBOL_OUT_OF_RANGE: &str = "symbol ID is outside the symbol set";
 
 /// Validate a raw fixed-length IAID result before indexing `SBSYMS`.
 ///
 /// The caller supplies its active declared count and actual `SBSYMS.len()`.
 /// One symbol permits `L = 0` and ID zero; zero symbols, a mismatched array,
 /// and unused codewords are errors before any indexing or bitmap allocation.
-pub fn checked_symbol_index(
-    id: u64,
-    symbol_count: u64,
-    available_symbols: usize,
-) -> Result<usize, SymbolIdError> {
+pub fn checked_symbol_index(id: u64, symbol_count: u64, available_symbols: usize) -> Result<usize> {
     if symbol_count == 0 {
-        return Err(SymbolIdError::EmptySymbolSet);
+        return Err(Error::invalid(EMPTY_SYMBOL_SET));
     }
-    let too_many = SymbolIdError::TooManySymbols {
-        count: symbol_count,
-    };
-    let count: usize = try_convert(symbol_count, too_many)?;
+    let count: usize = try_convert(symbol_count, Error::invalid(TOO_MANY_SYMBOLS))?;
     if available_symbols != count {
-        return Err(SymbolIdError::SymbolArrayLength {
-            declared: symbol_count,
-            actual: available_symbols,
-        });
+        return Err(Error::invalid(SYMBOL_ARRAY_LENGTH));
     }
     if id >= symbol_count {
-        return Err(SymbolIdError::OutOfRange {
-            id,
-            count: symbol_count,
-        });
+        return Err(Error::invalid(SYMBOL_OUT_OF_RANGE));
     }
     // `id < symbol_count`, and `symbol_count` already converted to `usize`.
     Ok(id as usize)

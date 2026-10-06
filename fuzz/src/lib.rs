@@ -75,7 +75,7 @@ pub fn convert(data: &[u8]) {
                 &NeverCancel,
             )
             .map(|report| report.conversion)
-            .map_err(|_| Error::InvalidInput { reason: "compose" })
+            .map_err(|_| Error::invalid("compose"))
         }
         _ => Ok(Default::default()),
     };

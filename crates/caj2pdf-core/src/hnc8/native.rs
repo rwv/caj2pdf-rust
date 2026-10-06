@@ -3,8 +3,8 @@
 //! Framing of independently observed raw C8 and HN-B native-page subsets.
 //! Events preserve uninterpreted words; they do not imply renderability.
 
-use super::{ErrorKind, Hnc8Reader, Location, Result, Variant, read_fixed};
-use crate::{Cancellation, RangedSource};
+use super::{Hnc8Reader, Location, Variant, read_fixed};
+use crate::{Cancellation, RangedSource, Result};
 
 /// One framed native record. Units, style/font words and image words remain raw.
 /// Unknown required semantics must be rejected by a renderer, never discarded.
@@ -191,21 +191,18 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         };
         let page = self
             .current
-            .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?
+            .ok_or_else(|| loc.malformed("no current page"))?
             .page;
         if !matches!(self.header.variant, Variant::C8 | Variant::HnB) {
-            return Err(loc.error(ErrorKind::Unsupported {
-                field: "native record variant",
-                value: 0,
-            }));
+            return Err(loc.unsupported("native record variant"));
         }
         if self.cancellation.is_cancelled() {
-            return Err(loc.error(ErrorKind::Cancelled));
+            return Err(loc.cancelled());
         }
         // Metadata came from this cursor, so its span and counts are checked.
         // Unlike compressed text, a native page can be just one end record.
         if page.text.offset < self.header.page_index.checked_end().expect("checked index") {
-            return Err(loc.malformed("native text span", "overlaps protected container index"));
+            return Err(loc.malformed("native text span: overlaps protected container index"));
         }
         let end = page.text.checked_end().expect("checked text span");
         let mut position = page.text.offset;
@@ -221,11 +218,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             self.native_bytes(position, end, &mut bytes[..length], at)?;
             let tag = word(&bytes[..2]);
             if bare_end && tag != 0x8004 {
-                return Err(at.error(ErrorKind::Truncated {
-                    field: "native record",
-                    expected: 4,
-                    available: 2,
-                }));
+                return Err(at.truncated("native record", 4, 2));
             }
             let value = word(&bytes[2..4]);
             if self.header.variant == Variant::HnB
@@ -256,10 +249,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         | (0x800a, 0xd300)
                 )
             {
-                return Err(at.error(ErrorKind::Unsupported {
-                    field: "HN-B native record tag/value",
-                    value: (u64::from(tag) << 16) | u64::from(value),
-                }));
+                return Err(at.unsupported("HN-B native record tag/value"));
             }
             let record = match tag {
                 0x8001 => {
@@ -327,12 +317,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         )?;
                         for (index, pair) in bytes[..count].as_chunks::<2>().0.iter().enumerate() {
                             if !(0xe020..=0xe07e).contains(&word(pair)) {
-                                return Err(at.at(position + (consumed + index * 2) as u64).error(
-                                    ErrorKind::Unsupported {
-                                        field: "native encoded-string word",
-                                        value: u64::from(word(pair)),
-                                    },
-                                ));
+                                return Err(at
+                                    .at(position + (consumed + index * 2) as u64)
+                                    .unsupported("native encoded-string word"));
                             }
                         }
                         consumed += count;
@@ -368,7 +355,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     self.native_bytes(position + 4, end, &mut bytes[4..length], at)?;
                     if images == page.image_count {
                         return Err(
-                            at.malformed("native image records", "exceed declared image count")
+                            at.malformed("native image records: exceed declared image count")
                         );
                     }
                     images += 1;
@@ -382,10 +369,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     self.native_bytes(position + 4, end, &mut bytes[4..16], at)?;
                     let flags = word(&bytes[12..14]);
                     if flags != 0 {
-                        return Err(at.at(position + 12).error(ErrorKind::Unsupported {
-                            field: "native image-reference flags",
-                            value: u64::from(flags),
-                        }));
+                        return Err(at
+                            .at(position + 12)
+                            .unsupported("native image-reference flags"));
                     }
                     let coordinate = super::RawTextCoordinate {
                         x: word(&bytes[4..6]),
@@ -410,8 +396,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         for (index, &byte) in bytes[..count].iter().enumerate() {
                             if consumed + index >= 16 + name_bytes && byte != 0 {
                                 return Err(at.at(position + (consumed + index) as u64).malformed(
-                                    "native image reference",
-                                    "nonzero terminator or padding",
+                                    "native image reference: nonzero terminator or padding",
                                 ));
                             }
                         }
@@ -419,7 +404,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                     if images == page.image_count {
                         return Err(
-                            at.malformed("native image records", "exceed declared image count")
+                            at.malformed("native image records: exceed declared image count")
                         );
                     }
                     images += 1;
@@ -434,14 +419,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 0x8004 => {
                     if self.header.variant != Variant::HnB && position + length as u64 != end {
                         return Err(
-                            at.malformed("native page end", "trailing bytes in indexed text span")
+                            at.malformed("native page end: trailing bytes in indexed text span")
                         );
                     }
                     if images != page.image_count {
-                        return Err(at.malformed(
-                            "native image records",
-                            "differ from declared image count",
-                        ));
+                        return Err(
+                            at.malformed("native image records: differ from declared image count")
+                        );
                     }
                     NativeRecord::End {
                         value: (!bare_end).then_some(value),
@@ -456,13 +440,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         .then_some(0)
                     });
                     if self.header.variant == Variant::HnB && style.is_none() {
-                        return Err(at.error(ErrorKind::Unsupported {
-                            field: "HN-B implicit native glyph style",
-                            value: 0,
-                        }));
+                        return Err(at.unsupported("HN-B implicit native glyph style"));
                     }
                     let (Some(y), Some(style)) = (y, style) else {
-                        return Err(at.malformed("native glyph", "missing run position or style"));
+                        return Err(at.malformed("native glyph: missing run position or style"));
                     };
                     NativeRecord::Glyph {
                         x,
@@ -472,23 +453,17 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                 }
                 _ => {
-                    return Err(at.error(ErrorKind::Unsupported {
-                        field: "native record tag/value",
-                        value: (u64::from(tag) << 16) | u64::from(value),
-                    }));
+                    return Err(at.unsupported("native record tag/value"));
                 }
             };
             if matches!(tag, 0x8070 | 0x8071) {
                 explicit_axes[usize::from(tag - 0x8070)] = Some(value);
             }
-            visitor.visit(position, record).map_err(|source| {
-                at.error(ErrorKind::Source {
-                    field: "native record visitor",
-                    source,
-                })
-            })?;
+            visitor
+                .visit(position, record)
+                .map_err(|source| at.locate(source))?;
             if self.cancellation.is_cancelled() {
-                return Err(at.error(ErrorKind::Cancelled));
+                return Err(at.cancelled());
             }
             count += 1;
             position += length as u64;
@@ -496,9 +471,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 return Ok(count);
             }
         }
-        Err(loc
-            .at(end)
-            .malformed("native page end", "missing end record"))
+        Err(loc.at(end).malformed("native page end: missing end record"))
     }
 
     fn native_bytes(
@@ -510,11 +483,11 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     ) -> Result<()> {
         // Every requested offset is within the already checked page interval.
         if bytes.len() as u64 > end - offset {
-            return Err(loc.at(offset).error(ErrorKind::Truncated {
-                field: "native record",
-                expected: bytes.len() as u64,
-                available: end - offset,
-            }));
+            return Err(loc.at(offset).truncated(
+                "native record",
+                bytes.len() as u64,
+                end - offset,
+            ));
         }
         read_fixed(
             self.source,

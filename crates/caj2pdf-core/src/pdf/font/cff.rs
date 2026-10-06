@@ -203,11 +203,11 @@ struct Reader<'s, 'l, S, C> {
 impl<S: RangedSource, C: Cancellation> Reader<'_, '_, S, C> {
     fn bytes(&mut self, offset: u64, length: usize, limit: usize) -> Result<Vec<u8>> {
         if length > limit {
-            return Err(Error::LimitExceeded {
-                resource: "CFF structure bytes",
-                limit: limit as u64,
-                attempted: length as u64,
-            });
+            return Err(Error::limit(
+                "CFF structure bytes",
+                limit as u64,
+                length as u64,
+            ));
         }
         if offset < self.start || offset + length as u64 > self.end {
             return Err(invalid("CFF structure is outside its table"));
@@ -470,11 +470,11 @@ impl Cff {
             frames[last].1 += size;
             executed += size;
             if executed > MAX_CHARSTRING_BYTES {
-                return Err(Error::LimitExceeded {
-                    resource: "CFF charstring bytes",
-                    limit: MAX_CHARSTRING_BYTES as u64,
-                    attempted: executed as u64,
-                });
+                return Err(Error::limit(
+                    "CFF charstring bytes",
+                    MAX_CHARSTRING_BYTES as u64,
+                    executed as u64,
+                ));
             }
             match b0 {
                 28 | 32..=255 => {

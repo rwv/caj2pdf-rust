@@ -8,9 +8,10 @@ use super::super::{
     integer::{BITMAP_BASE, BITMAP_CONTEXT_COUNT, INTEGER_CONTEXT_COUNT},
 };
 use super::*;
+use crate::ErrorKind;
 use crate::jbig2::mq::ContextState;
 use crate::{NeverCancel, RangedSource};
-use std::{cell::Cell, error::Error as _};
+use std::cell::Cell;
 
 struct ToggleCancel(Cell<bool>);
 
@@ -199,7 +200,7 @@ impl Fixture {
         }
     }
 
-    fn attempt(&mut self) -> TextInstanceResult<TextInstanceProgress> {
+    fn attempt(&mut self) -> Result<TextInstanceProgress> {
         let limits = self.limits;
         let table = MqTable::standard();
         let mut contexts = coding_unit(self.code_len, &Limits::default());
@@ -223,14 +224,14 @@ impl Fixture {
         Ok(decoder.progress())
     }
 
-    fn decode_all(&mut self) -> TextInstanceResult<(Vec<TextInstance>, TextInstanceProgress)> {
+    fn decode_all(&mut self) -> Result<(Vec<TextInstance>, TextInstanceProgress)> {
         self.decode_all_with_policy(TextHeaderPolicy::Strict)
     }
 
     fn decode_all_with_policy(
         &mut self,
         policy: TextHeaderPolicy,
-    ) -> TextInstanceResult<(Vec<TextInstance>, TextInstanceProgress)> {
+    ) -> Result<(Vec<TextInstance>, TextInstanceProgress)> {
         let limits = self.limits;
         let table = MqTable::standard();
         let mut contexts = coding_unit(self.code_len, &Limits::default());
@@ -266,65 +267,35 @@ impl Fixture {
 
 /// The contexts of a text region whose IAID width is `code_len`.
 fn coding_unit(code_len: u32, limits: &Limits) -> ContextBank {
-    crate::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
+    ContextBank::new(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
 }
 
-fn preflight_reject(mut fixture: Fixture, reason: &str) -> TextInstanceError {
+fn preflight_reject(mut fixture: Fixture, reason: &str) -> Error {
     let error = fixture.attempt().unwrap_err();
-    assert!(format!("{:?}", error.kind).contains(reason), "{error:?}");
+    assert!(error.reason.contains(reason), "{error:?}");
     error
 }
 
 #[test]
-fn located_error_variants_and_progress_are_inspectable() {
-    let nested_header = TextRegionError {
+fn site_errors_are_located_in_their_segment() {
+    let site = Site {
         segment: 3,
         offset: 23,
-        bytes_fetched: 2,
-        kind: super::super::text::TextRegionErrorKind::Malformed("test"),
     };
-    let nested_mq = ArithmeticError {
-        coder: Some(super::super::mq::Coder::T88),
-        offset: Some(23),
-        context: None,
-        kind: super::super::mq::ArithmeticErrorKind::InvalidContext,
-    };
-    let nested_refinement = RefinementError {
-        offset: Some(23),
-        bitmap_index: 0,
-        row: 0,
-        x: 0,
-        progress: Box::new(RefinementProgress::default()),
-        kind: super::super::refinement::RefinementErrorKind::Cancelled,
-    };
-    let kinds = [
-        TextInstanceErrorKind::InvalidSpan("test"),
-        TextInstanceErrorKind::Malformed("test"),
-        TextInstanceErrorKind::Unsupported {
-            feature: "test",
-            value: 1,
-        },
-        TextInstanceErrorKind::LimitExceeded {
-            resource: "test",
-            limit: 1,
-            attempted: 2,
-        },
-        TextInstanceErrorKind::Cancelled,
-        TextInstanceErrorKind::Header(Box::new(nested_header)),
-        TextInstanceErrorKind::Mq(Box::new(nested_mq)),
-        TextInstanceErrorKind::Refinement(Box::new(nested_refinement)),
-    ];
-    for kind in kinds {
-        let error = preflight_error(3, 23, 2, kind);
-        assert!(error.to_string().contains("segment 3 at source byte 23"));
-        assert_eq!(error.progress.header_bytes_fetched, 2);
-        let nested = matches!(
-            error.kind,
-            TextInstanceErrorKind::Header(_)
-                | TextInstanceErrorKind::Mq(_)
-                | TextInstanceErrorKind::Refinement(_)
+    for error in [
+        site.malformed("test"),
+        site.unsupported("test"),
+        site.limit("test", 1, 2),
+        site.locate(Error::cancelled()),
+    ] {
+        assert_eq!(
+            (error.context, error.offset),
+            (Context::Jbig2 { segment: Some(3) }, Some(23))
         );
-        assert_eq!(error.source().is_some(), nested);
+        assert!(
+            error.to_string().contains("at byte 23, segment 3"),
+            "{error}"
+        );
         struct RejectFormat;
         impl std::fmt::Write for RejectFormat {
             fn write_str(&mut self, _: &str) -> std::fmt::Result {
@@ -333,22 +304,19 @@ fn located_error_variants_and_progress_are_inspectable() {
         }
         assert!(std::fmt::write(&mut RejectFormat, format_args!("{error}")).is_err());
     }
-    let site = PreflightSite {
-        segment: 3,
-        offset: 23,
-        header_fetched: 2,
-    };
-    let error = site.error(TextInstanceErrorKind::Malformed("test"));
-    assert_eq!((error.segment, error.offset), (3, 23));
-    assert_eq!(error.progress.header_bytes_fetched, 2);
+    // An error located elsewhere keeps its own location.
+    let located = site.locate(Error::malformed(5, "test").in_jbig2(Some(1)));
+    assert_eq!(
+        (located.context, located.offset),
+        (Context::Jbig2 { segment: Some(1) }, Some(5))
+    );
 }
 
 #[test]
 fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
-    let site = PreflightSite {
+    let site = Site {
         segment: 3,
         offset: 23,
-        header_fetched: 2,
     };
     let valid = StoredSymbol {
         store: SymbolStore::Imported,
@@ -425,21 +393,29 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
     for (stored, base, size, reason) in cases {
         let error =
             validate_descriptor(site, stored, SymbolStore::Imported, base, size).unwrap_err();
-        assert!(format!("{:?}", error.kind).contains(reason), "{error:?}");
-        assert_eq!((error.segment, error.offset), (3, 23));
+        assert!(error.reason.contains(reason), "{error:?}");
+        assert_eq!(
+            (error.context, error.offset),
+            (Context::Jbig2 { segment: Some(3) }, Some(23))
+        );
     }
     assert!(matches!(
         checked_coordinate(None),
-        Err(TextInstanceErrorKind::Malformed(_))
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
     assert_eq!(cap_coordinate(i32::MIN as i64).unwrap(), i32::MIN as i64);
     assert_eq!(cap_coordinate(i32::MAX as i64).unwrap(), i32::MAX as i64);
     for value in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
         assert!(matches!(
             cap_coordinate(value),
-            Err(TextInstanceErrorKind::Malformed(
-                "text coordinate outside T.88 signed 32-bit range"
-            ))
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "text coordinate outside T.88 signed 32-bit range",
+                ..
+            })
         ));
     }
 }
@@ -455,8 +431,7 @@ fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
 
     let mut f = make();
     f.source.data[17..19].copy_from_slice(&0xa40cu16.to_be_bytes());
-    let error = preflight_reject(f, "MalformedFlags");
-    assert!(matches!(error.kind, TextInstanceErrorKind::Header(_)));
+    preflight_reject(f, "SBRTEMPLATE without SBREFINE");
 
     let mut f = make();
     f.text_segment.referred_to.clear();
@@ -533,7 +508,7 @@ fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
     default_strict.source.data[17..19].copy_from_slice(&0xa40cu16.to_be_bytes());
     default_strict.parsed = anomaly.parsed;
     let error = default_strict.attempt().unwrap_err();
-    assert!(matches!(error.kind, TextInstanceErrorKind::Header(_)));
+    assert_eq!(error.reason, "SBRTEMPLATE without SBREFINE");
 
     let mut forged = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
     forged.parsed.anomaly = Some(TextHeaderAnomaly::UnusedRefinementTemplate);
@@ -541,8 +516,12 @@ fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
         .decode_all_with_policy(TextHeaderPolicy::HnC8UnusedRefinementTemplate)
         .unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::Malformed("supplied text header differs from source")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "supplied text header differs from source",
+            ..
+        }
     ));
 }
 
@@ -568,8 +547,11 @@ fn valid_huffman_and_template_zero_headers_are_typed_refusals() {
         .unwrap();
         let error = preflight_reject(fixture, expected);
         assert!(matches!(
-            error.kind,
-            TextInstanceErrorKind::Unsupported { .. }
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
     }
 }
@@ -680,15 +662,10 @@ fn truncated_payload_and_bad_marker_errors_are_located() {
     let mut truncated = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
     truncated.source.data.truncate(23 + 1);
     let error = truncated.attempt().unwrap_err();
-    assert!(
-        matches!(&error.kind, TextInstanceErrorKind::Header(header)
-            if matches!(header.kind, super::super::text::TextRegionErrorKind::InvalidSpan(_))),
-        "{error:?}"
-    );
-    assert_eq!(error.progress.completed_instances, 0);
+    assert_eq!(error.reason, "data outside source", "{error:?}");
     let mut bad_marker = Fixture::new(0x10, 1, &[0, 0, 0, 0, 0, 0xff, 0x90], &[ONE_PIXEL]);
     let error = bad_marker.decode_all().unwrap_err();
-    assert!(matches!(error.kind, TextInstanceErrorKind::Mq(_)));
+    assert!(error.reason.contains("MQ"));
 }
 
 #[test]
@@ -699,8 +676,10 @@ fn refinement_errors_end_the_text_session() {
     // Only the refinement host allocates: its target rows and store.
     f.limits.max_allocation_bytes = 0;
     let error = f.decode_all().unwrap_err();
-    assert!(matches!(error.kind, TextInstanceErrorKind::Refinement(_)));
-    assert_eq!(error.progress.completed_instances, 0);
+    assert!(
+        matches!(error.kind, ErrorKind::LimitExceeded { .. }),
+        "{error}"
+    );
     assert!(f.temporary.is_empty());
 }
 
@@ -751,15 +730,12 @@ fn malformed_body_mutations_end_with_located_results() {
                 assert_eq!(progress.completed_instances, 2);
             }
             Err(error) => {
-                assert_eq!(error.segment, 3);
-                assert!(error.offset >= 23);
-                assert!(error.progress.completed_instances <= 2);
-                match error.kind {
-                    TextInstanceErrorKind::Malformed("unexpected arithmetic OOB") => {
-                        unexpected_oob += 1
-                    }
-                    TextInstanceErrorKind::Malformed("IAIT outside strip") => outside_strip += 1,
-                    TextInstanceErrorKind::Malformed("IARI is not a bit") => invalid_ri += 1,
+                assert_eq!(error.context, Context::Jbig2 { segment: Some(3) });
+                assert!(error.offset >= Some(23));
+                match error.reason {
+                    "unexpected arithmetic OOB" => unexpected_oob += 1,
+                    "IAIT outside strip" => outside_strip += 1,
+                    "IARI is not a bit" => invalid_ri += 1,
                     _ => {}
                 }
             }
@@ -798,8 +774,14 @@ fn cancellation_is_reported_with_progress() {
     .unwrap();
     cancellation.0.set(true);
     let cancelled = decoder.next_instance().unwrap_err();
-    assert!(matches!(cancelled.kind, TextInstanceErrorKind::Cancelled));
-    assert_eq!(cancelled.progress.completed_instances, 0);
+    assert!(matches!(
+        cancelled,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
+    assert_eq!(decoder.progress().completed_instances, 0);
 }
 
 #[test]
@@ -898,11 +880,13 @@ fn real_mq_fixed_width_iaid_accepts_last_symbol_and_rejects_unused_codeword() {
     fixture.qe = 0x4000;
     let error = fixture.decode_all().unwrap_err();
     assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::Malformed("IAID outside exported catalog")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "IAID outside exported catalog",
+            ..
+        }
     ));
-    assert_eq!(error.progress.decision, TextDecision::SymbolId);
-    assert_eq!(error.progress.completed_instances, 0);
 }
 
 #[test]
@@ -924,15 +908,24 @@ fn table12_offsets_floor_negative_half_deltas() {
     );
     assert!(matches!(
         refined_geometry(reference, -4, 0, 0, 0),
-        Err(TextInstanceErrorKind::Malformed(_))
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
     assert!(matches!(
         refined_geometry(reference, 0, 0, i64::MAX, 0),
-        Err(TextInstanceErrorKind::Malformed(_))
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
     assert!(matches!(
         refined_geometry(reference, 0, 0, 0, i64::MIN),
-        Err(TextInstanceErrorKind::Malformed(_))
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
 }
 

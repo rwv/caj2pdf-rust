@@ -68,22 +68,32 @@ fn damaged_dependencies_are_transitive_and_honor_cancellation() {
             },
             &CancelAfter::new(allowed),
         );
-        assert!(matches!(result, Ok(_) | Err(Error::Cancelled)));
+        assert!(matches!(
+            result,
+            Ok(_)
+                | Err(Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                })
+        ));
     }
     let unsupported = String::from_utf8(BODY.to_vec())
         .unwrap()
         .replace("/MediaBox[0 0 20 30]", "/MediaBox 20 0 R");
     assert!(matches!(
         exercise(unsupported.as_bytes(), &Limits::default(), &NEVER),
-        Err(Error::Pdf {
-            kind: PdfErrorKind::UnsupportedFeature,
+        Err(Error {
+            kind: ErrorKind::UnsupportedFormat,
+            context: Context::Pdf { repair: false, .. },
             ..
         })
     ));
     let unknown = b"7 0 obj null endobj";
     assert!(matches!(
         exercise(unknown, &Limits::default(), &NEVER),
-        Err(Error::Caj {
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Caj { .. },
             reason: "damaged page has no validated geometry",
             ..
         })

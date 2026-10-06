@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, ConversionOptions, DEFAULT_IO_CHUNK, Error, Limits, MAX_IO_CHUNK, NeverCancel,
-    PdfErrorKind, RangedSource, native::SeekableSource, read_exact_at,
+    Cancellation, Context, ConversionOptions, DEFAULT_IO_CHUNK, Error, ErrorKind, Limits,
+    MAX_IO_CHUNK, NeverCancel, RangedSource, native::SeekableSource, read_exact_at,
 };
 use std::{
     cell::Cell,
@@ -89,10 +89,14 @@ fn read_exact_distinguishes_short_read_from_truncation() {
     .unwrap_err();
     assert!(matches!(
         error,
-        Error::TruncatedInput {
-            offset: 4,
-            expected: 4,
-            available: 2
+        Error {
+            kind: ErrorKind::Truncated {
+                expected: 4,
+                available: 2,
+                ..
+            },
+            offset: Some(4),
+            ..
         }
     ));
 
@@ -107,10 +111,14 @@ fn read_exact_distinguishes_short_read_from_truncation() {
     .unwrap_err();
     assert!(matches!(
         error,
-        Error::TruncatedInput {
-            offset: 4,
-            expected: 4,
-            available: 2
+        Error {
+            kind: ErrorKind::Truncated {
+                expected: 4,
+                available: 2,
+                ..
+            },
+            offset: Some(4),
+            ..
         }
     ));
 }
@@ -127,7 +135,10 @@ fn malformed_ranges_and_source_reports_return_errors() {
             &Limits::default(),
             &NeverCancel
         ),
-        Err(Error::InvalidInput { .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
     source.advertised_size = u64::MAX;
     assert!(matches!(
@@ -141,7 +152,10 @@ fn malformed_ranges_and_source_reports_return_errors() {
             },
             &NeverCancel
         ),
-        Err(Error::InvalidInput { .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
     source.advertised_size = 3;
     source.overreport = true;
@@ -153,7 +167,10 @@ fn malformed_ranges_and_source_reports_return_errors() {
             &Limits::default(),
             &NeverCancel
         ),
-        Err(Error::InvalidInput { .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
 }
 
@@ -164,29 +181,47 @@ fn configured_limits_reject_oversized_requests_before_io() {
     let mut limits = Limits::default();
     assert_eq!(limits.io_chunk_bytes, DEFAULT_IO_CHUNK);
     limits.io_chunk_bytes = 0;
-    assert!(matches!(limits.validate(), Err(Error::InvalidInput { .. })));
+    assert!(matches!(
+        limits.validate(),
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
+    ));
     limits.io_chunk_bytes = MAX_IO_CHUNK + 1;
     assert!(matches!(
         limits.validate(),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     limits.io_chunk_bytes = 2;
     limits.max_allocation_bytes = 1;
     assert!(matches!(
         limits.validate(),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     limits.max_allocation_bytes = 2;
     limits.max_input_bytes = 1;
     assert!(matches!(
         read_exact_at(&mut source, 0, &mut destination, &limits, &NeverCancel),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     limits.max_input_bytes = 3;
     limits.io_chunk_bytes = 1;
     assert!(matches!(
         read_exact_at(&mut source, 0, &mut destination, &limits, &NeverCancel),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     assert!(source.reads.is_empty());
 
@@ -196,11 +231,17 @@ fn configured_limits_reject_oversized_requests_before_io() {
     assert!(limits.check_bookmarks(1).is_ok());
     assert!(matches!(
         limits.check_pages(2),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     assert!(matches!(
         limits.check_bookmarks(2),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
 }
 
@@ -212,7 +253,10 @@ fn cancellation_stops_before_and_after_a_read() {
     let mut buffer = [0; 2];
     assert!(matches!(
         read_exact_at(&mut source, 0, &mut buffer, &Limits::default(), &flag),
-        Err(Error::Cancelled)
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
     ));
     assert!(source.reads.is_empty());
 
@@ -220,7 +264,10 @@ fn cancellation_stops_before_and_after_a_read() {
     source.cancel_after_read = Some(state.clone());
     assert!(matches!(
         read_exact_at(&mut source, 0, &mut buffer, &Limits::default(), &flag),
-        Err(Error::Cancelled)
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
     ));
     assert_eq!(source.reads.len(), 1);
 }
@@ -267,7 +314,10 @@ fn byte_slices_are_sources() {
     assert_eq!(source.read_at(4, &mut buffer).unwrap(), 2);
     assert!(matches!(
         source.read_at(7, &mut buffer),
-        Err(Error::InvalidInput { .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
 }
 
@@ -278,11 +328,17 @@ fn native_adapters_reject_oversized_direct_calls() {
     let mut destination = vec![0; MAX_IO_CHUNK + 1];
     assert!(matches!(
         source.read_at(0, &mut destination),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
     assert!(matches!(
         source.read_at(u64::MAX, &mut []),
-        Err(Error::InvalidInput { .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
     ));
 }
 
@@ -291,31 +347,22 @@ fn error_types_preserve_context_and_sources() {
     let error = Error::from(io::Error::other("disk failed"));
     assert!(error.to_string().contains("disk failed"));
     assert!(std::error::Error::source(&error).is_some());
-    assert!(std::error::Error::source(&Error::Cancelled).is_none());
-    assert!(Error::UnsupportedFormat.to_string().contains("unsupported"));
-    assert_eq!(Error::Cancelled.to_string(), "operation cancelled");
-    assert_eq!(
-        Error::TruncatedInput {
-            offset: 4,
-            expected: 3,
-            available: 2
-        }
-        .to_string(),
-        "truncated input at offset 4: needed 3 bytes, got 2"
-    );
+    assert!(std::error::Error::source(&Error::cancelled()).is_none());
     assert!(
-        Error::InvalidInput { reason: "x" }
+        Error::from(ErrorKind::UnsupportedFormat)
             .to_string()
-            .contains('x')
+            .contains("unsupported")
     );
+    assert_eq!(Error::cancelled().to_string(), "operation cancelled");
+    assert_eq!(
+        Error::truncated(4, 3, 2).to_string(),
+        "truncated input at byte 4: expected 3 bytes, available 2"
+    );
+    assert!(Error::invalid("x").to_string().contains('x'));
     assert!(
-        Error::LimitExceeded {
-            resource: "bytes",
-            limit: 1,
-            attempted: 2
-        }
-        .to_string()
-        .contains("attempted 2")
+        Error::limit("bytes", 1, 2)
+            .to_string()
+            .contains("attempted 2")
     );
     assert!(ConversionOptions::default().include_bookmarks);
 }
@@ -324,84 +371,55 @@ fn error_types_preserve_context_and_sources() {
 fn located_format_errors_name_their_offset_record_and_object() {
     let cases = [
         (
-            Error::Caj {
-                offset: 0x14,
-                record: None,
-                reason: "CAJ page table extends beyond source",
-            },
+            Error::malformed(0x14, "CAJ page table extends beyond source").in_caj(None),
             "malformed CAJ at byte 20: CAJ page table extends beyond source",
         ),
         (
-            Error::Caj {
-                offset: 0x114,
-                record: Some(3),
-                reason: "empty CAJ TOC title",
-            },
+            Error::malformed(0x114, "empty CAJ TOC title").in_caj(Some(3)),
             "malformed CAJ at byte 276, record 3: empty CAJ TOC title",
         ),
         (
-            Error::CajLimitExceeded {
-                offset: 16,
-                record: None,
-                resource: "pages",
-                limit: 2,
-                attempted: 5,
-            },
+            Error::limit("pages", 2, 5).at(16).in_caj(None),
             "CAJ pages limit exceeded at byte 16: maximum 2, attempted 5",
         ),
         (
-            Error::CajLimitExceeded {
-                offset: 584,
-                record: Some(2),
-                resource: "CAJ title bytes",
-                limit: 10,
-                attempted: 12,
-            },
+            Error::limit("CAJ title bytes", 10, 12)
+                .at(584)
+                .in_caj(Some(2)),
             "CAJ CAJ title bytes limit exceeded at byte 584, record 2: maximum 10, attempted 12",
         ),
         (
-            Error::Kdh {
-                offset: 0x28,
-                reason: "KDH version field is invalid",
-            },
+            Error::malformed(0x28, "KDH version field is invalid").within(Context::Kdh),
             "malformed KDH at byte 40: KDH version field is invalid",
         ),
         (
-            Error::Pdf {
-                offset: 9,
-                object: None,
-                kind: PdfErrorKind::Encrypted,
-                reason: "encrypted input",
-            },
+            Error::from(ErrorKind::Encrypted)
+                .at(9)
+                .because("encrypted input")
+                .within(Context::Pdf {
+                    object: None,
+                    repair: false,
+                }),
             "encrypted PDF at byte 9: encrypted input",
         ),
         (
-            Error::Pdf {
-                offset: 70,
-                object: Some((12, 1)),
-                kind: PdfErrorKind::AmbiguousRepair,
-                reason: "two candidates",
-            },
+            Error::from(ErrorKind::Malformed)
+                .at(70)
+                .because("two candidates")
+                .within(Context::Pdf {
+                    object: Some((12, 1)),
+                    repair: true,
+                }),
             "ambiguous repair PDF at byte 70, object 12 1: two candidates",
         ),
         (
-            Error::PdfLimitExceeded {
-                offset: 3,
-                object: None,
-                resource: "output bytes",
-                limit: 128,
-                attempted: 129,
-            },
+            Error::limit("output bytes", 128, 129).at(3).in_pdf(None),
             "PDF output bytes limit exceeded at byte 3: maximum 128, attempted 129",
         ),
         (
-            Error::PdfLimitExceeded {
-                offset: 44,
-                object: Some((7, 0)),
-                resource: "stream bytes",
-                limit: 4,
-                attempted: 8,
-            },
+            Error::limit("stream bytes", 4, 8)
+                .at(44)
+                .in_pdf(Some((7, 0))),
             "PDF stream bytes limit exceeded at byte 44, object 7 0: maximum 4, attempted 8",
         ),
     ];
@@ -409,9 +427,4 @@ fn located_format_errors_name_their_offset_record_and_object() {
         assert_eq!(error.to_string(), expected);
         assert!(std::error::Error::source(&error).is_none());
     }
-    assert_eq!(PdfErrorKind::Malformed.to_string(), "malformed");
-    assert_eq!(
-        PdfErrorKind::UnsupportedFeature.to_string(),
-        "unsupported feature"
-    );
 }

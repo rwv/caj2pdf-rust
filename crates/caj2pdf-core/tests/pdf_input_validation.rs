@@ -5,14 +5,15 @@
 mod common;
 
 use caj2pdf_core::{
-    Bookmark, Cancellation, Error, InputFormat, Limits, PdfErrorKind, RangedSource, detect_source,
+    Bookmark, Cancellation, Context, Error, ErrorKind, InputFormat, Limits, RangedSource,
+    detect_source,
     native::SeekableSource,
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
         copy_pdf, copy_pdf_range, reconstruct_fragment_with_bookmarks,
     },
 };
-use common::CancelAfter;
+use common::{CancelAfter, errors::pdf_class};
 use flate2::{Compression, write::ZlibEncoder};
 use std::{
     cell::{Cell, RefCell},
@@ -392,7 +393,16 @@ fn xref_stream_row_parse_observes_cancellation() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error, Error::Cancelled), "{error}");
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }
+        ),
+        "{error}"
+    );
     assert_eq!(cancellation.checks_after_read.get(), 3);
 }
 
@@ -421,17 +431,17 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
         (
             b"/W [1 4 2]".as_slice(),
             b"/W [1 4 9]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/Index [0 5]".as_slice(),
             b"/Index [1 5]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/FlateDecode".as_slice(),
             b"/FlateDecodX".as_slice(),
-            PdfErrorKind::UnsupportedFeature,
+            "unsupported",
         ),
     ] {
         let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
@@ -439,10 +449,7 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
         let error = inspect_bytes(input)
             .err()
             .expect("bad xref stream must fail");
-        assert!(
-            matches!(error, Error::Pdf { kind: actual, .. } if actual == kind),
-            "{error}"
-        );
+        assert!(pdf_class(&error) == Some(kind), "{error}");
     }
     let error = inspect_bytes(synthetic_xref_stream_pdf(false, false, true, b""))
         .err()
@@ -450,8 +457,9 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::UnsupportedFeature,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -463,8 +471,12 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                resource: "PDF xref decoded bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF xref decoded bytes",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             }
         ),
@@ -478,51 +490,48 @@ fn xref_stream_metadata_limits_and_unsupported_forms_are_located() {
         (
             b"/Type /XRef".as_slice(),
             b"/Type /Page".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/W [1 4 2]".as_slice(),
             b"/W [0 0 0]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/W [1 4 2]".as_slice(),
             b"/W [1 4]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/Index [0 5]".as_slice(),
             b"/Index [0]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/Index [0 5]".as_slice(),
             b"/Index [18446744073709551615 1]".as_slice(),
-            PdfErrorKind::Malformed,
+            "malformed",
         ),
         (
             b"/Length ".as_slice(),
             b"/Length 1 0 R /Unused ".as_slice(),
-            PdfErrorKind::UnsupportedFeature,
+            "unsupported",
         ),
         (
             b"/Filter /FlateDecode".as_slice(),
             b"/Filter [/FlateDecode]".as_slice(),
-            PdfErrorKind::UnsupportedFeature,
+            "unsupported",
         ),
         (
             b"/Filter /FlateDecode".as_slice(),
             b"/Filter /FlateDecode /DecodeParms << /Predictor 12 >>".as_slice(),
-            PdfErrorKind::UnsupportedFeature,
+            "unsupported",
         ),
     ] {
         let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
         replace_once(&mut input, before, after);
         let error = inspect_bytes(input).err().expect("invalid xref metadata");
-        assert!(
-            matches!(error, Error::Pdf { kind: actual, .. } if actual == kind),
-            "{error}"
-        );
+        assert!(pdf_class(&error) == Some(kind), "{error}");
     }
 
     for (before, after, resource) in [
@@ -544,7 +553,7 @@ fn xref_stream_metadata_limits_and_unsupported_forms_are_located() {
         replace_once(&mut input, before, after);
         let error = inspect_bytes(input).err().expect("xref resource limit");
         assert!(
-            matches!(error, Error::PdfLimitExceeded { resource: actual, .. } if actual == resource),
+            matches!(error, Error { kind: ErrorKind::LimitExceeded { resource: actual, .. }, context: Context::Pdf { .. }, .. } if actual == resource),
             "{error}"
         );
     }
@@ -563,8 +572,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref stream Flate data is invalid",
                 ..
             }
@@ -578,8 +588,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref stream length disagrees with W and Index",
                 ..
             }
@@ -598,8 +609,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::UnsupportedFeature,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref entry type is unsupported",
                 ..
             }
@@ -618,8 +630,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref object offset exceeds PDF range",
                 ..
             }
@@ -647,8 +660,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref generation exceeds 16 bits",
                 ..
             }
@@ -667,8 +681,9 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref stream has no valid self entry",
                 ..
             }
@@ -734,7 +749,10 @@ fn cancellation_at_every_flate_xref_stream_checkpoint_is_reported() {
                 assert_eq!(index.pages().len(), 1);
                 break;
             }
-            Err(Error::Cancelled) => cancelled += 1,
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }) => cancelled += 1,
             Err(other) => panic!("checkpoint {allowed} failed with {other:?}"),
         }
     }
@@ -753,8 +771,9 @@ fn xref_stream_default_index_and_nonstream_body_are_distinguished() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "xref object is not a stream",
                 ..
             }
@@ -817,8 +836,9 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -830,8 +850,9 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -848,8 +869,9 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "stale page Parent is not reachable through validated Kids",
                 ..
             }
@@ -862,8 +884,9 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "page tree Parent link disagrees with Kids",
                 ..
             }
@@ -877,8 +900,9 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "page tree Parent link disagrees with Kids",
                 ..
             }
@@ -923,8 +947,9 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -936,8 +961,9 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "unindexed bytes between PDF objects",
                 ..
             }
@@ -983,7 +1009,9 @@ fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
         };
         let error = copy_pdf(&mut source, &mut sink, &limits, &CancelAfter::Never)
             .expect_err("changed source must fail copy");
-        assert!(matches!(error, Error::InvalidInput { reason: actual } if actual == reason));
+        assert!(
+            matches!(error, Error { kind: ErrorKind::Malformed, reason: actual, .. } if actual == reason)
+        );
         assert!(!sink.written.is_empty());
     }
 }
@@ -1057,9 +1085,10 @@ fn a_displaced_header_is_viewed_from_its_offset_and_copies_the_unprefixed_pdf() 
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    kind: PdfErrorKind::Malformed,
-                    offset: 0,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    offset: Some(0),
+                    context: Context::Pdf { repair: false, .. },
                     ..
                 }
             ),
@@ -1161,7 +1190,7 @@ fn unknown_suffix_and_incomplete_incremental_revision_are_not_silently_dropped()
             &CancelAfter::Never,
         )
         .expect_err("unknown trailing data must fail");
-        assert!(matches!(error, Error::Pdf { kind: PdfErrorKind::Malformed | PdfErrorKind::AmbiguousRepair, .. }), "{error}");
+        assert!(matches!(error, Error { kind: ErrorKind::Malformed, context: Context::Pdf { .. }, .. }), "{error}");
         assert!(sink.is_empty());
     }
 }
@@ -1212,8 +1241,9 @@ fn incremental_xref_cannot_activate_a_live_object_after_the_pdf_end() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed | PdfErrorKind::AmbiguousRepair,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { .. },
                 ..
             }
         ),
@@ -1312,9 +1342,13 @@ fn duplicate_page_box_repairs_beyond_the_budget_fail_before_output() {
     assert!(
         matches!(
             result,
-            Err(Error::PdfLimitExceeded {
-                resource: "PDF repair object bytes",
-                limit: 8192,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF repair object bytes",
+                    limit: 8192,
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             })
         ),
@@ -1565,9 +1599,12 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                object: Some((1, 0)),
-                kind: PdfErrorKind::UnsupportedFeature,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    repair: false
+                },
                 ..
             }
         ),
@@ -1610,9 +1647,12 @@ fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    object: Some((2, 0)),
-                    kind: PdfErrorKind::Malformed,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Pdf {
+                        object: Some((2, 0)),
+                        repair: false
+                    },
                     ..
                 }
             ),
@@ -1643,8 +1683,9 @@ fn malformed_fixture_is_located_and_never_partially_copied() {
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    kind: PdfErrorKind::Malformed,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Pdf { repair: false, .. },
                     ..
                 }
             ),
@@ -1681,8 +1722,9 @@ fn conflicting_duplicate_page_box_is_not_guessed() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             }
         ),
@@ -1738,9 +1780,10 @@ fn higher_pdf_version_and_encryption_are_typed_unsupported_inputs() {
     let version_error = inspect_bytes(version).err().unwrap();
     assert!(matches!(
         version_error,
-        Error::Pdf {
-            offset: 0,
-            kind: PdfErrorKind::UnsupportedFeature,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            offset: Some(0),
+            context: Context::Pdf { repair: false, .. },
             ..
         }
     ));
@@ -1765,8 +1808,9 @@ fn higher_pdf_version_and_encryption_are_typed_unsupported_inputs() {
     let encrypted_error = inspect_bytes(encrypted).err().unwrap();
     assert!(matches!(
         encrypted_error,
-        Error::Pdf {
-            kind: PdfErrorKind::Encrypted,
+        Error {
+            kind: ErrorKind::Encrypted,
+            context: Context::Pdf { repair: false, .. },
             ..
         }
     ));
@@ -1795,8 +1839,9 @@ fn recognized_signature_indicators_block_modification() {
         assert!(
             matches!(
                 error,
-                Error::Pdf {
-                    kind: PdfErrorKind::UnsupportedFeature,
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    context: Context::Pdf { repair: false, .. },
                     ..
                 }
             ),
@@ -1900,8 +1945,9 @@ fn incremental_xref_cannot_activate_an_object_inside_a_live_stream() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -1916,8 +1962,9 @@ fn malformed_outline_links_and_unsupported_named_destinations_are_located() {
     replace_once_same_len(&mut wrong_parent, b"/Parent 7 0 R", b"/Parent 6 0 R");
     assert!(matches!(
         inspect_bytes(wrong_parent),
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Pdf { repair: false, .. },
             ..
         })
     ));
@@ -1930,8 +1977,9 @@ fn malformed_outline_links_and_unsupported_named_destinations_are_located() {
     );
     assert!(matches!(
         inspect_bytes(wrong_destination),
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Pdf { repair: false, .. },
             ..
         })
     ));
@@ -1943,8 +1991,9 @@ fn malformed_outline_links_and_unsupported_named_destinations_are_located() {
     replace_once_same_len(&mut named_destination, old, &named);
     assert!(matches!(
         inspect_bytes(named_destination),
-        Err(Error::Pdf {
-            kind: PdfErrorKind::UnsupportedFeature,
+        Err(Error {
+            kind: ErrorKind::UnsupportedFormat,
+            context: Context::Pdf { repair: false, .. },
             ..
         })
     ));
@@ -1960,8 +2009,9 @@ fn page_contents_must_resolve_to_a_stream() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -1989,7 +2039,7 @@ fn embedded_pdf_error_offset_is_absolute_in_its_source() {
     .err()
     .unwrap();
     assert!(
-        matches!(error, Error::Pdf { offset, kind: PdfErrorKind::Malformed, .. } if offset >= prefix.len() as u64),
+        matches!(error, Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Pdf { repair: false, .. }, .. } if offset >= prefix.len() as u64),
         "{error}"
     );
 }
@@ -2007,8 +2057,9 @@ fn nested_duplicate_keys_and_bad_trailer_id_are_rejected() {
     assert!(
         matches!(
             nested_error,
-            Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             }
         ),
@@ -2031,8 +2082,9 @@ fn nested_duplicate_keys_and_bad_trailer_id_are_rejected() {
     assert!(
         matches!(
             id_error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -2054,8 +2106,9 @@ fn nested_duplicate_keys_and_bad_trailer_id_are_rejected() {
     assert!(
         matches!(
             info_error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -2092,8 +2145,9 @@ fn fragment_without_page_media_box_fails_before_output() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -2132,8 +2186,9 @@ fn fragment_page_contents_must_resolve_to_stream() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 ..
             }
         ),
@@ -2171,8 +2226,9 @@ fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
     assert!(
         matches!(
             error,
-            Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             }
         ),
@@ -2203,13 +2259,7 @@ fn page_limit_reports_the_pdf_object_and_source_offset() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset,
-                object: Some((2, 0)),
-                resource: "pages",
-                limit: 1,
-                attempted: 2,
-            } if offset > 0
+            Error { kind: ErrorKind::LimitExceeded { resource: "pages", limit: 1, attempted: 2, .. }, offset: Some(offset), context: Context::Pdf { object: Some((2, 0)), .. }, .. } if offset > 0
         ),
         "{error}"
     );
@@ -2227,14 +2277,7 @@ fn page_limit_reports_the_pdf_object_and_source_offset() {
 #[test]
 fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     assert_eq!(
-        Error::PdfLimitExceeded {
-            offset: 7,
-            object: None,
-            resource: "bytes",
-            limit: 1,
-            attempted: 2,
-        }
-        .to_string(),
+        Error::limit("bytes", 1, 2).at(7).in_pdf(None).to_string(),
         "PDF bytes limit exceeded at byte 7: maximum 1, attempted 2"
     );
     let input = write_pdf_without_outlines();
@@ -2249,9 +2292,13 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset: 0,
-                resource: "input bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "input bytes",
+                    ..
+                },
+                offset: Some(0),
+                context: Context::Pdf { .. },
                 ..
             }
         ),
@@ -2283,10 +2330,16 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset: 0,
-                object: Some((1, 0)),
-                resource: "input bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "input bytes",
+                    ..
+                },
+                offset: Some(0),
+                context: Context::Pdf {
+                    object: Some((1, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -2309,12 +2362,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset,
-                object: Some((1, 0)),
-                resource: "output bytes",
-                ..
-            } if offset > 0
+            Error { kind: ErrorKind::LimitExceeded { resource: "output bytes", .. }, offset: Some(offset), context: Context::Pdf { object: Some((1, 0)), .. }, .. } if offset > 0
         ),
         "{error}"
     );
@@ -2351,10 +2399,16 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset: 0,
-                object: Some((3, 0)),
-                resource: "input bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "input bytes",
+                    ..
+                },
+                offset: Some(0),
+                context: Context::Pdf {
+                    object: Some((3, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -2449,7 +2503,16 @@ fn appender_rejects_a_source_that_shrank_after_inspection() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error, Error::InvalidInput { .. }), "{error}");
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ),
+        "{error}"
+    );
     assert!(sink.is_empty());
 }
 
@@ -2519,10 +2582,16 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                object: Some((3, 0)),
-                resource: "input bytes",
-                attempted: u64::MAX,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "input bytes",
+                    attempted: u64::MAX,
+                    ..
+                },
+                context: Context::Pdf {
+                    object: Some((3, 0)),
+                    ..
+                },
                 ..
             }
         ),
@@ -2542,6 +2611,15 @@ fn pdf_copy_rejects_a_source_that_overreports_a_read() {
         &CancelAfter::Never,
     )
     .expect_err("overreported source bytes must fail");
-    assert!(matches!(error, Error::InvalidInput { .. }), "{error}");
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ),
+        "{error}"
+    );
     assert!(sink.is_empty());
 }

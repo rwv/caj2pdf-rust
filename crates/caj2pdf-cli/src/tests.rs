@@ -1414,9 +1414,7 @@ impl caj2pdf_core::RangedSource for Bytes {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         if offset > self.size() {
-            return Err(caj2pdf_core::Error::InvalidInput {
-                reason: "test read past end",
-            });
+            return Err(caj2pdf_core::Error::invalid("test read past end"));
         }
         let bytes = &self.0[offset as usize..];
         let count = bytes.len().min(destination.len());

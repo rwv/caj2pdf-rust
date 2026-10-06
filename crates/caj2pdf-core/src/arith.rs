@@ -2,12 +2,12 @@
 
 //! Scaffolding shared by the T.82 QM decoder ([`crate::qm`]) and the T.88 MQ
 //! decoder ([`crate::jbig2::mq`]): the context bank, the coded span, the
-//! located error, the register snapshot, and the symbol counters.
+//! register snapshot, and the symbol counters.
 //! Each decoder keeps its own interval arithmetic and probability states and
 //! reads its coded bytes from a [`Payload`] in memory.
 
-use crate::{Error, Limits, Payload};
-use std::{error, fmt, mem};
+use crate::{Error, Limits, Payload, Result};
+use std::mem;
 
 /// One context's probability-state index and more-probable symbol.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -25,27 +25,20 @@ pub struct ContextBank {
 
 impl ContextBank {
     /// Allocate a nonempty bank under the caller's allocation limit.
-    pub fn new(count: usize, limits: &Limits) -> ArithmeticResult<Self> {
-        let failed = |kind| ArithmeticError {
-            coder: None,
-            offset: None,
-            context: None,
-            kind,
-        };
+    pub fn new(count: usize, limits: &Limits) -> Result<Self> {
+        let invalid = || Error::invalid(INVALID_CONTEXT);
         if count == 0 {
-            return Err(failed(ArithmeticErrorKind::InvalidContext));
+            return Err(invalid());
         }
         let bytes = count
             .checked_mul(mem::size_of::<ContextState>())
             .and_then(|value| u64::try_from(value).ok())
-            .ok_or_else(|| failed(ArithmeticErrorKind::InvalidContext))?;
-        limits
-            .check_allocation(bytes)
-            .map_err(|source| failed(ArithmeticErrorKind::Source(source)))?;
+            .ok_or_else(invalid)?;
+        limits.check_allocation(bytes)?;
         let mut states = Vec::new();
         states
             .try_reserve_exact(count)
-            .map_err(|_| failed(ArithmeticErrorKind::AllocationFailed))?;
+            .map_err(|_| limits.allocation_refused("arithmetic context bytes", bytes))?;
         states.resize(count, ContextState::default());
         Ok(Self { states })
     }
@@ -85,93 +78,8 @@ pub struct CodedSpan {
     pub length: u64,
 }
 
-/// The decoder that located an [`ArithmeticError`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Coder {
-    /// The T.82 QM decoder of [`crate::qm`].
-    T82,
-    /// The T.88 MQ decoder of [`crate::jbig2::mq`].
-    T88,
-}
-
-/// An arithmetic-decoding error with the next offset in the coded payload's
-/// source coordinates and a context index when those locations exist. A
-/// [`ContextBank`] allocation error names no decoder.
-#[derive(Debug)]
-pub struct ArithmeticError {
-    pub coder: Option<Coder>,
-    pub offset: Option<u64>,
-    pub context: Option<usize>,
-    pub kind: ArithmeticErrorKind,
-}
-
-#[derive(Debug)]
-pub enum ArithmeticErrorKind {
-    InvalidContext,
-    InvalidSpan(&'static str),
-    /// `finish` was given a symbol count other than the decoded count.
-    SymbolCount {
-        expected: u64,
-        decoded: u64,
-    },
-    /// T.88 only: the coding unit does not end with `FF AC`.
-    MissingTerminator,
-    /// T.88 only: a marker other than the final `FF AC`.
-    InvalidMarker(u8),
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Source(Error),
-}
-
-pub type ArithmeticResult<T> = std::result::Result<T, ArithmeticError>;
-
-impl fmt::Display for ArithmeticError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self.coder {
-            Some(Coder::T82) => "T.82 arithmetic decoder",
-            Some(Coder::T88) => "T.88 MQ decoder",
-            None => "arithmetic context bank",
-        })?;
-        if let Some(offset) = self.offset {
-            write!(f, " at source byte {offset}")?;
-        }
-        if let Some(context) = self.context {
-            write!(f, ", context {context}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            ArithmeticErrorKind::InvalidContext => f.write_str("invalid context index or count"),
-            ArithmeticErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            ArithmeticErrorKind::SymbolCount { expected, decoded } => {
-                write!(f, "expected {expected} symbols, decoded {decoded}")
-            }
-            ArithmeticErrorKind::MissingTerminator => f.write_str("missing terminal marker"),
-            ArithmeticErrorKind::InvalidMarker(second) => {
-                write!(f, "invalid marker following 0xFF: {second:#04x}")
-            }
-            ArithmeticErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            ArithmeticErrorKind::AllocationFailed => f.write_str("context allocation failed"),
-            ArithmeticErrorKind::Source(source) => write!(f, "source error: {source}"),
-        }
-    }
-}
-
-impl error::Error for ArithmeticError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            ArithmeticErrorKind::Source(source) => Some(source),
-            _ => None,
-        }
-    }
-}
+/// The reason for a context index outside the bank or an empty bank.
+pub(crate) const INVALID_CONTEXT: &str = "invalid arithmetic context index or count";
 
 /// A read-only register and progress snapshot. `code` is the full 32-bit C
 /// register; `interval` is A and `bit_counter` is CT.
@@ -192,27 +100,26 @@ pub struct ArithmeticSnapshot {
 /// Check a coded span against the input limit and the payload, returning
 /// its bytes.
 pub(crate) fn check_span<'a>(
-    coder: Coder,
     span: CodedSpan,
     input: Payload<'a>,
     limits: &Limits,
-) -> ArithmeticResult<&'a [u8]> {
-    let at = |kind| ArithmeticError {
-        coder: Some(coder),
-        offset: Some(span.offset),
-        context: None,
-        kind,
-    };
+) -> Result<&'a [u8]> {
     limits
         .check_input_size(span.length)
-        .map_err(|source| at(ArithmeticErrorKind::Source(source)))?;
+        .map_err(|error| error.at(span.offset))?;
     span.offset
         .checked_add(span.length)
-        .ok_or_else(|| at(ArithmeticErrorKind::InvalidSpan("end overflows u64")))?;
+        .ok_or_else(|| Error::invalid("coded span end overflows u64").at(span.offset))?;
     input
         .get(span.offset, span.length)
-        .ok_or_else(|| at(ArithmeticErrorKind::InvalidSpan("outside source size")))
+        .ok_or_else(|| Error::invalid(OUTSIDE_SOURCE).at(span.offset))
 }
+
+/// The reason for a coded span outside its payload.
+pub(crate) const OUTSIDE_SOURCE: &str = "coded span is outside the source";
+
+/// The reason for a decoded symbol count other than the caller's.
+pub(crate) const SYMBOL_COUNT: &str = "decoded symbol count differs from the expected count";
 
 /// The counters of one coding unit. Each step adds one, so neither can
 /// reach `u64::MAX`.
@@ -249,10 +156,10 @@ mod tests {
     fn context_banks_are_nonempty_bounded_and_reset_to_state_zero() {
         let limits = Limits::default();
         let empty = ContextBank::new(0, &limits).unwrap_err();
-        assert!(matches!(empty.kind, ArithmeticErrorKind::InvalidContext));
+        assert!(matches!(empty.kind, crate::ErrorKind::Malformed));
         assert_eq!(
             empty.to_string(),
-            "arithmetic context bank: invalid context index or count"
+            "invalid input: invalid arithmetic context index or count"
         );
         let tiny = Limits {
             io_chunk_bytes: 1,
@@ -261,7 +168,7 @@ mod tests {
         };
         assert!(matches!(
             ContextBank::new(1, &tiny).unwrap_err().kind,
-            ArithmeticErrorKind::Source(Error::LimitExceeded { .. })
+            crate::ErrorKind::LimitExceeded { .. }
         ));
         let mut bank = ContextBank::new(2, &limits).unwrap();
         assert_eq!((bank.len(), bank.is_empty()), (2, false));
@@ -283,16 +190,19 @@ mod tests {
             ..Limits::default()
         };
         // The byte size of this bank overflows `usize`.
-        assert!(matches!(
-            ContextBank::new(usize::MAX, &limits).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidContext
-        ));
+        assert_eq!(
+            ContextBank::new(usize::MAX, &limits).unwrap_err().reason,
+            INVALID_CONTEXT
+        );
         // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
         // reservation fails before the allocator is called.
         #[cfg(target_pointer_width = "64")]
         assert!(matches!(
             ContextBank::new(1 << 62, &limits).unwrap_err().kind,
-            ArithmeticErrorKind::AllocationFailed
+            crate::ErrorKind::LimitExceeded {
+                resource: "arithmetic context bytes",
+                ..
+            }
         ));
     }
 }

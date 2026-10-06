@@ -5,6 +5,7 @@
 //! placements a test asks for.
 
 use super::*;
+use crate::ErrorKind;
 use crate::NeverCancel;
 use crate::Payload;
 use crate::jbig2::{
@@ -283,9 +284,7 @@ impl Region {
             Self::parse(width, height, flags, instances, &body);
         let limits = Limits::default();
         let code_len = symbol_code_length(catalog.len() as u64);
-        let contexts =
-            crate::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), &limits)
-                .unwrap();
+        let contexts = ContextBank::new(coding_unit_contexts(code_len).unwrap(), &limits).unwrap();
         Self {
             source,
             text_segment,
@@ -386,7 +385,7 @@ fn compose_views<C: Cancellation>(
     refined_base: u64,
     limits: &Limits,
     cancellation: &C,
-) -> TextComposeResult<Composed> {
+) -> Result<Composed> {
     let header = region.header;
     let mut refined = Vec::new();
     let mut bitmap = Vec::new();
@@ -414,7 +413,7 @@ fn compose_views<C: Cancellation>(
 }
 
 /// Compose `region` over its own catalog and stores.
-fn compose(region: &mut Region) -> TextComposeResult<Composed> {
+fn compose(region: &mut Region) -> Result<Composed> {
     let catalog = region.catalog();
     let (imported, new) = (region.imported.clone(), region.new.clone());
     compose_views(
@@ -600,8 +599,13 @@ fn cancellation_is_checked_before_initialization() {
     .unwrap();
     flag.set(true);
     let error = composer.compose().unwrap_err();
-    assert!(matches!(error.kind, TextComposeErrorKind::Cancelled));
-    assert_eq!(error.progress.stage, TextComposeStage::Initialize);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -632,15 +636,7 @@ fn handles_unlike_the_callers_catalog_or_views_fail_before_composition() {
         )
         .err()
         .expect("expected a refusal");
-        assert!(
-            matches!(
-                error.kind,
-                TextComposeErrorKind::Malformed(_) | TextComposeErrorKind::InvalidSpan(_)
-            ),
-            "{error}"
-        );
-        assert_eq!(error.progress.completed_instances, 0);
-        assert_eq!(error.progress.touched_pixels, 0);
+        assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
     }
 }
 
@@ -683,8 +679,12 @@ fn catalog_store_base_must_match_the_caller_view() {
         .expect("expected a refusal");
         assert!(
             matches!(
-                error.kind,
-                TextComposeErrorKind::Malformed("bitmap handle store base differs from view")
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "bitmap handle store base differs from view",
+                    ..
+                }
             ),
             "{error}"
         );
@@ -723,57 +723,27 @@ fn region_limits_refuse_before_composition() {
         )
         .err()
         .expect("expected a refusal");
-        assert_eq!(error.progress.stage, TextComposeStage::Preflight);
         assert!(
-            matches!(error.kind, TextComposeErrorKind::LimitExceeded { resource: actual, .. } if actual == resource),
+            matches!(error, Error { kind: ErrorKind::LimitExceeded { resource: actual, .. }, .. } if actual == resource),
             "{resource}"
         );
-        assert_eq!(error.progress.touched_pixels, 0, "{resource}");
     }
 }
 
 #[test]
-fn composition_errors_have_stable_messages_and_nested_causes() {
-    use crate::jbig2::text_instances::{TextInstanceErrorKind, TextInstanceProgress};
-    let instance = TextInstanceError {
-        segment: 3,
-        offset: 7,
-        progress: Box::new(TextInstanceProgress::default()),
-        kind: TextInstanceErrorKind::Malformed("fixture"),
-    };
-    let cases = vec![
-        (
-            TextComposeErrorKind::InvalidSpan("fixture"),
-            "invalid span",
-            false,
-        ),
-        (
-            TextComposeErrorKind::Malformed("fixture"),
-            "malformed",
-            false,
-        ),
-        (limited("fixture", 1, 2), "limit 1", false),
-        (
-            TextComposeErrorKind::AllocationFailed,
-            "allocation failed",
-            false,
-        ),
-        (TextComposeErrorKind::Cancelled, "cancelled", false),
-        (
-            TextComposeErrorKind::Instance(Box::new(instance)),
-            "instance:",
-            true,
-        ),
-    ];
-    for (kind, phrase, has_source) in cases {
-        let error = TextComposeError {
-            segment: 3,
-            offset: 12,
-            progress: Box::new(TextComposeProgress::default()),
-            kind,
-        };
-        assert!(error.to_string().contains(phrase));
-        assert_eq!(StdError::source(&error).is_some(), has_source);
+fn composition_errors_are_located_in_their_segment() {
+    let instance = Error::invalid("fixture").at(7).in_jbig2(Some(3));
+    for (error, offset) in [
+        (locate(3, Error::invalid("fixture")), None),
+        (locate(3, Error::limit("fixture", 1, 2)), None),
+        (locate(3, Error::cancelled()), None),
+        (locate(4, instance), Some(7)),
+    ] {
+        assert_eq!(
+            (error.context, error.offset),
+            (Context::Jbig2 { segment: Some(3) }, offset)
+        );
+        assert!(StdError::source(&error).is_none());
     }
 }
 
@@ -796,12 +766,7 @@ fn composition_error_display_propagates_partial_writer_failure() {
         }
     }
 
-    let error = TextComposeError {
-        segment: 3,
-        offset: 12,
-        progress: Box::new(TextComposeProgress::default()),
-        kind: TextComposeErrorKind::Cancelled,
-    };
+    let error = locate(3, Error::cancelled());
     let mut writer = FailOnSecondWrite::default();
     assert!(std::fmt::write(&mut writer, format_args!("{error}")).is_err());
     assert_eq!(writer.0, 2);
@@ -848,19 +813,29 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
         )
         .err()
         .expect("expected preflight refusal");
-        assert_eq!(
-            error.progress.stage,
-            TextComposeStage::Preflight,
-            "case {case}"
-        );
         assert!(bitmap.is_empty(), "case {case}");
         match case {
             0 | 1 => assert!(matches!(
-                error.kind,
-                TextComposeErrorKind::LimitExceeded { .. }
+                error,
+                Error {
+                    kind: ErrorKind::LimitExceeded { .. },
+                    ..
+                }
             )),
-            6 => assert!(matches!(error.kind, TextComposeErrorKind::InvalidSpan(_))),
-            _ => assert!(matches!(error.kind, TextComposeErrorKind::Malformed(_))),
+            6 => assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            )),
+            _ => assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            )),
         }
     }
 }
@@ -890,8 +865,13 @@ fn malformed_source_descriptors_are_refused() {
         )
         .err()
         .expect("expected a refusal");
-        assert!(matches!(error.kind, TextComposeErrorKind::Malformed(_)));
-        assert_eq!(error.progress.touched_pixels, 0);
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
     }
 }
 
@@ -908,14 +888,9 @@ fn an_instance_refusal_stops_composition() {
         &[place(0, 1 << 31, 1)],
     );
     let error = compose(&mut region).err().expect("expected a refusal");
-    assert!(
-        matches!(&error.kind, TextComposeErrorKind::Instance(instance)
-        if matches!(instance.kind, crate::jbig2::text_instances::TextInstanceErrorKind::Malformed(
-            "text coordinate outside T.88 signed 32-bit range"
-        ))),
+    assert_eq!(
+        error.reason, "text coordinate outside T.88 signed 32-bit range",
         "{error}"
     );
-    assert!(error.offset > region.header.body.offset);
-    assert_eq!(error.progress.completed_instances, 0);
-    assert_eq!(error.progress.touched_pixels, 0);
+    assert!(error.offset > Some(region.header.body.offset));
 }

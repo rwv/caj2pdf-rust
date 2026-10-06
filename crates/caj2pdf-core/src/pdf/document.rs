@@ -201,9 +201,7 @@ impl Zlib {
             let status = self
                 .encoder
                 .compress(&input[..count], &mut self.encoded, flush)
-                .map_err(|_| Error::InvalidInput {
-                    reason: "zlib compression failed",
-                })?;
+                .map_err(|_| Error::invalid("zlib compression failed"))?;
             let consumed = (self.encoder.total_in() - before_in) as usize;
             let produced = (self.encoder.total_out() - before_out) as usize;
             writer.write_stream_bytes(&self.encoded[..produced])?;
@@ -212,9 +210,7 @@ impl Zlib {
                 return Ok(());
             }
             if consumed == 0 && produced == 0 {
-                return Err(Error::InvalidInput {
-                    reason: "zlib compression made no progress",
-                });
+                return Err(Error::invalid("zlib compression made no progress"));
             }
         }
     }
@@ -223,10 +219,7 @@ impl Zlib {
 impl<W: Write, C: Cancellation> Write for BilevelImageWriter<'_, '_, W, C> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if len_u64(bytes.len()) > self.remaining {
-            return Err(Error::InvalidInput {
-                reason: "bilevel image rows exceed the declared height",
-            }
-            .into());
+            return Err(Error::invalid("bilevel image rows exceed the declared height").into());
         }
         let mut done = 0;
         while done < bytes.len() {
@@ -305,9 +298,9 @@ impl Deflate {
 impl<W: Write, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
     fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
         if self.failed {
-            return Err(Error::InvalidInput {
-                reason: "bilevel image cannot continue after compression or output failure",
-            });
+            return Err(Error::invalid(
+                "bilevel image cannot continue after compression or output failure",
+            ));
         }
         self.failed = true;
         self.zlib.write(&mut self.document.writer, input, finish)?;
@@ -318,9 +311,9 @@ impl<W: Write, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
     /// Close the image stream after exactly the declared rows were written.
     pub fn finish(mut self) -> Result<ImageObject> {
         if self.remaining != 0 {
-            return Err(Error::InvalidInput {
-                reason: "bilevel image ended before its declared height",
-            });
+            return Err(Error::invalid(
+                "bilevel image ended before its declared height",
+            ));
         }
         self.encode(&[], true)?;
         self.document.writer.end_stream()?;
@@ -508,9 +501,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     pub fn add_page(&mut self, page: PageSpec, images: &[ImageObject]) -> Result<u32> {
         self.ensure_image_page_intact()?;
         if images.is_empty() {
-            return Err(Error::InvalidInput {
-                reason: "PDF page requires at least one image",
-            });
+            return Err(Error::invalid("PDF page requires at least one image"));
         }
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
@@ -543,16 +534,14 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     ) -> Result<u32> {
         self.ensure_image_page_intact()?;
         if placements.is_empty() {
-            return Err(Error::InvalidInput {
-                reason: "PDF page requires at least one image",
-            });
+            return Err(Error::invalid("PDF page requires at least one image"));
         }
         if placements.len() > MAX_PAGE_IMAGE_PLACEMENTS {
-            return Err(Error::LimitExceeded {
-                resource: "PDF image placements per page",
-                limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
-                attempted: len_u64(placements.len()),
-            });
+            return Err(Error::limit(
+                "PDF image placements per page",
+                MAX_PAGE_IMAGE_PLACEMENTS as u64,
+                len_u64(placements.len()),
+            ));
         }
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
@@ -589,9 +578,9 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
 
     fn ensure_image_page_intact(&self) -> Result<()> {
         if self.image_page_failed {
-            return Err(Error::InvalidInput {
-                reason: "PDF document cannot continue after a failed image or page operation",
-            });
+            return Err(Error::invalid(
+                "PDF document cannot continue after a failed image or page operation",
+            ));
         }
         Ok(())
     }
@@ -600,38 +589,35 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let parent = self
             .leaf
             .as_ref()
-            .ok_or(Error::InvalidInput {
-                reason: "PDF page-tree leaf is missing",
-            })?
+            .ok_or(Error::invalid("PDF page-tree leaf is missing"))?
             .id;
         let page_id = self.emit_page(parent, width, height, images)?;
         self.register_page(page_id)
     }
 
     fn register_page(&mut self, page_id: ObjectId) -> Result<u32> {
-        let leaf = self.leaf.as_mut().ok_or(Error::InvalidInput {
-            reason: "PDF page-tree leaf is missing",
-        })?;
+        let leaf = self
+            .leaf
+            .as_mut()
+            .ok_or(Error::invalid("PDF page-tree leaf is missing"))?;
         push_child(&mut leaf.children, page_id, self.limits, LEAF_CHILDREN)?;
-        leaf.page_count = leaf.page_count.checked_add(1).ok_or(Error::InvalidInput {
-            reason: "PDF leaf page count overflows",
-        })?;
-        let middle = self.middle.as_mut().ok_or(Error::InvalidInput {
-            reason: "PDF page-tree middle node is missing",
-        })?;
+        leaf.page_count = leaf
+            .page_count
+            .checked_add(1)
+            .ok_or(Error::invalid("PDF leaf page count overflows"))?;
+        let middle = self
+            .middle
+            .as_mut()
+            .ok_or(Error::invalid("PDF page-tree middle node is missing"))?;
         middle.page_count = middle
             .page_count
             .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF middle page count overflows",
-            })?;
+            .ok_or(Error::invalid("PDF middle page count overflows"))?;
         let page_index = self.pages_written;
         self.pages_written = self
             .pages_written
             .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF page count overflows",
-            })?;
+            .ok_or(Error::invalid("PDF page count overflows"))?;
         self.page_ids.push(page_id);
         Ok(page_index)
     }
@@ -657,15 +643,15 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             .page_ids
             .get(bookmark.page_index as usize)
             .copied()
-            .ok_or(Error::InvalidInput {
-                reason: "bookmark destination page has not been emitted",
-            })?;
-        self.limits
-            .check_bookmarks(self.outline.written().checked_add(1).ok_or(
-                Error::InvalidInput {
-                    reason: "bookmark count overflows",
-                },
-            )?)?;
+            .ok_or(Error::invalid(
+                "bookmark destination page has not been emitted",
+            ))?;
+        self.limits.check_bookmarks(
+            self.outline
+                .written()
+                .checked_add(1)
+                .ok_or(Error::invalid("bookmark count overflows"))?,
+        )?;
         self.outline.add(
             &mut self.writer,
             self.limits,
@@ -698,17 +684,13 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         }) {
-            return Err(Error::InvalidInput {
-                reason: "PDF Info key must be a plain ASCII name",
-            });
+            return Err(Error::invalid("PDF Info key must be a plain ASCII name"));
         }
         self.ensure_image_page_intact()?;
         self.outline.ensure_intact()?;
         text::ensure_fonts_embedded(&self.fonts)?;
         if self.pages_written == 0 {
-            return Err(Error::InvalidInput {
-                reason: "PDF document requires at least one page",
-            });
+            return Err(Error::invalid("PDF document requires at least one page"));
         }
         self.close_page_tree()?;
         let outline_root = self.outline.finish(&mut self.writer)?;
@@ -765,16 +747,14 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let next = self
             .pages_written
             .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF page count overflows",
-            })?;
+            .ok_or(Error::invalid("PDF page count overflows"))?;
         self.limits.check_pages(next)?;
         if u64::from(next) > MAX_TREE_PAGES {
-            return Err(Error::LimitExceeded {
-                resource: "PDF page-tree capacity",
-                limit: MAX_TREE_PAGES,
-                attempted: u64::from(next),
-            });
+            return Err(Error::limit(
+                "PDF page-tree capacity",
+                MAX_TREE_PAGES,
+                u64::from(next),
+            ));
         }
         Ok(())
     }
@@ -817,9 +797,10 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
                 page_count: 0,
             });
         }
-        let middle = self.middle.as_mut().ok_or(Error::InvalidInput {
-            reason: "PDF page-tree middle node is missing",
-        })?;
+        let middle = self
+            .middle
+            .as_mut()
+            .ok_or(Error::invalid("PDF page-tree middle node is missing"))?;
         let id = self.writer.reserve_object()?;
         push_child(&mut middle.children, id, self.limits, MIDDLE_CHILDREN)?;
         self.leaf = Some(PageNode {
@@ -907,9 +888,9 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let mut done = 0_u64;
         while done < length {
             let chunk = (length - done).min(self.image_buffer.len() as u64) as usize;
-            let position = offset.checked_add(done).ok_or(Error::InvalidInput {
-                reason: "resource range offset overflows",
-            })?;
+            let position = offset
+                .checked_add(done)
+                .ok_or(Error::invalid("resource range offset overflows"))?;
             read_exact_at(
                 &mut source,
                 position,
@@ -919,9 +900,9 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             )?;
             self.writer
                 .write_stream_bytes(&self.image_buffer[..chunk])?;
-            done = done.checked_add(chunk as u64).ok_or(Error::InvalidInput {
-                reason: "resource input byte count overflows",
-            })?;
+            done = done
+                .checked_add(chunk as u64)
+                .ok_or(Error::invalid("resource input byte count overflows"))?;
         }
         Ok(())
     }
@@ -981,29 +962,21 @@ fn validate_image_range(
 ) -> Result<()> {
     limits.check_input_size(source_size)?;
     if length > MAX_PDF_INTEGER {
-        return Err(Error::LimitExceeded {
-            resource: "PDF image stream bytes",
-            limit: MAX_PDF_INTEGER,
-            attempted: length,
-        });
+        return Err(Error::limit(
+            "PDF image stream bytes",
+            MAX_PDF_INTEGER,
+            length,
+        ));
     }
     if offset > source_size {
-        return Err(Error::InvalidInput {
-            reason: "image range starts beyond source size",
-        });
+        return Err(Error::invalid("image range starts beyond source size"));
     }
     if length > source_size - offset {
-        return Err(Error::TruncatedInput {
-            offset,
-            expected: length,
-            available: source_size - offset,
-        });
+        return Err(Error::truncated(offset, length, source_size - offset));
     }
     input_bytes_read
         .checked_add(length)
-        .ok_or(Error::InvalidInput {
-            reason: "image input byte count overflows",
-        })?;
+        .ok_or(Error::invalid("image input byte count overflows"))?;
     Ok(())
 }
 
@@ -1024,18 +997,14 @@ impl ImageSpec {
             let expected = u64::from(self.pixel_width)
                 .checked_mul(u64::from(self.pixel_height))
                 .and_then(|pixels| pixels.checked_mul(channels))
-                .ok_or(Error::InvalidInput {
-                    reason: "raw image byte count overflows",
-                })?;
+                .ok_or(Error::invalid("raw image byte count overflows"))?;
             if length != expected {
-                return Err(Error::InvalidInput {
-                    reason: "raw image byte count does not match dimensions",
-                });
+                return Err(Error::invalid(
+                    "raw image byte count does not match dimensions",
+                ));
             }
         } else if length == 0 {
-            return Err(Error::InvalidInput {
-                reason: "JPEG image stream must not be empty",
-            });
+            return Err(Error::invalid("JPEG image stream must not be empty"));
         }
         Ok(())
     }
@@ -1070,40 +1039,32 @@ impl BilevelImageSpec {
         check_image_dimensions(self.pixel_width, self.pixel_height)?;
         let visible = self.pixel_width.div_ceil(8);
         if len_u64(self.row_stride) < u64::from(visible) {
-            return Err(Error::InvalidInput {
-                reason: "bilevel row stride is shorter than the packed row",
-            });
+            return Err(Error::invalid(
+                "bilevel row stride is shorter than the packed row",
+            ));
         }
         let stream = u64::from(visible) * u64::from(self.pixel_height);
         if stream > MAX_PDF_INTEGER {
-            return Err(Error::LimitExceeded {
-                resource: "PDF image stream bytes",
-                limit: MAX_PDF_INTEGER,
-                attempted: stream,
-            });
+            return Err(Error::limit(
+                "PDF image stream bytes",
+                MAX_PDF_INTEGER,
+                stream,
+            ));
         }
         let input = len_u64(self.row_stride)
             .checked_mul(u64::from(self.pixel_height))
-            .ok_or(Error::InvalidInput {
-                reason: "bilevel input byte count overflows",
-            })?;
+            .ok_or(Error::invalid("bilevel input byte count overflows"))?;
         Ok((visible as usize, input))
     }
 }
 
 fn check_image_dimensions(width: u32, height: u32) -> Result<()> {
     if width == 0 || height == 0 {
-        return Err(Error::InvalidInput {
-            reason: "image width and height must be nonzero",
-        });
+        return Err(Error::invalid("image width and height must be nonzero"));
     }
     for (resource, value) in [("PDF image width", width), ("PDF image height", height)] {
         if u64::from(value) > MAX_PDF_INTEGER {
-            return Err(Error::LimitExceeded {
-                resource,
-                limit: MAX_PDF_INTEGER,
-                attempted: u64::from(value),
-            });
+            return Err(Error::limit(resource, MAX_PDF_INTEGER, u64::from(value)));
         }
     }
     Ok(())
@@ -1111,9 +1072,9 @@ fn check_image_dimensions(width: u32, height: u32) -> Result<()> {
 
 fn pdf_page_number(value: f64) -> Result<String> {
     if !value.is_finite() || !(MIN_PAGE_POINTS..=MAX_PAGE_POINTS).contains(&value) {
-        return Err(Error::InvalidInput {
-            reason: "page dimension must be finite and within 0.000001..=14400 points",
-        });
+        return Err(Error::invalid(
+            "page dimension must be finite and within 0.000001..=14400 points",
+        ));
     }
     Ok(format!("{value:.6}"))
 }
@@ -1125,9 +1086,9 @@ fn decimals(values: &[f64]) -> Result<String> {
     let mut text = String::new();
     for value in values {
         if !value.is_finite() || value.abs() > MAX_PDF_INTEGER as f64 {
-            return Err(Error::InvalidInput {
-                reason: "PDF matrix components must be finite with magnitude at most 2147483647",
-            });
+            return Err(Error::invalid(
+                "PDF matrix components must be finite with magnitude at most 2147483647",
+            ));
         }
         let value = if *value == 0.0 { 0.0 } else { *value };
         let separator = if text.is_empty() { "" } else { " " };
@@ -1161,23 +1122,18 @@ pub(super) fn reserve_bounded<T>(
     limits: &Limits,
     resource: &'static str,
 ) -> Result<()> {
-    let needed = values.len().checked_add(1).ok_or(Error::InvalidInput {
-        reason: "PDF index count overflows address space",
-    })?;
+    let needed = values
+        .len()
+        .checked_add(1)
+        .ok_or(Error::invalid("PDF index count overflows address space"))?;
     let needed_u64 = len_u64(needed);
     if needed_u64 > maximum_items {
-        return Err(Error::LimitExceeded {
-            resource,
-            limit: maximum_items,
-            attempted: needed_u64,
-        });
+        return Err(Error::limit(resource, maximum_items, needed_u64));
     }
     let element_bytes = len_u64(size_of::<T>().max(1));
     let needed_bytes = needed_u64
         .checked_mul(element_bytes)
-        .ok_or(Error::InvalidInput {
-            reason: "PDF index allocation overflows 64 bits",
-        })?;
+        .ok_or(Error::invalid("PDF index allocation overflows 64 bits"))?;
     limits.check_allocation(needed_bytes)?;
     if needed <= values.capacity() {
         return Ok(());
@@ -1191,9 +1147,7 @@ pub(super) fn reserve_bounded<T>(
     let requested_bytes = u64::try_from(target)
         .ok()
         .and_then(|count| count.checked_mul(element_bytes))
-        .ok_or(Error::InvalidInput {
-            reason: "PDF index allocation overflows 64 bits",
-        })?;
+        .ok_or(Error::invalid("PDF index allocation overflows 64 bits"))?;
     limits.check_allocation(requested_bytes)?;
     let refused = limits.allocation_refused(resource, requested_bytes);
     let additional = target - values.len();

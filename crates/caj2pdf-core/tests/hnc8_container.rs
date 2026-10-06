@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 
+mod common;
+
 use caj2pdf_core::read_payload;
 use caj2pdf_core::{
-    Cancellation, Limits, RangedSource,
-    hnc8::{ErrorKind, Hnc8Reader, Variant},
+    Cancellation, Context, Error, ErrorKind, Limits, RangedSource,
+    hnc8::{Hnc8Reader, Variant},
     jbig1::Type0Decoder,
     qm::{ContextBank, QmTable},
 };
+use common::errors::{field_of, kind_name, page_image, variant_of};
 use std::io::Write;
 use std::{
     error::Error as StdError,
@@ -162,14 +165,14 @@ fn image(bytes: &mut [u8], descriptor: usize, kind: i32, offset: i32, length: i3
     put_i32(bytes, descriptor + 4, offset);
     put_i32(bytes, descriptor + 8, length);
 }
-fn error_after_page(bytes: Vec<u8>) -> caj2pdf_core::hnc8::Hnc8Error {
+fn error_after_page(bytes: Vec<u8>) -> Error {
     let mut source = Source::new(bytes);
     let limits = Limits::default();
     let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     reader.next_image().unwrap_err()
 }
-fn page_error(bytes: Vec<u8>) -> caj2pdf_core::hnc8::Hnc8Error {
+fn page_error(bytes: Vec<u8>) -> Error {
     let mut source = Source::new(bytes);
     let limits = Limits::default();
     let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
@@ -370,15 +373,21 @@ fn signatures_markers_and_header_counts_are_located() {
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!((error.kind.field(), error.offset), (field, offset));
-        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!((field_of(&error), error.offset.unwrap()), (field, offset));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
+        ));
     }
     for count in [0, -1] {
         let mut source = Source::new(c8(count));
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!((error.kind.field(), error.offset), ("page count", 8));
+        assert_eq!((field_of(&error), error.offset.unwrap()), ("page count", 8));
     }
     let mut source = Source::new(c8(2));
     let small = Limits {
@@ -404,7 +413,10 @@ fn outline_count_negative_and_checked_index_arithmetic() {
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!((error.kind.field(), error.offset), ("outline count", 0x158));
+    assert_eq!(
+        (field_of(&error), error.offset.unwrap()),
+        ("outline count", 0x158)
+    );
     // i32::MAX * 308 is representable in u64, but the checked index start
     // lies far beyond this source and must fail before any seek/allocation.
     put_i32(&mut bytes, 0x158, i32::MAX);
@@ -412,8 +424,8 @@ fn outline_count_negative_and_checked_index_arithmetic() {
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!(error.kind.field(), "page index");
-    assert_eq!(error.offset, 0x15c_u64 + i32::MAX as u64 * 308);
+    assert_eq!(field_of(&error), "page index");
+    assert_eq!(error.offset, Some(0x15c_u64 + i32::MAX as u64 * 308));
 }
 
 #[test]
@@ -429,7 +441,11 @@ fn negative_and_out_of_source_page_fields_fail_even_without_images() {
         page(&mut bytes, 0x50, 1, text, length, count);
         let error = page_error(bytes);
         assert_eq!(
-            (error.kind.field(), error.offset, error.page),
+            (
+                field_of(&error),
+                error.offset.unwrap(),
+                page_image(&error).0
+            ),
             (field, offset, Some(1))
         );
     }
@@ -452,7 +468,11 @@ fn image_span_allocation_limit_is_located() {
     reader.next_page().unwrap();
     let error = reader.next_image().unwrap_err();
     assert_eq!(
-        (error.page, error.image, error.offset),
+        (
+            page_image(&error).0,
+            page_image(&error).1,
+            error.offset.unwrap()
+        ),
         (Some(1), Some(1), 211)
     );
     assert!(matches!(
@@ -486,7 +506,11 @@ fn malformed_descriptors_are_located_and_poison_normal_cursor() {
         reader.next_page().unwrap();
         let error = reader.next_image().unwrap_err();
         assert_eq!(
-            (error.kind.field(), error.offset, error.image),
+            (
+                field_of(&error),
+                error.offset.unwrap(),
+                page_image(&error).1
+            ),
             (field, error_offset, Some(1))
         );
     }
@@ -499,14 +523,15 @@ fn unknown_positive_type_is_refused_before_unmeasured_trailing_fields() {
     image(&mut bytes, 200, 4, -1, -1);
     let error = error_after_page(bytes);
     assert_eq!(
-        (error.kind.field(), error.kind.as_str(), error.offset),
+        (field_of(&error), kind_name(&error), error.offset.unwrap()),
         ("image type", "unsupported", 200)
     );
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "image type",
-            value: 4
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "image type",
+            ..
         }
     ));
 }
@@ -526,7 +551,11 @@ fn descriptor_payload_chain_cannot_regress_on_later_image() {
     assert_eq!(reader.next_image().unwrap().unwrap().descriptor_offset, 200);
     let error = reader.next_image().unwrap_err();
     assert_eq!(
-        (error.kind.field(), error.offset, error.image),
+        (
+            field_of(&error),
+            error.offset.unwrap(),
+            page_image(&error).1
+        ),
         ("image offset", 246, Some(2))
     );
 }
@@ -538,12 +567,12 @@ fn protected_descriptor_and_payload_ranges_are_rejected() {
     let mut bytes = c8(1);
     page(&mut bytes, 0x50, 1, 0, 90, 1);
     let error = error_after_page(bytes);
-    assert_eq!(error.kind.field(), "image descriptor");
+    assert_eq!(field_of(&error), "image descriptor");
     let mut bytes = c8(1);
     page(&mut bytes, 0x50, 1, 200, 0, 1);
     image(&mut bytes, 200, 0, 10, 2);
     let error = error_after_page(bytes);
-    assert_eq!(error.kind.field(), "image offset");
+    assert_eq!(field_of(&error), "image offset");
 }
 
 #[test]
@@ -556,8 +585,12 @@ fn incomplete_page_cannot_silently_drop_images() {
     let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     assert!(matches!(
-        reader.next_page().unwrap_err().kind,
-        ErrorKind::IncompletePage
+        reader.next_page().unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "page has unread image records",
+            ..
+        }
     ));
     assert_eq!(reader.next_image().unwrap().unwrap().page_number, 1);
     assert!(reader.next_page().unwrap().is_none());
@@ -573,7 +606,7 @@ fn truncation_and_disrupted_reads_are_located() {
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!(error.kind.field(), field);
+        assert_eq!(field_of(&error), field);
     }
     let (mut bytes, _) = hn(Variant::HnB, 1, 0);
     bytes.truncate(6);
@@ -581,14 +614,17 @@ fn truncation_and_disrupted_reads_are_located() {
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!((error.kind.field(), error.offset), ("HN marker", 4));
+    assert_eq!((field_of(&error), error.offset.unwrap()), ("HN marker", 4));
     let (mut bytes, _) = hn(Variant::HnA, 1, 0);
     bytes.truncate(0x15a);
     let mut source = Source::new(bytes);
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!((error.kind.field(), error.offset), ("outline count", 0x158));
+    assert_eq!(
+        (field_of(&error), error.offset.unwrap()),
+        ("outline count", 0x158)
+    );
     let mut bytes = c8(1);
     page(&mut bytes, 0x50, 1, 200, 0, 1);
     image(&mut bytes, 200, 0, 240, 2);
@@ -604,15 +640,16 @@ fn truncation_and_disrupted_reads_are_located() {
         // Zero-length text may end at EOF; each case fails at a later boundary.
         reader.next_page().unwrap();
         let error = reader.next_image().unwrap_err();
-        assert_eq!(error.kind.field(), field);
+        assert_eq!(field_of(&error), field);
     }
     let mut source = Source::new(c8(1));
     source.overreport = true;
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!(error.kind.field(), "signature");
-    assert!(matches!(error.kind, ErrorKind::Source { .. }));
+    assert_eq!(error.reason, "source reported more bytes than requested");
+    assert_eq!(error.offset, Some(0));
+    assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
     let mut source = Source::new(c8(1));
     source.zero = true;
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
@@ -627,7 +664,10 @@ fn truncation_and_disrupted_reads_are_located() {
     let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.source_mut().overreport = true;
     let error = reader.next_page().unwrap_err();
-    assert_eq!((error.kind.field(), error.page), ("page row", Some(1)));
+    assert_eq!(
+        (error.reason, page_image(&error).0),
+        ("source reported more bytes than requested", Some(1))
+    );
 }
 
 #[test]
@@ -718,7 +758,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
         .err()
         .unwrap();
     assert_eq!(
-        (malformed.kind.field(), malformed.kind.as_str()),
+        (field_of(&malformed), kind_name(&malformed)),
         ("page count", "malformed")
     );
     assert!(malformed.to_string().contains("HN/C8 C8 at byte 8"));
@@ -729,7 +769,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
         .err()
         .unwrap();
     assert_eq!(
-        (unsupported.kind.field(), unsupported.kind.as_str()),
+        (field_of(&unsupported), kind_name(&unsupported)),
         ("signature", "unsupported")
     );
     assert!(unsupported.to_string().contains("HN/C8 at byte 0"));
@@ -740,17 +780,20 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
         .err()
         .unwrap();
     assert_eq!(
-        (source_error.kind.field(), source_error.kind.as_str()),
-        ("signature", "source")
+        (source_error.reason, kind_name(&source_error)),
+        ("source reported more bytes than requested", "malformed")
     );
-    assert!(source_error.to_string().contains("source error"));
-    assert!(StdError::source(&source_error).is_some());
+    assert!(
+        source_error.to_string().contains("HN/C8 at byte 0"),
+        "{source_error}"
+    );
+    assert!(StdError::source(&source_error).is_none());
 
     let mut bytes = c8(1);
     page(&mut bytes, 0x50, 1, 1000, 100, 0);
     let truncated = page_error(bytes);
     assert_eq!(
-        (truncated.kind.field(), truncated.kind.as_str()),
+        (field_of(&truncated), kind_name(&truncated)),
         ("text span", "truncated")
     );
     assert!(truncated.to_string().contains("page 1"));
@@ -762,18 +805,18 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     };
     let limited = Hnc8Reader::open(&mut source, &small, &NEVER).err().unwrap();
     assert_eq!(
-        (limited.kind.field(), limited.kind.as_str()),
+        (field_of(&limited), kind_name(&limited)),
         ("pages", "limit")
     );
-    assert!(limited.to_string().contains("limit 1 exceeded by 2"));
+    assert!(
+        limited.to_string().ends_with(": maximum 1, attempted 2"),
+        "{limited}"
+    );
 
     let flag = Flag::new(true);
     let mut source = Source::new(c8(1));
     let cancelled = Hnc8Reader::open(&mut source, &limits, &flag).err().unwrap();
-    assert_eq!(
-        (cancelled.kind.field(), cancelled.kind.as_str()),
-        ("cancellation", "cancelled")
-    );
+    assert_eq!(kind_name(&cancelled), "cancelled");
     assert!(cancelled.to_string().contains("cancelled"));
 
     let mut bytes = c8(1);
@@ -783,28 +826,32 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     let no_page = reader.next_image().unwrap_err();
     assert_eq!(
-        (no_page.kind.field(), no_page.kind.as_str()),
-        ("page cursor", "no_current_page")
+        (no_page.reason, kind_name(&no_page)),
+        ("no current page", "malformed")
     );
     assert!(no_page.to_string().contains("no current page"));
     reader.next_page().unwrap();
     let incomplete = reader.next_page().unwrap_err();
     assert_eq!(
-        (incomplete.kind.field(), incomplete.kind.as_str()),
-        ("image count", "incomplete_page")
+        (incomplete.reason, kind_name(&incomplete)),
+        ("page has unread image records", "malformed")
     );
     assert_eq!(
-        (incomplete.page, incomplete.image, incomplete.offset),
+        (
+            page_image(&incomplete).0,
+            page_image(&incomplete).1,
+            incomplete.offset.unwrap()
+        ),
         (Some(1), Some(1), 200)
     );
     assert!(incomplete.to_string().contains("page 1, image 1"));
     reader.source_mut().overreport = true;
     let source = reader.next_image().unwrap_err();
     assert_eq!(
-        (source.kind.field(), source.kind.as_str()),
-        ("image descriptor", "source")
+        (source.reason, kind_name(&source)),
+        ("source reported more bytes than requested", "malformed")
     );
-    assert!(std::error::Error::source(&source).is_some());
+    assert!(page_image(&source).0.is_some(), "{source}");
 }
 
 #[test]
@@ -817,7 +864,7 @@ fn independent_page_probe_can_report_later_errors_without_recovery() {
     let limits = Limits::default();
     {
         let mut bad_page = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
-        assert_eq!(bad_page.next_page().unwrap_err().page, Some(1));
+        assert_eq!(page_image(&bad_page.next_page().unwrap_err()).0, Some(1));
     }
     {
         let mut probe = Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, 2).unwrap();
@@ -830,14 +877,14 @@ fn independent_page_probe_can_report_later_errors_without_recovery() {
             .err()
             .unwrap();
         assert_eq!(
-            (error.kind.field(), error.kind.as_str()),
+            (field_of(&error), kind_name(&error)),
             ("page number", "malformed")
         );
     }
 }
 
 #[test]
-fn invalid_shared_limits_are_reported_as_a_located_source_error() {
+fn invalid_shared_limits_are_reported_as_a_located_error() {
     let mut source = Source::new(c8(1));
     let limits = Limits {
         io_chunk_bytes: 0,
@@ -846,15 +893,12 @@ fn invalid_shared_limits_are_reported_as_a_located_source_error() {
     let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
-    assert_eq!((error.variant, error.offset), (None, 0));
+    assert_eq!((variant_of(&error), error.offset.unwrap()), (None, 0));
     assert_eq!(
-        (error.kind.field(), error.kind.as_str()),
-        ("limits", "source")
+        (error.reason, kind_name(&error)),
+        ("I/O chunk size must be nonzero", "malformed")
     );
-    assert!(matches!(
-        StdError::source(&error).and_then(|cause| cause.downcast_ref::<caj2pdf_core::Error>()),
-        Some(caj2pdf_core::Error::InvalidInput { .. })
-    ));
+    assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
     assert_eq!(source.reads, 0);
 }
 
@@ -868,7 +912,7 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
         .err()
         .unwrap();
     assert!(matches!(error.kind, ErrorKind::Cancelled));
-    assert_eq!((error.variant, error.offset), (None, 0));
+    assert_eq!((variant_of(&error), error.offset.unwrap()), (None, 0));
     assert_eq!(source.reads, 0);
 
     let mut bytes = c8(1);
@@ -880,7 +924,11 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
     let error = reader.next_page().unwrap_err();
     assert!(matches!(error.kind, ErrorKind::Cancelled));
     assert_eq!(
-        (error.variant, error.offset, error.page),
+        (
+            variant_of(&error),
+            error.offset.unwrap(),
+            page_image(&error).0
+        ),
         (Some(Variant::C8), 0x50, Some(1))
     );
     // Cancellation before the row read does not poison the cursor.
@@ -919,9 +967,9 @@ fn native_origin_preserves_unsigned_c8_and_hnb_words() {
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!(error.variant, Some(Variant::C8));
-        assert_eq!(error.offset, 28);
-        assert_eq!(error.kind.field(), "native coordinate origin");
+        assert_eq!(variant_of(&error), Some(Variant::C8));
+        assert_eq!(error.offset, Some(28));
+        assert_eq!(field_of(&error), "native coordinate origin");
     }
 }
 
@@ -950,7 +998,7 @@ fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!(error.kind.field(), "page dimensions");
+        assert_eq!(field_of(&error), "page dimensions");
     }
 }
 
@@ -1007,7 +1055,7 @@ fn compact_hnb_does_not_guess_unknown_fields_or_retry_other_layouts() {
             let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER)?;
             reader.next_page()
         })();
-        assert_eq!(result.unwrap_err().offset, expected as u64);
+        assert_eq!(result.unwrap_err().offset, Some(expected as u64));
     }
     // A malformed 20-byte row must not trigger retry as a valid 12-byte index.
     let mut bytes = compact_hnb();
@@ -1031,7 +1079,7 @@ fn compact_hnb_index_truncation_budgets_and_cancellation_remain_bounded() {
         let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .expect("truncated compact index");
-        assert_eq!(error.offset, 216);
+        assert_eq!(error.offset, Some(216));
     }
     let mut source = Source::new(compact_hnb());
     let cancel = Flag::new(false);
@@ -1071,7 +1119,7 @@ fn native_modes_preserve_raw_values_without_assuming_character_semantics() {
         let error = Hnc8Reader::open(&mut Source::new(bytes), &limits, &NEVER)
             .err()
             .unwrap();
-        assert_eq!(error.offset, 12);
-        assert_eq!(error.kind.field(), "native mode");
+        assert_eq!(error.offset, Some(12));
+        assert_eq!(field_of(&error), "native mode");
     }
 }

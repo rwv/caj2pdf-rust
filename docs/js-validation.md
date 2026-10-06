@@ -155,9 +155,9 @@ Original controls cover one-byte short reads, nested outlines, count/depth/
 allocation/page limits, invalid destinations/records in the core suite,
 cancellation and direct metadata-read bounds. CLI tests check the same outline
 in the resulting PDF with independent tools. Real Chromium controls distinguish
-HN-A's known count from C8/HN-B's unknown count. Rust exhaustive error matches
-must now handle `Error::Hnc8Metadata`; no new raw WASM exports or JS result fields
-are needed.
+HN-A's known count from C8/HN-B's unknown count. Rust callers see these
+failures as errors with an HN/C8 context; no new raw WASM exports or JS result
+fields are needed.
 
 CLI and Node inspection agree on these external documents (metadata comparison,
 not a new independent format oracle):

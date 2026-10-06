@@ -5,7 +5,7 @@
 //! public observations registered in `docs/research/caj-format.md`.
 
 use caj2pdf_core::{
-    ConversionOptions, Error, Limits, NeverCancel, RangedSource,
+    Context, ConversionOptions, Error, ErrorKind, Limits, NeverCancel, RangedSource,
     caj::convert_caj,
     native::SeekableSource,
     pdf::{PdfIndex, PdfRange, PdfRef},
@@ -250,8 +250,12 @@ fn a_synthetic_pages_node_cannot_satisfy_an_annotation_destination() {
     let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
     assert!(matches!(
         error,
-        Error::Pdf {
-            object: Some((12, 0)),
+        Error {
+            kind: _,
+            context: Context::Pdf {
+                object: Some((12, 0)),
+                ..
+            },
             reason: "indirect reference targets a missing object",
             ..
         }
@@ -268,8 +272,12 @@ fn a_shared_indirect_link_destination_cannot_rewrite_an_appearance() {
     let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
     assert!(matches!(
         error,
-        Error::Pdf {
-            object: Some((12, 0)),
+        Error {
+            kind: _,
+            context: Context::Pdf {
+                object: Some((12, 0)),
+                ..
+            },
             reason: "indirect reference targets a missing object",
             ..
         }
@@ -395,7 +403,7 @@ fn assert_caj_error(
 ) {
     let error = rejected_without_output(input, &Limits::default());
     assert!(
-        matches!(&error, Error::Caj { offset, record, reason }
+        matches!(&error, Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Caj { record }, reason, .. }
             if *offset == expected_offset
                 && *record == expected_record
                 && reason.contains(expected_reason)),
@@ -544,7 +552,7 @@ fn missing_page_object_is_reported_before_writing() {
         &NeverCancel,
     );
     assert!(
-        matches!(&result, Err(Error::Caj { offset, .. }) if *offset == tiny.bytes.len() as u64),
+        matches!(&result, Err(Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Caj { .. }, .. }) if *offset == tiny.bytes.len() as u64),
         "{result:?}"
     );
     assert!(output.is_empty());
@@ -698,7 +706,7 @@ fn synthetic_root_never_satisfies_an_unrelated_missing_reference() {
     let input = fragment_caj(&body, &[9, 3]);
     let error = rejected_without_output(&input, &Limits::default());
     assert!(
-        matches!(&error, Error::Pdf { object: Some((9, 0)), reason, .. }
+        matches!(&error, Error { kind: _, context: Context::Pdf { object: Some((9, 0)), .. }, reason, .. }
             if reason.contains("missing object")),
         "{error}"
     );
@@ -819,8 +827,12 @@ fn unrelated_missing_resource_reference_fails_before_sink_output() {
     assert!(
         matches!(
             &result,
-            Err(Error::Pdf {
-                object: Some((9, 0)),
+            Err(Error {
+                kind: _,
+                context: Context::Pdf {
+                    object: Some((9, 0)),
+                    ..
+                },
                 ..
             })
         ),
@@ -911,7 +923,7 @@ fn rejects_invalid_page_tree_relationships_before_writing() {
         let input = fragment_caj(body.as_bytes(), pages);
         let error = rejected_without_output(&input, &Limits::default());
         assert!(
-            matches!(&error, Error::Caj { reason, .. } if reason.contains(expected)),
+            matches!(&error, Error { kind: ErrorKind::Malformed, context: Context::Caj { .. }, reason, .. } if reason.contains(expected)),
             "{label}: {error}"
         );
     }
@@ -958,8 +970,9 @@ fn conflicting_page_tree_object_replays_are_rejected_before_output() {
     let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
     assert!(matches!(
         error,
-        Error::Pdf {
-            kind: caj2pdf_core::PdfErrorKind::AmbiguousRepair,
+        Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Pdf { repair: true, .. },
             ..
         }
     ));
@@ -1023,8 +1036,9 @@ fn rejects_unsafe_link_repairs_without_writing() {
         assert!(
             matches!(
                 &error,
-                Error::Pdf {
-                    kind: caj2pdf_core::PdfErrorKind::Malformed,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    context: Context::Pdf { repair: false, .. },
                     ..
                 }
             ),
@@ -1056,8 +1070,11 @@ fn bounded_page_tree_repair_leaves_sink_empty() {
     assert!(
         matches!(
             &error,
-            Error::LimitExceeded {
-                resource: "allocation bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    ..
+                },
                 ..
             }
         ),
@@ -1078,7 +1095,7 @@ fn rejects_a_ranged_source_that_reports_more_bytes_than_requested() {
     )
     .expect_err("overreporting source must be rejected");
     assert!(
-        matches!(&error, Error::InvalidInput { reason } if reason.contains("more bytes than requested")),
+        matches!(&error, Error { kind: ErrorKind::Malformed, reason, .. } if reason.contains("more bytes than requested")),
         "{error}"
     );
     assert!(output.is_empty());
@@ -1225,7 +1242,10 @@ fn rejects_corrupt_caj_header_and_page_rows_with_locations() {
     unsupported[0] = b'X';
     assert!(matches!(
         rejected_without_output(&unsupported, &Limits::default()),
-        Error::UnsupportedFormat
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        }
     ));
 
     let empty_body = fragment_caj(&one_page_body(None, None), &[9]);
@@ -1369,7 +1389,7 @@ fn enforces_caj_metadata_limits_before_writing() {
     for (label, limits, expected_resource) in cases {
         let error = rejected_without_output(&tiny.bytes, &limits);
         assert!(
-            matches!(&error, Error::CajLimitExceeded { resource, .. } if *resource == expected_resource),
+            matches!(&error, Error { kind: ErrorKind::LimitExceeded { resource, .. }, context: Context::Caj { .. }, .. } if *resource == expected_resource),
             "{label}: {error}"
         );
     }
@@ -1385,9 +1405,12 @@ fn enforces_caj_metadata_limits_before_writing() {
     assert!(
         matches!(
             &error,
-            Error::CajLimitExceeded {
-                resource: "CAJ title allocation bytes",
-                record: Some(1),
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "CAJ title allocation bytes",
+                    ..
+                },
+                context: Context::Caj { record: Some(1) },
                 ..
             }
         ),
@@ -1424,7 +1447,7 @@ fn retained_link_repair_budget_is_checked_before_output() {
         },
     );
     assert!(
-        matches!(&error, Error::CajLimitExceeded { resource: "retained link repairs", limit: 5000, attempted, .. } if *attempted > 5000),
+        matches!(&error, Error { kind: ErrorKind::LimitExceeded { resource: "retained link repairs", limit: 5000, attempted, .. }, context: Context::Caj { .. }, .. } if *attempted > 5000),
         "{error}"
     );
 
@@ -1462,7 +1485,7 @@ fn missing_reference_index_budget_is_checked_before_output() {
         },
     );
     assert!(
-        matches!(&error, Error::CajLimitExceeded { resource: "missing PDF references", limit: 4000, attempted, .. } if *attempted > 4000),
+        matches!(&error, Error { kind: ErrorKind::LimitExceeded { resource: "missing PDF references", limit: 4000, attempted, .. }, context: Context::Caj { .. }, .. } if *attempted > 4000),
         "{error}"
     );
 }
@@ -1556,11 +1579,7 @@ fn joining_root_allocation_is_checked_after_every_group_node() {
     assert!(
         matches!(
             &error,
-            Error::LimitExceeded {
-                resource: "allocation bytes",
-                limit: LIMIT,
-                attempted,
-            } if *attempted == root_estimate
+            Error { kind: ErrorKind::LimitExceeded { resource: "allocation bytes", limit: LIMIT, attempted, .. }, .. } if *attempted == root_estimate
         ),
         "{error}"
     );
@@ -1585,12 +1604,7 @@ fn one_object_cannot_share_two_repaired_destination_arrays() {
     assert!(
         matches!(
             &error,
-            Error::Pdf {
-                object: Some((20, 0)),
-                reason: "indirect reference targets a missing object",
-                offset,
-                ..
-            } if *offset == object_offset(&input, 20)
+            Error { kind: _, offset: Some(offset), context: Context::Pdf { object: Some((20, 0)), .. }, reason: "indirect reference targets a missing object", .. } if *offset == object_offset(&input, 20)
         ),
         "{error}"
     );
@@ -1632,13 +1646,7 @@ fn link_repair_budget_includes_every_link_sharing_a_destination() {
     assert!(
         matches!(
             &error,
-            Error::CajLimitExceeded {
-                resource: "retained link repairs",
-                limit: 3500,
-                attempted,
-                offset,
-                record: None,
-            } if *attempted > 3500 && link_offsets.contains(offset)
+            Error { kind: ErrorKind::LimitExceeded { resource: "retained link repairs", limit: 3500, attempted, .. }, offset: Some(offset), context: Context::Caj { record: None }, .. } if *attempted > 3500 && link_offsets.contains(offset)
         ),
         "{error}"
     );
@@ -1767,7 +1775,14 @@ fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
         ..limits
     };
     let error = rejected_without_output(&oversized_anchor, &tight);
-    assert!(matches!(error, Error::PdfLimitExceeded { .. }));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            context: Context::Pdf { .. },
+            ..
+        }
+    ));
 }
 
 #[test]

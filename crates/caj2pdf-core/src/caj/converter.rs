@@ -15,7 +15,7 @@ use crate::pdf::{
     reconstruct_inspected,
 };
 use crate::{
-    Cancellation, ConversionOptions, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
+    Cancellation, ConversionOptions, ConversionReport, CountingSource, Error, ErrorKind, Limits,
     RangedSource, Result,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,9 +36,7 @@ impl<'a, S: RangedSource> ExtendedSource<'a, S> {
     fn new(source: &'a mut S, suffix: &'a [u8]) -> Result<Self> {
         let base = source.size();
         base.checked_add(suffix.len() as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "CAJ synthetic page-tree range overflows",
-            })?;
+            .ok_or(Error::invalid("CAJ synthetic page-tree range overflows"))?;
         Ok(Self {
             source,
             base,
@@ -144,29 +142,23 @@ fn write_page_tree(body: &mut BoundedSuffix<'_>, node: &SyntheticPageTree<'_>) -
         }
         body.write_str("] >>\nendobj\n")
     };
-    format().map_err(|_| Error::InvalidInput {
-        reason: "CAJ synthetic page tree exceeds reserved bound",
-    })
+    format().map_err(|_| Error::invalid("CAJ synthetic page tree exceeds reserved bound"))
 }
 
 fn malformed(offset: u64, reason: &'static str) -> Error {
-    Error::Caj {
-        offset,
-        record: None,
-        reason,
-    }
+    Error::malformed(offset, reason).in_caj(None)
 }
 
 fn missing_reference(objects: &[InspectedObject], owner: PdfRef) -> Error {
-    Error::Pdf {
-        offset: objects
+    Error::pdf(
+        ErrorKind::Malformed,
+        objects
             .iter()
             .find(|inspected| inspected.object.reference == owner)
             .map_or(0, |inspected| inspected.object.range.offset),
-        object: Some((owner.number, owner.generation)),
-        kind: PdfErrorKind::Malformed,
-        reason: "indirect reference targets a missing object",
-    }
+        Some((owner.number, owner.generation)),
+        "indirect reference targets a missing object",
+    )
 }
 
 fn resolve_page_root(
@@ -214,9 +206,9 @@ fn resolve_page_root(
     };
     let mut current = page;
     loop {
-        let node = nodes.get_mut(&current).ok_or(Error::InvalidInput {
-            reason: "resolved page-tree path changed during caching",
-        })?;
+        let node = nodes.get_mut(&current).ok_or(Error::invalid(
+            "resolved page-tree path changed during caching",
+        ))?;
         if node.resolved_root.is_some() {
             break;
         }
@@ -225,9 +217,7 @@ fn resolve_page_root(
         if current == terminal {
             break;
         }
-        current = parent.ok_or(Error::InvalidInput {
-            reason: "resolved page-tree path lost its parent",
-        })?;
+        current = parent.ok_or(Error::invalid("resolved page-tree path lost its parent"))?;
     }
     Ok(resolved)
 }
@@ -243,18 +233,16 @@ fn replace_object(
     let next_size = suffix
         .len()
         .checked_add(replacement.len())
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ repair suffix size overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ repair suffix size overflows"))?;
     limits.check_allocation(next_size as u64)?;
     let refused = limits.allocation_refused("CAJ link repair allocation", next_size as u64);
     reserve(suffix, replacement.len(), refused)?;
     let old = objects
         .iter_mut()
         .find(|inspected| inspected.object.reference == reference)
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ link repair object is absent from fragment plan",
-        })?;
+        .ok_or(Error::invalid(
+            "CAJ link repair object is absent from fragment plan",
+        ))?;
     old.object.range = append_replacement(suffix, base, replacement)?;
     old.inspection = inspect_generated_object(replacement, limits)?;
     Ok(())
@@ -272,9 +260,7 @@ fn retain_repair(
     let count = repaired
         .len()
         .checked_add(usize::from(is_new))
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ retained repair count overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ retained repair count overflows"))?;
     let next_bytes = retained_bytes
         .checked_sub(
             repaired
@@ -282,9 +268,7 @@ fn retain_repair(
                 .map_or(0, |old| old.replacement.len()),
         )
         .and_then(|size| size.checked_add(candidate.replacement.len()))
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ retained repair size overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ retained repair size overflows"))?;
     let retained = next_bytes
         .checked_add(suffix_len)
         .and_then(|size| {
@@ -292,17 +276,15 @@ fn retain_repair(
                 .checked_mul(128)
                 .and_then(|overhead| size.checked_add(overhead))
         })
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ retained repair size overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ retained repair size overflows"))?;
     if retained as u64 > limits.max_allocation_bytes {
-        return Err(Error::CajLimitExceeded {
-            offset,
-            record: None,
-            resource: "retained link repairs",
-            limit: limits.max_allocation_bytes,
-            attempted: retained as u64,
-        });
+        return Err(Error::limit(
+            "retained link repairs",
+            limits.max_allocation_bytes,
+            retained as u64,
+        )
+        .at(offset)
+        .in_caj(None));
     }
     repaired.insert(candidate.object, candidate);
     *retained_bytes = next_bytes;
@@ -322,9 +304,7 @@ fn push_synthetic(
         .checked_mul(24)
         .and_then(|bytes| bytes.checked_add(160))
         .and_then(|bytes| bytes.checked_add(suffix.len()))
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ synthetic page tree estimate overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ synthetic page tree estimate overflows"))?;
     limits.check_allocation(estimated as u64)?;
     let refused = limits.allocation_refused("CAJ synthetic page tree allocation", estimated as u64);
     let additional = estimated - suffix.len();
@@ -345,9 +325,9 @@ fn push_synthetic(
                 generation: 0,
             },
             range: PdfRange {
-                offset: base.checked_add(start as u64).ok_or(Error::InvalidInput {
-                    reason: "CAJ synthetic page tree offset overflows",
-                })?,
+                offset: base
+                    .checked_add(start as u64)
+                    .ok_or(Error::invalid("CAJ synthetic page tree offset overflows"))?,
                 length: body_len as u64,
             },
         },
@@ -375,12 +355,7 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         &mut [],
     ) {
         Ok(scan) => return Ok(scan),
-        Err(
-            error @ Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            },
-        ) => error,
+        Err(error) if error.is_malformed_pdf() => error,
         Err(error) => return Err(error),
     };
     let mut candidates = Vec::new();
@@ -398,7 +373,7 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
             cancellation,
         ) {
             Ok(objects) => objects,
-            Err(Error::Pdf { .. }) => continue,
+            Err(error) if error.is_pdf_problem() => continue,
             Err(error) => return Err(error),
         };
         if !objects.first().is_some_and(|object| {
@@ -430,10 +405,7 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         &mut candidates,
     );
     match result {
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
-            ..
-        }) if allow_damaged => scan_damaged_fragment(
+        Err(error) if allow_damaged && error.is_malformed_pdf() => scan_damaged_fragment(
             source,
             &metadata.page_rows,
             metadata.body_end_hint,
@@ -508,9 +480,7 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     let occupied_bytes = objects
         .len()
         .checked_mul(std::mem::size_of::<PdfRef>())
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ object reference index overflows",
-        })?;
+        .ok_or(Error::invalid("CAJ object reference index overflows"))?;
     limits.check_allocation(occupied_bytes as u64)?;
     let mut occupied = Vec::<PdfRef>::new();
     let refused = limits.allocation_refused(
@@ -543,16 +513,14 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
                 .len()
                 .checked_add(1)
                 .and_then(|count| count.checked_mul(std::mem::size_of::<MissingReference>()))
-                .ok_or(Error::InvalidInput {
-                    reason: "CAJ missing reference index overflows",
-                })?;
-            let refused = Error::CajLimitExceeded {
-                offset: object.range.offset,
-                record: None,
-                resource: "missing PDF references",
-                limit: limits.max_allocation_bytes,
-                attempted: attempted as u64,
-            };
+                .ok_or(Error::invalid("CAJ missing reference index overflows"))?;
+            let refused = Error::limit(
+                "missing PDF references",
+                limits.max_allocation_bytes,
+                attempted as u64,
+            )
+            .at(object.range.offset)
+            .in_caj(None);
             if attempted as u64 > limits.max_allocation_bytes {
                 return Err(refused);
             }
@@ -824,6 +792,7 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Context;
     use crate::native::SeekableSource;
     use std::io::Cursor;
 
@@ -875,7 +844,10 @@ mod tests {
         limits.validate().unwrap();
         assert!(matches!(
             push_synthetic(&mut too_small, &mut rejected_objects, 100, node, &limits),
-            Err(Error::LimitExceeded { .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                ..
+            })
         ));
         assert_eq!(too_small, b"prefix");
         assert!(rejected_objects.is_empty());
@@ -914,10 +886,14 @@ mod tests {
         assert_eq!(repaired[&object].replacement.len(), 60);
         assert!(matches!(
             retain_repair(&mut repaired, &mut retained, candidate(101), 0, &limits, 7),
-            Err(Error::CajLimitExceeded {
-                offset: 7,
-                resource: "retained link repairs",
-                attempted: 229,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "retained link repairs",
+                    attempted: 229,
+                    ..
+                },
+                offset: Some(7),
+                context: Context::Caj { .. },
                 ..
             })
         ));
@@ -977,8 +953,10 @@ mod tests {
             };
             assert!(matches!(
                 write_page_tree(&mut suffix, &node),
-                Err(Error::InvalidInput {
-                    reason: "CAJ synthetic page tree exceeds reserved bound"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "CAJ synthetic page tree exceeds reserved bound",
+                    ..
                 })
             ));
             assert!(bytes.len() <= maximum_len);

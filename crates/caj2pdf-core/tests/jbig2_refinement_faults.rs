@@ -5,15 +5,12 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Limits, NeverCancel, Payload,
+    Cancellation, Context, Error, ErrorKind, Limits, NeverCancel, Payload,
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
-        mq::{ArithmeticErrorKind, CodedSpan, ContextBank, MqDecoder, MqTable},
-        refinement::{
-            ReferenceStore, RefinementDecoder, RefinementError, RefinementErrorKind,
-            RefinementReference, RefinementRequest,
-        },
+        mq::{CodedSpan, ContextBank, MqDecoder, MqTable},
+        refinement::{ReferenceStore, RefinementDecoder, RefinementReference, RefinementRequest},
     },
 };
 use std::{cell::Cell, rc::Rc};
@@ -33,7 +30,7 @@ fn table() -> MqTable {
 /// A coding unit's contexts with the bitmap range at
 /// [`BITMAP_BASE`]; refinement needs no IAID contexts.
 fn contexts(limits: &Limits) -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1024, limits).unwrap()
+    ContextBank::new(BITMAP_BASE + 1024, limits).unwrap()
 }
 
 fn span(bytes: &[u8]) -> CodedSpan {
@@ -113,7 +110,7 @@ fn observe_error<C: Cancellation>(
     request: RefinementRequest,
     limits: Limits,
     cancellation: &C,
-) -> (RefinementError, Vec<u8>) {
+) -> (Error, Vec<u8>) {
     let table = table();
     let mut contexts = contexts(&Limits::default());
     let bytes = set_stream(&request, reference);
@@ -130,13 +127,8 @@ fn observe_error<C: Cancellation>(
     let error = host
         .decode_bitmap(ReferenceStore::Other(reference), request)
         .unwrap_err();
-    // Diagnostics identify the failed bitmap; nested MQ errors remain
-    // available via Error::source.
-    assert!(error.to_string().contains("JBIG2 refinement bitmap 0"));
-    assert_eq!(
-        std::error::Error::source(&error).is_some(),
-        matches!(error.kind, RefinementErrorKind::Mq(_))
-    );
+    // The caller locates a refinement failure in its segment.
+    assert_eq!(error.context, Context::None, "{error}");
     (error, output)
 }
 
@@ -162,11 +154,13 @@ fn unsupported_modes_and_zero_dimensions_fail_before_decoding() {
     for request in variants {
         let (error, output) = observe_error(&[0x80], request, Limits::default(), &NeverCancel);
         assert!(matches!(
-            error.kind,
-            RefinementErrorKind::Unsupported { .. }
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
         assert!(output.is_empty());
-        assert_eq!(error.progress.pixels_decoded, 0);
     }
 }
 
@@ -196,13 +190,11 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_decoding() 
             Limits::default(),
             &NeverCancel,
         );
-        if expect_malformed {
-            assert!(matches!(error.kind, RefinementErrorKind::Malformed(_)));
-        } else {
-            assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
-        }
+        assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
+        // The other cases are spans outside the address space or store.
+        let span = error.reason.contains("overflows") || error.reason.contains("outside");
+        assert_eq!(span, !expect_malformed, "{error}");
         assert!(output.is_empty());
-        assert_eq!(error.progress.pixels_decoded, 0);
     }
 }
 
@@ -210,7 +202,7 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_decoding() 
 fn constructor_rejects_a_bank_without_the_gr_range() {
     let limits = Limits::default();
     let table = table();
-    let mut contexts = caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1023, &limits).unwrap();
+    let mut contexts = ContextBank::new(BITMAP_BASE + 1023, &limits).unwrap();
     let bytes = [0x3f, 0xff, 0xac];
     let mut mq = MqDecoder::new(
         Payload::from(&bytes[..]),
@@ -225,8 +217,14 @@ fn constructor_rejects_a_bank_without_the_gr_range() {
         Ok(_) => panic!("accepted a short GR bank"),
         Err(error) => error,
     };
-    assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
-    assert!(error.to_string().contains("JBIG2 refinement bitmap"));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
+    assert_eq!(error.context, Context::None, "{error}");
     // Rejected construction has not started a bitmap and leaves MQ usable.
     mq.decode_bit(BITMAP_BASE).unwrap();
 }
@@ -245,9 +243,12 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
         &NeverCancel,
     );
     assert!(matches!(
-        target_error.kind,
-        RefinementErrorKind::LimitExceeded {
-            resource: "target row allocation",
+        target_error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "target row allocation",
+                ..
+            },
             ..
         }
     ));
@@ -260,9 +261,12 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
         &NeverCancel,
     );
     assert!(matches!(
-        reference_error.kind,
-        RefinementErrorKind::LimitExceeded {
-            resource: "reference row allocation",
+        reference_error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "reference row allocation",
+                ..
+            },
             ..
         }
     ));
@@ -293,19 +297,10 @@ fn mq_marker_failure_keeps_its_actual_byte_offset() {
             request(128, 1, reference(1, 1)),
         )
         .unwrap_err();
-    match &error.kind {
-        RefinementErrorKind::Mq(inner) => {
-            assert!(matches!(
-                inner.kind,
-                ArithmeticErrorKind::InvalidMarker(0x90)
-            ));
-            assert_eq!(inner.offset, Some(3));
-            assert_eq!(error.offset, inner.offset);
-        }
-        other => panic!("expected MQ marker error, got {other:?}"),
-    }
-    assert!(error.to_string().contains("source byte 3"));
-    assert!(std::error::Error::source(&error).is_some());
+    assert_eq!(error.reason, "invalid MQ marker following 0xFF");
+    assert_eq!(error.offset, Some(3));
+    assert!(error.to_string().contains("at byte 3"), "{error}");
+    assert!(std::error::Error::source(&error).is_none());
     assert!(output.is_empty());
 }
 
@@ -323,11 +318,14 @@ fn the_pixel_limit_is_checked_before_decoding() {
     );
     assert!(
         matches!(
-            error.kind,
-            RefinementErrorKind::LimitExceeded {
-                resource: "pixels per bitmap",
-                limit: 0,
-                attempted: 1,
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "pixels per bitmap",
+                    limit: 0,
+                    attempted: 1,
+                },
+                ..
             }
         ),
         "{error}"
@@ -370,16 +368,16 @@ fn the_store_allocation_limit_applies_to_the_next_bitmap() {
         )
         .unwrap_err();
     assert!(matches!(
-        error.kind,
-        RefinementErrorKind::LimitExceeded {
-            resource: "refinement store bytes",
-            limit: 1,
-            attempted: 2,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "refinement store bytes",
+                limit: 1,
+                attempted: 2,
+            },
+            ..
         }
     ));
-    assert_eq!(error.progress.completed_bitmaps, 1);
-    assert_eq!(error.progress.pixels_decoded, 1);
-    assert_eq!(error.progress.output_bytes_written, 1);
     assert_eq!(output, [0x80]);
 }
 
@@ -393,8 +391,13 @@ fn cancellation_is_checked_between_rows() {
         Limits::default(),
         &signal,
     );
-    assert!(matches!(error.kind, RefinementErrorKind::Cancelled));
-    assert_eq!(error.progress.rows_written, 0);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(output.is_empty());
 }
 
@@ -411,37 +414,13 @@ fn maximal_geometry_is_refused_by_the_pixel_limit_before_decoding() {
         &NeverCancel,
     );
     assert!(
-        matches!(
-            error.kind,
-            RefinementErrorKind::LimitExceeded {
+        matches!(error, Error { kind: ErrorKind::LimitExceeded {
                 resource: "pixels per bitmap",
                 limit: 12_000_000,
                 attempted,
-            } if attempted == u64::from(u32::MAX) * u64::from(u32::MAX)
-        ),
+            }, .. } if attempted == u64::from(u32::MAX) * u64::from(u32::MAX)),
         "{error}"
     );
-    assert_eq!((error.row, error.x, error.offset), (0, 0, None));
+    assert_eq!(error.offset, None);
     assert!(output.is_empty());
-    assert_eq!(error.progress.pixels_decoded, 0);
-}
-
-#[test]
-fn allocation_failure_message_and_formatter_errors_are_reported() {
-    // Row reservation failure needs a real allocator failure; the message is
-    // still part of the public error contract.
-    let error = RefinementError {
-        offset: Some(7),
-        bitmap_index: 2,
-        row: 3,
-        x: 4,
-        progress: Box::default(),
-        kind: RefinementErrorKind::AllocationFailed,
-    };
-    assert_eq!(
-        error.to_string(),
-        "JBIG2 refinement bitmap 2 row 3 x 4 at source byte 7: row allocation failed"
-    );
-    assert!(std::error::Error::source(&error).is_none());
-    common::assert_display_propagates_fmt_error(&error);
 }

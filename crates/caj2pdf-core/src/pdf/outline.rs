@@ -218,9 +218,9 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
     /// Check that no earlier insertion failed after it began closing items.
     pub(super) fn ensure_intact(&self) -> Result<()> {
         if self.failed {
-            Err(Error::InvalidInput {
-                reason: "PDF outline cannot continue after a failed bookmark operation",
-            })
+            Err(Error::invalid(
+                "PDF outline cannot continue after a failed bookmark operation",
+            ))
         } else {
             Ok(())
         }
@@ -229,9 +229,7 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
     /// Check that an item at `depth` would not skip a missing parent.
     pub(super) fn check_depth(&self, depth: usize) -> Result<()> {
         if depth > self.open.len() {
-            return Err(Error::InvalidInput {
-                reason: "bookmark depth skips a parent",
-            });
+            return Err(Error::invalid("bookmark depth skips a parent"));
         }
         Ok(())
     }
@@ -305,12 +303,12 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
             self.emit(out, last_root, None)?;
         }
         if let Some(root) = self.root {
-            let first = self.first.ok_or(Error::InvalidInput {
-                reason: "outline root has no first child",
-            })?;
-            let last = self.last.ok_or(Error::InvalidInput {
-                reason: "outline root has no last child",
-            })?;
+            let first = self
+                .first
+                .ok_or(Error::invalid("outline root has no first child"))?;
+            let last = self
+                .last
+                .ok_or(Error::invalid("outline root has no last child"))?;
             write_root(out, root, first, last, self.written)?;
         }
         Ok(self.root)
@@ -329,33 +327,25 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
         for item in self.open.iter().skip(depth) {
             released_titles = released_titles
                 .checked_add(len_u64(item.title.capacity()))
-                .ok_or(Error::InvalidInput {
-                    reason: "released bookmark title bytes overflow",
-                })?;
-            released_nodes = released_nodes.checked_add(1).ok_or(Error::InvalidInput {
-                reason: "released bookmark count overflows",
-            })?;
+                .ok_or(Error::invalid("released bookmark title bytes overflow"))?;
+            released_nodes = released_nodes
+                .checked_add(1)
+                .ok_or(Error::invalid("released bookmark count overflows"))?;
         }
         let next_titles = self
             .retained_titles
             .checked_sub(released_titles)
             .and_then(|retained| retained.checked_add(title_capacity))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark title bytes overflow",
-            })?;
+            .ok_or(Error::invalid("retained bookmark title bytes overflow"))?;
         let next_nodes = self
             .retained_nodes
             .checked_sub(released_nodes)
             .and_then(|retained| retained.checked_add(1))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark count overflows",
-            })?;
+            .ok_or(Error::invalid("retained bookmark count overflows"))?;
         let attempted = u64::from(next_nodes)
             .checked_mul(size_of::<OpenItem<R>>() as u64)
             .and_then(|node_bytes| node_bytes.checked_add(next_titles))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark allocation overflows",
-            })?;
+            .ok_or(Error::invalid("retained bookmark allocation overflows"))?;
         limits.check_allocation(attempted)?;
         if depth == self.open.len() {
             // The caller checked the bookmark count, and `attempted` covers
@@ -389,12 +379,10 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
                 self.emit(out, last_child, None)?;
             }
             let mut item = open.item;
-            item.descendants =
-                self.written
-                    .checked_sub(open.ordinal + 1)
-                    .ok_or(Error::InvalidInput {
-                        reason: "bookmark descendant count underflows",
-                    })?;
+            item.descendants = self
+                .written
+                .checked_sub(open.ordinal + 1)
+                .ok_or(Error::invalid("bookmark descendant count underflows"))?;
             closed = Some(ClosedItem {
                 item,
                 title: open.title,
@@ -415,15 +403,11 @@ impl<R: Copy + Into<PdfRef>> OutlineBuilder<R> {
         self.retained_titles = self
             .retained_titles
             .checked_sub(len_u64(closed.title.capacity()))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark title bytes underflow",
-            })?;
+            .ok_or(Error::invalid("retained bookmark title bytes underflow"))?;
         self.retained_nodes = self
             .retained_nodes
             .checked_sub(1)
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark count underflows",
-            })?;
+            .ok_or(Error::invalid("retained bookmark count underflows"))?;
         Ok(())
     }
 }

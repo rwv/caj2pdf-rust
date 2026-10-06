@@ -188,9 +188,8 @@ struct CompletePages;
 impl ComposeVisitor for CompletePages {
     fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
         if page.output_page.is_none() {
-            return Err(Error::InvalidInput {
-                reason: "HN/C8 conversion cannot omit source pages without image content",
-            });
+            return Err(Error::from(caj2pdf_core::ErrorKind::UnsupportedFormat)
+                .because("HN/C8 conversion cannot omit source pages without image content"));
         }
         Ok(())
     }
@@ -318,12 +317,10 @@ pub enum PagesError {
 }
 
 /// A failure that would repeat on every later page ends the report.
-fn fatal(error: caj2pdf_core::hnc8::Hnc8Error) -> Result<String, PagesError> {
-    use caj2pdf_core::hnc8::ErrorKind;
+fn fatal(error: Error) -> Result<String, PagesError> {
+    use caj2pdf_core::ErrorKind;
     match error.kind {
-        ErrorKind::Cancelled | ErrorKind::Source { .. } => {
-            Err(PagesError::Input(error.to_string()))
-        }
+        ErrorKind::Cancelled | ErrorKind::Io(_) => Err(PagesError::Input(error.to_string())),
         _ => Ok(error.to_string()),
     }
 }
@@ -396,25 +393,25 @@ mod tests {
 
     #[test]
     fn only_repeating_page_failures_end_the_page_report() {
-        use caj2pdf_core::hnc8::{ErrorKind, Hnc8Error};
-        let error = |kind| Hnc8Error {
+        use caj2pdf_core::{Context, ErrorKind};
+        let page = Context::Hnc8 {
             variant: None,
-            offset: 7,
             page: Some(2),
             image: None,
-            kind,
+            segment: None,
+            stage: None,
         };
-        let source = ErrorKind::Source {
-            field: "page row",
-            source: Error::Cancelled,
-        };
-        for kind in [ErrorKind::Cancelled, source] {
-            assert!(matches!(fatal(error(kind)), Err(PagesError::Input(_))));
+        let io = std::io::Error::other("disk failed");
+        for error in [Error::cancelled(), Error::from(ErrorKind::Io(io))] {
+            assert!(matches!(
+                fatal(error.at(7).within(page)),
+                Err(PagesError::Input(_))
+            ));
         }
-        let page = fatal(error(ErrorKind::IncompletePage)).unwrap();
+        let error = Error::malformed(7, "page has unread image records").within(page);
         assert_eq!(
-            page,
-            "HN/C8 at byte 7, page 2: page has unread image records"
+            fatal(error).unwrap(),
+            "malformed HN/C8 at byte 7, page 2: page has unread image records"
         );
     }
 
