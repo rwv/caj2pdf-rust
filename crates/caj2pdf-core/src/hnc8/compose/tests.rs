@@ -278,67 +278,7 @@ fn jpeg(width: u16, height: u16, sample: u8) -> Vec<u8> {
 }
 
 fn table() -> QmTable {
-    use crate::qm::{QM_STATE_COUNT, QmState};
-    QmTable::new(vec![
-        QmState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        QM_STATE_COUNT
-    ])
-    .unwrap()
-}
-
-/// Original interval encoder for the invented constant table above. Every
-/// context stays in state zero with MPS zero, so only decisions are needed.
-fn arithmetic(decisions: impl IntoIterator<Item = bool>) -> Vec<u8> {
-    let mut low = Vec::<u8>::new();
-    let mut interval = 0x1_0000_u32;
-    let mut shift = 0;
-    for bit in decisions {
-        let narrowed = interval - 0x4000;
-        if bit != (narrowed >= 0x4000) {
-            interval = narrowed;
-        } else {
-            low.resize(low.len().max(16 + shift), 0);
-            for j in 0..16 {
-                if narrowed & (1 << j) != 0 {
-                    let mut index = 15 + shift - j;
-                    loop {
-                        low[index] += 1;
-                        if low[index] < 2 {
-                            break;
-                        }
-                        low[index] = 0;
-                        index -= 1;
-                    }
-                }
-            }
-            interval = 0x4000;
-        }
-        while interval < 0x8000 {
-            interval <<= 1;
-            shift += 1;
-        }
-    }
-    let mut bytes = low
-        .chunks(8)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .enumerate()
-                .fold(0, |byte, (index, bit)| byte | (bit << (7 - index)))
-        })
-        .collect::<Vec<_>>();
-    while bytes.last() == Some(&0) {
-        bytes.pop();
-    }
-    if bytes.is_empty() {
-        bytes.push(0);
-    }
-    bytes
+    QmTable::standard()
 }
 
 fn type0(rows: &[Vec<bool>]) -> Vec<u8> {
@@ -350,12 +290,10 @@ fn type0(rows: &[Vec<bool>]) -> Vec<u8> {
     bytes[14..16].copy_from_slice(&1_u16.to_le_bytes());
     bytes[32..36].copy_from_slice(&2_u32.to_le_bytes());
     bytes[40..43].fill(0xff);
-    // Always choose the per-pixel row path. Constant invented states make
-    // the context values immaterial without bypassing production contexts.
-    bytes
-        .extend(arithmetic(rows.iter().flat_map(|row| {
-            std::iter::once(false).chain(row.iter().copied())
-        })));
+    // Always choose the per-pixel row path.
+    let mut coded = qm_encoder();
+    coded.type0_rows(rows, false);
+    bytes.extend(coded.finish());
     bytes
 }
 
@@ -1297,6 +1235,7 @@ fn example_container_error() -> Hnc8Error {
 
 fn example_arithmetic_error() -> ArithmeticError {
     ArithmeticError {
+        coder: Some(crate::arith::Coder::T82),
         offset: Some(99),
         context: Some(7),
         kind: crate::qm::ArithmeticErrorKind::InvalidContext,
@@ -1642,25 +1581,10 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
     assert_eq!(sink.bytes, compressed.sink.bytes);
 }
 
+use crate::test_support::{mq_encoder, qm_encoder};
+
 mod type3_fixture {
     include!("../../../tests/common/type3_fixture.rs");
-}
-
-fn mq_table(limits: &Limits) -> MqTable {
-    use crate::jbig2::mq::{MQ_STATE_COUNT, MqState};
-    MqTable::new(
-        vec![
-            MqState {
-                qe: 1,
-                next_mps: 0,
-                next_lps: 0,
-                switch_mps: false
-            };
-            MQ_STATE_COUNT
-        ],
-        limits,
-    )
-    .unwrap()
 }
 
 fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
@@ -1679,7 +1603,7 @@ fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
 #[test]
 fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     let limits = Limits::default();
-    let mq = mq_table(&limits);
+    let mq = MqTable::standard();
     let mut first_image = type3_record(3, 5, 0, 0);
     first_image.coordinate.width = 3000;
     first_image.coordinate.height = 5000;
@@ -1770,7 +1694,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
 fn type3_failures_keep_location_and_cleanup_all_stores() {
     for mode in 0..11 {
         let limits = Limits::default();
-        let mq = mq_table(&limits);
+        let mq = MqTable::standard();
         let mut record = type3_record(9, 3, 0, 0);
         if mode == 0 {
             record.bytes[4..8].copy_from_slice(&0_i32.to_le_bytes());
@@ -1856,7 +1780,7 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
         let kind = record.kind;
         let length = record.bytes.len() as u64;
         let limits = Limits::default();
-        let mq = mq_table(&limits);
+        let mq = MqTable::standard();
         let mut f = fixture(Variant::C8, &[vec![record]]);
         // Keep the application-info probe at end of file off the payload.
         f.bytes.extend_from_slice(&[0; 64]);
@@ -1911,7 +1835,7 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     ] {
         let limits = Limits::default();
-        let table = mq_table(&limits);
+        let table = MqTable::standard();
         let mut record = type3_record(3, 2, 0, 0);
         record.bytes = type3_fixture::payload(3, 2, 0xa40c);
         let f = fixture(Variant::C8, &[vec![record]]);
@@ -1986,7 +1910,7 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
         (Variant::C8, repeated_direct),
     ] {
         let limits = Limits::default();
-        let mq = mq_table(&limits);
+        let mq = MqTable::standard();
         let pair = [type3_record(3, 5, 0, 0), Record::jpeg(7, 4, 130, 2, 3)];
         let mut reference = None;
         for repetitions in [1, 3] {
@@ -2294,7 +2218,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
     };
     let options = ComposeOptions::default();
     let qm = table();
-    let mq = mq_table(&limits);
+    let mq = MqTable::standard();
     let (mut text, mut first, mut second, mut refined) = (
         Scratch::default(),
         Scratch::default(),

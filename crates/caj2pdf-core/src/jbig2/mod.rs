@@ -20,7 +20,6 @@ pub mod page_compose;
 pub mod page_info;
 pub mod page_profile;
 pub mod refinement;
-pub mod refinement_dictionary;
 pub mod text;
 pub mod text_composer;
 pub mod text_instances;

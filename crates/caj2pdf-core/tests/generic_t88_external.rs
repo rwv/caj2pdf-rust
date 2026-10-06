@@ -8,7 +8,7 @@ use caj2pdf_core::{
     jbig2::{
         HeaderLimits, SegmentSpan,
         generic::{GenericBudget, GenericRegionDecoder},
-        mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqState, MqTable},
+        mq::{ContextBank, MQ_STATE_COUNT, MqBudget, MqState, MqTable},
         read_segment_header,
     },
     native::SeekableSource,
@@ -55,7 +55,7 @@ fn sha_file(path: &Path) -> String {
     hex(&hasher.finalize())
 }
 
-fn external_table(limits: &Limits) -> MqTable {
+fn external_table() -> MqTable {
     let path = env::var("CAJ2PDF_T88_H2_FIXTURE_FILE")
         .expect("NOT_RUN: set external official table fixture path");
     let canonical = Path::new(&path)
@@ -92,7 +92,8 @@ fn external_table(limits: &Limits) -> MqTable {
             switch_mps: switch == 1,
         });
     }
-    MqTable::new(states, limits).unwrap()
+    assert_eq!(states, caj2pdf_core::jbig2::mq::STANDARD_STATES);
+    MqTable::standard()
 }
 
 struct HashSink {
@@ -124,7 +125,7 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
     let root = env::var("CAJ2PDF_GENERIC_CORPUS_DIR").expect("NOT_RUN: set external corpus root");
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = external_table(&limits);
+    let table = external_table();
     // Source hashes and segment coordinates come from #42's SHA-checked
     // directory inventory. Pixel hashes come from a temporary page-info +
     // generic-only PDF decoded by the #43 black-box oracle. The tools may
@@ -163,7 +164,7 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
         ))
         .unwrap();
         assert_eq!(header.segment_type, 38);
-        let mut contexts = MqContexts::new(1024, &limits, &mq_budget).unwrap();
+        let mut contexts = ContextBank::new(1024, &limits).unwrap();
         let mut sink = HashSink::new();
         let mut decoder = ready(GenericRegionDecoder::new(
             &mut source,
@@ -203,7 +204,7 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             "PASS generic-only {name}: {} rows, {} pixels, semantic MQ byte {}, physically fetched {} bytes",
             report.progress.rows_written,
             report.progress.pixels_decoded,
-            report.progress.mq.current_input_offset,
+            report.progress.mq.input_offset,
             report.progress.mq.source_bytes_fetched
         );
     }

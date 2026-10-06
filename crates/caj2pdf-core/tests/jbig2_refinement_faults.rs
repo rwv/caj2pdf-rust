@@ -8,10 +8,8 @@ use caj2pdf_core::{
     Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
         dictionary::SymbolDescriptor,
-        iaid::IaidContextBanks,
-        mq::{
-            MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqErrorKind, MqSpan, MqState, MqTable,
-        },
+        integer::BITMAP_BASE,
+        mq::{ArithmeticErrorKind, CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable},
         refinement::{
             RefinementBudget, RefinementDecoder, RefinementError, RefinementErrorKind,
             RefinementReference, RefinementRequest,
@@ -182,35 +180,51 @@ impl Cancellation for Flag {
     }
 }
 
-fn table(limits: &Limits) -> MqTable {
-    let states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    MqTable::new(states, limits).unwrap()
+fn table() -> MqTable {
+    MqTable::standard()
 }
 
-fn banks(limits: &Limits, budget: &MqBudget) -> IaidContextBanks {
-    let mut banks = IaidContextBanks::with_bitmap_contexts(1, 1024, limits, budget).unwrap();
-    let base = banks.layout().bitmap_base();
-    for index in base..base + 1024 {
-        banks
-            .mq_contexts_mut()
-            .set(
-                index,
-                MqContext {
-                    state_index: 0,
-                    mps: true,
-                },
-            )
-            .unwrap();
+/// A coding unit's contexts with the bitmap range at
+/// [`BITMAP_BASE`]; refinement needs no IAID contexts.
+fn contexts(limits: &Limits, budget: &MqBudget) -> ContextBank {
+    budget.context_bank(BITMAP_BASE + 1024, limits).unwrap()
+}
+
+/// An MQ stream that refines `request` to an all-set target over the
+/// reference packed in `reference` (absent bytes read as zero).
+fn set_stream(request: &RefinementRequest, reference: &[u8]) -> Vec<u8> {
+    let symbol = request.reference.symbol;
+    // Oversized requests are refused before any decision.
+    if u64::from(request.width) * u64::from(request.height) > 1 << 16
+        || u64::from(symbol.width) * u64::from(symbol.height) > 1 << 16
+    {
+        return common::mq_encoder().finish();
     }
-    banks
+    let rows: Vec<Vec<bool>> = (0..u64::from(symbol.height))
+        .map(|y| {
+            (0..u64::from(symbol.width))
+                .map(|x| {
+                    let at =
+                        symbol.relative_store_offset + y * u64::from(symbol.row_stride) + x / 8;
+                    reference
+                        .get(at as usize)
+                        .is_some_and(|byte| byte & (0x80 >> (x % 8)) != 0)
+                })
+                .collect()
+        })
+        .collect();
+    let target = vec![vec![true; request.width as usize]; request.height as usize];
+    let mut encoder = common::mq_encoder();
+    encoder.template1(
+        0,
+        &target,
+        &rows,
+        (
+            i64::from(request.reference_dx),
+            i64::from(request.reference_dy),
+        ),
+    );
+    encoder.finish()
 }
 
 fn reference(width: u32, height: u32) -> RefinementReference {
@@ -248,25 +262,25 @@ fn observe_error<C: Cancellation>(
     cancellation: &C,
 ) -> (RefinementError, Source, Sink) {
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let bytes = set_stream(&request, &reference_source.bytes);
+    let mut mq_source = Source::new(&bytes);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
-            length: 2,
+            length: bytes.len() as u64,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         cancellation,
         mq_budget,
     ))
     .unwrap();
     let mut host =
-        RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, cancellation, budget).unwrap();
+        RefinementDecoder::new(&mut mq, &mut sink, &limits, cancellation, budget).unwrap();
     let error = ready(host.decode_bitmap(&mut reference_source, request)).unwrap_err();
     // Diagnostics must identify a failed bitmap without exposing an unrelated
     // source namespace; nested I/O errors remain available via Error::source.
@@ -295,8 +309,8 @@ fn observe_error<C: Cancellation>(
     assert!(retry.to_string().contains("poisoned"));
     drop(host);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
     (error, reference_source, sink)
 }
@@ -382,28 +396,20 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
     for invalid in ["limits", "source cap", "sink cap", "short GR bank"] {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let table = table(&limits);
-        let mut banks = IaidContextBanks::with_bitmap_contexts(
-            1,
-            if invalid == "short GR bank" {
-                1023
-            } else {
-                1024
-            },
-            &limits,
-            &mq_budget,
-        )
-        .unwrap();
-        let layout = banks.layout();
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let table = table();
+        let short = usize::from(invalid == "short GR bank");
+        let mut contexts = mq_budget
+            .context_bank(BITMAP_BASE + 1024 - short, &limits)
+            .unwrap();
+        let mut mq_source = Source::new(&[0x3f, 0xff, 0xac]);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
-                length: 2,
+                length: 3,
             },
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -426,17 +432,11 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
             budget.max_sink_request_bytes = 0;
         }
         let mut sink = Sink::new();
-        let error = match RefinementDecoder::new(
-            &mut mq,
-            layout,
-            &mut sink,
-            host_limits,
-            &NeverCancel,
-            budget,
-        ) {
-            Ok(_) => panic!("accepted invalid {invalid}"),
-            Err(error) => error,
-        };
+        let error =
+            match RefinementDecoder::new(&mut mq, &mut sink, host_limits, &NeverCancel, budget) {
+                Ok(_) => panic!("accepted invalid {invalid}"),
+                Err(error) => error,
+            };
         if invalid == "short GR bank" {
             assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
         } else {
@@ -445,7 +445,7 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
         assert!(!error.progress.poisoned);
         assert!(error.to_string().contains("JBIG2 refinement bitmap"));
         // Rejected construction has not started a bitmap and leaves MQ usable.
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap();
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap();
     }
 }
 
@@ -458,27 +458,26 @@ fn constructor_rejects_an_already_poisoned_mq_coding_unit() {
         max_work: 3,
         ..MqBudget::default()
     };
-    let table = table(&limits);
-    let mut banks = IaidContextBanks::with_bitmap_contexts(1, 1024, &limits, &mq_budget).unwrap();
-    let layout = banks.layout();
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
     let mut mq_source = Source::new(&[0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
     ))
     .unwrap();
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ work",
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "arithmetic work",
             ..
         }
     ));
@@ -486,7 +485,6 @@ fn constructor_rejects_an_already_poisoned_mq_coding_unit() {
     let mut sink = Sink::new();
     let error = match RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -503,18 +501,17 @@ fn constructor_rejects_an_already_poisoned_mq_coding_unit() {
 fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
     let mut mq_source = Source::new(&[0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -528,7 +525,6 @@ fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
     let mut sink = Sink::new();
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &host_limits,
         &NeverCancel,
@@ -549,8 +545,8 @@ fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
     drop(host);
     assert_eq!(sink.calls, 0);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
 }
 
@@ -610,20 +606,19 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
 fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
     // Initial bytes are legal. FF followed by 90 is forbidden once byte-in
     // reaches that position; the final FF AC remains a separate tail.
     let mut mq_source = Source::new(&[0x00, 0x00, 0xff, 0x90, 0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 6,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -633,7 +628,6 @@ fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
     let mut sink = Sink::new();
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -644,7 +638,10 @@ fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
         .unwrap_err();
     match &error.kind {
         RefinementErrorKind::Mq(inner) => {
-            assert!(matches!(inner.kind, MqErrorKind::InvalidMarker(0x90)));
+            assert!(matches!(
+                inner.kind,
+                ArithmeticErrorKind::InvalidMarker(0x90)
+            ));
             assert_eq!(inner.offset, Some(3));
             assert_eq!(error.offset, inner.offset);
         }
@@ -656,8 +653,8 @@ fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
     drop(host);
     assert_eq!(sink.calls, 0);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
 }
 
@@ -840,18 +837,17 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
     for cap_pixels in [false, true] {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let table = table(&limits);
-        let mut banks = banks(&limits, &mq_budget);
-        let layout = banks.layout();
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let table = table();
+        let mut contexts = contexts(&limits, &mq_budget);
+        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
-                length: 2,
+                length: 3,
             },
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -866,8 +862,7 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
             budget.max_total_output_bytes = 1;
         }
         let mut host =
-            RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
-                .unwrap();
+            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
         ready(host.decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))).unwrap();
         let error =
             ready(host.decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1))))
@@ -883,8 +878,8 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
         drop(host);
         assert_eq!(sink.bytes, [0x80]);
         assert!(matches!(
-            ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-            MqErrorKind::Poisoned
+            ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+            ArithmeticErrorKind::Poisoned
         ));
     }
 }
@@ -1020,18 +1015,17 @@ fn cancellation_after_a_partial_sink_write_counts_that_write() {
 fn dropped_pending_reference_future_poisoned_both_host_and_raw_mq() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
     let mut mq_source = Source::new(&[0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -1042,7 +1036,6 @@ fn dropped_pending_reference_future_poisoned_both_host_and_raw_mq() {
     let mut sink = Sink::new();
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -1069,8 +1062,8 @@ fn dropped_pending_reference_future_poisoned_both_host_and_raw_mq() {
     ));
     drop(host);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
     assert_eq!(sink.calls, 0);
 }
@@ -1079,18 +1072,17 @@ fn dropped_pending_reference_future_poisoned_both_host_and_raw_mq() {
 fn dropped_pending_sink_future_preserves_partial_output_and_poison() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let mut mq_source = Source::new(&[0xf9, 0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
-            length: 2,
+            length: 3,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -1102,7 +1094,6 @@ fn dropped_pending_sink_future_preserves_partial_output_and_poison() {
     sink.pending_on_call = Some(2);
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -1124,8 +1115,8 @@ fn dropped_pending_sink_future_preserves_partial_output_and_poison() {
     assert_eq!(host.progress().sink_writes, 2);
     drop(host);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
     assert_eq!(sink.bytes, [0xff]);
 }
@@ -1135,18 +1126,17 @@ fn failed_or_capped_flush_poisoned_the_session_without_losing_output_progress() 
     for capped in [false, true] {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let table = table(&limits);
-        let mut banks = banks(&limits, &mq_budget);
-        let layout = banks.layout();
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let table = table();
+        let mut contexts = contexts(&limits, &mq_budget);
+        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
-                length: 2,
+                length: 3,
             },
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -1160,8 +1150,7 @@ fn failed_or_capped_flush_poisoned_the_session_without_losing_output_progress() 
             ..RefinementBudget::default()
         };
         let mut host =
-            RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
-                .unwrap();
+            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
         ready(host.decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))).unwrap();
         if capped {
             ready(host.flush_store()).unwrap();
@@ -1206,8 +1195,8 @@ fn failed_or_capped_flush_poisoned_the_session_without_losing_output_progress() 
         assert_eq!(sink.bytes, [0x80]);
         assert_eq!(sink.flush_calls, 1);
         assert!(matches!(
-            ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-            MqErrorKind::Poisoned
+            ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+            ArithmeticErrorKind::Poisoned
         ));
     }
 }
@@ -1216,18 +1205,17 @@ fn failed_or_capped_flush_poisoned_the_session_without_losing_output_progress() 
 fn dropped_pending_flush_poisoned_the_bound_sink_and_raw_mq() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
-            length: 2,
+            length: 3,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -1238,7 +1226,6 @@ fn dropped_pending_flush_poisoned_the_bound_sink_and_raw_mq() {
     sink.flush_pending = true;
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -1269,8 +1256,8 @@ fn dropped_pending_flush_poisoned_the_bound_sink_and_raw_mq() {
     assert_eq!(sink.bytes, [0x80]);
     assert_eq!(sink.flush_calls, 1);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
 }
 
@@ -1278,20 +1265,19 @@ fn dropped_pending_flush_poisoned_the_bound_sink_and_raw_mq() {
 fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
     let signal = Rc::new(Cell::new(false));
     let cancellation = Flag(signal.clone());
     let mut mq_source = Source::new(&[0xff, 0xac]);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &cancellation,
         mq_budget,
@@ -1301,7 +1287,6 @@ fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
     sink.cancel_after_flush = Some(signal);
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &cancellation,
@@ -1315,8 +1300,8 @@ fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
     drop(host);
     assert_eq!(sink.flush_calls, 1);
     assert!(matches!(
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap_err().kind,
+        ArithmeticErrorKind::Poisoned
     ));
 }
 
@@ -1364,19 +1349,18 @@ fn constructor_rejects_counter_budgets_above_the_ceiling() {
     ];
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
+    let table = table();
     for (name, field) in fields {
-        let mut banks = banks(&limits, &mq_budget);
-        let layout = banks.layout();
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let mut contexts = contexts(&limits, &mq_budget);
+        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
-                length: 2,
+                length: 3,
             },
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -1385,12 +1369,11 @@ fn constructor_rejects_counter_budgets_above_the_ceiling() {
         let mut sink = Sink::new();
         let mut budget = ceiling_budget();
         *field(&mut budget) = MAX_BUDGET_COUNT + 1;
-        let error =
-            match RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
-            {
-                Ok(_) => panic!("accepted {name} above the ceiling"),
-                Err(error) => error,
-            };
+        let error = match RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget)
+        {
+            Ok(_) => panic!("accepted {name} above the ceiling"),
+            Err(error) => error,
+        };
         assert!(
             matches!(
                 error.kind,
@@ -1406,7 +1389,7 @@ fn constructor_rejects_counter_budgets_above_the_ceiling() {
         assert!(!error.progress.poisoned);
         assert_eq!(sink.calls, 0);
         // Rejected construction leaves MQ usable.
-        ready(mq.decode_bit(layout.bitmap_base())).unwrap();
+        ready(mq.decode_bit(BITMAP_BASE)).unwrap();
     }
 }
 

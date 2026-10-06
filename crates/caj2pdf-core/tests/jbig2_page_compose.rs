@@ -5,10 +5,10 @@ use caj2pdf_core::{
     jbig2::{
         DirectoryLimits, HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{
-            GenericBudget, GenericError, GenericProgress, GenericRegionDecoder,
+            GenericBudget, GenericError, GenericErrorKind, GenericProgress, GenericRegionDecoder,
             GenericRegionHeader, GenericRegionInfo, GenericReport,
         },
-        mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqSnapshot, MqSpan, MqState, MqTable},
+        mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqBudget, MqTable},
         page_compose::{PageComposeBudget, PageComposeError, PageComposeErrorKind, PageOrSink},
         page_info::{PageInfoBudget, read_page_info},
         page_profile::{PageProfile, validate_observed_page_profile},
@@ -71,7 +71,7 @@ fn segment(number: u8, kind: u8, refs: &[u8], data: &[u8]) -> Vec<u8> {
     bytes
 }
 
-const SYNTHETIC_MQ: &[u8] = &[0, 0, 0, 0xff, 0xac];
+const SYNTHETIC_MQ: &[u8] = &[0xfc, 0xff, 0xac];
 
 fn generic_body(width: u32, height: u32) -> Vec<u8> {
     let mut data = Vec::new();
@@ -126,19 +126,7 @@ fn directory(source: &mut BytesSource) -> caj2pdf_core::jbig2::SegmentDirectory 
 }
 
 fn synthetic_table() -> MqTable {
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_lps = 1;
-    states[1].next_lps = 1;
-    states[1].next_mps = 1;
-    MqTable::new(states, &DEFAULT_LIMITS).unwrap()
+    MqTable::standard()
 }
 
 fn try_arm_from_source_with_header<C: Cancellation>(
@@ -152,7 +140,7 @@ fn try_arm_from_source_with_header<C: Cancellation>(
     change_header(&mut directory.segments[4]);
     let table = synthetic_table();
     let mq_budget = MqBudget::default();
-    let mut contexts = MqContexts::new(1024, &DEFAULT_LIMITS, &mq_budget).unwrap();
+    let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
     let never = NeverCancel;
     let mut decoder = run(GenericRegionDecoder::new(
         &mut source,
@@ -255,7 +243,7 @@ fn profile_with_header(width: u32, height: u32, mut text: TextRegionHeader) -> P
         reference_count: directory.segments[4].referred_to.len(),
         data: generic_data,
         info: generic_info(width, height),
-        mq_span: MqSpan {
+        mq_span: CodedSpan {
             offset: generic_data.offset + 20,
             length: generic_data.length - 20,
         },
@@ -298,13 +286,13 @@ fn generic_report(profile: PageProfile) -> GenericReport {
             rows_written: page.height,
             pixels_decoded: pixels,
             output_bytes_written: page.packed_bytes,
-            mq: MqSnapshot {
+            mq: ArithmeticSnapshot {
                 interval: 0,
                 code: 0,
                 bit_counter: 0,
-                current_input_offset: 0,
+                input_offset: 0,
                 source_bytes_fetched: 0,
-                terminal_inputs: 0,
+                synthesized_inputs: 0,
                 symbols_decoded: pixels,
                 work_done: 0,
                 poisoned: false,
@@ -774,7 +762,7 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     let directory = directory(&mut source);
     let table = synthetic_table();
     let mq_budget = MqBudget::default();
-    let mut contexts = MqContexts::new(1024, &DEFAULT_LIMITS, &mq_budget).unwrap();
+    let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
     let mut scratch = Scratch::with_bytes(&[0, 0]);
     let mut output = Output::new();
     output.max_write = 1;
@@ -811,6 +799,75 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     drop(sink);
     assert_eq!(output.bytes, [0xe0, 0xe0]);
     assert_eq!(output.flush_calls, 1);
+}
+
+#[test]
+fn a_failed_or_late_arming_poisons_the_generic_decoder() {
+    // 0: a second arming after a row; 1: a preflight header other than the
+    // parsed one; 2: a page sink that refuses the parsed header.
+    for case in 0..3 {
+        let profile = profile(3, 2);
+        let mut source = BytesSource(observed_bytes(3, 2));
+        let directory = directory(&mut source);
+        let table = synthetic_table();
+        let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
+        let mut scratch = Scratch::with_bytes(&[0, 0]);
+        let mut output = Output::new();
+        let mut sink = PageOrSink::new(
+            profile,
+            text_report(profile),
+            &mut scratch,
+            &mut output,
+            &DEFAULT_LIMITS,
+            &NeverCancel,
+            PageComposeBudget::default(),
+        )
+        .unwrap();
+        if case == 2 {
+            assert!(run(sink.flush()).is_err());
+        }
+        let mut decoder = run(GenericRegionDecoder::new(
+            &mut source,
+            &directory.segments[4],
+            &table,
+            &mut contexts,
+            &mut sink,
+            &DEFAULT_LIMITS,
+            &NeverCancel,
+            MqBudget::default(),
+            GenericBudget::default(),
+        ))
+        .unwrap();
+        let mut expected = profile.generic_header();
+        let error = match case {
+            0 => {
+                decoder.arm_page_output(expected).unwrap();
+                assert!(run(decoder.decode_next_row()).unwrap());
+                decoder.arm_page_output(expected).unwrap_err()
+            }
+            1 => {
+                expected.info.width = 2;
+                decoder.arm_page_output(expected).unwrap_err()
+            }
+            _ => decoder.arm_page_output(expected).unwrap_err(),
+        };
+        match case {
+            0 => assert!(matches!(error.kind, GenericErrorKind::Poisoned)),
+            1 => assert!(matches!(
+                error.kind,
+                GenericErrorKind::Malformed("generic header differs from page preflight")
+            )),
+            _ => assert!(matches!(error.kind, GenericErrorKind::Sink(_))),
+        }
+        assert!(matches!(
+            run(decoder.decode_next_row()).unwrap_err().kind,
+            GenericErrorKind::Poisoned
+        ));
+        drop(decoder);
+        drop(sink);
+        // Only the row decoded before the late arming reached the output.
+        assert_eq!(output.bytes.len(), usize::from(case == 0));
+    }
 }
 
 #[test]

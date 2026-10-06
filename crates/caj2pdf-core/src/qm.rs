@@ -2,25 +2,28 @@
 
 //! Experimental, bounded T.82 arithmetic decoder for an already isolated SCD.
 //!
-//! Standard probability states are available in [`STANDARD_STATES`].
-//! Custom states are also supported. No official test vectors, CAJ framing,
-//! or image prediction are included in this module.
-//! Its input span contains arithmetic bytes after any container framing and
-//! byte unstuffing have been handled by the caller.
+//! The decoder uses the standard probability states in [`STANDARD_STATES`].
+//! No official test vectors, CAJ framing, or image prediction are included
+//! in this module. Its input span contains arithmetic bytes after any
+//! container framing and byte unstuffing have been handled by the caller.
+//! The context bank, errors, snapshot, counters, and input refill are shared
+//! with the T.88 MQ decoder in [`crate::arith`].
 
 mod standard;
 pub use standard::STANDARD_STATES;
 
-use crate::{
-    Cancellation, CountingSource, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at,
+pub use crate::arith::{
+    ArithmeticError, ArithmeticErrorKind, ArithmeticResult, ArithmeticSnapshot, CodedSpan, Coder,
+    ContextBank, ContextState,
 };
-use std::{error, fmt, mem};
+
+use crate::arith::{Counters, INPUT_BUFFER_BYTES, InputBuffer, check_span, valid_counts};
+use crate::{Cancellation, Limits, RangedSource};
 
 /// Number of probability-estimation states in T.82 Table 24.
 pub const QM_STATE_COUNT: usize = 113;
-const INPUT_BUFFER_BYTES: usize = 256;
 
-/// A caller-supplied probability-estimation state.
+/// One probability-estimation state, in T.82 Table 24 column order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QmState {
     pub qe: u16,
@@ -29,126 +32,18 @@ pub struct QmState {
     pub switch_mps: bool,
 }
 
-/// A validated table borrowing standard states or owning custom states.
-#[derive(Debug)]
-pub struct QmTable {
-    states: std::borrow::Cow<'static, [QmState]>,
-}
+/// The standard T.82 Table 24 state machine, [`STANDARD_STATES`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct QmTable(());
 
 impl QmTable {
-    /// Use the standard probability states without allocating or copying them.
-    pub fn standard() -> Self {
-        Self {
-            states: std::borrow::Cow::Borrowed(&STANDARD_STATES),
-        }
-    }
-
-    /// Validate the exact state count, interval sizes, and transition indices.
-    pub fn new(states: Vec<QmState>) -> ArithmeticResult<Self> {
-        if states.len() != QM_STATE_COUNT {
-            return Err(ArithmeticError::configuration(
-                ArithmeticErrorKind::InvalidTable("expected exactly 113 states"),
-            ));
-        }
-        for state in &states {
-            if state.qe == 0 || state.qe >= 0x8000 {
-                return Err(ArithmeticError::configuration(
-                    ArithmeticErrorKind::InvalidTable("Qe must be in 1..0x8000"),
-                ));
-            }
-            if usize::from(state.next_lps) >= QM_STATE_COUNT
-                || usize::from(state.next_mps) >= QM_STATE_COUNT
-            {
-                return Err(ArithmeticError::configuration(
-                    ArithmeticErrorKind::InvalidTable("state transition is out of range"),
-                ));
-            }
-        }
-        Ok(Self {
-            states: states.into(),
-        })
+    pub const fn standard() -> Self {
+        Self(())
     }
 
     fn get(&self, index: u8) -> QmState {
-        self.states[usize::from(index)]
+        STANDARD_STATES[usize::from(index)]
     }
-}
-
-/// One context's current state and most-probable symbol.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ContextState {
-    pub state_index: u8,
-    pub mps: bool,
-}
-
-/// Contexts reset at the start of each stripe.
-#[derive(Debug)]
-pub struct ContextBank {
-    states: Vec<ContextState>,
-}
-
-impl ContextBank {
-    /// Allocate a nonempty context bank under the caller's allocation limit.
-    pub fn new(count: usize, limits: &Limits) -> ArithmeticResult<Self> {
-        limits
-            .validate()
-            .map_err(ArithmeticError::from_configuration_source)?;
-        if count == 0 {
-            return Err(ArithmeticError::configuration(
-                ArithmeticErrorKind::InvalidContext,
-            ));
-        }
-        let bytes = count
-            .checked_mul(mem::size_of::<ContextState>())
-            .and_then(|value| u64::try_from(value).ok())
-            .ok_or_else(|| ArithmeticError::configuration(ArithmeticErrorKind::InvalidContext))?;
-        limits
-            .check_allocation(bytes)
-            .map_err(ArithmeticError::from_configuration_source)?;
-        let mut states = Vec::new();
-        states
-            .try_reserve_exact(count)
-            .map_err(|_| ArithmeticError::configuration(ArithmeticErrorKind::InvalidContext))?;
-        states.resize(count, ContextState::default());
-        Ok(Self { states })
-    }
-
-    /// Discard previous stripe probability estimates.
-    pub fn reset(&mut self) {
-        self.states.fill(ContextState::default());
-    }
-
-    /// Read a context without exposing mutable decoder state.
-    pub fn state(&self, index: usize) -> Option<ContextState> {
-        self.states.get(index).copied()
-    }
-
-    /// Set one context with a checked state index.
-    pub fn set(&mut self, index: usize, state: ContextState) -> ArithmeticResult<()> {
-        let destination = self.states.get_mut(index).ok_or(ArithmeticError {
-            offset: None,
-            context: Some(index),
-            kind: ArithmeticErrorKind::InvalidContext,
-        })?;
-        if usize::from(state.state_index) >= QM_STATE_COUNT {
-            return Err(ArithmeticError {
-                offset: None,
-                context: Some(index),
-                kind: ArithmeticErrorKind::InvalidState,
-            });
-        }
-        *destination = state;
-        Ok(())
-    }
-}
-
-/// Range in the supplied `RangedSource` containing only the arithmetic bytes
-/// of one stripe. Its offset is absolute in that source, which may itself be
-/// an unstuffed logical or temporary source rather than the original document.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EncodedSpan {
-    pub offset: u64,
-    pub length: u64,
 }
 
 /// Per-stripe bounds. Work counts each symbol, renormalization shift, and
@@ -158,192 +53,50 @@ pub struct EncodedSpan {
 /// as `InvalidBudget` before any I/O.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ArithmeticBudget {
-    /// In `1..=`[`MAX_BUDGET_COUNT`].
+    /// In `1..=`[`MAX_BUDGET_COUNT`](crate::MAX_BUDGET_COUNT).
     pub max_symbols: u64,
-    /// In `1..=`[`MAX_BUDGET_COUNT`].
+    /// In `1..=`[`MAX_BUDGET_COUNT`](crate::MAX_BUDGET_COUNT).
     pub max_work: u64,
-}
-
-/// Typed failure category for this experimental decoder.
-#[derive(Debug)]
-pub enum ArithmeticErrorKind {
-    InvalidTable(&'static str),
-    InvalidContext,
-    InvalidState,
-    InvalidSpan(&'static str),
-    InvalidBudget,
-    IncompleteStripe {
-        expected: u64,
-        decoded: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    Cancelled,
-    Source(Error),
-    Poisoned,
-    Invariant(&'static str),
-}
-
-/// An arithmetic error with the next offset in the supplied `RangedSource`
-/// and a context index when those locations exist. The offset is not
-/// automatically an offset in the original document container.
-#[derive(Debug)]
-pub struct ArithmeticError {
-    pub offset: Option<u64>,
-    pub context: Option<usize>,
-    pub kind: ArithmeticErrorKind,
-}
-
-pub type ArithmeticResult<T> = std::result::Result<T, ArithmeticError>;
-
-impl ArithmeticError {
-    fn configuration(kind: ArithmeticErrorKind) -> Self {
-        Self {
-            offset: None,
-            context: None,
-            kind,
-        }
-    }
-
-    fn from_configuration_source(source: Error) -> Self {
-        Self::configuration(ArithmeticErrorKind::Source(source))
-    }
-}
-
-impl fmt::Display for ArithmeticError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("T.82 arithmetic decoder")?;
-        if let Some(offset) = self.offset {
-            write!(f, " at source byte {offset}")?;
-        }
-        if let Some(context) = self.context {
-            write!(f, ", context {context}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            ArithmeticErrorKind::InvalidTable(reason) => write!(f, "invalid Qm table: {reason}"),
-            ArithmeticErrorKind::InvalidContext => f.write_str("invalid context index or count"),
-            ArithmeticErrorKind::InvalidState => f.write_str("invalid context state index"),
-            ArithmeticErrorKind::InvalidSpan(reason) => write!(f, "invalid SCD span: {reason}"),
-            ArithmeticErrorKind::InvalidBudget => f.write_str("invalid arithmetic work budget"),
-            ArithmeticErrorKind::IncompleteStripe { expected, decoded } => {
-                write!(
-                    f,
-                    "incomplete stripe: expected {expected} symbols, decoded {decoded}"
-                )
-            }
-            ArithmeticErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            ArithmeticErrorKind::Cancelled => f.write_str("cancelled"),
-            ArithmeticErrorKind::Source(source) => write!(f, "source error: {source}"),
-            ArithmeticErrorKind::Poisoned => f.write_str("decoder is poisoned after an error"),
-            ArithmeticErrorKind::Invariant(reason) => write!(f, "internal invariant: {reason}"),
-        }
-    }
-}
-
-impl error::Error for ArithmeticError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            ArithmeticErrorKind::Source(source) => Some(source),
-            _ => None,
-        }
-    }
-}
-
-/// A read-only register and progress snapshot. `code` is the full 32-bit C
-/// register; `interval` is A and `bit_counter` is CT in T.82 §6.8.3.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ArithmeticSnapshot {
-    pub interval: u32,
-    pub code: u32,
-    pub bit_counter: u8,
-    pub next_input_offset: u64,
-    pub physical_bytes_consumed: u64,
-    /// Bytes returned by source reads, including the fixed-buffer prefetch.
-    pub source_bytes_fetched: u64,
-    pub virtual_zero_bytes: u64,
-    pub symbols_decoded: u64,
-    pub work_done: u64,
-    pub poisoned: bool,
 }
 
 /// Incremental decoder for one already isolated arithmetic stripe.
 pub struct ArithmeticDecoder<'a, S: RangedSource, C: Cancellation> {
     source: &'a mut S,
-    span: EncodedSpan,
+    span: CodedSpan,
     table: &'a QmTable,
     contexts: &'a mut ContextBank,
     limits: &'a Limits,
     cancellation: &'a C,
     budget: ArithmeticBudget,
-    input_buffer: [u8; INPUT_BUFFER_BYTES],
-    buffered: usize,
-    buffer_position: usize,
+    input: InputBuffer,
     physical_bytes_consumed: u64,
-    source_bytes_fetched: u64,
-    virtual_zero_bytes: u64,
+    counters: Counters,
     interval: u32,
     code: u32,
     bit_counter: u8,
-    symbols_decoded: u64,
-    work_done: u64,
-    poisoned: bool,
 }
 
 impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     /// Initialize C with three byte-input events. Bytes beyond the declared
     /// span are virtual zero; a short read *inside* the span is an error.
+    /// Every stripe starts from reset contexts.
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         source: &'a mut S,
-        span: EncodedSpan,
+        span: CodedSpan,
         table: &'a QmTable,
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: ArithmeticBudget,
     ) -> ArithmeticResult<Self> {
-        limits
-            .validate()
-            .map_err(ArithmeticError::from_configuration_source)?;
-        limits
-            .check_input_size(span.length)
-            .map_err(|source| ArithmeticError {
-                offset: Some(span.offset),
-                context: None,
-                kind: ArithmeticErrorKind::Source(source),
-            })?;
-        let end = span
-            .offset
-            .checked_add(span.length)
-            .ok_or(ArithmeticError {
-                offset: Some(span.offset),
-                context: None,
-                kind: ArithmeticErrorKind::InvalidSpan("end overflows u64"),
-            })?;
-        if span.offset > source.size() || end > source.size() {
-            return Err(ArithmeticError {
-                offset: Some(span.offset),
-                context: None,
-                kind: ArithmeticErrorKind::InvalidSpan("outside source size"),
-            });
-        }
-        if contexts.states.is_empty() {
+        limits.validate().map_err(|source| {
+            ArithmeticError::configuration(Coder::T82, ArithmeticErrorKind::Source(source))
+        })?;
+        check_span(Coder::T82, span, source.size(), limits)?;
+        if !valid_counts(budget.max_symbols, budget.max_work) {
             return Err(ArithmeticError::configuration(
-                ArithmeticErrorKind::InvalidContext,
-            ));
-        }
-        if !(1..=MAX_BUDGET_COUNT).contains(&budget.max_symbols)
-            || !(1..=MAX_BUDGET_COUNT).contains(&budget.max_work)
-        {
-            return Err(ArithmeticError::configuration(
+                Coder::T82,
                 ArithmeticErrorKind::InvalidBudget,
             ));
         }
@@ -356,18 +109,12 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             limits,
             cancellation,
             budget,
-            input_buffer: [0; INPUT_BUFFER_BYTES],
-            buffered: 0,
-            buffer_position: 0,
+            input: InputBuffer::new(),
             physical_bytes_consumed: 0,
-            source_bytes_fetched: 0,
-            virtual_zero_bytes: 0,
+            counters: Counters::default(),
             interval: 0x10000,
             code: 0,
             bit_counter: 0,
-            symbols_decoded: 0,
-            work_done: 0,
-            poisoned: false,
         };
         decoder.byte_in(None).await?;
         decoder.code <<= 8;
@@ -380,72 +127,52 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     /// Decode one bit for a checked context. Any error after work starts
     /// poisons this stripe so a partial register update cannot be reused.
     pub async fn decode_symbol(&mut self, context: usize) -> ArithmeticResult<bool> {
-        if self.poisoned {
+        if self.counters.poisoned {
             return Err(self.at(Some(context), ArithmeticErrorKind::Poisoned));
         }
-        if self.contexts.states.get(context).is_none() {
+        if self.contexts.get(context).is_none() {
             return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
         }
         self.check_cancelled(Some(context))?;
-        // `symbols_decoded <= max_symbols <= MAX_BUDGET_COUNT`.
-        let attempted = self.symbols_decoded + 1;
-        if attempted > self.budget.max_symbols {
-            return Err(self.at(
-                Some(context),
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "symbols",
-                    limit: self.budget.max_symbols,
-                    attempted,
-                },
-            ));
-        }
+        let symbols = self
+            .counters
+            .next_symbol(self.budget.max_symbols)
+            .map_err(|kind| self.at(Some(context), kind))?;
         // A caller may drop this future while source I/O is pending. Mark the
         // partially advanced registers unusable before the first await.
-        self.poisoned = true;
-        let result = self.decode_symbol_inner(context).await;
-        match result {
-            Ok(bit) => {
-                self.symbols_decoded = attempted;
-                self.poisoned = false;
-                Ok(bit)
-            }
-            Err(error) => Err(error),
-        }
+        self.counters.poisoned = true;
+        let bit = self.decode_symbol_inner(context).await?;
+        self.counters.complete_symbol(symbols);
+        Ok(bit)
     }
 
     /// Observe registers without mutating decoder, source, or contexts.
     pub fn snapshot(&self) -> ArithmeticSnapshot {
-        ArithmeticSnapshot {
-            interval: self.interval,
-            code: self.code,
-            bit_counter: self.bit_counter,
-            next_input_offset: self.span.offset + self.physical_bytes_consumed,
-            physical_bytes_consumed: self.physical_bytes_consumed,
-            source_bytes_fetched: self.source_bytes_fetched,
-            virtual_zero_bytes: self.virtual_zero_bytes,
-            symbols_decoded: self.symbols_decoded,
-            work_done: self.work_done,
-            poisoned: self.poisoned,
-        }
+        self.counters.snapshot(
+            self.interval,
+            self.code,
+            self.bit_counter,
+            self.span.offset + self.physical_bytes_consumed,
+        )
     }
 
     /// Read one context while the decoder holds the bank's mutable borrow.
     pub fn context_state(&self, index: usize) -> Option<ContextState> {
-        self.contexts.state(index)
+        self.contexts.get(index)
     }
 
     /// Check that exactly `expected_symbols` were decoded.
     pub fn finish(self, expected_symbols: u64) -> ArithmeticResult<()> {
-        if self.poisoned {
+        if self.counters.poisoned {
             return Err(self.at(None, ArithmeticErrorKind::Poisoned));
         }
         self.check_cancelled(None)?;
-        if self.symbols_decoded != expected_symbols {
+        if self.counters.symbols_decoded != expected_symbols {
             return Err(self.at(
                 None,
-                ArithmeticErrorKind::IncompleteStripe {
+                ArithmeticErrorKind::SymbolCount {
                     expected: expected_symbols,
-                    decoded: self.symbols_decoded,
+                    decoded: self.counters.symbols_decoded,
                 },
             ));
         }
@@ -454,6 +181,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 
     fn at(&self, context: Option<usize>, kind: ArithmeticErrorKind) -> ArithmeticError {
         ArithmeticError {
+            coder: Some(Coder::T82),
             offset: Some(self.span.offset + self.physical_bytes_consumed),
             context,
             kind,
@@ -469,68 +197,46 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     }
 
     fn charge(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        // `work_done <= max_work <= MAX_BUDGET_COUNT`.
-        let attempted = self.work_done + 1;
-        if attempted > self.budget.max_work {
-            return Err(self.at(
-                context,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "arithmetic work",
-                    limit: self.budget.max_work,
-                    attempted,
-                },
-            ));
-        }
-        self.work_done = attempted;
-        Ok(())
+        self.counters
+            .charge(1, self.budget.max_work)
+            .map_err(|kind| self.at(context, kind))
     }
 
     async fn next_byte(&mut self, context: Option<usize>) -> ArithmeticResult<u8> {
         self.check_cancelled(context)?;
-        if self.physical_bytes_consumed == self.span.length {
+        let relative = self.physical_bytes_consumed;
+        if relative == self.span.length {
             // Only `byte_in` reads bytes, after charging one unit of work,
             // so this count stays below `max_work <= MAX_BUDGET_COUNT`.
-            self.virtual_zero_bytes += 1;
+            self.counters.synthesized_inputs += 1;
             return Ok(0);
         }
-        if self.buffer_position == self.buffered {
-            let remaining = self.span.length - self.physical_bytes_consumed;
-            let count = remaining
-                .min(INPUT_BUFFER_BYTES as u64)
-                .min(self.limits.io_chunk_bytes as u64) as usize;
-            let offset = self.span.offset + self.physical_bytes_consumed;
-            // The counter keeps completed reads when a later short read or
-            // cancellation fails the checked refill.
-            let mut source = CountingSource::new(self.source, &mut self.source_bytes_fetched);
-            read_exact_at(
-                &mut source,
-                offset,
-                &mut self.input_buffer[..count],
-                self.limits,
-                self.cancellation,
-            )
-            .await
-            .map_err(|source| {
-                let failed_at = match source {
-                    Error::TruncatedInput {
-                        offset, available, ..
-                    } => offset.saturating_add(available),
-                    _ => offset,
-                };
-                ArithmeticError {
-                    offset: Some(failed_at),
-                    context,
-                    kind: match source {
-                        Error::Cancelled => ArithmeticErrorKind::Cancelled,
-                        other => ArithmeticErrorKind::Source(other),
-                    },
-                }
-            })?;
-            self.buffered = count;
-            self.buffer_position = 0;
-        }
-        let byte = self.input_buffer[self.buffer_position];
-        self.buffer_position += 1;
+        let byte = match self.input.get(relative) {
+            Some(byte) => byte,
+            None => {
+                let count = (self.span.length - relative)
+                    .min(INPUT_BUFFER_BYTES as u64)
+                    .min(self.limits.io_chunk_bytes as u64) as usize;
+                self.input
+                    .refill(
+                        self.source,
+                        self.span,
+                        relative,
+                        count,
+                        &mut self.counters.source_bytes_fetched,
+                        self.limits,
+                        self.cancellation,
+                    )
+                    .await
+                    .map_err(|(offset, kind)| ArithmeticError {
+                        coder: Some(Coder::T82),
+                        offset: Some(offset),
+                        context,
+                        kind,
+                    })?;
+                self.input.get(relative).expect("refilled byte")
+            }
+        };
         self.physical_bytes_consumed += 1;
         Ok(byte)
     }
@@ -565,14 +271,14 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 
     async fn decode_symbol_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
         self.charge(Some(context))?;
-        let current = self.contexts.states[context];
+        let current = self.contexts.state(context);
         let state = self.table.get(current.state_index);
         let qe = u32::from(state.qe);
         // A symbol starts with `interval` in 0x8000..=0x10000: `new` sets
         // 0x10000, an MPS without renormalization keeps at least 0x8000,
         // renormalization doubles it until it reaches 0x8000, and a failed
-        // renormalization poisons the decoder before another symbol. The
-        // table rejects `qe` of 0x8000 or more.
+        // renormalization poisons the decoder before another symbol. Every
+        // standard `qe` is below 0x8000.
         debug_assert!((0x8000..=0x10000).contains(&self.interval) && qe < 0x8000);
         let narrowed = self.interval - qe;
         self.interval = narrowed;
@@ -615,7 +321,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             self.renormalize(context).await?;
             (current.mps ^ exchange, next)
         };
-        self.contexts.states[context] = next;
+        self.contexts.update(context, next);
         Ok(bit)
     }
 }
@@ -624,6 +330,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 mod tests {
     use super::*;
     use crate::test_support::run;
+    use crate::{Error, MAX_BUDGET_COUNT};
     use std::{
         cell::Cell,
         future::Future,
@@ -707,22 +414,6 @@ mod tests {
         }
     }
 
-    fn synthetic_table() -> QmTable {
-        let mut states = vec![
-            QmState {
-                qe: 0x4000,
-                next_lps: 1,
-                next_mps: 2,
-                switch_mps: true,
-            };
-            QM_STATE_COUNT
-        ];
-        states[1].qe = 0x5000;
-        states[1].next_mps = 3;
-        states[1].next_lps = 4;
-        QmTable::new(states).unwrap()
-    }
-
     fn budget() -> ArithmeticBudget {
         ArithmeticBudget {
             max_symbols: 1000,
@@ -730,81 +421,19 @@ mod tests {
         }
     }
 
-    fn span(length: u64) -> EncodedSpan {
-        EncodedSpan { offset: 0, length }
+    fn span(length: u64) -> CodedSpan {
+        CodedSpan { offset: 0, length }
     }
 
     #[test]
-    fn validates_table_contexts_spans_and_budgets_before_input() {
-        let state = QmState {
-            qe: 1,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false,
-        };
-        assert!(matches!(
-            QmTable::new(vec![state; QM_STATE_COUNT - 1])
-                .unwrap_err()
-                .kind,
-            ArithmeticErrorKind::InvalidTable(_)
-        ));
-        for invalid in [
-            QmState { qe: 0, ..state },
-            QmState {
-                qe: 0x8000,
-                ..state
-            },
-            QmState {
-                next_lps: QM_STATE_COUNT as u8,
-                ..state
-            },
-            QmState {
-                next_mps: QM_STATE_COUNT as u8,
-                ..state
-            },
-        ] {
-            assert!(matches!(
-                QmTable::new(vec![invalid; QM_STATE_COUNT])
-                    .unwrap_err()
-                    .kind,
-                ArithmeticErrorKind::InvalidTable(_)
-            ));
-        }
+    fn validates_spans_and_budgets_before_input() {
         let limits = Limits::default();
-        assert!(matches!(
-            ContextBank::new(0, &limits).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidContext
-        ));
-        let mut tiny = limits;
-        tiny.io_chunk_bytes = 1;
-        tiny.max_allocation_bytes = 1;
-        assert!(matches!(
-            ContextBank::new(1, &tiny).unwrap_err().kind,
-            ArithmeticErrorKind::Source(Error::LimitExceeded { .. })
-        ));
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
-        assert!(matches!(
-            contexts.set(2, ContextState::default()).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidContext
-        ));
-        assert!(matches!(
-            contexts
-                .set(
-                    1,
-                    ContextState {
-                        state_index: QM_STATE_COUNT as u8,
-                        mps: false,
-                    }
-                )
-                .unwrap_err()
-                .kind,
-            ArithmeticErrorKind::InvalidState
-        ));
         let mut source = MockSource::new(&[0, 0, 0]);
         let invalid_span = run(ArithmeticDecoder::new(
             &mut source,
-            EncodedSpan {
+            CodedSpan {
                 offset: u64::MAX,
                 length: 2,
             },
@@ -842,7 +471,7 @@ mod tests {
         small_input.max_input_bytes = 2;
         let input_limit = run(ArithmeticDecoder::new(
             &mut source,
-            EncodedSpan {
+            CodedSpan {
                 offset: 1,
                 length: 3,
             },
@@ -911,55 +540,37 @@ mod tests {
     }
 
     #[test]
-    fn context_banks_beyond_the_address_space_are_refused_without_allocating() {
-        let limits = Limits {
-            max_allocation_bytes: u64::MAX,
-            ..Limits::default()
-        };
-        // The byte size of this bank overflows `usize`.
-        assert!(matches!(
-            ContextBank::new(usize::MAX, &limits).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidContext
-        ));
-        // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
-        // reservation fails before the allocator is called.
-        #[cfg(target_pointer_width = "64")]
-        assert!(matches!(
-            ContextBank::new(1 << 62, &limits).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidContext
-        ));
-    }
-
-    #[test]
-    fn assigned_context_survives_rejected_spans_without_reading_or_resetting() {
-        let table = synthetic_table();
+    fn adapted_context_survives_rejected_spans_without_reading_or_resetting() {
+        let table = QmTable::standard();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
-        let assigned = ContextState {
-            state_index: (QM_STATE_COUNT - 1) as u8,
+        // An LPS in context 1 switches its MPS and moves it to state 1.
+        let mut source = MockSource::new(&[0xc0, 0, 0]);
+        let mut decoder = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            &limits,
+            &NEVER,
+            budget(),
+        ))
+        .unwrap();
+        assert!(run(decoder.decode_symbol(1)).unwrap());
+        decoder.finish(1).unwrap();
+        let adapted = ContextState {
+            state_index: 1,
             mps: true,
         };
-        contexts.set(1, assigned).unwrap();
-        assert_eq!(contexts.state(1), Some(assigned));
-
-        // A failed assignment must not overwrite the last valid state.
-        let invalid = ContextState {
-            state_index: QM_STATE_COUNT as u8,
-            mps: false,
-        };
-        assert!(matches!(
-            contexts.set(1, invalid).unwrap_err().kind,
-            ArithmeticErrorKind::InvalidState
-        ));
-        assert_eq!(contexts.state(1), Some(assigned));
+        assert_eq!(contexts.get(1), Some(adapted));
 
         let mut source = MockSource::new(&[0, 0, 0]);
         for span in [
-            EncodedSpan {
+            CodedSpan {
                 offset: 2,
                 length: 2,
             },
-            EncodedSpan {
+            CodedSpan {
                 offset: 4,
                 length: 0,
             },
@@ -983,30 +594,23 @@ mod tests {
             assert_eq!(
                 error.to_string(),
                 format!(
-                    "T.82 arithmetic decoder at source byte {}: invalid SCD span: outside source size",
+                    "T.82 arithmetic decoder at source byte {}: invalid span: outside source size",
                     span.offset
                 )
             );
             assert_eq!(source.calls, 0);
-            assert_eq!(contexts.state(1), Some(assigned));
+            assert_eq!(contexts.get(1), Some(adapted));
         }
 
         contexts.reset();
-        assert_eq!(contexts.state(1), Some(ContextState::default()));
+        assert_eq!(contexts.get(1), Some(ContextState::default()));
     }
 
     #[test]
     fn arithmetic_errors_keep_source_causes_and_actionable_locations() {
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-
-        let invalid_context = contexts.set(1, ContextState::default()).unwrap_err();
-        assert_eq!(
-            invalid_context.to_string(),
-            "T.82 arithmetic decoder, context 1: invalid context index or count"
-        );
-        assert!(std::error::Error::source(&invalid_context).is_none());
 
         let mut short = MockSource::new(&[0, 0]);
         short.advertised_size = 3;
@@ -1054,6 +658,12 @@ mod tests {
             },
         ))
         .unwrap();
+        let invalid_context = run(decoder.decode_symbol(1)).unwrap_err();
+        assert_eq!(
+            invalid_context.to_string(),
+            "T.82 arithmetic decoder at source byte 3, context 1: invalid context index or count"
+        );
+        assert!(std::error::Error::source(&invalid_context).is_none());
         assert!(!run(decoder.decode_symbol(0)).unwrap());
         let limit = run(decoder.decode_symbol(0)).unwrap_err();
         assert_eq!(
@@ -1064,13 +674,13 @@ mod tests {
         let incomplete = decoder.finish(2).unwrap_err();
         assert_eq!(
             incomplete.to_string(),
-            "T.82 arithmetic decoder at source byte 3: incomplete stripe: expected 2 symbols, decoded 1"
+            "T.82 arithmetic decoder at source byte 3: expected 2 symbols, decoded 1"
         );
     }
 
     #[test]
     fn initializes_registers_with_checked_short_reads_and_virtual_zeros() {
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let limits = Limits {
             io_chunk_bytes: 2,
             ..Limits::default()
@@ -1092,9 +702,8 @@ mod tests {
         assert_eq!(snapshot.interval, 0x10000);
         assert_eq!(snapshot.code, 0x12345600);
         assert_eq!(snapshot.bit_counter, 8);
-        assert_eq!(snapshot.physical_bytes_consumed, 3);
-        assert_eq!(snapshot.virtual_zero_bytes, 0);
-        assert_eq!(snapshot.next_input_offset, 3);
+        assert_eq!(snapshot.synthesized_inputs, 0);
+        assert_eq!(snapshot.input_offset, 3);
         decoder.finish(0).unwrap();
         assert_eq!(source.calls, 3);
 
@@ -1110,8 +719,8 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(decoder.snapshot().code, 0);
-        assert_eq!(decoder.snapshot().virtual_zero_bytes, 3);
-        assert_eq!(decoder.snapshot().physical_bytes_consumed, 0);
+        assert_eq!(decoder.snapshot().synthesized_inputs, 3);
+        assert_eq!(decoder.snapshot().input_offset, 0);
         decoder.finish(0).unwrap();
         assert_eq!(empty.calls, 0);
 
@@ -1137,96 +746,73 @@ mod tests {
 
     #[test]
     fn mps_lps_and_conditional_exchanges_update_contexts() {
-        let table = synthetic_table();
+        // Hand-derived from T.82 Table 24: state 0 has Qe 0x5A1D, NMPS and
+        // NLPS 1 and SWITCH; state 1 has Qe 0x2586 and NMPS 2.
+        let table = QmTable::standard();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut mps_source = MockSource::new(&[0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut mps_source,
-            span(3),
-            &table,
-            &mut contexts,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0xc000);
-        assert_eq!(decoder.context_state(0), Some(ContextState::default()));
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0x8000);
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0x8000);
-        assert_eq!(decoder.snapshot().bit_counter, 7);
+        let mut decode = |bytes: &[u8], symbols: usize| {
+            let mut source = MockSource::new(bytes);
+            let mut decoder = run(ArithmeticDecoder::new(
+                &mut source,
+                span(3),
+                &table,
+                &mut contexts,
+                &limits,
+                &NEVER,
+                budget(),
+            ))
+            .unwrap();
+            let mut trace = Vec::new();
+            for _ in 0..symbols {
+                let bit = run(decoder.decode_symbol(0)).unwrap();
+                let snapshot = decoder.snapshot();
+                trace.push((
+                    bit,
+                    snapshot.interval,
+                    snapshot.bit_counter,
+                    decoder.context_state(0).unwrap(),
+                ));
+            }
+            decoder.finish(symbols as u64).unwrap();
+            trace
+        };
+        let state = |state_index, mps| ContextState { state_index, mps };
+        // A zero code stays in the lower subinterval: an MPS that keeps
+        // A = 0xA5E3 unrenormalized, then A - Qe = 0x4BC6 < Qe exchanges
+        // that subinterval to the LPS, which switches the MPS; the third
+        // symbol is the new MPS in state 1.
         assert_eq!(
-            decoder.context_state(0),
-            Some(ContextState {
-                state_index: 2,
-                mps: false,
-            })
+            decode(&[0, 0, 0], 3),
+            [
+                (false, 0xa5e3, 8, state(0, false)),
+                (true, 0x978c, 7, state(1, true)),
+                (true, 0xe40c, 6, state(2, true)),
+            ]
         );
-        decoder.finish(3).unwrap();
-
-        let mut lps_source = MockSource::new(&[0xc0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut lps_source,
-            span(3),
-            &table,
-            &mut contexts,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        assert!(run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0x8000);
+        // C = 0xC000 lies in the upper subinterval: an ordinary LPS. The next
+        // symbol is an MPS that needs no renormalization.
         assert_eq!(
-            decoder.context_state(0),
-            Some(ContextState {
-                state_index: 1,
-                mps: true,
-            })
+            decode(&[0xc0, 0, 0], 2),
+            [
+                (true, 0xb43a, 7, state(1, true)),
+                (true, 0x8eb4, 7, state(1, true)),
+            ]
         );
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0xc000);
-        assert_eq!(decoder.snapshot().bit_counter, 5);
+        // C = 0x8000 is an MPS first, then lies in the upper subinterval
+        // of an exchanged split: an MPS that renormalizes.
         assert_eq!(
-            decoder.context_state(0),
-            Some(ContextState {
-                state_index: 4,
-                mps: false,
-            })
+            decode(&[0x80, 0, 0], 2),
+            [
+                (false, 0xa5e3, 8, state(0, false)),
+                (false, 0xb43a, 7, state(1, false)),
+            ]
         );
-        decoder.finish(2).unwrap();
-
-        let mut exchanged_lps_source = MockSource::new(&[0xd8, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut exchanged_lps_source,
-            span(3),
-            &table,
-            &mut contexts,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        assert!(run(decoder.decode_symbol(0)).unwrap());
-        assert!(run(decoder.decode_symbol(0)).unwrap());
-        assert_eq!(decoder.snapshot().interval, 0xa000);
-        assert_eq!(
-            decoder.context_state(0),
-            Some(ContextState {
-                state_index: 3,
-                mps: true,
-            })
-        );
-        decoder.finish(2).unwrap();
     }
 
     #[test]
     fn fixed_width_register_operations_and_small_work_budget_are_explicit() {
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let limits = Limits {
             io_chunk_bytes: 1,
             ..Limits::default()
@@ -1246,14 +832,14 @@ mod tests {
         decoder.code = 0xffff_ff00;
         run(decoder.byte_in(None)).unwrap();
         assert_eq!(decoder.snapshot().code, 0x0000_fe00);
-        assert_eq!(decoder.snapshot().physical_bytes_consumed, 4);
+        assert_eq!(decoder.snapshot().input_offset, 4);
         decoder.interval = 0x7fff;
         decoder.bit_counter = 8;
         run(decoder.renormalize(0)).unwrap();
         assert_eq!(decoder.snapshot().interval, 0xfffe);
         assert_eq!(decoder.snapshot().bit_counter, 7);
         decoder.budget.max_symbols = MAX_BUDGET_COUNT;
-        decoder.symbols_decoded = MAX_BUDGET_COUNT;
+        decoder.counters.symbols_decoded = MAX_BUDGET_COUNT;
         assert!(matches!(
             run(decoder.decode_symbol(0)).unwrap_err().kind,
             ArithmeticErrorKind::LimitExceeded {
@@ -1263,9 +849,9 @@ mod tests {
             } if attempted == MAX_BUDGET_COUNT + 1
         ));
         assert!(!decoder.snapshot().poisoned);
-        decoder.symbols_decoded = 0;
+        decoder.counters.symbols_decoded = 0;
         decoder.budget.max_work = MAX_BUDGET_COUNT;
-        decoder.work_done = MAX_BUDGET_COUNT;
+        decoder.counters.work_done = MAX_BUDGET_COUNT;
         assert!(matches!(
             decoder.charge(None).unwrap_err().kind,
             ArithmeticErrorKind::LimitExceeded {
@@ -1309,13 +895,7 @@ mod tests {
 
     #[test]
     fn cancellation_and_physical_eof_during_a_symbol_poison_the_stripe() {
-        let state = QmState {
-            qe: 1,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false,
-        };
-        let table = QmTable::new(vec![state; QM_STATE_COUNT]).unwrap();
+        let table = QmTable::standard();
         let limits = Limits {
             io_chunk_bytes: 1,
             ..Limits::default()
@@ -1351,18 +931,21 @@ mod tests {
             budget(),
         ))
         .unwrap();
-        let error = run(decoder.decode_symbol(0)).unwrap_err();
+        // The fourth byte enters C during the renormalization of a later
+        // symbol; the symbols before it complete.
+        let (decoded, before, error) = decode_until_error(&mut decoder);
         assert_eq!(error.offset, Some(3));
         assert_eq!(error.context, Some(0));
         assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
         assert!(decoder.snapshot().poisoned);
-        assert_eq!(decoder.context_state(0), Some(ContextState::default()));
+        assert_eq!(decoder.snapshot().symbols_decoded, decoded);
+        assert_eq!(decoder.context_state(0), Some(before));
         assert!(matches!(
             run(decoder.decode_symbol(0)).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
         assert!(matches!(
-            decoder.finish(1).unwrap_err().kind,
+            decoder.finish(decoded + 1).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
         assert_eq!(during_symbol.calls, 4);
@@ -1379,7 +962,7 @@ mod tests {
             budget(),
         ))
         .unwrap();
-        let error = run(decoder.decode_symbol(0)).unwrap_err();
+        let (decoded, _, error) = decode_until_error(&mut decoder);
         assert_eq!(error.offset, Some(3));
         assert_eq!(error.context, Some(0));
         assert!(matches!(
@@ -1392,20 +975,29 @@ mod tests {
             ArithmeticErrorKind::Poisoned
         ));
         assert!(matches!(
-            decoder.finish(1).unwrap_err().kind,
+            decoder.finish(decoded + 1).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
     }
 
+    /// Decode context zero until a symbol fails, returning the completed
+    /// symbol count, the context state before the failing symbol, and its
+    /// error. The fixtures fail within a few symbols.
+    fn decode_until_error<S: RangedSource>(
+        decoder: &mut ArithmeticDecoder<'_, S, Flag>,
+    ) -> (u64, ContextState, ArithmeticError) {
+        for decoded in 0..16 {
+            let before = decoder.context_state(0).unwrap();
+            if let Err(error) = run(decoder.decode_symbol(0)) {
+                return (decoded, before, error);
+            }
+        }
+        panic!("the fixture never failed");
+    }
+
     #[test]
     fn dropping_a_pending_symbol_future_poisons_the_decoder() {
-        let state = QmState {
-            qe: 1,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false,
-        };
-        let table = QmTable::new(vec![state; QM_STATE_COUNT]).unwrap();
+        let table = QmTable::standard();
         let limits = Limits {
             io_chunk_bytes: 1,
             ..Limits::default()
@@ -1422,13 +1014,21 @@ mod tests {
             budget(),
         ))
         .unwrap();
-        let mut pending = Box::pin(decoder.decode_symbol(0));
+        // The symbol whose renormalization reads the fourth byte stays
+        // pending; the symbols before it complete.
         let mut task_context = Context::from_waker(Waker::noop());
-        assert!(matches!(
-            pending.as_mut().poll(&mut task_context),
-            Poll::Pending
-        ));
-        drop(pending);
+        let mut completed = 0;
+        loop {
+            let mut pending = Box::pin(decoder.decode_symbol(0));
+            match pending.as_mut().poll(&mut task_context) {
+                Poll::Ready(bit) => {
+                    bit.unwrap();
+                    completed += 1;
+                    assert!(completed < 16, "the fixture never reached byte 3");
+                }
+                Poll::Pending => break,
+            }
+        }
         assert!(decoder.snapshot().poisoned);
         assert!(matches!(
             run(decoder.decode_symbol(0)).unwrap_err().kind,
@@ -1438,7 +1038,7 @@ mod tests {
 
     #[test]
     fn work_error_poisoning_and_invalid_context_preflight_are_distinct() {
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut source = MockSource::new(&[0, 0, 0]);
@@ -1490,7 +1090,7 @@ mod tests {
 
     #[test]
     fn finish_requires_the_exact_symbol_count_and_each_stripe_resets_contexts() {
-        let table = synthetic_table();
+        let table = QmTable::standard();
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut first = MockSource::new(&[0xc0, 0, 0]);
@@ -1507,7 +1107,7 @@ mod tests {
         assert!(run(decoder.decode_symbol(0)).unwrap());
         assert!(matches!(
             decoder.finish(2).unwrap_err().kind,
-            ArithmeticErrorKind::IncompleteStripe {
+            ArithmeticErrorKind::SymbolCount {
                 expected: 2,
                 decoded: 1,
             }
@@ -1527,7 +1127,7 @@ mod tests {
         assert!(run(decoder.decode_symbol(0)).unwrap());
         decoder.finish(1).unwrap();
         assert_eq!(
-            contexts.state(0),
+            contexts.get(0),
             Some(ContextState {
                 state_index: 1,
                 mps: true,
@@ -1548,13 +1148,13 @@ mod tests {
         assert_eq!(decoder.context_state(0), Some(ContextState::default()));
         assert!(!run(decoder.decode_symbol(0)).unwrap());
         contexts.reset();
-        assert_eq!(contexts.state(0), Some(ContextState::default()));
+        assert_eq!(contexts.get(0), Some(ContextState::default()));
     }
 
     #[test]
     fn fixed_budget_mutations_are_deterministic_and_bounded() {
         fn trace(input: &[u8; 8]) -> (Vec<bool>, ArithmeticSnapshot) {
-            let table = synthetic_table();
+            let table = QmTable::standard();
             let limits = Limits::default();
             let mut contexts = ContextBank::new(2, &limits).unwrap();
             let mut source = MockSource::new(input);
@@ -1578,7 +1178,7 @@ mod tests {
             let snapshot = decoder.snapshot();
             assert_eq!(snapshot.symbols_decoded, 64);
             assert!(snapshot.work_done <= 512);
-            assert!(snapshot.physical_bytes_consumed <= input.len() as u64);
+            assert!(snapshot.input_offset <= input.len() as u64);
             decoder.finish(64).unwrap();
             (bits, snapshot)
         }
@@ -1605,33 +1205,8 @@ mod tests {
     #[test]
     fn configuration_and_state_errors_have_distinct_messages() {
         let limits = Limits::default();
-        let table = synthetic_table();
-        let state = QmState {
-            qe: 1,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false,
-        };
-        let wrong_count = QmTable::new(vec![state; 1]).unwrap_err();
-        assert_eq!(
-            wrong_count.to_string(),
-            "T.82 arithmetic decoder: invalid Qm table: expected exactly 113 states"
-        );
+        let table = QmTable::standard();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
-        let bad_state = contexts
-            .set(
-                0,
-                ContextState {
-                    state_index: u8::MAX,
-                    mps: true,
-                },
-            )
-            .unwrap_err();
-        assert_eq!(
-            bad_state.to_string(),
-            "T.82 arithmetic decoder, context 0: invalid context state index"
-        );
-
         let mut source = MockSource::new(&[0, 0, 0]);
         let zero_budget = run(ArithmeticDecoder::new(
             &mut source,
@@ -1649,7 +1224,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             zero_budget.to_string(),
-            "T.82 arithmetic decoder: invalid arithmetic work budget"
+            "T.82 arithmetic decoder: invalid budget"
         );
         let cancelled = run(ArithmeticDecoder::new(
             &mut source,
@@ -1668,49 +1243,16 @@ mod tests {
         );
         assert_eq!(source.calls, 0);
 
-        for (kind, message) in [
-            (
-                ArithmeticErrorKind::Poisoned,
-                "decoder is poisoned after an error",
-            ),
-            (
-                ArithmeticErrorKind::Invariant("register"),
-                "internal invariant: register",
-            ),
-        ] {
-            let error = ArithmeticError {
-                offset: Some(9),
-                context: Some(4),
-                kind,
-            };
-            assert_eq!(
-                error.to_string(),
-                format!("T.82 arithmetic decoder at source byte 9, context 4: {message}")
-            );
-            assert!(std::error::Error::source(&error).is_none());
-        }
-    }
-
-    #[test]
-    fn an_empty_context_bank_is_rejected_before_input() {
-        // `ContextBank::new` never builds an empty bank; the decoder still
-        // refuses one rather than indexing it.
-        let mut empty = ContextBank { states: Vec::new() };
-        let table = synthetic_table();
-        let mut source = MockSource::new(&[0, 0, 0]);
-        let error = run(ArithmeticDecoder::new(
-            &mut source,
-            span(3),
-            &table,
-            &mut empty,
-            &Limits::default(),
-            &NEVER,
-            budget(),
-        ))
-        .err()
-        .unwrap();
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
-        assert_eq!((error.offset, error.context), (None, None));
-        assert_eq!(source.calls, 0);
+        let poisoned = ArithmeticError {
+            coder: Some(Coder::T82),
+            offset: Some(9),
+            context: Some(4),
+            kind: ArithmeticErrorKind::Poisoned,
+        };
+        assert_eq!(
+            poisoned.to_string(),
+            "T.82 arithmetic decoder at source byte 9, context 4: decoder is poisoned after an error"
+        );
+        assert!(std::error::Error::source(&poisoned).is_none());
     }
 }

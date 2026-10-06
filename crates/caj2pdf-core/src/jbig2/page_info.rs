@@ -2,9 +2,10 @@
 
 //! The bounded page-information body for the observed HN/C8 page profile.
 //!
-//! The field layout and flag meanings follow ITU-T T.88 (02/2000) §7.4.8.
-//! Only the observed one-page, unstriped OR profile is accepted here; this is
-//! not a general JBIG2 page-information decoder.
+//! The field layout follows ITU-T T.88 (02/2000) §7.4.8. This reads and
+//! bounds the 19-byte body only; [`super::page_profile`] checks the segment,
+//! its flags, and its striping against the observed one-page, unstriped OR
+//! profile. It is not a general JBIG2 page-information decoder.
 
 use super::{SegmentHeader, SegmentSpan};
 use crate::{Cancellation, Error, Limits, MAX_IO_CHUNK, RangedSource};
@@ -53,9 +54,6 @@ pub struct PageInfo {
     /// Pixels per metre; zero means unknown, per T.88 §7.4.8.4.
     pub y_resolution: u32,
     pub flags_raw: u8,
-    pub default_pixel: u8,
-    /// T.88's external operator code, zero for OR in this profile.
-    pub combination_operator: u8,
     pub striping_raw: u16,
     pub row_stride: usize,
     pub packed_bytes: u64,
@@ -80,10 +78,6 @@ pub enum PageInfoErrorKind {
     InvalidSpan(&'static str),
     Truncated(&'static str),
     Malformed(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
     LimitExceeded {
         resource: &'static str,
         limit: u64,
@@ -111,7 +105,6 @@ impl fmt::Display for PageInfoErrorKind {
             Self::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
             Self::Truncated(field) => write!(f, "truncated {field}"),
             Self::Malformed(reason) => write!(f, "malformed {reason}"),
-            Self::Unsupported { feature, value } => write!(f, "unsupported {feature} ({value})"),
             Self::LimitExceeded {
                 resource,
                 limit,
@@ -181,50 +174,6 @@ fn validate_span(
     if cancellation.is_cancelled() {
         return Err(at(header, offset, PageInfoErrorKind::Cancelled));
     }
-    if header.segment_type != 48 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Unsupported {
-                feature: "segment type",
-                value: u64::from(header.segment_type),
-            },
-        ));
-    }
-    if header.number != 0 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Unsupported {
-                feature: "page-information segment number",
-                value: u64::from(header.number),
-            },
-        ));
-    }
-    if header.page_association == 0 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Malformed("page information has no page association"),
-        ));
-    }
-    if header.page_association != 1 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Unsupported {
-                feature: "page association",
-                value: u64::from(header.page_association),
-            },
-        ));
-    }
-    if !header.referred_to.is_empty() {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Malformed("page information refers to a segment"),
-        ));
-    }
     if header.data.length < PAGE_INFORMATION_BYTES {
         return Err(at(
             header,
@@ -237,13 +186,6 @@ fn validate_span(
             header,
             offset,
             PageInfoErrorKind::Malformed("extra page information bytes"),
-        ));
-    }
-    if header.header_length > offset {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::InvalidSpan("segment header start underflows"),
         ));
     }
     if PAGE_INFORMATION_BYTES > limits.max_input_bytes {
@@ -296,23 +238,6 @@ fn checked_info(
     let y_resolution = u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
     let flags = bytes[16];
     let striping = u16::from_be_bytes([bytes[17], bytes[18]]);
-    if width == 0 || height == 0 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Malformed("zero page dimension"),
-        ));
-    }
-    if height == u32::MAX {
-        return Err(at(
-            header,
-            offset + 4,
-            PageInfoErrorKind::Unsupported {
-                feature: "unknown page height",
-                value: u64::from(height),
-            },
-        ));
-    }
     if width > budget.max_width {
         return Err(limit(
             header,
@@ -365,61 +290,6 @@ fn checked_info(
             packed_bytes,
         ));
     }
-    if flags & 0x80 != 0 {
-        return Err(at(
-            header,
-            offset + 16,
-            PageInfoErrorKind::Malformed("reserved page flag"),
-        ));
-    }
-    for (mask, feature, shift) in [
-        (0x04, "page default pixel", 2),
-        (0x18, "page combination operator", 3),
-        (0x20, "page auxiliary buffers", 5),
-        (0x40, "page combination operator override", 6),
-        (0x02, "page might contain refinements", 1),
-    ] {
-        if flags & mask != 0 {
-            return Err(at(
-                header,
-                offset + 16,
-                PageInfoErrorKind::Unsupported {
-                    feature,
-                    value: u64::from((flags & mask) >> shift),
-                },
-            ));
-        }
-    }
-    if flags & 0x01 == 0 {
-        return Err(at(
-            header,
-            offset + 16,
-            PageInfoErrorKind::Unsupported {
-                feature: "page eventually-lossless flag",
-                value: 0,
-            },
-        ));
-    }
-    if striping & 0x8000 != 0 {
-        return Err(at(
-            header,
-            offset + 17,
-            PageInfoErrorKind::Unsupported {
-                feature: "striped page",
-                value: u64::from(striping),
-            },
-        ));
-    }
-    if striping != 0 {
-        return Err(at(
-            header,
-            offset + 17,
-            PageInfoErrorKind::Unsupported {
-                feature: "page stripe size",
-                value: u64::from(striping),
-            },
-        ));
-    }
     Ok(PageInfo {
         data: header.data,
         width,
@@ -427,8 +297,6 @@ fn checked_info(
         x_resolution,
         y_resolution,
         flags_raw: flags,
-        default_pixel: 0,
-        combination_operator: 0,
         striping_raw: striping,
         row_stride,
         packed_bytes,
@@ -438,7 +306,7 @@ fn checked_info(
     })
 }
 
-/// Parse a caller-delimited segment 0/type 48 for the observed one-page profile.
+/// Read and bound the caller-delimited page-information body of `header`.
 ///
 /// The caller owns the range source. Reads are positioned, at most 19 bytes,
 /// and may complete through several short reads. No heap allocation occurs.

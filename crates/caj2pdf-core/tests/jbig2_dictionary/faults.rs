@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Adversarial public API tests with invented MQ states and synthetic segments.
-//! These bytes are test inputs, not T.88 Table E.1 or external document data.
+//! Adversarial public API tests with synthetic segments. These bytes are
+//! test inputs, not external document data.
 
 use super::*;
 
-const NEGATIVE_WIDTH: [u8; 14] = [
-    0xe6, 0xd9, 0x3b, 0xda, 0xe3, 0x82, 0x89, 0xb7, 0xd5, 0x17, 0xef, 0xc7, 0xff, 0xac,
-];
-const NEGATIVE_HEIGHT: [u8; 14] = [
-    0x6d, 0x61, 0x00, 0x6d, 0xc7, 0x0e, 0x4b, 0x54, 0xef, 0x9a, 0x31, 0x9a, 0xff, 0xac,
-];
-const WIDTH_NINE: [u8; 14] = [
-    0xeb, 0x44, 0x77, 0xe9, 0x24, 0x1c, 0x8a, 0x3b, 0xa2, 0xf0, 0xad, 0xf4, 0xff, 0xac,
-];
+const NEGATIVE_WIDTH: [u8; 4] = [0x89, 0x7f, 0xff, 0xac];
+const NEGATIVE_HEIGHT: [u8; 3] = [0xc3, 0xff, 0xac];
+const WIDTH_NINE: [u8; 6] = [0x90, 0x26, 0x08, 0xbb, 0xff, 0xac];
 
 fn source(body: &[u8], new_symbols: u32, page: u8, at: (i8, i8), references: &[u8]) -> Source {
     let mut data = vec![0x08, 0x00, at.0 as u8, at.1 as u8];
@@ -61,7 +55,7 @@ fn observe(
         mq_budget,
         budget,
         Store::unbounded(),
-        1024,
+        IAID_BASE,
     )
 }
 
@@ -72,25 +66,26 @@ fn observe_custom(
     mq_budget: MqBudget,
     budget: DictionaryBudget,
     mut store: Store,
-    extra_contexts: usize,
+    context_count: usize,
 ) -> Observation {
     let table = table();
-    let mut banks = IntegerContextBanks::with_extra_contexts(
-        extra_contexts,
-        &Limits::default(),
-        &MqBudget::default(),
-    )
-    .unwrap();
-    let created = ready(DirectDictionaryDecoder::new(
+    let mut contexts = MqBudget::default()
+        .context_bank(context_count, &Limits::default())
+        .unwrap();
+    let mut unread = Unread::default();
+    let created = ready(SymbolDictionaryDecoder::new(
         &mut source,
         header,
+        None,
+        direct_stores(&mut unread, &mut store),
         &table,
-        &mut banks,
-        &mut store,
+        &mut contexts,
         limits,
         &CancelAfter::Never,
         mq_budget,
         budget,
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
     ));
     let (result, retry_poisoned) = match created {
         Ok(mut decoder) => {
@@ -154,7 +149,7 @@ fn physical_source_truncation_and_overreport_are_rejected() {
     let error = observation.result.unwrap_err();
     assert_nested_error(&error, "MQ:");
     assert!(matches!(error.kind,
-        DictionaryErrorKind::Mq(ref error) if matches!(error.kind, MqErrorKind::Source(_))));
+        DictionaryErrorKind::Mq(ref error) if matches!(error.kind, ArithmeticErrorKind::Source(_))));
     assert!(observation.store.bytes.is_empty());
 }
 
@@ -174,75 +169,13 @@ fn failed_mq_initialization_keeps_exact_partial_body_fetch_progress() {
         let error = observation.result.unwrap_err();
         assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)), "{error}");
         assert_eq!(error.segment, segment.number);
-        assert_eq!(
-            error.progress.header_bytes_fetched,
-            segment.header_length + 12
-        );
+        assert_eq!(error.progress.header_bytes_fetched, 12);
         assert_eq!(error.progress.mq_initialization_bytes_fetched, 1);
         assert!(error.progress.mq.is_none());
-        assert_eq!(
-            error.progress.source_bytes_fetched(),
-            segment.header_length + 13
-        );
+        assert_eq!(error.progress.source_bytes_fetched(), 13);
         assert!(observation.store.bytes.is_empty());
         assert!(!observation.store.flushed);
     }
-}
-
-#[test]
-fn framing_reparse_faults_preserve_location_and_fetched_progress() {
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.max_read = 1;
-    input.fault_from = Some((0, Fault::Io));
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert_nested_error(&error, "segment header:");
-    assert!(matches!(error.kind,
-        DictionaryErrorKind::Header(ref header) if matches!(header.kind, HeaderErrorKind::Source(_))));
-    assert_eq!(
-        (
-            error.segment,
-            error.offset,
-            error.progress.header_bytes_fetched
-        ),
-        (1, 0, 0)
-    );
-    assert!(observation.store.bytes.is_empty());
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.max_read = 1;
-    input.visible_end = 3;
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert!(matches!(error.kind,
-        DictionaryErrorKind::Header(ref header) if matches!(header.kind, HeaderErrorKind::Truncated(_))));
-    assert_eq!(error.progress.header_bytes_fetched, 3);
-    assert!(observation.store.bytes.is_empty());
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.bytes[6] = 0; // still a valid global page, but not the validated header
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("segment header metadata mismatch")
-    ));
-    assert_eq!(error.progress.header_bytes_fetched, segment.header_length);
-    assert!(observation.source.max_offset < segment.data.offset);
-    assert!(observation.store.bytes.is_empty());
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let segment = header(&mut input);
-    input.overreport_from = Some(0);
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert!(matches!(error.kind,
-        DictionaryErrorKind::Header(ref header) if matches!(header.kind, HeaderErrorKind::Malformed("source returned more bytes than requested"))));
-    assert_eq!(error.progress.header_bytes_fetched, 0);
-    assert!(observation.store.bytes.is_empty());
 }
 
 #[test]
@@ -277,19 +210,6 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
         DictionaryErrorKind::InvalidSpan("data end overflow")
     ));
     assert_eq!(error.offset, segment.data.offset);
-    assert_eq!(observation.source.read_calls, 0);
-
-    let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
-    let mut segment = header(&mut input);
-    segment.data.offset = 0;
-    input.read_calls = 0;
-    let observation = defaults(input, &segment);
-    let error = observation.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::InvalidSpan("segment header start underflow")
-    ));
-    assert_eq!(error.offset, 0);
     assert_eq!(observation.source.read_calls, 0);
 }
 
@@ -331,10 +251,7 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert_eq!(error.offset, segment.data.offset + 1);
-    assert_eq!(
-        error.progress.header_bytes_fetched,
-        segment.header_length + 1
-    );
+    assert_eq!(error.progress.header_bytes_fetched, 1);
     assert_eq!(input.max_offset, segment.data.offset);
 }
 
@@ -356,10 +273,7 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
         }
         assert_eq!(error.segment, 1);
         assert_eq!(error.offset, segment.data.offset + 4);
-        assert_eq!(
-            error.progress.header_bytes_fetched,
-            segment.header_length + 4
-        );
+        assert_eq!(error.progress.header_bytes_fetched, 4);
         assert!(observation.store.bytes.is_empty());
         assert!(!observation.store.flushed);
     }
@@ -377,7 +291,7 @@ fn context_bank_count_is_checked_before_arithmetic_or_output() {
         MqBudget::default(),
         DictionaryBudget::default(),
         Store::unbounded(),
-        0,
+        IAID_BASE + 1,
     );
     let error = observation.result.unwrap_err();
     assert!(matches!(
@@ -405,7 +319,7 @@ fn sink_flush_failure_and_cancellation_poison_completed_bitmap() {
                 flush_fault: Some(fault),
                 ..Store::unbounded()
             },
-            1024,
+            IAID_BASE,
         );
         let error = observation.result.unwrap_err();
         match fault {
@@ -438,7 +352,7 @@ fn sink_write_cancellation_does_not_claim_a_completed_bitmap() {
             write_fault: Some(Fault::Cancelled),
             ..Store::unbounded()
         },
-        1024,
+        IAID_BASE,
     );
     let error = observation.result.unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
@@ -605,7 +519,7 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
         state ^= state >> 7;
         state ^= state << 17;
         let mut body = ONE_SYMBOL;
-        let index = (state as usize) % 12;
+        let index = (state as usize) % (ONE_SYMBOL.len() - 2);
         body[index] ^= (state >> 32) as u8 | 1;
         let mut input = source(&body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
@@ -625,7 +539,7 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
             }
             Err(error) => {
                 assert!(
-                    error.progress.source_bytes_fetched() <= segment.header_length * 2 + 12 + 14,
+                    error.progress.source_bytes_fetched() <= 12 + ONE_SYMBOL.len() as u64,
                     "case {case}: {error}"
                 );
                 assert!(
@@ -643,36 +557,25 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
 
 #[test]
 fn integer_oob_and_export_overshoot_poison_partial_store() {
-    // Each input changes one byte of an invented one- or two-symbol stream.
-    // The failures exercise the model's signed OOB and export-run boundaries.
+    // Each body codes a one-symbol dictionary that ends in a refusal at the
+    // model's signed OOB and export-run boundaries.
     let cases = [
+        (&[0xcf, 0xff, 0xac][..], "IADH out of band", 0, 0),
         (
-            [
-                0x71, 0x7d, 0xf6, 0xc9, 0x51, 0xf2, 0x81, 0xb1, 0x95, 0x2a, 0x6d, 0x8d, 0xff, 0xac,
-            ],
-            "IADH out of band",
-            0,
-            0,
-        ),
-        (
-            [
-                0xee, 0xbb, 0xf6, 0xc9, 0x51, 0xf2, 0x81, 0xb1, 0x95, 0x2a, 0x6d, 0x8d, 0xff, 0xac,
-            ],
+            &[0x94, 0xa2, 0xbf, 0xff, 0xac][..],
             "IAEX out of band",
             1,
             1,
         ),
         (
-            [
-                0xee, 0xbf, 0xfc, 0xc7, 0x00, 0x54, 0x0f, 0xe4, 0x11, 0x07, 0x7f, 0x2f, 0xff, 0xac,
-            ],
+            &[0x94, 0xa8, 0x9a, 0xab, 0xff, 0xac][..],
             "export run overshoot",
             1,
             3,
         ),
     ];
     for (body, expected, stored, export_runs) in cases {
-        let mut input = source(&body, 1, 1, (2, -1), &[]);
+        let mut input = source(body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();
@@ -687,37 +590,31 @@ fn integer_oob_and_export_overshoot_poison_partial_store() {
 
 #[test]
 fn zero_dimension_negative_export_and_exported_total_are_typed() {
-    // The first two bodies each change one byte in a synthetic export-run
-    // fixture. The unmodified fixture exports one symbol, while the segment
-    // header deliberately advertises zero exports.
+    // The bodies code a zero-width symbol, a negative export run, and a
+    // fixture that exports one symbol while the segment header deliberately
+    // advertises zero exports.
     let cases = [
         (
-            [
-                0xdf, 0x3f, 0xf7, 0xe4, 0x4f, 0x7f, 0x34, 0xf2, 0x11, 0xea, 0x2e, 0x75, 0xff, 0xac,
-            ],
+            &[0x7f, 0xff, 0xac][..],
             "zero-dimension symbol bitmap",
             &[][..],
             0,
         ),
         (
-            [
-                0xee, 0x3f, 0xa1, 0xe4, 0x4f, 0x7f, 0x34, 0xf2, 0x11, 0xea, 0x2e, 0x75, 0xff, 0xac,
-            ],
+            &[0x93, 0xfc, 0x21, 0xff, 0xac][..],
             "negative export run",
             &[0x80][..],
             2,
         ),
         (
-            [
-                0xee, 0x3f, 0xf7, 0xe4, 0x4f, 0x7f, 0x34, 0xf2, 0x11, 0xea, 0x2e, 0x75, 0xff, 0xac,
-            ],
+            &[0x93, 0xfc, 0x77, 0xff, 0xac][..],
             "exported symbol total",
             &[0x80][..],
             2,
         ),
     ];
     for (body, expected, stored, export_runs) in cases {
-        let mut input = source(&body, 1, 1, (2, -1), &[]);
+        let mut input = source(body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();

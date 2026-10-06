@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-//! Public IAID API checks with original, invented MQ probabilities and bytes.
+//! Public IAID API checks with original bytes for the standard MQ states.
 //! These are arithmetic control-flow tests, not T.88 Table E.1 conformance.
 
 use caj2pdf_core::{
     Cancellation, Limits, NeverCancel, RangedSource,
     jbig2::{
-        iaid::{IaidContextBanks, SymbolIdError, checked_symbol_index, decode_iaid},
-        integer::{IntegerProcedure, decode_integer},
+        dictionary::coding_unit_contexts,
+        iaid::{IAID_BASE, SymbolIdError, checked_symbol_index, decode_iaid},
+        integer::{BITMAP_BASE, IntegerProcedure, decode_integer},
         mq::{
-            MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqErrorKind, MqSpan, MqState, MqTable,
+            ArithmeticErrorKind, CodedSpan, ContextBank, ContextState, MqBudget, MqDecoder, MqTable,
         },
     },
 };
@@ -30,19 +31,8 @@ fn ready<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn table(limits: &Limits) -> MqTable {
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 1,
-            next_lps: 1,
-            switch_mps: true,
-        };
-        MQ_STATE_COUNT
-    ];
-    states[1].next_mps = 2;
-    states[1].next_lps = 2;
-    MqTable::new(states, limits).unwrap()
+fn table() -> MqTable {
+    MqTable::standard()
 }
 
 struct Source {
@@ -62,8 +52,8 @@ impl Source {
         }
     }
 
-    fn span(&self) -> MqSpan {
-        MqSpan {
+    fn span(&self) -> CodedSpan {
+        CodedSpan {
             offset: 0,
             length: self.advertised,
         }
@@ -97,6 +87,13 @@ impl RangedSource for Source {
     }
 }
 
+/// The contexts of a coding unit whose IAID width is `code_len`.
+fn coding_unit(code_len: u32, limits: &Limits, budget: &MqBudget) -> ContextBank {
+    budget
+        .context_bank(coding_unit_contexts(code_len).unwrap(), limits)
+        .unwrap()
+}
+
 struct Flag(Rc<Cell<bool>>);
 
 impl Cancellation for Flag {
@@ -109,24 +106,23 @@ impl Cancellation for Flag {
 fn zero_length_id_and_symbol_array_boundary() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let table = table(&limits);
-    let mut owner = IaidContextBanks::new(0, &limits, &budget).unwrap();
-    let layout = owner.layout();
-    assert_eq!(layout.iaid_context_count(), 1);
-    let mut source = Source::new(&[0x80, 0, 0xff, 0xac]);
+    let table = table();
+    let mut contexts = coding_unit(0, &limits, &budget);
+    assert_eq!(contexts.len(), IAID_BASE + 1);
+    let mut source = Source::new(&[0x7f, 0xff, 0xac]);
     let span = source.span();
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
     let before = decoder.snapshot();
-    assert_eq!(ready(decode_iaid(&mut decoder, layout)).unwrap(), 0);
+    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
     assert_eq!(decoder.snapshot(), before);
     ready(decoder.finish(0)).unwrap();
 
@@ -193,39 +189,31 @@ fn symbol_index_errors_name_the_rejected_values() {
 fn iaid_and_a2_use_distinct_adaptive_banks_on_one_stream() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let table = table(&limits);
-    let bytes = [0x80, 0, 0, 0, 0, 0, 0xff, 0xac];
+    let table = table();
+    let bytes = [0x00, 0x00, 0x0a, 0xc0, 0x76, 0x01, 0xff, 0xac];
     let mut source = Source::new(&bytes);
     let span = source.span();
-    let mut owner = IaidContextBanks::with_bitmap_contexts(1, 1, &limits, &budget).unwrap();
-    let layout = owner.layout();
-    let bitmap = layout.bitmap_base();
+    let mut contexts = coding_unit(1, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    let first = ready(decode_iaid(&mut decoder, layout)).unwrap();
-    let iaid_after_first = decoder.context(layout.iaid_base() + 1).unwrap();
-    assert_ne!(iaid_after_first, MqContext::default());
+    let first = ready(decode_iaid(&mut decoder, 1)).unwrap();
+    let iaid_after_first = decoder.context(IAID_BASE + 1).unwrap();
+    assert_ne!(iaid_after_first, ContextState::default());
     let _integer = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap();
-    assert_eq!(
-        decoder.context(layout.iaid_base() + 1),
-        Some(iaid_after_first)
-    );
-    assert_ne!(decoder.context(1), Some(MqContext::default()));
-    assert_eq!(decoder.context(bitmap), Some(MqContext::default()));
-    let second = ready(decode_iaid(&mut decoder, layout)).unwrap();
+    assert_eq!(decoder.context(IAID_BASE + 1), Some(iaid_after_first));
+    assert_ne!(decoder.context(1), Some(ContextState::default()));
+    assert_eq!(decoder.context(BITMAP_BASE), Some(ContextState::default()));
+    let second = ready(decode_iaid(&mut decoder, 1)).unwrap();
     assert_eq!((first, second), (0, 1));
-    assert_ne!(
-        decoder.context(layout.iaid_base() + 1),
-        Some(iaid_after_first)
-    );
+    assert_ne!(decoder.context(IAID_BASE + 1), Some(iaid_after_first));
     let symbols = decoder.snapshot().symbols_decoded;
     assert!(symbols >= 6);
     ready(decoder.finish(symbols)).unwrap();
@@ -238,32 +226,28 @@ fn iaid_and_a2_use_distinct_adaptive_banks_on_one_stream() {
 }
 
 #[test]
-fn layout_tag_and_full_reserved_range_are_checked_before_decision() {
+fn the_full_iaid_range_is_checked_before_a_decision() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let table = table(&limits);
-    let bytes = [0x80, 0, 0xff, 0xac];
+    let table = table();
+    let bytes = [0x7f, 0xff, 0xac];
     let mut source = Source::new(&bytes);
     let span = source.span();
-    let mut owner = IaidContextBanks::with_bitmap_contexts(1, 1, &limits, &budget).unwrap();
-    let too_large = IaidContextBanks::with_bitmap_contexts(1, 2, &limits, &budget)
-        .unwrap()
-        .layout();
-    let changed = IaidContextBanks::new(2, &limits, &budget).unwrap().layout();
+    let mut contexts = coding_unit(1, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    for layout in [too_large, changed] {
+    for code_len in [2, 63, 64, u32::MAX] {
         let before = decoder.snapshot();
-        let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
-        assert!(matches!(error.kind, MqErrorKind::InvalidContext));
+        let error = ready(decode_iaid(&mut decoder, code_len)).unwrap_err();
+        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(decoder.snapshot(), before);
     }
     ready(decoder.finish(0)).unwrap();
@@ -275,7 +259,7 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
         io_chunk_bytes: 1,
         ..Limits::default()
     };
-    let table = table(&limits);
+    let table = table();
     let bytes = [0x80, 0, 0, 0xff, 0xac];
     let budget = MqBudget {
         max_symbols: 1,
@@ -283,23 +267,22 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     };
     let mut source = Source::new(&bytes);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(2, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(2, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
+    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
     assert!(matches!(
         error.kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ symbols",
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "symbols",
             ..
         }
     ));
@@ -311,23 +294,22 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     };
     let mut source = Source::new(&bytes);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(1, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(1, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
+    let error = ready(decode_iaid(&mut decoder, 1)).unwrap_err();
     assert!(matches!(
         error.kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ work",
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "arithmetic work",
             ..
         }
     ));
@@ -337,21 +319,20 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     let flag = Flag(cancelled.clone());
     let mut source = Source::new(&bytes);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(0, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(0, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &flag,
         budget,
     ))
     .unwrap();
     cancelled.set(true);
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::Cancelled));
+    let error = ready(decode_iaid(&mut decoder, 0)).unwrap_err();
+    assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
     assert_eq!(decoder.snapshot().symbols_decoded, 0);
 }
 
@@ -362,26 +343,25 @@ fn truncated_source_marker_and_dropped_future_are_located() {
         ..Limits::default()
     };
     let budget = MqBudget::default();
-    let table = table(&limits);
+    let table = table();
     let mut source = Source::new(&[0x80, 0]);
     source.advertised = 4;
     let span = source.span();
-    let mut owner = IaidContextBanks::new(2, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(2, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
+    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
     assert!(matches!(
         error.kind,
-        MqErrorKind::Source(caj2pdf_core::Error::TruncatedInput { .. })
+        ArithmeticErrorKind::Source(caj2pdf_core::Error::TruncatedInput { .. })
     ));
     assert_eq!(error.offset, Some(2));
 
@@ -391,67 +371,70 @@ fn truncated_source_marker_and_dropped_future_are_located() {
     ] {
         let mut source = Source::new(bytes);
         let span = source.span();
-        let mut owner = IaidContextBanks::new(2, &limits, &budget).unwrap();
-        let layout = owner.layout();
+        let mut contexts = coding_unit(2, &limits, &budget);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             span,
             &table,
-            owner.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             budget,
         ))
         .unwrap();
-        let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
+        let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
         if invalid_marker {
-            assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0x90)));
+            assert!(matches!(
+                error.kind,
+                ArithmeticErrorKind::InvalidMarker(0x90)
+            ));
         } else {
-            assert!(matches!(error.kind, MqErrorKind::MissingTerminator));
+            assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
         }
         assert_eq!(error.offset, Some(2));
     }
 
     let mut source = Source::new(&[0x80, 0, 0xff, 0x90]);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(0, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(0, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
-    assert_eq!(ready(decode_iaid(&mut decoder, layout)).unwrap(), 0);
+    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
     let error = ready(decoder.finish(0)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0x90)));
+    assert!(matches!(
+        error.kind,
+        ArithmeticErrorKind::InvalidMarker(0x90)
+    ));
 
     let mut source = Source::new(&[0x80, 0, 0, 0xff, 0xac]);
     source.pending_at = Some(2);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(2, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(2, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
     ))
     .unwrap();
     {
-        let mut future = pin!(decode_iaid(&mut decoder, layout));
+        let mut future = pin!(decode_iaid(&mut decoder, 2));
         let mut task = Context::from_waker(Waker::noop());
         assert!(matches!(future.as_mut().poll(&mut task), Poll::Pending));
     }
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::Poisoned));
+    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
+    assert!(matches!(error.kind, ArithmeticErrorKind::Poisoned));
     assert!(decoder.snapshot().poisoned);
 }
 
@@ -462,17 +445,16 @@ fn zero_bit_call_rejects_a_poisoned_shared_decoder() {
         ..Limits::default()
     };
     let budget = MqBudget::default();
-    let table = table(&limits);
+    let table = table();
     let mut source = Source::new(&[0x80, 0, 0, 0xff, 0xac]);
     source.pending_at = Some(2);
     let span = source.span();
-    let mut owner = IaidContextBanks::new(0, &limits, &budget).unwrap();
-    let layout = owner.layout();
+    let mut contexts = coding_unit(0, &limits, &budget);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
         span,
         &table,
-        owner.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         budget,
@@ -484,8 +466,8 @@ fn zero_bit_call_rejects_a_poisoned_shared_decoder() {
         let mut task = Context::from_waker(Waker::noop());
         assert!(matches!(future.as_mut().poll(&mut task), Poll::Pending));
     }
-    let error = ready(decode_iaid(&mut decoder, layout)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::Poisoned));
+    let error = ready(decode_iaid(&mut decoder, 0)).unwrap_err();
+    assert!(matches!(error.kind, ArithmeticErrorKind::Poisoned));
     assert_eq!(decoder.snapshot().symbols_decoded, 1);
 }
 
@@ -499,27 +481,26 @@ fn bounded_mutation_smoke_keeps_work_and_reads_within_limits() {
     };
     let budget = MqBudget {
         max_span_bytes: 5,
-        max_contexts: 6664,
+        max_contexts: 7688,
         max_symbols: 3,
         max_work: 24,
         max_terminal_inputs: 4,
     };
-    let table = table(&limits);
+    let table = table();
     for seed in 0..128u8 {
         let mut source = Source::new(&[seed, seed ^ 0x55, 0, 0xff, 0xac]);
         let span = source.span();
-        let mut owner = IaidContextBanks::new(3, &limits, &budget).unwrap();
-        let layout = owner.layout();
+        let mut contexts = coding_unit(3, &limits, &budget);
         if let Ok(mut decoder) = ready(MqDecoder::new(
             &mut source,
             span,
             &table,
-            owner.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             budget,
         )) {
-            let _ = ready(decode_iaid(&mut decoder, layout));
+            let _ = ready(decode_iaid(&mut decoder, 3));
             let snapshot = decoder.snapshot();
             assert!(snapshot.work_done <= budget.max_work);
             assert!(snapshot.symbols_decoded <= budget.max_symbols);

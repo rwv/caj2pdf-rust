@@ -2,20 +2,27 @@
 
 //! Preflight for the five-segment HN/C8 JBIG2 page profile observed by #43.
 //!
-//! This checks composition metadata only. It does not decode any bitmap or
-//! establish compatibility with JBIG2 streams outside this observed profile.
+//! One check binds the directory, the page information, and the region
+//! headers to that profile. It reads no source bytes, decodes no bitmap, and
+//! does not establish compatibility with JBIG2 streams outside the profile.
 
 use super::{
     SegmentDirectory, SegmentSpan,
     generic::GenericRegionHeader,
     page_info::PageInfo,
-    text::{RegionCombination, TextHeaderAnomaly, TextRegionHeader},
+    text::{TextHeaderAnomaly, TextRegionHeader},
 };
 use std::{error, fmt};
 
-const SEGMENT_NUMBERS: [u32; 5] = [0, 1, 2, 3, 4];
-const SEGMENT_TYPES: [u8; 5] = [48, 0, 0, 6, 38];
-const REFERENCES: [&[u32]; 5] = [&[], &[], &[1], &[2], &[]];
+/// Number, type, and references of each segment: the page information, the
+/// direct and the refinement dictionary, the text region, the generic region.
+const OBSERVED_SEGMENTS: [(u32, u8, &[u32]); 5] = [
+    (0, 48, &[]),
+    (1, 0, &[]),
+    (2, 0, &[1]),
+    (3, 6, &[2]),
+    (4, 38, &[]),
+];
 
 /// Metadata validated before any page bytes are sent to the final sink.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -117,169 +124,133 @@ fn unsupported(segment: Option<u32>, feature: &'static str, value: u64) -> PageP
 }
 
 /// Require the exact immediate, full-page OR composition topology measured in
-/// the SHA-pinned HN/C8 corpus. `page`, `text`, and `generic` must come from
-/// their corresponding `directory` segments; callers then pass this profile
-/// to the output adapter before starting any generic-region row.
+/// the SHA-pinned HN/C8 corpus: segment 0 is an unstriped, lossless page with
+/// no page-level options, followed by two dictionaries, the text region, and
+/// the generic region. `page`, `text`, and `generic` must come from their
+/// corresponding `directory` segments; callers then pass this profile to the
+/// output adapter before starting any generic-region row.
 pub fn validate_observed_page_profile(
     directory: &SegmentDirectory,
     page: PageInfo,
     text: &TextRegionHeader,
     generic: GenericRegionHeader,
 ) -> PageProfileResult<PageProfile> {
-    if directory.segments.len() != SEGMENT_TYPES.len() {
-        return Err(unsupported(
-            None,
-            "segment count",
-            directory.segments.len() as u64,
-        ));
+    let segments = &directory.segments;
+    if segments.len() != OBSERVED_SEGMENTS.len() {
+        return Err(unsupported(None, "segment count", segments.len() as u64));
     }
-    for (index, segment) in directory.segments.iter().enumerate() {
-        if segment.number != SEGMENT_NUMBERS[index] {
-            return Err(unsupported(
-                Some(segment.number),
-                "segment number/order",
-                u64::from(segment.number),
-            ));
+    for (segment, &(number, segment_type, references)) in segments.iter().zip(&OBSERVED_SEGMENTS) {
+        let at = Some(segment.number);
+        if segment.number != number {
+            let value = u64::from(segment.number);
+            return Err(unsupported(at, "segment number/order", value));
         }
-        if segment.segment_type != SEGMENT_TYPES[index] {
-            return Err(unsupported(
-                Some(segment.number),
-                "segment type/order",
-                u64::from(segment.segment_type),
-            ));
+        if segment.segment_type != segment_type {
+            let value = u64::from(segment.segment_type);
+            return Err(unsupported(at, "segment type/order", value));
         }
         if segment.page_association != 1 {
-            return Err(unsupported(
-                Some(segment.number),
-                "page association",
-                u64::from(segment.page_association),
-            ));
+            let value = u64::from(segment.page_association);
+            return Err(unsupported(at, "page association", value));
         }
-        if segment.referred_to.as_slice() != REFERENCES[index] {
-            return Err(malformed(
-                Some(segment.number),
-                "unexpected segment references",
-            ));
+        if segment.referred_to.as_slice() != references {
+            return Err(malformed(at, "unexpected segment references"));
         }
     }
-
-    if page.data != directory.segments[0].data || page.data.length != 19 {
-        return Err(malformed(
-            Some(0),
+    // Each parsed header must describe its own directory segment.
+    let (text_data, generic_segment) = (segments[3].data, &segments[4]);
+    for (segment, matches, reason) in [
+        (
+            0,
+            page.data == segments[0].data && page.data.length == 19,
             "page information does not match segment data",
-        ));
-    }
-
-    let text_segment = &directory.segments[3];
-    if text.segment != text_segment.number
-        || text.page_association != text_segment.page_association
-        || text.dictionary_segment != text_segment.referred_to[0]
-    {
-        return Err(malformed(
-            Some(3),
+        ),
+        (
+            3,
+            text.segment == 3 && text.page_association == 1 && text.dictionary_segment == 2,
             "text header does not match segment directory",
-        ));
-    }
-    let text_data = text_segment.data;
-    if text_data.offset.checked_add(text.header_bytes) != Some(text.body.offset)
-        || text_data.length.checked_sub(text.header_bytes) != Some(text.body.length)
-    {
-        return Err(malformed(Some(3), "text body does not match segment data"));
-    }
-    let generic_segment = &directory.segments[4];
-    if generic.segment != generic_segment.number
-        || generic.page_association != generic_segment.page_association
-        || generic.reference_count != generic_segment.referred_to.len()
-        || generic.data != generic_segment.data
-        || generic.data.offset.checked_add(20) != Some(generic.mq_span.offset)
-        || generic.data.length.checked_sub(20) != Some(generic.mq_span.length)
-    {
-        return Err(malformed(
-            Some(4),
+        ),
+        (
+            3,
+            text_data.offset.checked_add(text.header_bytes) == Some(text.body.offset)
+                && text_data.length.checked_sub(text.header_bytes) == Some(text.body.length),
+            "text body does not match segment data",
+        ),
+        (
+            4,
+            generic.segment == 4
+                && generic.page_association == 1
+                && generic.reference_count == 0
+                && generic.data == generic_segment.data
+                && generic.data.offset.checked_add(20) == Some(generic.mq_span.offset)
+                && generic.data.length.checked_sub(20) == Some(generic.mq_span.length),
             "generic header does not match segment directory",
-        ));
+        ),
+    ] {
+        if !matches {
+            return Err(malformed(Some(segment), reason));
+        }
     }
-
     if page.width == 0 || page.height == 0 {
         return Err(malformed(Some(0), "zero page dimension"));
     }
+    // Only the eventually-lossless flag: default pixel 0, OR, no auxiliary
+    // buffers or refinements.
     if page.flags_raw != 0x01 || page.striping_raw != 0 {
+        let value = u64::from(page.flags_raw) << 16 | u64::from(page.striping_raw);
+        return Err(unsupported(Some(0), "page flags or striping", value));
+    }
+    if page.height == u32::MAX {
         return Err(unsupported(
             Some(0),
-            "page flags or striping",
-            (u64::from(page.flags_raw) << 16) | u64::from(page.striping_raw),
+            "unknown page height",
+            u64::from(u32::MAX),
         ));
     }
-    if page.default_pixel != 0 || page.combination_operator != 0 {
-        return Err(unsupported(
-            Some(0),
-            "page default pixel or operator",
-            (u64::from(page.default_pixel) << 8) | u64::from(page.combination_operator),
-        ));
-    }
+    // `PageInfo` fields are public, so its derived geometry is rechecked.
     let stride = u64::from(page.width).div_ceil(8);
-    let packed = stride
-        .checked_mul(u64::from(page.height))
-        .ok_or(malformed(Some(0), "page size overflows"))?;
-    if page.row_stride as u64 != stride || page.packed_bytes != packed {
+    if page.row_stride as u64 != stride || page.packed_bytes != stride * u64::from(page.height) {
         return Err(malformed(Some(0), "page packed geometry differs"));
     }
     if generic.pixels != u64::from(page.width) * u64::from(page.height) {
         return Err(malformed(Some(4), "generic pixel count differs"));
     }
-
-    let generic_header = generic;
-    let generic = generic.info;
-    for (feature, value, expected) in [
-        ("text region width", text.region.width, page.width),
-        ("text region height", text.region.height, page.height),
-        ("text region x", text.region.x, 0),
-        ("text region y", text.region.y, 0),
+    let (region, info) = (text.region, generic.info);
+    for (segment, feature, value, expected) in [
+        (3, "text region width", region.width, page.width),
+        (3, "text region height", region.height, page.height),
+        (3, "text region x", region.x, 0),
+        (3, "text region y", region.y, 0),
+        (3, "text external operator", region.combination as u32, 0),
+        (4, "generic region width", info.width, page.width),
+        (4, "generic region height", info.height, page.height),
+        (4, "generic region x", info.x, 0),
+        (4, "generic region y", info.y, 0),
+        (
+            4,
+            "generic row stride",
+            info.row_stride as u32,
+            page.row_stride as u32,
+        ),
+        (
+            4,
+            "generic external operator",
+            u32::from(info.combination_operator),
+            0,
+        ),
     ] {
         if value != expected {
-            return Err(unsupported(Some(3), feature, u64::from(value)));
+            return Err(unsupported(Some(segment), feature, u64::from(value)));
         }
-    }
-    if text.region.combination != RegionCombination::Or {
-        return Err(unsupported(
-            Some(3),
-            "text external operator",
-            text.region.combination as u64,
-        ));
     }
     if let Some((feature, value)) = text.unsupported_feature() {
         return Err(unsupported(Some(3), feature, value));
     }
-    for (feature, value, expected) in [
-        ("generic region width", generic.width, page.width),
-        ("generic region height", generic.height, page.height),
-        ("generic region x", generic.x, 0),
-        ("generic region y", generic.y, 0),
-    ] {
-        if value != expected {
-            return Err(unsupported(Some(4), feature, u64::from(value)));
-        }
-    }
-    if generic.row_stride != page.row_stride {
-        return Err(unsupported(
-            Some(4),
-            "generic row stride",
-            generic.row_stride as u64,
-        ));
-    }
-    if generic.combination_operator != 0 {
-        return Err(unsupported(
-            Some(4),
-            "generic external operator",
-            u64::from(generic.combination_operator),
-        ));
-    }
-
     Ok(PageProfile {
         page,
         text_header: *text,
         generic_segment: 4,
-        generic_header,
+        generic_header: generic,
     })
 }
 
@@ -289,8 +260,10 @@ mod tests {
     use crate::jbig2::{
         SegmentHeader, SegmentSpan,
         generic::GenericRegionInfo,
-        mq::MqSpan,
-        text::{ReferenceCorner, RegionInfo, SymbolCombination, TextRegionFlags},
+        mq::CodedSpan,
+        text::{
+            ReferenceCorner, RegionCombination, RegionInfo, SymbolCombination, TextRegionFlags,
+        },
     };
 
     fn segment(number: u32, segment_type: u8, references: &[u32]) -> SegmentHeader {
@@ -343,8 +316,6 @@ mod tests {
             x_resolution: 3000,
             y_resolution: 4000,
             flags_raw: 1,
-            default_pixel: 0,
-            combination_operator: 0,
             striping_raw: 0,
             row_stride: 2,
             packed_bytes: 4,
@@ -407,7 +378,7 @@ mod tests {
                 combination_operator: 0,
                 row_stride: 2,
             },
-            mq_span: MqSpan {
+            mq_span: CodedSpan {
                 offset: 276,
                 length: 12,
             },
@@ -736,14 +707,14 @@ mod tests {
         );
 
         let mut bad_page = page();
-        bad_page.default_pixel = 1;
+        bad_page.flags_raw = 0x05;
         let error = validate_observed_page_profile(&directory(), bad_page, &text(), generic())
             .expect_err("nonzero page default changes OR semantics");
         assert!(matches!(
             error.kind,
             PageProfileErrorKind::Unsupported {
-                feature: "page default pixel or operator",
-                value: 256,
+                feature: "page flags or striping",
+                value: 0x5_0000,
             }
         ));
         assert!(
@@ -751,6 +722,69 @@ mod tests {
                 .to_string()
                 .contains("profile: unsupported segment count (6)")
         );
+    }
+
+    #[test]
+    fn every_page_flag_striping_and_unknown_height_is_outside_the_profile() {
+        let refused = |page: PageInfo| {
+            validate_observed_page_profile(&directory(), page, &text(), generic())
+                .expect_err("outside the observed page profile")
+                .kind
+        };
+        // Reserved, lossy, refinements, default pixel, operators, auxiliary
+        // buffers, and operator override.
+        for flags in [0x80, 0x00, 0x03, 0x05, 0x09, 0x11, 0x21, 0x41] {
+            let flagged = PageInfo {
+                flags_raw: flags,
+                ..page()
+            };
+            assert!(
+                matches!(
+                    refused(flagged),
+                    PageProfileErrorKind::Unsupported {
+                        feature: "page flags or striping",
+                        value,
+                    } if value == u64::from(flags) << 16
+                ),
+                "flags {flags:#04x}"
+            );
+        }
+        for striping in [1_u16, 0x8000, 0x8001] {
+            let striped = PageInfo {
+                striping_raw: striping,
+                ..page()
+            };
+            assert!(matches!(
+                refused(striped),
+                PageProfileErrorKind::Unsupported {
+                    feature: "page flags or striping",
+                    value,
+                } if value == 0x1_0000 | u64::from(striping)
+            ));
+        }
+        let unknown = PageInfo {
+            height: u32::MAX,
+            ..page()
+        };
+        assert!(matches!(
+            refused(unknown),
+            PageProfileErrorKind::Unsupported {
+                feature: "unknown page height",
+                ..
+            }
+        ));
+        let mut detached = directory();
+        detached.segments[0].page_association = 0;
+        assert!(matches!(
+            validate_observed_page_profile(&detached, page(), &text(), generic()),
+            Err(PageProfileError {
+                segment: Some(0),
+                kind: PageProfileErrorKind::Unsupported {
+                    feature: "page association",
+                    value: 0,
+                },
+            })
+        ));
     }
 
     #[test]

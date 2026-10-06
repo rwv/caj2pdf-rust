@@ -5,7 +5,7 @@
 
 use caj2pdf_core::{
     Limits, NeverCancel,
-    jbig2::mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqDecoder, MqSpan, MqState, MqTable},
+    jbig2::mq::{CodedSpan, ContextBank, MQ_STATE_COUNT, MqBudget, MqDecoder, MqState, MqTable},
     native::SeekableSource,
 };
 use sha2::{Digest, Sha256};
@@ -169,12 +169,12 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
         max_terminal_inputs: H2_SYMBOLS as u64,
     };
     assert_eq!(fixture.states, caj2pdf_core::jbig2::mq::STANDARD_STATES);
-    let table = MqTable::new(fixture.states, &limits).expect("invalid external E.1 state table");
-    let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
+    let table = MqTable::standard();
+    let mut contexts = ContextBank::new(1, &limits).unwrap();
     let mut source = SeekableSource::new(Cursor::new(fixture.compressed)).unwrap();
     let mut decoder = run_ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 30,
         },

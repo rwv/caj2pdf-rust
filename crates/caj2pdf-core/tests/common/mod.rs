@@ -4,6 +4,8 @@
 //! them, so unused items are expected.
 #![allow(dead_code)]
 
+#[path = "../../src/test_support/arith_encoder.rs"]
+pub mod arith_encoder;
 pub mod hnc8_document;
 
 use caj2pdf_core::Cancellation;
@@ -46,6 +48,22 @@ impl Cancellation for CancelAfter {
             Self::While(flag) => flag.get(),
         }
     }
+}
+
+/// An encoder for the standard T.88 MQ states.
+pub fn mq_encoder() -> arith_encoder::MqEncoder {
+    arith_encoder::MqEncoder::new(
+        &caj2pdf_core::jbig2::mq::STANDARD_STATES
+            .map(|state| (state.qe, state.next_mps, state.next_lps, state.switch_mps)),
+    )
+}
+
+/// An encoder for the standard T.82 QM states.
+pub fn qm_encoder() -> arith_encoder::QmEncoder {
+    arith_encoder::QmEncoder::new(
+        &caj2pdf_core::qm::STANDARD_STATES
+            .map(|state| (state.qe, state.next_mps, state.next_lps, state.switch_mps)),
+    )
 }
 
 /// Asserts that `value` reports a failing formatter instead of ignoring it.

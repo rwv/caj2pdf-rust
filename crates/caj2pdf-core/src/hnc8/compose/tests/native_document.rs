@@ -97,7 +97,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             },
             Some(&table()),
             Some(ComposeType3Workspaces {
-                table: &mq_table(&limits),
+                table: &MqTable::standard(),
                 first: &mut first,
                 second: &mut second,
                 refined: &mut refined,

@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **Breaking:** the JBIG2 symbol dictionaries, the page checks and the
+  QM/MQ decoder scaffolding are merged (#353). Output is unchanged.
+  - One `dictionary::SymbolDictionaryDecoder` decodes the direct and the
+    refinement dictionary. Removed: `dictionary::DirectDictionaryDecoder`,
+    `dictionary::MAX_IMPORTED_SYMBOLS`, `DictionaryErrorKind::Header` and the
+    `refinement_dictionary` module (`RefinementDictionaryDecoder` and its
+    `Catalog`, `Error`, `ErrorKind`, `Progress`, `Report` and `Result`
+    types; the dictionary ones replace them). `RefinementDictionaryBudget`,
+    `IaaiBranches`, `StoredSymbol` and `SymbolStore` moved to `dictionary`,
+    whose catalog now exports `StoredSymbol`s. The decoder uses the
+    directory's segment framing instead of reading it again, so
+    `DictionaryProgress::header_bytes_fetched` counts the data header only.
+  - The new `arith` module holds what both arithmetic decoders share:
+    `ContextBank` (`get` and `len` replace `state` and `count`; `set` is
+    removed), `ContextState`, `CodedSpan`, `ArithmeticError` (with a new
+    `coder` field), `ArithmeticErrorKind`, `ArithmeticSnapshot` and
+    `ArithmeticResult`, re-exported by `qm` and `jbig2::mq`. Removed:
+    `qm::EncodedSpan`, `jbig2::mq::{MqContext, MqContexts, MqError,
+    MqErrorKind, MqResult, MqSnapshot, MqSpan}` and the `InvalidTable`,
+    `InvalidState` and `Invariant` error kinds; `IncompleteStripe` and
+    `WrongSymbolCount` are now `SymbolCount`. The snapshot's
+    `next_input_offset` (`current_input_offset`) and `virtual_zero_bytes`
+    (`terminal_inputs`) are now `input_offset` and `synthesized_inputs`;
+    `physical_bytes_consumed` is removed.
+  - `QmTable::new` and `MqTable::new` are removed with their table
+    validation: the tables are the standard states (`QmTable::standard()`,
+    `MqTable::standard()`).
+  - A coding unit's contexts sit at fixed offsets (`integer::BITMAP_BASE`,
+    `iaid::IAID_BASE`, `dictionary::coding_unit_contexts`) in a bank from
+    `MqBudget::context_bank`. Removed: `iaid::IaidContextBanks`,
+    `iaid::IaidLayout` and `integer::IntegerContextBanks`; `decode_iaid`
+    takes the IAID width and `RefinementDecoder::new*` no longer take a
+    layout.
+  - Removed the single-implementor traits `text_composer::TextInstanceSource`
+    (`TextComposer` takes the `TextInstanceDecoder`) and
+    `generic::GenericHeaderSink` with `VerifiedGenericHeader`
+    (`arm_page_output` is defined for the page sink, `PageOrSink`).
+    `GenericErrorKind::Mq` is boxed.
+  - `read_page_info` only reads and bounds the 19-byte body;
+    `validate_observed_page_profile` checks the page segment, its flags and
+    its striping. Removed: `PageInfo::default_pixel`,
+    `PageInfo::combination_operator` and `PageInfoErrorKind::Unsupported`.
+
 - **Breaking:** HN-A/C8 type-0 (JBIG1) images are written top-first, in
   decode order, and drawn with a positive-height matrix whose origin is
   shifted to the image's bottom edge, the same convention as type-3 images

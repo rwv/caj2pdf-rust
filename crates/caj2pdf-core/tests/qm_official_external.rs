@@ -22,7 +22,7 @@ const OFFICIAL_FIXTURE_SHA256: &str =
 const MAX_FIXTURE_BYTES: u64 = 16 * 1024;
 
 use caj2pdf_core::qm::{
-    ArithmeticBudget, ArithmeticDecoder, ContextBank, EncodedSpan, QmState, QmTable,
+    ArithmeticBudget, ArithmeticDecoder, CodedSpan, ContextBank, QmState, QmTable,
 };
 
 struct Checkpoint {
@@ -162,13 +162,13 @@ fn official_1993_vector_and_register_checkpoints() {
     let text = String::from_utf8(bytes).expect("external T.82 fixture is not UTF-8");
     let fixture = fixture_from_text(&text);
     assert_eq!(fixture.states, caj2pdf_core::qm::STANDARD_STATES);
-    let table = QmTable::new(fixture.states).expect("invalid externally supplied state table");
+    let table = QmTable::standard();
     let limits = Limits::default();
     let mut contexts = ContextBank::new(2, &limits).expect("context bank allocation failed");
     let mut source = SeekableSource::new(Cursor::new(fixture.scd.clone())).unwrap();
     let mut decoder = run_ready(ArithmeticDecoder::new(
         &mut source,
-        EncodedSpan {
+        CodedSpan {
             offset: 0,
             length: fixture.scd.len() as u64,
         },

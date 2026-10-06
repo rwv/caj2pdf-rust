@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! Original small examples for the table-supplied T.88 control-flow API.
-//! Their invented probabilities do not establish standard compatibility.
+//! Original small examples for the T.88 MQ control-flow API. The register
+//! traces are hand-derived from the standard T.88 Table E.1 states.
 
 use caj2pdf_core::{
     Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
     jbig2::mq::{
-        MQ_STATE_COUNT, MqBudget, MqContext, MqContexts, MqDecoder, MqErrorKind, MqSpan, MqState,
-        MqTable,
+        ArithmeticErrorKind, CodedSpan, ContextBank, ContextState, MqBudget, MqDecoder, MqTable,
     },
 };
 use std::{
@@ -27,23 +26,8 @@ fn ready<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn table(qe: u16) -> MqTable {
-    let mut rows = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        MQ_STATE_COUNT
-    ];
-    rows[0] = MqState {
-        qe,
-        next_mps: 2,
-        next_lps: 1,
-        switch_mps: true,
-    };
-    MqTable::new(rows, &Limits::default()).unwrap()
+fn table() -> MqTable {
+    MqTable::standard()
 }
 
 struct Source {
@@ -114,8 +98,8 @@ impl Cancellation for Flag {
     }
 }
 
-fn bank(budget: &MqBudget, limits: &Limits) -> MqContexts {
-    MqContexts::new(1, limits, budget).unwrap()
+fn bank(budget: &MqBudget, limits: &Limits) -> ContextBank {
+    budget.context_bank(1, limits).unwrap()
 }
 
 #[test]
@@ -130,21 +114,21 @@ fn counter_budgets_above_the_ceiling_are_rejected_before_allocation() {
     for field in fields {
         let mut budget = MqBudget::default();
         *field(&mut budget) = MAX_BUDGET_COUNT;
-        MqContexts::new(1, &limits, &budget).unwrap();
+        budget.context_bank(1, &limits).unwrap();
         *field(&mut budget) = MAX_BUDGET_COUNT + 1;
         assert!(matches!(
-            MqContexts::new(1, &limits, &budget).unwrap_err().kind,
-            MqErrorKind::InvalidBudget
+            budget.context_bank(1, &limits).unwrap_err().kind,
+            ArithmeticErrorKind::InvalidBudget
         ));
         let mut contexts = bank(&MqBudget::default(), &limits);
         let mut source = Source::new(&[0, 0, 0xff, 0xac]);
         let error = ready(MqDecoder::new(
             &mut source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
                 length: 4,
             },
-            &table(0x4000),
+            &table(),
             &mut contexts,
             &limits,
             &NeverCancel,
@@ -152,7 +136,7 @@ fn counter_budgets_above_the_ceiling_are_rejected_before_allocation() {
         ))
         .err()
         .unwrap();
-        assert!(matches!(error.kind, MqErrorKind::InvalidBudget));
+        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidBudget));
         assert!(source.seen.is_empty());
     }
 }
@@ -169,116 +153,110 @@ fn context_banks_beyond_the_address_space_are_refused_without_allocating() {
     };
     // The byte size of this bank overflows `usize`.
     assert!(matches!(
-        MqContexts::new(usize::MAX / 2, &limits, &budget)
-            .unwrap_err()
-            .kind,
-        MqErrorKind::InvalidContext
+        budget.context_bank(usize::MAX, &limits).unwrap_err().kind,
+        ArithmeticErrorKind::InvalidContext
     ));
     // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
     // reservation fails before the allocator is called.
     #[cfg(target_pointer_width = "64")]
     assert!(matches!(
-        MqContexts::new(1 << 62, &limits, &budget).unwrap_err().kind,
-        MqErrorKind::AllocationFailed
+        budget.context_bank(1 << 62, &limits).unwrap_err().kind,
+        ArithmeticErrorKind::AllocationFailed
     ));
 }
 
-fn span(source: &Source) -> MqSpan {
-    MqSpan {
+fn span(source: &Source) -> CodedSpan {
+    CodedSpan {
         offset: 0,
         length: source.advertised,
     }
 }
 
-#[test]
-fn initialization_mps_and_lps_exchanges_have_independent_register_expectations() {
+/// Decode `count` decisions in context zero, recording each bit with the
+/// registers and the context state after it.
+fn register_trace(bytes: &[u8], count: usize) -> Vec<(bool, u32, u32, u8, ContextState)> {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    for (bytes, qe, expected_bit, expected_state, expected_mps, a, c, ct) in [
-        (
-            &[0x00, 0x00, 0xff, 0xac][..],
-            0x4000,
-            true,
-            1,
-            true,
-            0x8000,
-            0,
-            0,
-        ),
-        (
-            &[0x80, 0x00, 0xff, 0xac][..],
-            0x4000,
-            false,
-            2,
-            false,
-            0x8000,
-            0,
-            0,
-        ),
-        (
-            &[0x00, 0x00, 0x00, 0xff, 0xac][..],
-            0x5000,
-            false,
-            2,
-            false,
-            0xa000,
-            0,
-            0,
-        ),
-        (
-            &[0xc0, 0x00, 0x00, 0xff, 0xac][..],
-            0x5000,
-            true,
-            1,
-            true,
-            0xc000,
-            0x4000_0000,
-            7,
-        ),
-    ] {
-        let mut source = Source::new(bytes);
-        let state_table = table(qe);
-        let mut contexts = bank(&budget, &limits);
-        let selected = span(&source);
-        let mut decoder = ready(MqDecoder::new(
-            &mut source,
-            selected,
-            &state_table,
-            &mut contexts,
-            &limits,
-            &NeverCancel,
-            budget,
-        ))
-        .unwrap();
-        assert_eq!(decoder.snapshot().interval, 0x8000);
-        assert_eq!(ready(decoder.decode_bit(0)).unwrap(), expected_bit);
+    let mut source = Source::new(bytes);
+    let state_table = table();
+    let mut contexts = bank(&budget, &limits);
+    let selected = span(&source);
+    let mut decoder = ready(MqDecoder::new(
+        &mut source,
+        selected,
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    assert_eq!(decoder.snapshot().interval, 0x8000);
+    let mut trace = Vec::new();
+    for _ in 0..count {
+        let bit = ready(decoder.decode_bit(0)).unwrap();
         let progress = decoder.snapshot();
-        assert_eq!(
-            (progress.interval, progress.code, progress.bit_counter),
-            (a, c, ct)
-        );
-        assert_eq!(progress.symbols_decoded, 1);
-        assert_eq!(
-            decoder.context(0),
-            Some(MqContext {
-                state_index: expected_state,
-                mps: expected_mps,
-            })
-        );
-        ready(decoder.finish(1)).unwrap();
-        assert!(
-            source.seen.iter().all(
-                |(offset, count)| offset.checked_add(*count as u64).unwrap() <= selected.length
-            )
-        );
+        trace.push((
+            bit,
+            progress.interval,
+            progress.code,
+            progress.bit_counter,
+            decoder.context(0).unwrap(),
+        ));
     }
+    assert_eq!(decoder.snapshot().symbols_decoded, count as u64);
+    ready(decoder.finish(count as u64)).unwrap();
+    assert!(
+        source
+            .seen
+            .iter()
+            .all(|(offset, count)| offset.checked_add(*count as u64).unwrap() <= selected.length)
+    );
+    trace
+}
+
+fn state(state_index: u8, mps: bool) -> ContextState {
+    ContextState { state_index, mps }
+}
+
+#[test]
+fn initialization_mps_and_lps_exchanges_have_independent_register_expectations() {
+    // Table E.1: state 0 has Qe 0x5601, NMPS = NLPS = 1 and SWITCH; state 1
+    // has Qe 0x3401, NMPS 2, NLPS 6; state 2 has Qe 0x1801.
+    // C = 0: A - Qe = 0x29FF < Qe exchanges the lower subinterval [0, Qe)
+    // to the MPS. The second decision splits A = 0xAC02 normally, so C in
+    // [0, Qe) is an LPS; its renormalization reads the terminal FF.
+    assert_eq!(
+        register_trace(&[0x00, 0x00, 0xff, 0xac], 2),
+        [
+            (false, 0xac02, 0, 0, state(1, false)),
+            (true, 0xd004, 0x0003_fc00, 6, state(6, false)),
+        ]
+    );
+    // C high 0x6000 lies in the upper subinterval, exchanged to the LPS,
+    // which also switches the MPS.
+    assert_eq!(
+        register_trace(&[0xc0, 0x00, 0xff, 0xac], 1),
+        [(true, 0xa7fc, 0x27fd_fe00, 7, state(1, true))]
+    );
+    // C high 0x2080: an exchanged MPS; then an ordinary MPS in the upper
+    // subinterval with one renormalization shift; then, with A - Qe =
+    // 0xD801 >= 0x8000, an MPS that neither renormalizes nor changes state.
+    assert_eq!(
+        register_trace(&[0x41, 0x00, 0xff, 0xac], 3),
+        [
+            (false, 0xac02, 0x4100_0000, 0, state(1, false)),
+            (false, 0xf002, 0x19ff_fe00, 7, state(2, false)),
+            (false, 0xd801, 0x01fe_fe00, 7, state(2, false)),
+        ]
+    );
 }
 
 #[test]
 fn normal_and_post_ff_input_have_distinct_initial_c_and_ct() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0xff, 0x7f, 0x00, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let selected = span(&source);
@@ -297,12 +275,14 @@ fn normal_and_post_ff_input_have_distinct_initial_c_and_ct() {
         (initial.interval, initial.code, initial.bit_counter),
         (0x8000, 0x7fff_0000, 0)
     );
-    assert_eq!(initial.current_input_offset, 1);
+    assert_eq!(initial.input_offset, 1);
     assert_eq!(initial.source_bytes_fetched, 5);
-    assert!(!ready(decoder.decode_bit(0)).unwrap());
+    // C high 0x7FFF is an exchanged LPS; two renormalization shifts read
+    // the byte after the stuffed one as eight fresh bits.
+    assert!(ready(decoder.decode_bit(0)).unwrap());
     let after = decoder.snapshot();
-    assert_eq!(after.current_input_offset, 2);
-    assert_eq!(after.bit_counter, 7);
+    assert_eq!(after.input_offset, 2);
+    assert_eq!(after.bit_counter, 6);
     ready(decoder.finish(1)).unwrap();
 }
 
@@ -310,7 +290,7 @@ fn normal_and_post_ff_input_have_distinct_initial_c_and_ct() {
 fn terminal_input_is_counted_and_marker_is_bounded() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(0x5000);
+    let state_table = table();
     let mut source = Source::new(&[0x00, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let selected = span(&source);
@@ -327,9 +307,9 @@ fn terminal_input_is_counted_and_marker_is_bounded() {
     assert!(!ready(decoder.decode_bit(0)).unwrap());
     assert!(ready(decoder.decode_bit(0)).unwrap());
     let progress = decoder.snapshot();
-    assert_eq!(progress.current_input_offset, 1);
+    assert_eq!(progress.input_offset, 1);
     assert_eq!(progress.source_bytes_fetched, 3);
-    assert_eq!(progress.terminal_inputs, 1);
+    assert_eq!(progress.synthesized_inputs, 1);
     ready(decoder.finish(2)).unwrap();
     assert!(
         source
@@ -342,7 +322,7 @@ fn terminal_input_is_counted_and_marker_is_bounded() {
     let mut contexts = bank(&budget, &limits);
     let error = ready(MqDecoder::new(
         &mut malformed,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
@@ -354,7 +334,10 @@ fn terminal_input_is_counted_and_marker_is_bounded() {
     ))
     .err()
     .expect("malformed marker must fail");
-    assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0x90)));
+    assert!(matches!(
+        error.kind,
+        ArithmeticErrorKind::InvalidMarker(0x90)
+    ));
     assert_eq!(error.offset, Some(1));
 }
 
@@ -362,7 +345,7 @@ fn terminal_input_is_counted_and_marker_is_bounded() {
 fn short_zero_and_overreported_reads_are_checked() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
     source.max_read = 1;
     let mut contexts = bank(&budget, &limits);
@@ -377,7 +360,7 @@ fn short_zero_and_overreported_reads_are_checked() {
         budget,
     ))
     .unwrap();
-    assert!(ready(decoder.decode_bit(0)).unwrap());
+    assert!(!ready(decoder.decode_bit(0)).unwrap());
     ready(decoder.finish(1)).unwrap();
     assert_eq!(source.seen.len(), 4);
 
@@ -386,7 +369,7 @@ fn short_zero_and_overreported_reads_are_checked() {
     let mut contexts = bank(&budget, &limits);
     let error = ready(MqDecoder::new(
         &mut truncated,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 4,
         },
@@ -400,7 +383,7 @@ fn short_zero_and_overreported_reads_are_checked() {
     .unwrap();
     assert!(matches!(
         error.kind,
-        MqErrorKind::Source(Error::TruncatedInput { .. })
+        ArithmeticErrorKind::Source(Error::TruncatedInput { .. })
     ));
     assert_eq!(error.offset, Some(1));
     assert!(std::error::Error::source(&error).is_some());
@@ -412,14 +395,13 @@ fn short_zero_and_overreported_reads_are_checked() {
     let mut late_truncation = Source::new(&[0, 0]);
     late_truncation.advertised = 4;
     let mut contexts = bank(&budget, &one_byte_limits);
-    let late_table = table(0x5000);
     let mut decoder = ready(MqDecoder::new(
         &mut late_truncation,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 4,
         },
-        &late_table,
+        &state_table,
         &mut contexts,
         &one_byte_limits,
         &NeverCancel,
@@ -430,7 +412,7 @@ fn short_zero_and_overreported_reads_are_checked() {
     let error = ready(decoder.decode_bit(0)).unwrap_err();
     assert!(matches!(
         error.kind,
-        MqErrorKind::Source(Error::TruncatedInput { .. })
+        ArithmeticErrorKind::Source(Error::TruncatedInput { .. })
     ));
     assert_eq!(error.offset, Some(2));
     assert_eq!(decoder.snapshot().source_bytes_fetched, 2);
@@ -441,7 +423,7 @@ fn short_zero_and_overreported_reads_are_checked() {
     let mut contexts = bank(&budget, &limits);
     let error = ready(MqDecoder::new(
         &mut overreport,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 4,
         },
@@ -455,7 +437,7 @@ fn short_zero_and_overreported_reads_are_checked() {
     .unwrap();
     assert!(matches!(
         error.kind,
-        MqErrorKind::Source(Error::InvalidInput { .. })
+        ArithmeticErrorKind::Source(Error::InvalidInput { .. })
     ));
 }
 
@@ -465,25 +447,13 @@ fn finish_and_context_errors_keep_public_locations() {
 
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut contexts = bank(&budget, &limits);
-    contexts
-        .set(
-            0,
-            MqContext {
-                state_index: 5,
-                mps: true,
-            },
-        )
-        .unwrap();
-    assert_eq!(contexts.get(0).unwrap().state_index, 5);
-    contexts.reset();
-    assert_eq!(contexts.get(0), Some(MqContext::default()));
 
     let mut source = Source::new(&[0, 0]);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 2,
         },
@@ -495,13 +465,19 @@ fn finish_and_context_errors_keep_public_locations() {
     ))
     .unwrap();
     let bad_context = ready(decoder.decode_bit(1)).unwrap_err();
-    assert!(matches!(bad_context.kind, MqErrorKind::InvalidContext));
+    assert!(matches!(
+        bad_context.kind,
+        ArithmeticErrorKind::InvalidContext
+    ));
     assert_eq!(bad_context.context, Some(1));
     assert!(bad_context.to_string().contains("context 1"));
     assert!(bad_context.source().is_none());
     ready(decoder.decode_bit(0)).unwrap();
     let at_end = ready(decoder.decode_bit(0)).unwrap_err();
-    assert!(matches!(at_end.kind, MqErrorKind::MissingTerminator));
+    assert!(matches!(
+        at_end.kind,
+        ArithmeticErrorKind::MissingTerminator
+    ));
     assert_eq!(at_end.offset, Some(2));
     assert_eq!(at_end.context, Some(0));
     assert!(at_end.to_string().contains("source byte 2"));
@@ -510,7 +486,7 @@ fn finish_and_context_errors_keep_public_locations() {
     let mut contexts = bank(&budget, &limits);
     let decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 3,
         },
@@ -524,7 +500,7 @@ fn finish_and_context_errors_keep_public_locations() {
     let wrong_count = ready(decoder.finish(1)).unwrap_err();
     assert!(matches!(
         wrong_count.kind,
-        MqErrorKind::WrongSymbolCount {
+        ArithmeticErrorKind::SymbolCount {
             expected: 1,
             decoded: 0
         }
@@ -533,7 +509,7 @@ fn finish_and_context_errors_keep_public_locations() {
 
     let decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 3,
         },
@@ -545,14 +521,17 @@ fn finish_and_context_errors_keep_public_locations() {
     ))
     .unwrap();
     let marker = ready(decoder.finish(0)).unwrap_err();
-    assert!(matches!(marker.kind, MqErrorKind::MissingTerminator));
+    assert!(matches!(
+        marker.kind,
+        ArithmeticErrorKind::MissingTerminator
+    ));
     assert_eq!(marker.offset, Some(1));
     assert!(marker.to_string().contains("missing terminal marker"));
 
     let mut interior_marker = Source::new(&[0xff, 0xac, 0, 0xff, 0xac]);
     let error = ready(MqDecoder::new(
         &mut interior_marker,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 5,
         },
@@ -564,7 +543,10 @@ fn finish_and_context_errors_keep_public_locations() {
     ))
     .err()
     .unwrap();
-    assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0xac)));
+    assert!(matches!(
+        error.kind,
+        ArithmeticErrorKind::InvalidMarker(0xac)
+    ));
     assert_eq!(error.offset, Some(1));
 
     // A terminal pair beyond the initial prefetch is checked only by finish.
@@ -573,7 +555,7 @@ fn finish_and_context_errors_keep_public_locations() {
     let mut late_marker = Source::new(&bytes);
     let decoder = ready(MqDecoder::new(
         &mut late_marker,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 300,
         },
@@ -585,7 +567,10 @@ fn finish_and_context_errors_keep_public_locations() {
     ))
     .unwrap();
     let error = ready(decoder.finish(0)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0xab)));
+    assert!(matches!(
+        error.kind,
+        ArithmeticErrorKind::InvalidMarker(0xab)
+    ));
     assert_eq!(error.offset, Some(299));
 }
 
@@ -594,88 +579,54 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     let limits = Limits::default();
     let budget = MqBudget::default();
     assert!(matches!(
-        MqTable::new(vec![], &limits).unwrap_err().kind,
-        MqErrorKind::InvalidTable(_)
-    ));
-    for bad in [
-        MqState {
-            qe: 0,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        },
-        MqState {
-            qe: 0x8000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        },
-        MqState {
-            qe: 1,
-            next_mps: 47,
-            next_lps: 0,
-            switch_mps: false,
-        },
-        MqState {
-            qe: 1,
-            next_mps: 0,
-            next_lps: 47,
-            switch_mps: false,
-        },
-    ] {
-        let mut rows = vec![bad; MQ_STATE_COUNT];
-        rows[1].qe = 0x4000;
-        assert!(matches!(
-            MqTable::new(rows, &limits).unwrap_err().kind,
-            MqErrorKind::InvalidTable(_)
-        ));
-    }
-    assert!(matches!(
-        MqContexts::new(0, &limits, &budget).unwrap_err().kind,
-        MqErrorKind::InvalidContext
+        budget.context_bank(0, &limits).unwrap_err().kind,
+        ArithmeticErrorKind::InvalidContext
     ));
     assert!(matches!(
-        MqContexts::new(usize::MAX, &limits, &budget)
-            .unwrap_err()
-            .kind,
-        MqErrorKind::LimitExceeded { .. }
-    ));
-    let mut tight = limits;
-    tight.max_allocation_bytes = 300;
-    assert!(matches!(
-        MqContexts::new(1, &tight, &budget).unwrap_err().kind,
-        MqErrorKind::Source(Error::LimitExceeded { .. })
-    ));
-    let mut contexts = bank(&budget, &limits);
-    assert!(matches!(
-        contexts
-            .set(
-                0,
-                MqContext {
-                    state_index: 47,
-                    mps: false
-                }
-            )
-            .unwrap_err()
-            .kind,
-        MqErrorKind::InvalidState
-    ));
-    assert!(matches!(
-        contexts.set(1, MqContext::default()).unwrap_err().kind,
-        MqErrorKind::InvalidContext
+        budget.context_bank(usize::MAX, &limits).unwrap_err().kind,
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "MQ contexts",
+            ..
+        }
     ));
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
-    let state_table = table(0x4000);
+    let state_table = table();
+    // The bank fits, but not with the state table and the input buffer.
+    let tight = Limits {
+        io_chunk_bytes: 64,
+        max_allocation_bytes: 300,
+        ..limits
+    };
+    let mut contexts = bank(&budget, &tight);
+    let error = ready(MqDecoder::new(
+        &mut source,
+        CodedSpan {
+            offset: 0,
+            length: 4,
+        },
+        &state_table,
+        &mut contexts,
+        &tight,
+        &NeverCancel,
+        budget,
+    ))
+    .err()
+    .unwrap();
+    assert!(matches!(
+        error.kind,
+        ArithmeticErrorKind::Source(Error::LimitExceeded { .. })
+    ));
+    assert!(source.seen.is_empty());
     for selected in [
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 1,
         },
-        MqSpan {
+        CodedSpan {
             offset: u64::MAX - 1,
             length: 3,
         },
-        MqSpan {
+        CodedSpan {
             offset: 3,
             length: 3,
         },
@@ -691,7 +642,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
         ))
         .err()
         .unwrap();
-        assert!(matches!(error.kind, MqErrorKind::InvalidSpan(_)));
+        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidSpan(_)));
     }
     let span_budget = MqBudget {
         max_span_bytes: 3,
@@ -699,7 +650,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     };
     let error = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 4,
         },
@@ -713,7 +664,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     .unwrap();
     assert!(matches!(
         error.kind,
-        MqErrorKind::LimitExceeded {
+        ArithmeticErrorKind::LimitExceeded {
             resource: "MQ span bytes",
             ..
         }
@@ -723,12 +674,10 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
         ..budget
     };
     assert!(matches!(
-        MqContexts::new(1, &limits, &invalid_budget)
-            .unwrap_err()
-            .kind,
-        MqErrorKind::InvalidBudget
+        invalid_budget.context_bank(1, &limits).unwrap_err().kind,
+        ArithmeticErrorKind::InvalidBudget
     ));
-    let mut context_pair = MqContexts::new(2, &limits, &budget).unwrap();
+    let mut context_pair = budget.context_bank(2, &limits).unwrap();
     let context_budget = MqBudget {
         max_contexts: 1,
         ..budget
@@ -736,7 +685,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     assert!(matches!(
         ready(MqDecoder::new(
             &mut source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
                 length: 4
             },
@@ -749,7 +698,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
         .err()
         .unwrap()
         .kind,
-        MqErrorKind::InvalidContext
+        ArithmeticErrorKind::InvalidContext
     ));
     let symbol_budget = MqBudget {
         max_symbols: 1,
@@ -757,7 +706,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     };
     let mut decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 4,
         },
@@ -771,8 +720,8 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     ready(decoder.decode_bit(0)).unwrap();
     assert!(matches!(
         ready(decoder.decode_bit(0)).unwrap_err().kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ symbols",
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "symbols",
             ..
         }
     ));
@@ -785,7 +734,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     assert!(matches!(
         ready(MqDecoder::new(
             &mut source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
                 length: 4
             },
@@ -798,8 +747,8 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
         .err()
         .unwrap()
         .kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ work",
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "arithmetic work",
             ..
         }
     ));
@@ -809,14 +758,13 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     };
     let mut terminal_source = Source::new(&[0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
-    let terminal_table = table(0x5000);
     let mut decoder = ready(MqDecoder::new(
         &mut terminal_source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 3,
         },
-        &terminal_table,
+        &state_table,
         &mut contexts,
         &limits,
         &NeverCancel,
@@ -826,7 +774,7 @@ fn invalid_configuration_and_budgets_fail_without_unbounded_work() {
     ready(decoder.decode_bit(0)).unwrap();
     assert!(matches!(
         ready(decoder.decode_bit(0)).unwrap_err().kind,
-        MqErrorKind::LimitExceeded {
+        ArithmeticErrorKind::LimitExceeded {
             resource: "MQ terminal inputs",
             ..
         }
@@ -840,14 +788,14 @@ fn cancellation_and_dropped_pending_future_poison_decoder() {
         ..Limits::default()
     };
     let budget = MqBudget::default();
-    let state_table = table(0x5000);
+    let state_table = table();
     let flag = Rc::new(Cell::new(true));
     let signal = Flag(flag.clone());
     let mut source = Source::new(&[0xc0, 0, 0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let error = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 5,
         },
@@ -859,12 +807,12 @@ fn cancellation_and_dropped_pending_future_poison_decoder() {
     ))
     .err()
     .unwrap();
-    assert!(matches!(error.kind, MqErrorKind::Cancelled));
+    assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
     flag.set(false);
     source.cancel_after = Some((source.seen.len() + 1, flag.clone()));
     let error = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 5,
         },
@@ -876,13 +824,13 @@ fn cancellation_and_dropped_pending_future_poison_decoder() {
     ))
     .err()
     .unwrap();
-    assert!(matches!(error.kind, MqErrorKind::Cancelled));
+    assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
     flag.set(false);
     source.cancel_after = None;
     source.pending_at = Some(2);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 5,
         },
@@ -901,7 +849,7 @@ fn cancellation_and_dropped_pending_future_poison_decoder() {
     assert!(decoder.snapshot().poisoned);
     assert!(matches!(
         ready(decoder.decode_bit(0)).unwrap_err().kind,
-        MqErrorKind::Poisoned
+        ArithmeticErrorKind::Poisoned
     ));
 }
 
@@ -918,7 +866,7 @@ fn fixed_budget_mutations_terminate_and_stay_within_span() {
         max_work: 80,
         max_terminal_inputs: 3,
     };
-    let state_table = table(0x4000);
+    let state_table = table();
     for index in 0..4 {
         for replacement in [0x00, 0x7f, 0x90, 0xff] {
             let mut bytes = [0x00, 0x00, 0xff, 0xac];
@@ -927,7 +875,7 @@ fn fixed_budget_mutations_terminate_and_stay_within_span() {
             let mut contexts = bank(&budget, &limits);
             let result = ready(MqDecoder::new(
                 &mut source,
-                MqSpan {
+                CodedSpan {
                     offset: 0,
                     length: 4,
                 },
@@ -957,15 +905,12 @@ fn fixed_budget_mutations_terminate_and_stay_within_span() {
 
 #[test]
 fn wide_interval_mps_in_upper_subinterval_skips_renormalization() {
-    // Hand trace with the invented table: C starts at 0x3fbf8000 and A at
-    // 0x8000. The first decision (Qe=1) is an MPS exchange that moves the
-    // context to state 2 and doubles A to 0xfffe. The second decision
-    // (Qe=0x4000) leaves A-Qe=0xbffe >= 0x8000 with C high above Qe, so it
-    // returns the MPS unchanged without shifting or reading input.
+    // The third decision of the C-high-0x2080 trace above: A - Qe = 0xD801
+    // keeps the MPS without shifting, reading input, or changing state.
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(1);
-    let mut source = Source::new(&[0x7f, 0x7f, 0xff, 0xac]);
+    let state_table = table();
+    let mut source = Source::new(&[0x41, 0x00, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let whole = span(&source);
     let mut decoder = ready(MqDecoder::new(
@@ -978,38 +923,18 @@ fn wide_interval_mps_in_upper_subinterval_skips_renormalization() {
         budget,
     ))
     .unwrap();
-    assert_eq!(decoder.snapshot().code, 0x3fbf_8000);
-    assert!(!ready(decoder.decode_bit(0)).unwrap());
+    ready(decoder.decode_bit(0)).unwrap();
+    ready(decoder.decode_bit(0)).unwrap();
     let first = decoder.snapshot();
-    assert_eq!(
-        (first.interval, first.code, first.bit_counter),
-        (0xfffe, 0x7f7d_0000, 0)
-    );
-    assert_eq!(
-        decoder.context(0),
-        Some(MqContext {
-            state_index: 2,
-            mps: false
-        })
-    );
-
     assert!(!ready(decoder.decode_bit(0)).unwrap());
     let second = decoder.snapshot();
-    assert_eq!(
-        (second.interval, second.code, second.bit_counter),
-        (0xbffe, 0x3f7d_0000, 0)
-    );
-    assert_eq!(second.current_input_offset, first.current_input_offset);
+    assert_eq!(second.interval, 0xd801);
+    assert_eq!(second.bit_counter, first.bit_counter);
+    assert_eq!(second.input_offset, first.input_offset);
     // Only the symbol decision itself is charged.
     assert_eq!(second.work_done, first.work_done + 1);
-    assert_eq!(
-        decoder.context(0),
-        Some(MqContext {
-            state_index: 2,
-            mps: false
-        })
-    );
-    ready(decoder.finish(2)).unwrap();
+    assert_eq!(decoder.context(0), Some(state(2, false)));
+    ready(decoder.finish(3)).unwrap();
 }
 
 #[test]
@@ -1019,7 +944,7 @@ fn span_beyond_input_limit_is_rejected_before_reading() {
         ..Limits::default()
     };
     let budget = MqBudget::default();
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let whole = span(&source);
@@ -1037,7 +962,7 @@ fn span_beyond_input_limit_is_rejected_before_reading() {
     assert_eq!(error.offset, Some(0));
     assert!(matches!(
         error.kind,
-        MqErrorKind::Source(Error::LimitExceeded {
+        ArithmeticErrorKind::Source(Error::LimitExceeded {
             limit: 3,
             attempted: 4,
             ..
@@ -1059,7 +984,7 @@ fn exhausted_work_stops_the_terminal_refill_before_reading() {
         max_work: 3,
         ..MqBudget::default()
     };
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
     let whole = span(&source);
@@ -1078,15 +1003,15 @@ fn exhausted_work_stops_the_terminal_refill_before_reading() {
     assert_eq!((error.offset, error.context), (Some(1), None));
     assert!(matches!(
         error.kind,
-        MqErrorKind::LimitExceeded {
-            resource: "MQ work",
+        ArithmeticErrorKind::LimitExceeded {
+            resource: "arithmetic work",
             limit: 3,
             attempted: 4
         }
     ));
     assert_eq!(
         error.to_string(),
-        "T.88 MQ decoder at source byte 1: MQ work limit 3 exceeded by 4"
+        "T.88 MQ decoder at source byte 1: arithmetic work limit 3 exceeded by 4"
     );
     assert_eq!(source.seen, [(0, 1), (1, 1)]);
 }
@@ -1095,7 +1020,7 @@ fn exhausted_work_stops_the_terminal_refill_before_reading() {
 fn a_failed_decision_poisons_later_decisions_and_the_terminal_check() {
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0, 0]);
     let mut contexts = bank(&budget, &limits);
     let whole = span(&source);
@@ -1112,17 +1037,17 @@ fn a_failed_decision_poisons_later_decisions_and_the_terminal_check() {
     ready(decoder.decode_bit(0)).unwrap();
     assert!(matches!(
         ready(decoder.decode_bit(0)).unwrap_err().kind,
-        MqErrorKind::MissingTerminator
+        ArithmeticErrorKind::MissingTerminator
     ));
     let next = ready(decoder.decode_bit(0)).unwrap_err();
-    assert!(matches!(next.kind, MqErrorKind::Poisoned));
+    assert!(matches!(next.kind, ArithmeticErrorKind::Poisoned));
     assert_eq!(next.context, Some(0));
     let error = ready(decoder.finish(1)).unwrap_err();
-    assert!(matches!(error.kind, MqErrorKind::Poisoned));
+    assert!(matches!(error.kind, ArithmeticErrorKind::Poisoned));
     assert_eq!(
         error.to_string(),
         format!(
-            "T.88 MQ decoder at source byte {}: decoder state is poisoned",
+            "T.88 MQ decoder at source byte {}: decoder is poisoned after an error",
             error.offset.unwrap()
         )
     );
@@ -1130,47 +1055,23 @@ fn a_failed_decision_poisons_later_decisions_and_the_terminal_check() {
 
 #[test]
 fn configuration_errors_render_without_a_source_location() {
-    use caj2pdf_core::jbig2::mq::MqError;
+    use caj2pdf_core::jbig2::mq::{ArithmeticError, Coder};
 
     let limits = Limits::default();
     let budget = MqBudget::default();
-    let wrong_count = MqTable::new(Vec::new(), &limits).unwrap_err();
-    assert_eq!(
-        wrong_count.to_string(),
-        "T.88 MQ decoder: invalid table: expected exactly 47 states"
-    );
-    let zero_budget = MqContexts::new(
-        1,
-        &limits,
-        &MqBudget {
-            max_symbols: 0,
-            ..budget
-        },
-    )
+    let zero_budget = MqBudget {
+        max_symbols: 0,
+        ..budget
+    }
+    .context_bank(1, &limits)
     .unwrap_err();
-    assert_eq!(
-        zero_budget.to_string(),
-        "T.88 MQ decoder: invalid MQ budget"
-    );
+    assert_eq!(zero_budget.to_string(), "T.88 MQ decoder: invalid budget");
     let mut contexts = bank(&budget, &limits);
-    let bad_state = contexts
-        .set(
-            0,
-            MqContext {
-                state_index: MQ_STATE_COUNT as u8,
-                mps: false,
-            },
-        )
-        .unwrap_err();
-    assert_eq!(
-        bad_state.to_string(),
-        "T.88 MQ decoder, context 0: invalid context state index"
-    );
-    let state_table = table(0x4000);
+    let state_table = table();
     let mut source = Source::new(&[0, 0, 0]);
     let short_span = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 1,
             length: 1,
         },
@@ -1184,11 +1085,11 @@ fn configuration_errors_render_without_a_source_location() {
     .unwrap();
     assert_eq!(
         short_span.to_string(),
-        "T.88 MQ decoder at source byte 1: invalid MQ span: requires at least two terminal bytes"
+        "T.88 MQ decoder at source byte 1: invalid span: requires at least two terminal bytes"
     );
     let cancelled = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
+        CodedSpan {
             offset: 0,
             length: 3,
         },
@@ -1206,19 +1107,15 @@ fn configuration_errors_render_without_a_source_location() {
     );
     assert!(source.seen.is_empty());
 
-    for (kind, detail) in [
-        (MqErrorKind::AllocationFailed, "context allocation failed"),
-        (
-            MqErrorKind::Invariant("interval"),
-            "internal invariant: interval",
-        ),
-    ] {
-        let error = MqError {
-            offset: None,
-            context: None,
-            kind,
-        };
-        assert_eq!(error.to_string(), format!("T.88 MQ decoder: {detail}"));
-        assert!(std::error::Error::source(&error).is_none());
-    }
+    let error = ArithmeticError {
+        coder: Some(Coder::T88),
+        offset: None,
+        context: None,
+        kind: ArithmeticErrorKind::AllocationFailed,
+    };
+    assert_eq!(
+        error.to_string(),
+        "T.88 MQ decoder: context allocation failed"
+    );
+    assert!(std::error::Error::source(&error).is_none());
 }

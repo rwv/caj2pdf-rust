@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Bounded CAJ-family type-0 rows using caller-supplied T.82 probability states.
+//! Bounded CAJ-family type-0 rows using the standard T.82 probability states.
 
 use crate::fallible::reserve_exact;
 use crate::qm::{
     ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticErrorKind, ArithmeticSnapshot,
-    ContextBank, ContextState, EncodedSpan, QM_STATE_COUNT, QmState, QmTable,
+    CodedSpan, ContextBank, ContextState, QM_STATE_COUNT, QmState, QmTable,
 };
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
 use std::{error, fmt, mem};
@@ -66,7 +66,7 @@ pub struct Type0Progress {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Type0Report {
     pub image: Type0Span,
-    pub coded: EncodedSpan,
+    pub coded: CodedSpan,
     pub progress: Type0Progress,
 }
 
@@ -520,7 +520,7 @@ pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation>
     limits: &'a Limits,
     cancellation: &'a C,
     image: Type0Span,
-    coded: EncodedSpan,
+    coded: CodedSpan,
     info: Type0Info,
     previous_two: Vec<u8>,
     previous: Vec<u8>,
@@ -544,7 +544,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         budget: Type0Budget,
     ) -> Type0Result<Self> {
         check_span(source.size(), image, limits, cancellation)?;
-        if contexts.state(CONTEXT_COUNT - 1).is_none() || contexts.state(CONTEXT_COUNT).is_some() {
+        if contexts.get(CONTEXT_COUNT - 1).is_none() || contexts.get(CONTEXT_COUNT).is_some() {
             return Err(malformed(
                 image.offset,
                 "expected exactly 1024 arithmetic contexts",
@@ -562,7 +562,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         let previous_two = blank_row(info.dib_stride, image.offset)?;
         let previous = blank_row(info.dib_stride, image.offset)?;
         let current = blank_row(info.dib_stride, image.offset)?;
-        let coded = EncodedSpan {
+        let coded = CodedSpan {
             offset: image.offset + DIB_BYTES,
             length: image.length - DIB_BYTES,
         };
@@ -608,8 +608,8 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         let offset = match &kind {
             Type0ErrorKind::Arithmetic(error) => error
                 .offset
-                .unwrap_or(self.arithmetic.snapshot().next_input_offset),
-            _ => self.arithmetic.snapshot().next_input_offset,
+                .unwrap_or(self.arithmetic.snapshot().input_offset),
+            _ => self.arithmetic.snapshot().input_offset,
         };
         Type0Error {
             offset,
@@ -697,7 +697,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         }
         self.poisoned = true;
         let snapshot = self.arithmetic.snapshot();
-        let offset = snapshot.next_input_offset;
+        let offset = snapshot.input_offset;
         let rows_written = self.rows_written;
         let output_bytes_written = self.output_bytes_written;
         // Only cancellation can fail here: the expected count is the

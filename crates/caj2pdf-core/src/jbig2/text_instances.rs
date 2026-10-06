@@ -8,18 +8,20 @@
 
 use super::{
     PreflightKind, PreflightSite, SegmentHeader,
-    dictionary::{DictionaryMode, SymbolDescriptor},
-    iaid::{IaidContextBanks, IaidLayout, checked_symbol_index, decode_iaid},
+    dictionary::{
+        DictionaryMode, DictionaryReport, StoredSymbol, SymbolDescriptor, SymbolStore,
+        coding_unit_contexts, symbol_code_length,
+    },
+    iaid::{checked_symbol_index, decode_iaid},
     integer::{IntegerProcedure, IntegerValue, decode_integer},
     mq::{
-        MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqError, MqSnapshot, MqSpan, MqState,
-        MqTable,
+        ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT,
+        MqBudget, MqDecoder, MqState, MqTable,
     },
     refinement::{
         RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
         RefinementReference, RefinementRequest,
     },
-    refinement_dictionary::{RefinementDictionaryReport, StoredSymbol, SymbolStore},
     text::{
         ReferenceCorner, TextHeaderPolicy, TextRegionBudget, TextRegionError, TextRegionHeader,
         read_text_region_header_with_policy,
@@ -28,7 +30,6 @@ use super::{
 use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
 use std::{error, fmt, mem};
 
-const GR_CONTEXTS: usize = 1024;
 const MQ_BUFFER_BYTES: u64 = 256;
 
 /// Additional bounds for one text-region instance stream. The MQ and generic
@@ -126,7 +127,7 @@ pub struct TextInstanceProgress {
     /// Zero after construction because `mq` already includes the prefetch.
     pub mq_initialization_bytes_fetched: u64,
     pub refinement: RefinementProgress,
-    pub mq: Option<MqSnapshot>,
+    pub mq: Option<ArithmeticSnapshot>,
     pub poisoned: bool,
 }
 
@@ -161,7 +162,7 @@ pub enum TextInstanceErrorKind {
     },
     Cancelled,
     Header(Box<TextRegionError>),
-    Mq(Box<MqError>),
+    Mq(Box<ArithmeticError>),
     Refinement(Box<RefinementError>),
     Poisoned,
 }
@@ -410,7 +411,7 @@ pub struct TextInstanceDecoder<
     dictionary: &'a [StoredSymbol],
     header: TextRegionHeader,
     segment: u32,
-    layout: IaidLayout,
+    code_len: u32,
     limits: &'a Limits,
     cancellation: &'a C,
     refinement_budget: RefinementBudget,
@@ -447,7 +448,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
         dictionary_segment: &SegmentHeader,
-        dictionary: &'a RefinementDictionaryReport,
+        dictionary: &'a DictionaryReport,
         imported_source: &'a mut RI,
         imported_store_base: u64,
         new_source: &'a mut RN,
@@ -455,7 +456,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         temporary_sink: &'a mut W,
         temporary_store_base: u64,
         table: &'a MqTable,
-        banks: &'a mut IaidContextBanks,
+        contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
         mq_budget: MqBudget,
@@ -476,7 +477,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             temporary_sink,
             temporary_store_base,
             table,
-            banks,
+            contexts,
             limits,
             cancellation,
             mq_budget,
@@ -496,7 +497,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
         dictionary_segment: &SegmentHeader,
-        dictionary: &'a RefinementDictionaryReport,
+        dictionary: &'a DictionaryReport,
         imported_source: &'a mut RI,
         imported_store_base: u64,
         new_source: &'a mut RN,
@@ -504,7 +505,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         temporary_sink: &'a mut W,
         temporary_store_base: u64,
         table: &'a MqTable,
-        banks: &'a mut IaidContextBanks,
+        contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
         mq_budget: MqBudget,
@@ -747,24 +748,15 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 }
             }
         }
-        let count = dictionary.catalog.exported_symbols.len() as u64;
-        let code_len = if count <= 1 {
-            0
-        } else {
-            64 - (count - 1).leading_zeros()
-        };
-        let layout = banks.layout();
-        if layout.code_len() != code_len
-            || layout.total_contexts() != layout.bitmap_base() + GR_CONTEXTS
-            || banks.mq_contexts_mut().count() != layout.total_contexts()
-        {
+        let code_len = symbol_code_length(dictionary.catalog.exported_symbols.len() as u64);
+        if coding_unit_contexts(code_len) != Some(contexts.len()) {
             return Err(bad(TextInstanceErrorKind::Malformed(
                 "IAID width or GR context layout mismatch",
             )));
         }
         let target_row = u64::from(refinement_budget.max_width).div_ceil(8);
         let reference_row = u64::from(refinement_budget.max_reference_width).div_ceil(8);
-        let working = layout.total_contexts() as u128 * mem::size_of::<MqContext>() as u128
+        let working = contexts.len() as u128 * mem::size_of::<ContextState>() as u128
             + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u128
             + u128::from(MQ_BUFFER_BYTES)
             + u128::from(metadata_count)
@@ -790,16 +782,17 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 .min(budget.max_total_instance_pixels),
             ..refinement_budget
         };
-        banks.reset_for_text_region();
+        // A fresh text region resets every arithmetic statistic.
+        contexts.reset();
         let mut init_fetched = 0;
         let mq = MqDecoder::new_with_init_progress(
             source,
-            MqSpan {
+            CodedSpan {
                 offset: parsed.body.offset,
                 length: parsed.body.length,
             },
             table,
-            banks.mq_contexts_mut(),
+            contexts,
             limits,
             cancellation,
             mq_budget,
@@ -826,7 +819,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             dictionary: &dictionary.catalog.exported_symbols,
             header: parsed,
             segment: segment.number,
-            layout,
+            code_len,
             limits,
             cancellation,
             refinement_budget,
@@ -865,7 +858,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
     fn error(&self, kind: TextInstanceErrorKind) -> TextInstanceError {
         TextInstanceError {
             segment: self.segment,
-            offset: self.mq.snapshot().current_input_offset,
+            offset: self.mq.snapshot().input_offset,
             progress: Box::new(self.progress()),
             kind,
         }
@@ -919,7 +912,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         let prior = self.progress.refinement;
         let mut host = RefinementDecoder::new_continuing(
             &mut self.mq,
-            self.layout,
             self.temporary_sink,
             self.limits,
             self.cancellation,
@@ -1030,7 +1022,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             };
             let t = self.coordinate(self.strip_t.checked_add(within))?;
             self.progress.decision = TextDecision::SymbolId;
-            let raw_id = decode_iaid(&mut self.mq, self.layout)
+            let raw_id = decode_iaid(&mut self.mq, self.code_len)
                 .await
                 .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
             let id =

@@ -2,189 +2,56 @@
 
 //! T.88 Annex A.3 fixed-length IAID decisions on an existing MQ stream.
 //!
-//! The typed owner fixes `SBSYMCODELEN` for one coding unit. Its context map is
-//! `0..6656` for Annex A.2 integers, `6656..6656+2^L` for IAID, followed by
-//! any caller-requested bitmap/refinement contexts. No probability table or
-//! compressed data is bundled here.
+//! A symbol-dictionary or text-region coding unit keeps its `2^SBSYMCODELEN`
+//! IAID contexts at [`IAID_BASE`], after the integer banks and the bitmap
+//! contexts of [`super::integer`]. No probability table or compressed data
+//! is bundled here.
 
 use super::{
-    integer::{INTEGER_CONTEXT_COUNT, IntegerContextBanks},
-    mq::{MqBudget, MqContext, MqDecoder, MqError, MqErrorKind, MqResult},
+    integer::{BITMAP_BASE, BITMAP_CONTEXT_COUNT},
+    mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult, MqDecoder},
 };
-use crate::fallible::{len_u64, try_convert};
-use crate::{Cancellation, Limits, RangedSource};
+use crate::arith::Coder;
+use crate::fallible::try_convert;
+use crate::{Cancellation, RangedSource};
 use std::{error, fmt};
 
-/// Validated, immutable context map for one fixed `SBSYMCODELEN`.
+/// The first IAID context of a coding unit.
+pub const IAID_BASE: usize = BITMAP_BASE + BITMAP_CONTEXT_COUNT;
+
+/// Decode one raw IAID value of `code_len` bits without ending the shared MQ
+/// stream.
 ///
-/// Obtain this from [`IaidContextBanks::layout`]. It has no caller-selected
-/// offset: the IAID bank always follows all thirteen Annex A.2 banks.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IaidLayout {
-    code_len: u32,
-    count: usize,
-    sentinel: u64,
-    total_contexts: usize,
-}
-
-impl IaidLayout {
-    pub fn code_len(self) -> u32 {
-        self.code_len
-    }
-
-    pub fn iaid_base(self) -> usize {
-        INTEGER_CONTEXT_COUNT
-    }
-
-    pub fn iaid_context_count(self) -> usize {
-        self.count
-    }
-
-    /// First slot available to the caller's bitmap/refinement model.
-    pub fn bitmap_base(self) -> usize {
-        INTEGER_CONTEXT_COUNT + self.count
-    }
-
-    pub fn total_contexts(self) -> usize {
-        self.total_contexts
-    }
-}
-
-/// Context owner for one fixed-width IAID coding unit.
-///
-/// Keep this owner across successive IDs so IAID probabilities adapt. Drop it
-/// and create a fresh owner to change `SBSYMCODELEN`. The borrowed MQ decoder
-/// must be dropped or finished before calling any reset method.
-#[derive(Debug)]
-pub struct IaidContextBanks {
-    integers: IntegerContextBanks,
-    layout: IaidLayout,
-}
-
-impl IaidContextBanks {
-    pub fn new(code_len: u32, limits: &Limits, budget: &MqBudget) -> MqResult<Self> {
-        Self::with_bitmap_contexts(code_len, 0, limits, budget)
-    }
-
-    /// Reserve `2^L` IAID slots and `bitmap_contexts` later model slots.
-    ///
-    /// The complete bank, 47 caller-table states, and the fixed 256-byte MQ
-    /// input buffer are checked by `MqContexts::new` against both resource
-    /// policies before allocation. The context vector is allocated fallibly.
-    pub fn with_bitmap_contexts(
-        code_len: u32,
-        bitmap_contexts: usize,
-        limits: &Limits,
-        budget: &MqBudget,
-    ) -> MqResult<Self> {
-        let invalid = || MqError::configuration(MqErrorKind::InvalidContext);
-        let count = 1usize.checked_shl(code_len).ok_or_else(invalid)?;
-        // `code_len < usize::BITS <= 64`, so the final PREV, below
-        // `2 * sentinel`, and the raw result fit u64 on every target.
-        let sentinel = len_u64(count);
-        let extra = count.checked_add(bitmap_contexts).ok_or_else(invalid)?;
-        let total_contexts = INTEGER_CONTEXT_COUNT
-            .checked_add(extra)
-            .ok_or_else(invalid)?;
-        let mut integers = IntegerContextBanks::with_extra_contexts(extra, limits, budget)?;
-        integers.mq_contexts_mut().bind_iaid_code_len(code_len);
-        Ok(Self {
-            integers,
-            layout: IaidLayout {
-                code_len,
-                count,
-                sentinel,
-                total_contexts,
-            },
-        })
-    }
-
-    pub fn layout(&self) -> IaidLayout {
-        self.layout
-    }
-
-    pub fn mq_contexts_mut(&mut self) -> &mut super::mq::MqContexts {
-        self.integers.mq_contexts_mut()
-    }
-
-    /// Clear only the thirteen Annex A.2 banks; IAID and bitmap states remain.
-    /// This surgical operation is not the complete symbol-dictionary reset.
-    pub fn reset_non_iaid_integer_contexts(&mut self) -> MqResult<()> {
-        self.integers.reset_integer_contexts()
-    }
-
-    /// Clear only this fixed-width IAID bank; keep integer and bitmap states.
-    pub fn reset_iaid_contexts(&mut self) -> MqResult<()> {
-        for index in self.layout.iaid_base()..self.layout.bitmap_base() {
-            self.integers
-                .mq_contexts_mut()
-                .set(index, MqContext::default())?;
-        }
-        Ok(())
-    }
-
-    /// Reset all arithmetic-integer coders for a new symbol dictionary.
-    /// T.88 §7.4.2.2 step 5 includes IAID; retain appended bitmap contexts
-    /// according to steps 3–4 and 7 under the enclosing segment's policy.
-    pub fn reset_for_symbol_dictionary(&mut self) -> MqResult<()> {
-        self.reset_non_iaid_integer_contexts()?;
-        self.reset_iaid_contexts()
-    }
-
-    /// Reset every arithmetic statistic for a fresh text region.
-    /// A future segment decoder owns the precise reset/save/restore policy.
-    pub fn reset_for_text_region(&mut self) {
-        self.integers.reset_all();
-    }
-}
-
-trait DecisionSource {
-    async fn bit(&mut self, context: usize) -> MqResult<bool>;
-}
-
-impl<S: RangedSource, C: Cancellation> DecisionSource for MqDecoder<'_, S, C> {
-    async fn bit(&mut self, context: usize) -> MqResult<bool> {
-        self.decode_bit(context).await
-    }
-}
-
-async fn decode_decisions<D: DecisionSource>(source: &mut D, layout: IaidLayout) -> MqResult<u64> {
-    let mut prev = 1u64;
-    for _ in 0..layout.code_len {
-        // Before each decision `prev < sentinel == count`, where `count` is a
-        // `usize` and `iaid_base() + count` was checked as `total_contexts`.
-        // After the last one `prev < 2 * sentinel <= 2^64`.
-        debug_assert!(prev < layout.sentinel);
-        let context = layout.iaid_base() + prev as usize;
-        let bit = source.bit(context).await?;
-        prev = prev * 2 + u64::from(bit);
-    }
-    Ok(prev - layout.sentinel)
-}
-
-/// Decode one raw IAID value without ending the shared MQ stream.
-///
-/// The decoder's contexts must come from a typed IAID owner with this width
-/// and at least this layout's capacity. Both are checked before a decision.
-/// Every call consumes exactly `layout.code_len()` MQ symbols. A zero-bit call
-/// still checks cancellation and poisoned state. Context adaptation persists
-/// across calls until the owner is reset or discarded.
+/// The decoder's bank must hold the `2^code_len` IAID contexts at
+/// [`IAID_BASE`]; missing capacity is rejected before a decision. Every call
+/// consumes exactly `code_len` MQ symbols. A zero-bit call still checks
+/// cancellation and poisoned state. Context adaptation persists across calls
+/// until the caller resets the bank.
 pub async fn decode_iaid<S: RangedSource, C: Cancellation>(
     decoder: &mut MqDecoder<'_, S, C>,
-    layout: IaidLayout,
-) -> MqResult<u64> {
-    let at = Some(decoder.snapshot().current_input_offset);
-    if decoder.iaid_code_len() != Some(layout.code_len)
-        || decoder.context(layout.total_contexts - 1).is_none()
-    {
-        return Err(MqError {
-            offset: at,
-            context: Some(layout.total_contexts - 1),
-            kind: MqErrorKind::InvalidContext,
+    code_len: u32,
+) -> ArithmeticResult<u64> {
+    let ids = 1usize.checked_shl(code_len);
+    let last = ids.and_then(|ids| IAID_BASE.checked_add(ids - 1));
+    if last.is_none_or(|last| decoder.context(last).is_none()) {
+        return Err(ArithmeticError {
+            coder: Some(Coder::T88),
+            offset: Some(decoder.snapshot().input_offset),
+            context: last,
+            kind: ArithmeticErrorKind::InvalidContext,
         });
     }
-    decoder.check_ready(Some(layout.iaid_base()))?;
-    decode_decisions(decoder, layout).await
+    decoder.check_ready(Some(IAID_BASE))?;
+    let mut prev = 1u64;
+    for _ in 0..code_len {
+        // Before each decision `prev < 2^code_len`, and the last context was
+        // checked above. After the last one `prev < 2^(code_len + 1) <= 2^64`.
+        let context = IAID_BASE + prev as usize;
+        let bit = decoder.decode_bit(context).await?;
+        prev = prev * 2 + u64::from(bit);
+    }
+    // `ids` is a checked `usize`, so it fits u64.
+    Ok(prev - ids.unwrap_or_default() as u64)
 }
 
 /// Failure at the text/dictionary symbol-array indexing boundary.

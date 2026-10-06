@@ -1,16 +1,23 @@
 // SPDX-License-Identifier: MIT
 
-//! T.88 Annex A.2 non-IAID integer decisions on an existing MQ stream.
-//!
-//! The first 6,656 MQ contexts are thirteen disjoint 512-slot procedure
-//! banks. Other models may use contexts after them. This module does not own
-//! an MQ byte stream, finish it, or include T.88 Table E.1 probability rows.
+//! T.88 Annex A.2 non-IAID integer decisions on an existing MQ stream, and
+//! the fixed context layout of a symbol-dictionary or text-region coding
+//! unit: the thirteen 512-slot integer procedure banks at
+//! `0..INTEGER_CONTEXT_COUNT`, the 1,024 generic or refinement bitmap
+//! contexts at [`BITMAP_BASE`], and the IAID contexts at
+//! [`IAID_BASE`](super::iaid::IAID_BASE). This module does not own an MQ
+//! byte stream, finish it, or include probability states.
 
-use super::mq::{MqBudget, MqContext, MqContexts, MqDecoder, MqError, MqErrorKind, MqResult};
-use crate::{Cancellation, Limits, RangedSource};
+use super::mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult, MqDecoder};
+use crate::arith::Coder;
+use crate::{Cancellation, RangedSource};
 
 pub const CONTEXTS_PER_PROCEDURE: usize = 512;
 pub const INTEGER_CONTEXT_COUNT: usize = 13 * CONTEXTS_PER_PROCEDURE;
+/// The first of the [`BITMAP_CONTEXT_COUNT`] generic-region (template 2) or
+/// refinement (template 1) contexts that follow the integer banks.
+pub const BITMAP_BASE: usize = INTEGER_CONTEXT_COUNT;
+pub const BITMAP_CONTEXT_COUNT: usize = 1024;
 const MAX_DECISIONS: u8 = 38;
 const BANDS: [(u8, u64); 6] = [(2, 0), (4, 4), (6, 20), (8, 84), (12, 340), (32, 4436)];
 
@@ -44,7 +51,8 @@ pub enum IntegerProcedure {
 }
 
 impl IntegerProcedure {
-    fn base(self) -> usize {
+    /// The first context of this procedure's bank.
+    pub fn base(self) -> usize {
         (self as usize) * CONTEXTS_PER_PROCEDURE
     }
 }
@@ -56,86 +64,26 @@ pub enum IntegerValue {
     OutOfBand,
 }
 
-/// Initially zeroed integer banks, optionally followed by other MQ contexts.
-///
-/// Create one bank set for a coding unit. Keep it across integer invocations.
-/// T.88 §7.4.2.2 resets integer contexts for each new symbol dictionary but
-/// may retain appended bitmap-model contexts. The borrowed MQ decoder must
-/// be dropped or finished before either reset method is called.
-#[derive(Debug)]
-pub struct IntegerContextBanks {
-    contexts: MqContexts,
-}
-
-impl IntegerContextBanks {
-    pub fn new(limits: &Limits, budget: &MqBudget) -> MqResult<Self> {
-        Self::with_extra_contexts(0, limits, budget)
-    }
-
-    /// Reserve additional contexts after the thirteen integer banks for other models.
-    pub fn with_extra_contexts(extra: usize, limits: &Limits, budget: &MqBudget) -> MqResult<Self> {
-        let count = INTEGER_CONTEXT_COUNT.checked_add(extra).ok_or(MqError {
-            offset: None,
-            context: None,
-            kind: MqErrorKind::InvalidContext,
-        })?;
-        Ok(Self {
-            contexts: MqContexts::new(count, limits, budget)?,
-        })
-    }
-
-    pub fn mq_contexts_mut(&mut self) -> &mut MqContexts {
-        &mut self.contexts
-    }
-
-    /// Reset only the thirteen arithmetic-integer banks; keep appended models.
-    pub fn reset_integer_contexts(&mut self) -> MqResult<()> {
-        for index in 0..INTEGER_CONTEXT_COUNT {
-            self.contexts.set(index, MqContext::default())?;
-        }
-        Ok(())
-    }
-
-    /// Reset integer banks and every appended model context.
-    pub fn reset_all(&mut self) {
-        self.contexts.reset();
-    }
-
-    /// Reset every context, including appended models. Prefer the named reset.
-    pub fn reset(&mut self) {
-        self.reset_all();
-    }
-}
-
-trait DecisionSource {
-    async fn bit(&mut self, context: usize) -> MqResult<bool>;
-}
-
-impl<S: RangedSource, C: Cancellation> DecisionSource for MqDecoder<'_, S, C> {
-    async fn bit(&mut self, context: usize) -> MqResult<bool> {
-        self.decode_bit(context).await
-    }
-}
-
-async fn take<D: DecisionSource>(
-    source: &mut D,
+async fn take<S: RangedSource, C: Cancellation>(
+    decoder: &mut MqDecoder<'_, S, C>,
     base: usize,
     prev: &mut u16,
     decisions: &mut u8,
-) -> MqResult<bool> {
+) -> ArithmeticResult<bool> {
     let context = base + usize::from(*prev);
     if *decisions >= MAX_DECISIONS {
-        return Err(MqError {
+        return Err(ArithmeticError {
+            coder: Some(Coder::T88),
             offset: None,
             context: Some(context),
-            kind: MqErrorKind::LimitExceeded {
+            kind: ArithmeticErrorKind::LimitExceeded {
                 resource: "T.88 integer decisions",
                 limit: u64::from(MAX_DECISIONS),
                 attempted: u64::from(*decisions) + 1,
             },
         });
     }
-    let bit = source.bit(context).await?;
+    let bit = decoder.decode_bit(context).await?;
     *decisions += 1;
     let next = (*prev << 1) | u16::from(bit);
     *prev = if *prev < 256 {
@@ -146,22 +94,37 @@ async fn take<D: DecisionSource>(
     Ok(bit)
 }
 
-async fn decode_decisions<D: DecisionSource>(
-    source: &mut D,
+/// Decode one non-IAID integer without ending or recreating the shared MQ stream.
+///
+/// The fixed layout reserves slots `0..6656` for the thirteen procedure
+/// banks. Missing capacity is rejected before any decision. One invocation
+/// consumes at most 38 MQ symbols; source, budget, and cancellation errors
+/// are returned unchanged. The caller decides whether OOB is legal here.
+pub async fn decode_integer<S: RangedSource, C: Cancellation>(
+    decoder: &mut MqDecoder<'_, S, C>,
     procedure: IntegerProcedure,
-) -> MqResult<IntegerValue> {
+) -> ArithmeticResult<IntegerValue> {
+    let last = INTEGER_CONTEXT_COUNT - 1;
+    if decoder.context(last).is_none() {
+        return Err(ArithmeticError {
+            coder: Some(Coder::T88),
+            offset: Some(decoder.snapshot().input_offset),
+            context: Some(last),
+            kind: ArithmeticErrorKind::InvalidContext,
+        });
+    }
     let base = procedure.base();
     let mut prev = 1u16;
     let mut decisions = 0u8;
-    let negative = take(source, base, &mut prev, &mut decisions).await?;
+    let negative = take(decoder, base, &mut prev, &mut decisions).await?;
     let mut band = 0usize;
-    while band < BANDS.len() - 1 && take(source, base, &mut prev, &mut decisions).await? {
+    while band < BANDS.len() - 1 && take(decoder, base, &mut prev, &mut decisions).await? {
         band += 1;
     }
     let (payload_bits, band_base) = BANDS[band];
     let mut payload = 0u64;
     for _ in 0..payload_bits {
-        let bit = take(source, base, &mut prev, &mut decisions).await?;
+        let bit = take(decoder, base, &mut prev, &mut decisions).await?;
         payload = payload * 2 + u64::from(bit);
     }
     // Bounded by the `BANDS` assertion above.
@@ -177,32 +140,12 @@ async fn decode_decisions<D: DecisionSource>(
     }))
 }
 
-/// Decode one non-IAID integer without ending or recreating the shared MQ stream.
-///
-/// The fixed layout reserves slots `0..6656` for the thirteen typed procedure
-/// banks. Missing capacity is rejected before any decision. One invocation
-/// consumes at most 38 MQ symbols; source, budget, and cancellation errors
-/// are returned unchanged. The caller decides whether OOB is legal here.
-pub async fn decode_integer<S: RangedSource, C: Cancellation>(
-    decoder: &mut MqDecoder<'_, S, C>,
-    procedure: IntegerProcedure,
-) -> MqResult<IntegerValue> {
-    let last = INTEGER_CONTEXT_COUNT - 1;
-    if decoder.context(last).is_none() {
-        return Err(MqError {
-            offset: Some(decoder.snapshot().current_input_offset),
-            context: Some(last),
-            kind: MqErrorKind::InvalidContext,
-        });
-    }
-    decode_decisions(decoder, procedure).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::ready;
-    use crate::{NeverCancel, native::SeekableSource};
+    use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
+    use crate::test_support::{mq_encoder, ready};
+    use crate::{Limits, NeverCancel, native::SeekableSource};
     use std::{cell::Cell, io::Cursor, rc::Rc};
 
     /// Every test reads through this one source type, so their paths share
@@ -211,52 +154,95 @@ mod tests {
         SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap()
     }
 
-    struct Decisions {
-        bits: Vec<bool>,
-        cursor: usize,
-        contexts: Vec<usize>,
-    }
-
-    impl Decisions {
-        fn from_bits(bits: &str) -> Self {
-            assert!(
-                bits.bytes().all(|byte| byte == b'0' || byte == b'1'),
-                "test decision trace must contain only 0 or 1"
-            );
-            Self {
-                bits: bits.bytes().map(|byte| byte == b'1').collect(),
-                cursor: 0,
-                contexts: Vec::new(),
-            }
+    fn whole(bytes: &[u8]) -> CodedSpan {
+        CodedSpan {
+            offset: 0,
+            length: bytes.len() as u64,
         }
     }
 
-    impl DecisionSource for Decisions {
-        async fn bit(&mut self, context: usize) -> MqResult<bool> {
-            self.contexts.push(context);
-            let bit = self.bits.get(self.cursor).copied().ok_or(MqError {
-                offset: Some(77),
-                context: Some(context),
-                kind: MqErrorKind::MissingTerminator,
-            })?;
-            self.cursor += 1;
-            Ok(bit)
+    /// Decode one integer of `procedure` from a stream that codes
+    /// `decisions` (context offsets within the procedure's bank), returning
+    /// the value and every context state afterwards. The stream must hold
+    /// exactly one integer.
+    fn decode_coded(
+        procedure: IntegerProcedure,
+        decisions: &[(usize, bool)],
+    ) -> (IntegerValue, Vec<ContextState>) {
+        let mut encoder = mq_encoder();
+        for &(context, bit) in decisions {
+            encoder.encode(procedure.base() + context, bit);
+        }
+        let bytes = encoder.finish();
+        let limits = Limits::default();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
+        let mut source = vec_source(&bytes);
+        let table = MqTable::standard();
+        let mut decoder = ready(MqDecoder::new(
+            &mut source,
+            whole(&bytes),
+            &table,
+            &mut bank,
+            &limits,
+            &NeverCancel,
+            MqBudget::default(),
+        ))
+        .unwrap();
+        let value = ready(decode_integer(&mut decoder, procedure)).unwrap();
+        assert_eq!(
+            decoder.snapshot().symbols_decoded,
+            decisions.len() as u64,
+            "one integer consumes exactly its decisions"
+        );
+        ready(decoder.finish(decisions.len() as u64)).unwrap();
+        let states = (0..INTEGER_CONTEXT_COUNT)
+            .map(|index| bank.get(index).unwrap())
+            .collect();
+        (value, states)
+    }
+
+    /// The decisions of `code` ("0"/"1" digits) in the hand-derived context
+    /// offsets `contexts`.
+    fn decisions(code: &str, contexts: &[usize]) -> Vec<(usize, bool)> {
+        assert_eq!(code.len(), contexts.len());
+        contexts
+            .iter()
+            .zip(code.bytes())
+            .map(|(&context, digit)| (context, digit == b'1'))
+            .collect()
+    }
+
+    /// Every first-use one bit is an LPS in a fresh context, which always
+    /// changes that context's state; no context outside `decisions` moves.
+    fn assert_contexts(
+        procedure: IntegerProcedure,
+        decisions: &[(usize, bool)],
+        states: &[ContextState],
+    ) {
+        let base = procedure.base();
+        let mut seen = Vec::new();
+        for &(context, bit) in decisions {
+            if bit && !seen.contains(&context) {
+                assert_ne!(states[base + context], ContextState::default(), "{context}");
+            }
+            seen.push(context);
+        }
+        for (index, state) in states.iter().enumerate() {
+            let used = index >= base && seen.contains(&(index - base));
+            if !used {
+                assert_eq!(*state, ContextState::default(), "context {index}");
+            }
         }
     }
 
     #[test]
     fn official_a2_iadw_example_has_hand_derived_contexts() {
-        // Annex A.2 describes these decisions and contexts, but no encoded MQ bytes.
-        let mut bits = Decisions::from_bits("0101000");
-        assert_eq!(
-            ready(decode_decisions(&mut bits, IntegerProcedure::Iadw)).unwrap(),
-            IntegerValue::Signed(12)
-        );
-        let base = IntegerProcedure::Iadw.base();
-        assert_eq!(
-            bits.contexts,
-            [1, 2, 5, 10, 21, 42, 84].map(|index| base + index)
-        );
+        // Annex A.2 describes these decisions and contexts, but no encoded
+        // MQ bytes: 0101000 is IADW 12 in contexts 1, 2, 5, 10, 21, 42, 84.
+        let coded = decisions("0101000", &[1, 2, 5, 10, 21, 42, 84]);
+        let (value, states) = decode_coded(IntegerProcedure::Iadw, &coded);
+        assert_eq!(value, IntegerValue::Signed(12));
+        assert_contexts(IntegerProcedure::Iadw, &coded, &states);
     }
 
     #[test]
@@ -306,38 +292,49 @@ mod tests {
         ];
         for (prefix, payload, expected) in cases {
             let code = format!("{prefix}{payload}");
-            let mut bits = Decisions::from_bits(&code);
-            assert_eq!(
-                ready(decode_decisions(&mut bits, IntegerProcedure::Iaai)).unwrap(),
-                expected,
-                "code {code}"
-            );
-            assert_eq!(bits.cursor, code.len(), "code {code}");
-            assert!(bits.cursor <= usize::from(MAX_DECISIONS));
+            // Annex A.2's PREV: shift in each bit, keeping nine bits plus
+            // the marker once PREV reaches 256.
+            let mut prev = 1_usize;
+            let coded: Vec<_> = code
+                .bytes()
+                .map(|digit| {
+                    let bit = digit == b'1';
+                    let context = prev;
+                    let next = (prev << 1) | usize::from(bit);
+                    prev = if prev < 256 { next } else { (next & 511) | 256 };
+                    (context, bit)
+                })
+                .collect();
+            assert!(coded.len() <= usize::from(MAX_DECISIONS));
+            let (value, _) = decode_coded(IntegerProcedure::Iaai, &coded);
+            assert_eq!(value, expected, "code {code}");
         }
     }
 
     #[test]
     fn prev_rolls_at_nine_bits_and_keeps_recent_history() {
-        let mut zeroes = Decisions::from_bits(&format!("011111{}", "0".repeat(32)));
-        assert_eq!(
-            ready(decode_decisions(&mut zeroes, IntegerProcedure::Iaai)).unwrap(),
-            IntegerValue::Signed(4436)
+        let mut zeroes = decisions(
+            "011111000000",
+            &[1, 2, 5, 11, 23, 47, 95, 190, 380, 504, 496, 480],
         );
-        assert_eq!(zeroes.contexts.len(), 38);
-        assert_eq!(
-            &zeroes.contexts[..12],
-            &[1, 2, 5, 11, 23, 47, 95, 190, 380, 504, 496, 480]
-        );
-        assert_eq!(zeroes.contexts[37], 256);
+        // The remaining 26 zero payload bits after PREV has rolled: each
+        // keeps the marker bit 256 and shifts in a zero.
+        let mut prev = 448_usize;
+        for _ in 0..26 {
+            zeroes.push((prev, false));
+            prev = ((prev << 1) & 511) | 256;
+        }
+        assert_eq!(zeroes.len(), 38);
+        assert_eq!(zeroes[37].0, 256);
+        let (value, states) = decode_coded(IntegerProcedure::Iaai, &zeroes);
+        assert_eq!(value, IntegerValue::Signed(4436));
+        assert_contexts(IntegerProcedure::Iaai, &zeroes, &states);
 
-        let mut ones = Decisions::from_bits(&format!("011111{}", "1".repeat(32)));
-        assert_eq!(
-            ready(decode_decisions(&mut ones, IntegerProcedure::Iaai)).unwrap(),
-            IntegerValue::Signed(4_294_971_731)
-        );
-        assert_eq!(&ones.contexts[6..10], &[95, 191, 383, 511]);
-        assert_eq!(ones.contexts[37], 511);
+        let mut ones = decisions("0111111111", &[1, 2, 5, 11, 23, 47, 95, 191, 383, 511]);
+        ones.extend([(511, true); 28]);
+        let (value, states) = decode_coded(IntegerProcedure::Iaai, &ones);
+        assert_eq!(value, IntegerValue::Signed(4_294_971_731));
+        assert_contexts(IntegerProcedure::Iaai, &ones, &states);
     }
 
     #[test]
@@ -358,12 +355,12 @@ mod tests {
             IntegerProcedure::Iari,
         ];
         for (bank, procedure) in procedures.into_iter().enumerate() {
-            let mut bits = Decisions::from_bits("0000");
-            assert_eq!(
-                ready(decode_decisions(&mut bits, procedure)).unwrap(),
-                IntegerValue::Signed(0)
-            );
-            assert_eq!(bits.contexts, [1, 2, 4, 8].map(|index| bank * 512 + index));
+            assert_eq!(procedure.base(), bank * CONTEXTS_PER_PROCEDURE);
+            // -1 is 1 0 01 in contexts 1, 3, 6, 12 of its own bank.
+            let coded = decisions("1001", &[1, 3, 6, 12]);
+            let (value, states) = decode_coded(procedure, &coded);
+            assert_eq!(value, IntegerValue::Signed(-1));
+            assert_contexts(procedure, &coded, &states);
         }
         assert_eq!(
             procedures.len() * CONTEXTS_PER_PROCEDURE,
@@ -372,215 +369,127 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_decision_trace_preserves_located_error() {
-        for code in ["", "0", "011", "011110101"] {
-            let mut bits = Decisions::from_bits(code);
-            let error = ready(decode_decisions(&mut bits, IntegerProcedure::Iadw)).unwrap_err();
-            assert!(matches!(error.kind, MqErrorKind::MissingTerminator));
-            assert_eq!(error.offset, Some(77));
-            assert_eq!(error.context, bits.contexts.last().copied());
+    fn incomplete_integer_preserves_the_located_mq_error() {
+        // Spans without the FF AC terminal pair end inside the integer.
+        for bytes in [&[0x00, 0x00][..], &[0x00, 0x00, 0x00, 0x00]] {
+            let limits = Limits::default();
+            let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
+            let mut source = vec_source(bytes);
+            let table = MqTable::standard();
+            let mut decoder = ready(MqDecoder::new(
+                &mut source,
+                whole(bytes),
+                &table,
+                &mut bank,
+                &limits,
+                &NeverCancel,
+                MqBudget::default(),
+            ))
+            .unwrap();
+            let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iadw)).unwrap_err();
+            assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
+            assert_eq!(error.offset, Some(bytes.len() as u64));
+            let base = IntegerProcedure::Iadw.base();
+            assert!(error.context.is_some_and(|context| {
+                (base..base + CONTEXTS_PER_PROCEDURE).contains(&context)
+            }));
         }
     }
 
     #[test]
     fn integer_decision_limit_is_checked_before_the_next_mq_symbol() {
-        let mut bits = Decisions::from_bits("0");
+        let bytes = [0xff, 0xac];
+        let limits = Limits::default();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
+        let mut source = vec_source(&bytes);
+        let table = MqTable::standard();
+        let mut decoder = ready(MqDecoder::new(
+            &mut source,
+            whole(&bytes),
+            &table,
+            &mut bank,
+            &limits,
+            &NeverCancel,
+            MqBudget::default(),
+        ))
+        .unwrap();
         let mut prev = 1;
         let mut count = MAX_DECISIONS;
-        let error = ready(take(&mut bits, 0, &mut prev, &mut count)).unwrap_err();
+        let error = ready(take(&mut decoder, 0, &mut prev, &mut count)).unwrap_err();
         assert!(matches!(
             error.kind,
-            MqErrorKind::LimitExceeded {
+            ArithmeticErrorKind::LimitExceeded {
                 resource: "T.88 integer decisions",
                 limit: 38,
                 attempted: 39,
             }
         ));
-        assert!(bits.contexts.is_empty());
+        assert_eq!(decoder.snapshot().symbols_decoded, 0);
         assert_eq!((prev, count), (1, MAX_DECISIONS));
-    }
-
-    fn invented_table(limits: &Limits) -> super::super::mq::MqTable {
-        use super::super::mq::{MQ_STATE_COUNT, MqState, MqTable};
-        let mut states = vec![
-            MqState {
-                qe: 0x4000,
-                next_mps: 0,
-                next_lps: 0,
-                switch_mps: false,
-            };
-            MQ_STATE_COUNT
-        ];
-        states[0].next_mps = 1;
-        states[0].next_lps = 1;
-        states[1].next_mps = 2;
-        states[1].next_lps = 2;
-        MqTable::new(states, limits).unwrap()
-    }
-
-    #[test]
-    fn bank_allocation_extra_capacity_and_explicit_reset() {
-        let limits = Limits::default();
-        let budget = MqBudget::default();
-        let mut banks = IntegerContextBanks::with_extra_contexts(7, &limits, &budget).unwrap();
-        assert!(
-            banks
-                .mq_contexts_mut()
-                .get(INTEGER_CONTEXT_COUNT - 1)
-                .is_some()
-        );
-        assert!(
-            banks
-                .mq_contexts_mut()
-                .get(INTEGER_CONTEXT_COUNT + 6)
-                .is_some()
-        );
-        assert!(
-            banks
-                .mq_contexts_mut()
-                .get(INTEGER_CONTEXT_COUNT + 7)
-                .is_none()
-        );
-        banks
-            .mq_contexts_mut()
-            .set(
-                1,
-                MqContext {
-                    state_index: 1,
-                    mps: true,
-                },
-            )
-            .unwrap();
-        let carried = MqContext {
-            state_index: 2,
-            mps: true,
-        };
-        banks
-            .mq_contexts_mut()
-            .set(INTEGER_CONTEXT_COUNT - 1, carried)
-            .unwrap();
-        banks
-            .mq_contexts_mut()
-            .set(INTEGER_CONTEXT_COUNT, carried)
-            .unwrap();
-        banks.reset_integer_contexts().unwrap();
-        assert_eq!(banks.mq_contexts_mut().get(1), Some(MqContext::default()));
-        assert_eq!(
-            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT - 1),
-            Some(MqContext::default())
-        );
-        assert_eq!(
-            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT),
-            Some(carried)
-        );
-        banks.reset_all();
-        assert_eq!(
-            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT),
-            Some(MqContext::default())
-        );
-        // The unscoped alias clears both integer banks and appended models.
-        for index in [1, INTEGER_CONTEXT_COUNT + 6] {
-            banks.mq_contexts_mut().set(index, carried).unwrap();
-        }
-        banks.reset();
-        for index in [1, INTEGER_CONTEXT_COUNT + 6] {
-            assert_eq!(
-                banks.mq_contexts_mut().get(index),
-                Some(MqContext::default())
-            );
-        }
-        let tight = MqBudget {
-            max_contexts: INTEGER_CONTEXT_COUNT - 1,
-            ..budget
-        };
-        assert!(matches!(
-            IntegerContextBanks::new(&limits, &tight).unwrap_err().kind,
-            MqErrorKind::LimitExceeded {
-                resource: "MQ contexts",
-                ..
-            }
-        ));
-        assert!(matches!(
-            IntegerContextBanks::with_extra_contexts(usize::MAX, &limits, &budget)
-                .unwrap_err()
-                .kind,
-            MqErrorKind::InvalidContext
-        ));
     }
 
     #[test]
     fn real_mq_stream_shares_contexts_and_finishes_only_after_integers() {
+        // Two IADW values adapt the same bank; IADH uses its own. Decoding
+        // the encoded values back proves the decoder chose the same
+        // contexts as the encoder for every decision.
+        let values = [
+            (IntegerProcedure::Iadw, Some(4_294_971_731)),
+            (IntegerProcedure::Iadw, Some(-4_026_536_276)),
+            (IntegerProcedure::Iadh, Some(2)),
+            (IntegerProcedure::Iadw, None),
+        ];
+        let mut encoder = mq_encoder();
+        for (procedure, value) in values {
+            encoder.integer(procedure.base(), value);
+        }
+        let symbols = encoder.decisions();
+        let bytes = encoder.finish();
         let limits = Limits::default();
-        let budget = MqBudget::default();
-        let table = invented_table(&limits);
-        let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
-        let bytes = vec![0x80, 0, 0, 0, 0, 0, 0xff, 0xac];
+        let table = MqTable::standard();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: bytes.len() as u64,
-            },
+            whole(&bytes),
             &table,
-            banks.mq_contexts_mut(),
+            &mut bank,
             &limits,
             &NeverCancel,
-            budget,
+            MqBudget::default(),
         ))
         .unwrap();
-        let first = ready(decode_integer(&mut decoder, IntegerProcedure::Iadw)).unwrap();
-        let after_first = decoder.context(IntegerProcedure::Iadw.base() + 1).unwrap();
-        let second = ready(decode_integer(&mut decoder, IntegerProcedure::Iadw)).unwrap();
-        let after_second = decoder.context(IntegerProcedure::Iadw.base() + 1).unwrap();
-        let other_before = decoder.context(IntegerProcedure::Iadh.base() + 1).unwrap();
-        let _third = ready(decode_integer(&mut decoder, IntegerProcedure::Iadh)).unwrap();
-        let symbols = decoder.snapshot().symbols_decoded;
-        assert_eq!(
-            (first, second),
-            (
-                IntegerValue::Signed(4_294_971_731),
-                IntegerValue::Signed(-4_026_536_276)
-            )
-        );
-        assert_ne!(after_first, super::super::mq::MqContext::default());
-        assert_ne!(after_first, after_second);
-        assert_eq!(other_before, super::super::mq::MqContext::default());
-        assert_ne!(
-            decoder.context(IntegerProcedure::Iadh.base() + 1),
-            Some(other_before)
-        );
-        assert_eq!(
-            decoder.context(IntegerProcedure::Iadw.base() + 1),
-            Some(after_second)
-        );
+        for (procedure, value) in values {
+            let expected = value.map_or(IntegerValue::OutOfBand, IntegerValue::Signed);
+            assert_eq!(
+                ready(decode_integer(&mut decoder, procedure)).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(decoder.snapshot().symbols_decoded, symbols);
         ready(decoder.finish(symbols)).unwrap();
     }
 
     #[test]
     fn missing_last_bank_is_rejected_before_any_mq_decision() {
         let limits = Limits::default();
-        let budget = MqBudget::default();
-        let table = invented_table(&limits);
-        let mut contexts = MqContexts::new(INTEGER_CONTEXT_COUNT - 1, &limits, &budget).unwrap();
-        let bytes = [0x80, 0, 0xff, 0xac];
+        let table = MqTable::standard();
+        let mut contexts = ContextBank::new(INTEGER_CONTEXT_COUNT - 1, &limits).unwrap();
+        let bytes = [0xff, 0xac];
         let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: bytes.len() as u64,
-            },
+            whole(&bytes),
             &table,
             &mut contexts,
             &limits,
             &NeverCancel,
-            budget,
+            MqBudget::default(),
         ))
         .unwrap();
         let before = decoder.snapshot();
         let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
-        assert!(matches!(error.kind, MqErrorKind::InvalidContext));
+        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(error.context, Some(INTEGER_CONTEXT_COUNT - 1));
         assert_eq!(decoder.snapshot(), before);
         ready(decoder.finish(0)).unwrap();
@@ -596,22 +505,22 @@ mod tests {
     #[test]
     fn real_mq_budget_cancel_and_marker_errors_remain_visible() {
         let limits = Limits::default();
-        let table = invented_table(&limits);
-        let bytes = [0x80, 0, 0, 0xff, 0xac];
+        let table = MqTable::standard();
+        // IAAI 3 needs four decisions; a three-symbol budget stops it.
+        let mut encoder = mq_encoder();
+        encoder.integer(IntegerProcedure::Iaai.base(), Some(3));
+        let bytes = encoder.finish();
         let budget = MqBudget {
             max_symbols: 3,
             ..MqBudget::default()
         };
-        let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: bytes.len() as u64,
-            },
+            whole(&bytes),
             &table,
-            banks.mq_contexts_mut(),
+            &mut bank,
             &limits,
             &NeverCancel,
             budget,
@@ -620,8 +529,8 @@ mod tests {
         let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
         assert!(matches!(
             error.kind,
-            MqErrorKind::LimitExceeded {
-                resource: "MQ symbols",
+            ArithmeticErrorKind::LimitExceeded {
+                resource: "symbols",
                 ..
             }
         ));
@@ -629,68 +538,67 @@ mod tests {
 
         let cancelled = Rc::new(Cell::new(false));
         let flag = Flag(cancelled.clone());
-        let budget = MqBudget::default();
-        let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: bytes.len() as u64,
-            },
+            whole(&bytes),
             &table,
-            banks.mq_contexts_mut(),
+            &mut bank,
             &limits,
             &flag,
-            budget,
+            MqBudget::default(),
         ))
         .unwrap();
         cancelled.set(true);
         let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
-        assert!(matches!(error.kind, MqErrorKind::Cancelled));
+        assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
         assert_eq!(decoder.snapshot().symbols_decoded, 0);
 
-        let invalid = [
-            0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0x90,
-        ];
-        let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
+        // One complete integer, then an invalid pair where FF AC belongs.
+        let mut encoder = mq_encoder();
+        encoder.integer(IntegerProcedure::Iaai.base(), Some(3));
+        let mut invalid = encoder.finish_zero_padded();
+        invalid.resize(19, 0);
+        invalid.extend_from_slice(&[0xff, 0x90]);
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&invalid);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: invalid.len() as u64,
-            },
+            whole(&invalid),
             &table,
-            banks.mq_contexts_mut(),
+            &mut bank,
             &limits,
             &NeverCancel,
-            budget,
+            MqBudget::default(),
         ))
         .unwrap();
-        let _ = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap();
+        assert_eq!(
+            ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap(),
+            IntegerValue::Signed(3)
+        );
         let symbols = decoder.snapshot().symbols_decoded;
         let error = ready(decoder.finish(symbols)).unwrap_err();
-        assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0x90)));
+        assert!(matches!(
+            error.kind,
+            ArithmeticErrorKind::InvalidMarker(0x90)
+        ));
 
         let short = [0x80, 0];
-        let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
+        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&short);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
-            super::super::mq::MqSpan {
-                offset: 0,
-                length: short.len() as u64,
-            },
+            whole(&short),
             &table,
-            banks.mq_contexts_mut(),
+            &mut bank,
             &limits,
             &NeverCancel,
-            budget,
+            MqBudget::default(),
         ))
         .unwrap();
         let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
-        assert!(matches!(error.kind, MqErrorKind::MissingTerminator));
+        assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
         assert_eq!(error.offset, Some(short.len() as u64));
     }
 }

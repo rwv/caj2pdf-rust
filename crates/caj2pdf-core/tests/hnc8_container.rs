@@ -4,7 +4,7 @@ use caj2pdf_core::{
     Cancellation, Limits, RangedSource, SequentialSink,
     hnc8::{Budget, ErrorKind, Hnc8Reader, Variant},
     jbig1::{Type0Budget, Type0Decoder},
-    qm::{ArithmeticBudget, ContextBank, QM_STATE_COUNT, QmState, QmTable},
+    qm::{ArithmeticBudget, ContextBank, QmTable},
 };
 use std::{
     error::Error as StdError,
@@ -380,19 +380,10 @@ fn type0_handoff_keeps_outer_type_and_full_dib_span() {
     dib[12..14].copy_from_slice(&1_u16.to_le_bytes());
     dib[14..16].copy_from_slice(&1_u16.to_le_bytes());
     dib[40..43].fill(0xff);
-    bytes[304..307].copy_from_slice(&[0x90, 0, 0]);
+    bytes[304..307].copy_from_slice(&[0, 0, 0]);
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let table = QmTable::new(vec![
-        QmState {
-            qe: 0x4000,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false
-        };
-        QM_STATE_COUNT
-    ])
-    .unwrap();
+    let table = QmTable::standard();
     let mut contexts = ContextBank::new(1024, &limits).unwrap();
     let mut sink = Sink::default();
     let mut reader = ready(Hnc8Reader::open(
@@ -426,7 +417,8 @@ fn type0_handoff_keeps_outer_type_and_full_dib_span() {
     .unwrap();
     assert!(ready(decoder.decode_next_row()).unwrap());
     ready(decoder.finish()).unwrap();
-    // Hand-derived invented MQ state: 0x9000 selects zero control and one pixel.
+    // Hand-derived for T.82 state 0 (Qe 0x5A1D): a zero code register is
+    // an MPS zero control, then an exchanged-LPS one pixel.
     assert_eq!(sink.0, [0x80, 0, 0, 0]);
 }
 

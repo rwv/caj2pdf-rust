@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use caj2pdf_core::{Limits, jbig2::mq, qm};
+use caj2pdf_core::{jbig2::mq, qm};
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -17,7 +17,6 @@ fn standard_qm_states_match_the_pinned_interoperability_data() {
             .collect::<String>(),
         "30b944771e6f7815fdb1a6b9cb1864dd8d1403a96e19f33a82dbd65d42141220"
     );
-    qm::QmTable::new(qm::STANDARD_STATES.to_vec()).unwrap();
 }
 
 #[test]
@@ -34,5 +33,4 @@ fn standard_mq_states_match_the_pinned_interoperability_data() {
             .collect::<String>(),
         "cfcb2cd66ff102e77e2f74c758c4e1881b57ce6d1113b59a24cae1e9a07858c2"
     );
-    mq::MqTable::new(mq::STANDARD_STATES.to_vec(), &Limits::default()).unwrap();
 }
