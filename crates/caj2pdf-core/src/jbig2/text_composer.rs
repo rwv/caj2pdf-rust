@@ -7,12 +7,9 @@
 //! terminal has been checked are packed rows sent to the final sink.
 
 use super::{
-    dictionary::SymbolDescriptor,
-    refinement_dictionary::{StoredSymbol, SymbolStore},
+    dictionary::{StoredSymbol, SymbolDescriptor, SymbolStore},
     text::{SymbolCombination, TextHeaderAnomaly, TextRegionHeader},
-    text_instances::{
-        TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError, TextInstanceResult,
-    },
+    text_instances::{TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError},
 };
 use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
 use std::{error, fmt};
@@ -34,36 +31,6 @@ pub trait RandomAccessScratch {
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize>;
     async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize>;
     async fn flush(&mut self) -> crate::Result<()>;
-}
-
-/// An ordered #86 instance stream. `None` must mean its count and MQ terminal
-/// were validated; the production implementation is `TextInstanceDecoder`.
-#[allow(async_fn_in_trait)]
-pub trait TextInstanceSource {
-    fn segment(&self) -> u32;
-    fn header(&self) -> TextRegionHeader;
-    async fn next(&mut self) -> TextInstanceResult<Option<TextInstance>>;
-}
-
-impl<S, RI, RN, W, C> TextInstanceSource for TextInstanceDecoder<'_, S, RI, RN, W, C>
-where
-    S: RangedSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    W: SequentialSink,
-    C: Cancellation,
-{
-    fn segment(&self) -> u32 {
-        self.segment()
-    }
-
-    fn header(&self) -> TextRegionHeader {
-        self.header()
-    }
-
-    async fn next(&mut self) -> TextInstanceResult<Option<TextInstance>> {
-        self.next().await
-    }
 }
 
 /// Independent composition bounds. Counters are also limited to
@@ -331,11 +298,15 @@ fn padding_mask(width: u32) -> u8 {
 ///
 /// Like every `RangedSource`, the bitmap stores must be stable: imported and
 /// new dictionary views are immutable after construction, and a refined view
-/// may only append between `TextInstanceSource::next` calls. Store sizes are
+/// may only append between `TextInstanceDecoder::next` calls. Store sizes are
 /// checked as a cheap guard; same-length rewrites are not detected.
 pub struct TextComposer<
     'a,
-    I: TextInstanceSource,
+    'd,
+    S: RangedSource,
+    DI: RangedSource,
+    DN: RangedSource,
+    DW: SequentialSink,
     RI: RangedSource,
     RN: RangedSource,
     RT: RangedSource,
@@ -346,7 +317,7 @@ pub struct TextComposer<
     header: TextRegionHeader,
     segment: u32,
     catalog: &'a [StoredSymbol],
-    instances: &'a mut I,
+    instances: &'a mut TextInstanceDecoder<'d, S, DI, DN, DW, C>,
     imported: &'a mut RI,
     imported_base: u64,
     imported_size: u64,
@@ -369,9 +340,13 @@ pub struct TextComposer<
     complete: bool,
 }
 
-impl<'a, I, RI, RN, RT, T, W, C> TextComposer<'a, I, RI, RN, RT, T, W, C>
+impl<'a, 'd, S, DI, DN, DW, RI, RN, RT, T, W, C>
+    TextComposer<'a, 'd, S, DI, DN, DW, RI, RN, RT, T, W, C>
 where
-    I: TextInstanceSource,
+    S: RangedSource,
+    DI: RangedSource,
+    DN: RangedSource,
+    DW: SequentialSink,
     RI: RangedSource,
     RN: RangedSource,
     RT: RangedSource,
@@ -384,7 +359,7 @@ where
         segment: u32,
         header: TextRegionHeader,
         catalog: &'a [StoredSymbol],
-        instances: &'a mut I,
+        instances: &'a mut TextInstanceDecoder<'d, S, DI, DN, DW, C>,
         imported: &'a mut RI,
         imported_base: u64,
         new: &'a mut RN,

@@ -6,7 +6,6 @@
 use super::QmState;
 
 /// Standard probability states, ordered by the normative state index.
-/// Custom tables remain accepted by the existing table constructor.
 pub const STANDARD_STATES: [QmState; 113] = [
     QmState {
         qe: 0x5a1d,

@@ -35,7 +35,7 @@ use crate::{
 use std::{error, fmt, mem::size_of};
 
 /// Caller-owned stores reused between type-3 images: three symbol stores,
-/// the full-page text scratch and the caller-owned MQ table. Type-0 and JPEG
+/// the full-page text scratch and the standard MQ table. Type-0 and JPEG
 /// images stream straight to the PDF and use no store.
 pub struct ComposeType3Workspaces<'a, T> {
     pub table: &'a MqTable,
@@ -774,7 +774,7 @@ where
 /// HN-A/C8 require validated text framing and types 0, 1, 2 or 3. HN-B accepts only
 /// one JPEG on an image-bearing row and separately reports its no-image rows.
 /// Pure-text-only documents, unsupported types/profiles, missing type-0
-/// tables and omitted draws are errors. A caller table is never redistributed.
+/// tables and omitted draws are errors.
 ///
 /// Source-declared page and image extents determine HN-A/C8 layout using
 /// the empirical coordinate unit. Zero extents are errors. DIB storage

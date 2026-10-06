@@ -7,7 +7,7 @@
 //! module never buffers a whole page or decodes arithmetic data.
 
 use super::{
-    generic::{GenericHeaderSink, GenericRegionInfo, GenericReport, VerifiedGenericHeader},
+    generic::{GenericRegionHeader, GenericRegionInfo, GenericReport},
     page_info::PageInfo,
     page_profile::PageProfile,
     text::TextHeaderAnomaly,
@@ -711,15 +711,15 @@ impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
     }
 }
 
-impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> GenericHeaderSink
-    for PageOrSink<'_, T, W, C>
-{
-    fn arm_checked_header(&mut self, verified: VerifiedGenericHeader) -> crate::Result<()> {
+impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<'_, T, W, C> {
+    /// Accept rows only after the generic decoder compared the header it
+    /// parsed with its caller's preflight header; see
+    /// [`GenericRegionDecoder::arm_page_output`](super::generic::GenericRegionDecoder::arm_page_output).
+    pub(super) fn arm_checked_header(&mut self, header: GenericRegionHeader) -> crate::Result<()> {
         if self.armed || self.progress.poisoned || self.progress.completed {
             return Err(self.fail(0, PageComposeErrorKind::Poisoned));
         }
         let expected = self.profile.generic_header();
-        let header = verified.header();
         if header.data != expected.data || header.mq_span != expected.mq_span {
             return Err(self.fail(
                 0,

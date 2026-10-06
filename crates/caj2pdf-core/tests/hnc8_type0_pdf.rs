@@ -3,9 +3,9 @@
 //! Synthetic HN/C8 type-0 images converted through the document pipeline.
 //!
 //! The coded images are produced at test runtime by an original, test-only
-//! arithmetic encoder written from the T.82 interval description and the
-//! observed type-0 row rule. The probability table is invented; it is not
-//! the T.82 Table 24. Nothing here is corpus data or a decoder oracle.
+//! arithmetic encoder written from the T.82 interval description, for the
+//! standard T.82 Table 24 states and the observed type-0 row rule. Nothing
+//! here is corpus data or a decoder oracle.
 
 mod common;
 
@@ -17,7 +17,7 @@ use caj2pdf_core::{
     },
     jbig1::Type0ErrorKind,
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
-    qm::{ArithmeticErrorKind, QM_STATE_COUNT, QmState, QmTable},
+    qm::{ArithmeticErrorKind, QmTable},
 };
 use common::{
     CancelAfter,
@@ -32,163 +32,23 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-// ---------------------------------------------------------------------------
-// Invented probability table and a test-only arithmetic encoder.
-
-/// Invented adaptive states: varied Qe values, forward MPS steps, backward
-/// LPS steps, and occasional MPS switches. Not a standard table.
-fn invented_states() -> Vec<QmState> {
-    (0..QM_STATE_COUNT)
-        .map(|i| QmState {
-            qe: (0x0400 + (i * 0x0137) % 0x3c00) as u16,
-            next_lps: (i / 3) as u8,
-            next_mps: ((i + 1) % QM_STATE_COUNT) as u8,
-            switch_mps: i % 7 == 0,
-        })
-        .collect()
-}
-
 fn table() -> QmTable {
-    QmTable::new(invented_states()).unwrap()
-}
-
-/// Encodes decisions so that the decoder's lower subinterval `[0, A - Qe)`
-/// carries the MPS unless `A - Qe < Qe` (conditional exchange). The code
-/// value is kept exactly as a bit vector; its final lower bound is emitted,
-/// and the decoder supplies zero bytes after the end.
-struct Encoder {
-    states: Vec<QmState>,
-    contexts: Vec<(u8, bool)>,
-    low: Vec<u8>,
-    interval: u32,
-    shift: usize,
-}
-
-impl Encoder {
-    fn new() -> Self {
-        Self {
-            states: invented_states(),
-            contexts: vec![(0, false); 1024],
-            low: Vec::new(),
-            interval: 0x10000,
-            shift: 0,
-        }
-    }
-
-    fn add_to_low(&mut self, value: u32) {
-        // Bit j of `value` has weight 2^(j - 16 - shift): index 15 + shift - j.
-        if self.low.len() < 16 + self.shift {
-            self.low.resize(16 + self.shift, 0);
-        }
-        for j in 0..16 {
-            if value & (1 << j) == 0 {
-                continue;
-            }
-            let mut index = 15 + self.shift - j;
-            loop {
-                self.low[index] += 1;
-                if self.low[index] < 2 {
-                    break;
-                }
-                self.low[index] = 0;
-                index -= 1;
-            }
-        }
-    }
-
-    fn encode(&mut self, context: usize, bit: bool) {
-        let (index, mps) = self.contexts[context];
-        let state = self.states[usize::from(index)];
-        let qe = u32::from(state.qe);
-        let narrowed = self.interval - qe;
-        let lower_is_mps = narrowed >= qe;
-        if (bit == mps) == lower_is_mps {
-            self.interval = narrowed;
-        } else {
-            self.add_to_low(narrowed);
-            self.interval = qe;
-        }
-        if bit != mps {
-            self.contexts[context] = (state.next_lps, mps ^ state.switch_mps);
-        } else if self.interval < 0x8000 {
-            self.contexts[context] = (state.next_mps, mps);
-        }
-        while self.interval < 0x8000 {
-            self.interval <<= 1;
-            self.shift += 1;
-        }
-    }
-
-    fn finish(self) -> Vec<u8> {
-        let mut bytes: Vec<u8> = self
-            .low
-            .chunks(8)
-            .map(|bits| {
-                bits.iter()
-                    .enumerate()
-                    .fold(0, |byte, (i, bit)| byte | (bit << (7 - i)))
-            })
-            .collect();
-        while bytes.last() == Some(&0) {
-            bytes.pop();
-        }
-        if bytes.is_empty() {
-            bytes.push(0);
-        }
-        bytes
-    }
+    QmTable::standard()
 }
 
 type Pixels = Vec<Vec<bool>>;
 
-fn at(rows: &Pixels, y: isize, x: isize) -> usize {
-    if y < 0 || x < 0 {
-        return 0;
-    }
-    rows.get(y as usize)
-        .and_then(|row| row.get(x as usize))
-        .map_or(0, |&bit| usize::from(bit))
-}
-
-/// Code rows with the documented type-0 model: a row-control decision at
-/// context 457 (one copies the preceding row, blank above row 0), else each
-/// pixel with ten neighbors in the documented order.
+/// Code rows with the documented type-0 model for the standard T.82 states:
+/// a row-control decision (one copies the preceding row, blank above row
+/// 0), else each pixel with ten neighbors.
 fn encode_rows(rows: &Pixels) -> Vec<u8> {
-    let width = rows[0].len();
-    let mut encoder = Encoder::new();
-    for y in 0..rows.len() {
-        let previous = if y == 0 {
-            vec![false; width]
-        } else {
-            rows[y - 1].clone()
-        };
-        let copy = rows[y] == previous;
-        encoder.encode(457, copy);
-        if copy {
-            continue;
-        }
-        let yi = y as isize;
-        for x in 0..width {
-            let xi = x as isize;
-            let mut context = 0;
-            for (dy, dx) in [
-                (0, -2),
-                (0, -1),
-                (-1, -2),
-                (-1, -1),
-                (-1, 0),
-                (-1, 1),
-                (-1, 2),
-                (-2, -1),
-                (-2, 0),
-                (-2, 1),
-            ] {
-                context = (context << 1) | at(rows, yi + dy, xi + dx);
-            }
-            encoder.encode(context, rows[y][x]);
-        }
+    let mut encoder = common::qm_encoder();
+    encoder.type0_rows(rows, true);
+    let mut bytes = encoder.finish();
+    if bytes.is_empty() {
+        bytes.push(0);
     }
-    encoder.finish()
+    bytes
 }
 
 /// A deterministic, nonuniform pattern with copied rows and edge pixels.

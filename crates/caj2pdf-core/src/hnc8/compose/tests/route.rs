@@ -14,7 +14,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     }];
     let mut sink = Sink::default();
     let limits = Limits::default();
-    let mq = mq_table(&limits);
+    let mq = MqTable::standard();
     let (mut text, mut first, mut second, mut refined) = Default::default();
     let result = ready(convert_document_pdf(
         &mut source,
@@ -132,7 +132,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
         }];
         let mut sink = Sink::default();
         let limits = Limits::default();
-        let mq = mq_table(&limits);
+        let mq = MqTable::standard();
         let (mut text, mut first, mut second, mut refined) = Default::default();
         let direct = ready(convert_c8_native_pdf(
             &mut source,

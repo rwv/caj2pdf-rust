@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! Symbol dictionary tests. Invented arithmetic states and synthetic segments
-//! test the public dictionary model and its failure handling, not T.88 Table
-//! E.1 or external CAJ/HN symbol-pixel compatibility.
+//! Symbol dictionary tests. Synthetic segments, MQ-coded for the standard
+//! T.88 states, test the public dictionary model and its failure handling,
+//! not external CAJ/HN symbol-pixel compatibility.
 //!
 //! Every test shares one source, store, and cancellation type, so the
 //! decoder paths they exercise belong to a single generic instantiation.
@@ -15,15 +15,20 @@ mod faults;
 use caj2pdf_core::{
     Limits, RangedSource, SequentialSink,
     jbig2::{
-        HeaderErrorKind, HeaderLimits, SegmentHeader, SegmentSpan,
+        HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{
             DictionaryBudget, DictionaryError, DictionaryErrorKind, DictionaryMode,
-            DictionaryReport, DirectDictionaryDecoder, SymbolDescriptor,
-            read_dictionary_data_header,
+            DictionaryReport, DictionaryStores, RefinementDictionaryBudget, SymbolDescriptor,
+            SymbolDictionaryDecoder, SymbolStore, read_dictionary_data_header,
         },
-        integer::{INTEGER_CONTEXT_COUNT, IntegerContextBanks},
-        mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqErrorKind, MqState, MqTable},
+        iaid::IAID_BASE,
+        integer::{BITMAP_BASE, INTEGER_CONTEXT_COUNT},
+        mq::{
+            ArithmeticErrorKind, ContextBank, ContextState, MQ_STATE_COUNT, MqBudget, MqState,
+            MqTable,
+        },
         read_segment_header,
+        refinement::RefinementBudget,
     },
 };
 use common::CancelAfter;
@@ -36,12 +41,8 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-const ONE_SYMBOL: [u8; 14] = [
-    0xee, 0xbf, 0x41, 0xc7, 0x00, 0x54, 0x0f, 0xe4, 0x11, 0x07, 0x7f, 0x2f, 0xff, 0xac,
-];
-const TWO_SYMBOLS: [u8; 14] = [
-    0xee, 0x7d, 0xf6, 0xc9, 0x51, 0xf2, 0x81, 0xb1, 0x95, 0x2a, 0x6d, 0x8d, 0xff, 0xac,
-];
+const ONE_SYMBOL: [u8; 5] = [0x94, 0xa7, 0x7f, 0xff, 0xac];
+const TWO_SYMBOLS: [u8; 5] = [0x94, 0x3a, 0x5d, 0xff, 0xac];
 
 fn ready<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
@@ -221,18 +222,54 @@ fn header(source: &mut Source) -> SegmentHeader {
 }
 
 fn table() -> MqTable {
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_mps = 1;
-    states[0].next_lps = 1;
-    states[1].next_mps = 1;
-    states[1].next_lps = 1;
-    MqTable::new(states, &Limits::default()).unwrap()
+    MqTable::standard()
+}
+
+/// The integer and bitmap contexts of a direct dictionary.
+fn direct_contexts() -> ContextBank {
+    MqBudget::default()
+        .context_bank(IAID_BASE, &Limits::default())
+        .unwrap()
+}
+
+/// The exported descriptors of a direct dictionary, all in its new store.
+fn exported(report: &DictionaryReport) -> Vec<SymbolDescriptor> {
+    report
+        .catalog
+        .exported_symbols
+        .iter()
+        .map(|stored| {
+            assert_eq!((stored.store, stored.store_base), (SymbolStore::New, 0));
+            stored.symbol
+        })
+        .collect()
+}
+
+/// The symbol stores a direct dictionary never reads.
+struct Unread {
+    imported: Source,
+    new: Source,
+}
+
+impl Default for Unread {
+    fn default() -> Self {
+        Self {
+            imported: Source::new(Vec::new()),
+            new: Source::new(Vec::new()),
+        }
+    }
+}
+
+/// The stores of a direct dictionary: only `store` receives symbols.
+fn direct_stores<'a>(
+    unread: &'a mut Unread,
+    store: &'a mut Store,
+) -> DictionaryStores<'a, Source, Source, Store> {
+    DictionaryStores {
+        imported: &mut unread.imported,
+        imported_base: 0,
+        new_reader: &mut unread.new,
+        new_writer: store,
+        new_base: 0,
+    }
 }

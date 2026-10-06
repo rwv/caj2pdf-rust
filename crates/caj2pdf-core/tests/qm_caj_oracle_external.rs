@@ -143,7 +143,10 @@ fn table_from_external_file(path: &Path) -> Result<QmTable> {
     if lines.next() != Some("3") || lines.count() != 6 {
         return Err("external T.82 fixture has an unexpected tail".into());
     }
-    Ok(QmTable::new(states)?)
+    if states != caj2pdf_core::qm::STANDARD_STATES {
+        return Err("external state table differs from the standard T.82 states".into());
+    }
+    Ok(QmTable::standard())
 }
 
 // This reader supports only the SHA-pinned, one-record-per-line catalog layout.

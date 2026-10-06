@@ -84,19 +84,25 @@ fn image(width: u32, height: u32, coded: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn table(qe: u16) -> QmTable {
-    // Invented, stationary state machine. At qe=1 and a zero code register,
-    // the short test trace always takes the zero MPS branch.
-    QmTable::new(vec![
-        QmState {
-            qe,
-            next_lps: 0,
-            next_mps: 0,
-            switch_mps: false
-        };
-        QM_STATE_COUNT
-    ])
-    .unwrap()
+fn table() -> QmTable {
+    QmTable::standard()
+}
+
+/// Rows coded with the type-0 model for the standard T.82 states, zero
+/// padded to at least the three bytes that initialize the decoder.
+fn coded(rows: &[Vec<bool>], copy_rows: bool) -> Vec<u8> {
+    let mut encoder = crate::test_support::qm_encoder();
+    encoder.type0_rows(rows, copy_rows);
+    let mut bytes = encoder.finish();
+    if bytes.len() < 3 {
+        bytes.resize(3, 0);
+    }
+    bytes
+}
+
+/// `height` white rows of `width` pixels, each decoded pixel by pixel.
+fn white(width: u32, height: u32) -> Vec<u8> {
+    coded(&vec![vec![false; width as usize]; height as usize], false)
 }
 
 fn arithmetic_budget() -> ArithmeticBudget {
@@ -176,7 +182,7 @@ fn ten_context_positions_and_edges_have_fixed_indices() {
 #[test]
 fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
     for width in [7, 8, 9, 31, 32, 33] {
-        let bytes = image(width, 3, &[0, 0, 0]);
+        let bytes = image(width, 3, &white(width, 3));
         let limits = Limits::default();
         let mut source = intact(bytes.clone());
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
@@ -184,7 +190,7 @@ fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
             max_write: 1,
             ..BytesSink::default()
         };
-        let table = table(1);
+        let table = table();
         let mut decoder = ready(Type0Decoder::new(
             &mut source,
             Type0Span {
@@ -220,16 +226,17 @@ fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
 
 #[test]
 fn hand_derived_first_lps_produces_one_black_pixel() {
-    // With A=0x10000, Qe=0x4000, initial C high word 0x9000:
-    // control chooses MPS zero since 0x9000 < A-Qe=0xc000.
-    // The pixel then narrows A to 0x8000, so C is in the LPS
-    // interval and the decoded pixel is one at the row MSB.
-    let bytes = image(1, 1, &[0x90, 0x00, 0x00]);
+    // With A=0x10000 and state 0 (Qe=0x5A1D), a zero C high word lies
+    // below A-Qe=0xA5E3: the control decision is MPS zero without
+    // renormalization. The pixel, in another state-0 context, splits
+    // A=0xA5E3 into A-Qe=0x4BC6 < Qe, so the lower subinterval holding C
+    // is exchanged to the LPS and the decoded pixel is one at the row MSB.
+    let bytes = image(1, 1, &[0x00, 0x00, 0x00]);
     let limits = Limits::default();
     let mut source = intact(bytes.clone());
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut sink = BytesSink::default();
-    let table = table(0x4000);
+    let table = table();
     let mut decoder = ready(Type0Decoder::new(
         &mut source,
         Type0Span {
@@ -254,12 +261,11 @@ fn hand_derived_first_lps_produces_one_black_pixel() {
 
 #[test]
 fn black_row_is_copied_without_decoding_its_pixels() {
-    // Qe=0x4000 and C high=0xa000: first control is zero, its
-    // pixel is one, then C high is 0x4000 after renormalization.
-    // Second control is one, copying the preceding packed row.
-    let bytes = image(1, 2, &[0xa0, 0, 0]);
+    // The first control is zero and its pixel is one; the second control
+    // is one, copying the preceding packed row.
+    let bytes = image(1, 2, &coded(&[vec![true], vec![true]], true));
     let limits = Limits::default();
-    let table = table(0x4000);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
@@ -288,21 +294,31 @@ fn black_row_is_copied_without_decoding_its_pixels() {
 
 #[test]
 fn image_contexts_reset_and_first_row_copy_is_blank() {
-    // A=0x10000, Qe=0x7fff, C high word 0xff00 >= 0x8001;
-    // first control is LPS one, copying the zero background row.
-    let bytes = image(1, 1, &[0xff, 0x00, 0x00]);
-    let table = table(0x7fff);
+    // The first control is one, copying the zero background row. An MPS
+    // adapted by an earlier stripe must not survive into the image's reset
+    // contexts.
+    let bytes = image(1, 1, &coded(&[vec![false]], true));
+    let table = table();
     let limits = Limits::default();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
-    contexts
-        .set(
-            CONTROL_CONTEXT,
-            crate::qm::ContextState {
-                state_index: 0,
-                mps: true,
-            },
-        )
-        .unwrap();
+    // An LPS at state zero switches the control context's MPS to one.
+    let mut earlier = intact(vec![0xc0, 0, 0]);
+    let mut decoder = ready(crate::qm::ArithmeticDecoder::new(
+        &mut earlier,
+        crate::qm::CodedSpan {
+            offset: 0,
+            length: 3,
+        },
+        &table,
+        &mut contexts,
+        &limits,
+        &Cancel::Never,
+        arithmetic_budget(),
+    ))
+    .unwrap();
+    assert!(ready(decoder.decode_symbol(CONTROL_CONTEXT)).unwrap());
+    decoder.finish(1).unwrap();
+    assert!(contexts.get(CONTROL_CONTEXT).unwrap().mps);
     for _ in 0..2 {
         let mut source = intact(bytes.clone());
         let mut sink = BytesSink::default();
@@ -333,7 +349,7 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
 fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
     let limits = Limits::default();
     let budget = Type0Budget::default();
-    let base = image(9, 1, &[0, 0, 0]);
+    let base = image(9, 1, &white(9, 1));
     let info = checked_info(
         (&base[..48]).try_into().unwrap(),
         Type0Span {
@@ -438,9 +454,9 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
 
 #[test]
 fn non_type_zero_outer_record_is_rejected_at_image_start() {
-    let bytes = image(1, 1, &[0, 0, 0]);
+    let bytes = image(1, 1, &white(1, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     for record_type in [1, 2, 3, u32::MAX] {
         let mut source = intact(bytes.clone());
@@ -476,7 +492,7 @@ fn non_type_zero_outer_record_is_rejected_at_image_start() {
 
 #[test]
 fn independent_preflight_limits_identify_the_resource() {
-    let bytes = image(9, 1, &[0, 0, 0]);
+    let bytes = image(9, 1, &white(9, 1));
     let header: &[u8; 48] = (&bytes[..48]).try_into().unwrap();
     let span = Type0Span {
         record_type: 0,
@@ -587,6 +603,7 @@ fn public_errors_keep_source_location_and_nested_causes() {
         Type0ErrorKind::Source(Error::InvalidInput { reason: "read" }),
         Type0ErrorKind::Sink(Error::InvalidInput { reason: "write" }),
         Type0ErrorKind::Arithmetic(ArithmeticError {
+            coder: Some(crate::arith::Coder::T82),
             offset: Some(offset),
             context: Some(7),
             kind: ArithmeticErrorKind::InvalidContext,
@@ -606,9 +623,9 @@ fn public_errors_keep_source_location_and_nested_causes() {
 
 #[test]
 fn sink_failure_poison_and_incomplete_finish_are_explicit() {
-    let bytes = image(7, 2, &[0, 0, 0]);
+    let bytes = image(7, 2, &white(7, 2));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink {
@@ -680,9 +697,9 @@ impl SequentialSink for BadSink {
 
 #[test]
 fn zero_and_overreported_sink_writes_are_typed_errors() {
-    let bytes = image(7, 1, &[0, 0, 0]);
+    let bytes = image(7, 1, &white(7, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     for overreport in [false, true] {
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut source = intact(bytes.clone());
@@ -711,9 +728,9 @@ fn zero_and_overreported_sink_writes_are_typed_errors() {
 
 #[test]
 fn short_and_overreported_reads_and_span_bounds_are_rejected() {
-    let bytes = image(9, 1, &[0, 0, 0]);
+    let bytes = image(9, 1, &white(9, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     for (stop_at, overreport) in [(24, false), (49, false), (bytes.len(), true)] {
         let mut source = disrupted(bytes.clone(), stop_at, overreport);
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
@@ -825,9 +842,9 @@ impl SequentialSink for PendingSink {
 
 #[test]
 fn dropped_pending_row_future_poisoned_the_decoder() {
-    let bytes = image(7, 1, &[0, 0, 0]);
+    let bytes = image(7, 1, &white(7, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = PendingSink;
@@ -872,9 +889,9 @@ impl SequentialSink for CancellingSink {
 
 #[test]
 fn cancellation_after_row_write_preserves_byte_progress() {
-    let bytes = image(7, 1, &[0, 0, 0]);
+    let bytes = image(7, 1, &white(7, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let flag = Rc::new(Cell::new(false));
@@ -906,7 +923,7 @@ fn cancellation_after_row_write_preserves_byte_progress() {
 fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
     let bytes = image(33, 3, &[0xa0]);
     let limits = Limits::default();
-    let table = table(0x4000);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
@@ -930,8 +947,8 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
         assert!(ready(decoder.decode_next_row()).unwrap());
     }
     let report = ready(decoder.finish()).unwrap();
-    assert!(report.progress.arithmetic.virtual_zero_bytes > 0);
-    assert_eq!(report.progress.arithmetic.physical_bytes_consumed, 1);
+    assert!(report.progress.arithmetic.synthesized_inputs > 0);
+    assert_eq!(report.progress.arithmetic.input_offset, DIB_BYTES + 1);
 
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
@@ -965,7 +982,7 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
 fn report_separates_source_prefetch_from_consumed_and_virtual_bytes() {
     let bytes = image(1, 1, &[0; 10]);
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
@@ -987,16 +1004,16 @@ fn report_separates_source_prefetch_from_consumed_and_virtual_bytes() {
     .unwrap();
     assert!(ready(decoder.decode_next_row()).unwrap());
     let snapshot = ready(decoder.finish()).unwrap().progress.arithmetic;
-    assert_eq!(snapshot.physical_bytes_consumed, 3);
+    assert_eq!(snapshot.input_offset, DIB_BYTES + 3);
     assert_eq!(snapshot.source_bytes_fetched, 10);
-    assert_eq!(snapshot.virtual_zero_bytes, 0);
+    assert_eq!(snapshot.synthesized_inputs, 0);
 }
 
 #[test]
 fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
     let original = image(9, 2, &[0x90, 0, 0]);
     let limits = Limits::default();
-    let table = table(0x4000);
+    let table = table();
     let budget = ArithmeticBudget {
         max_symbols: 20,
         max_work: 600,
@@ -1044,8 +1061,8 @@ fn span_of(bytes: &[u8]) -> Type0Span {
 
 #[test]
 fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_reading() {
-    let bytes = image(3, 1, &[0, 0, 0]);
-    let table = table(1);
+    let bytes = image(3, 1, &white(3, 1));
+    let table = table();
     let limits = Limits::default();
     let oversized = Limits {
         max_input_bytes: bytes.len() as u64 - 1,
@@ -1164,7 +1181,7 @@ fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0R
         io_chunk_bytes: 1,
         ..Limits::default()
     };
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.to_vec());
     let mut sink = BytesSink::default();
@@ -1185,7 +1202,7 @@ fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0R
 
 #[test]
 fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
-    let bytes = image(3, 2, &[0, 0, 0]);
+    let bytes = image(3, 2, &white(3, 2));
     let baseline = CancelAfter::never();
     let (report, output) = decode_with_checks(&bytes, &baseline);
     assert_eq!(report.unwrap().progress.rows_written, 2);
@@ -1215,9 +1232,9 @@ fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
 #[test]
 fn early_and_poisoned_finish_are_refused_before_the_terminal_check() {
     // The same source, sink, and cancellation types as the checkpoint sweep.
-    let bytes = image(3, 2, &[0, 0, 0]);
+    let bytes = image(3, 2, &white(3, 2));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let checks = CancelAfter::never();
     let cancel = Cancel::Checks(&checks);
     let decoder = |fail: bool| {
@@ -1258,9 +1275,9 @@ fn early_and_poisoned_finish_are_refused_before_the_terminal_check() {
 
 #[test]
 fn final_flush_failure_and_late_cancellation_keep_row_progress() {
-    let bytes = image(5, 1, &[0, 0, 0]);
+    let bytes = image(5, 1, &white(5, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let failing: fn() -> Error = || Error::InvalidInput {
         reason: "synthetic flush failure",
     };
@@ -1314,9 +1331,9 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
 
 #[test]
 fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
-    let bytes = image(5, 1, &[0, 0, 0]);
+    let bytes = image(5, 1, &white(5, 1));
     let limits = Limits::default();
-    let table = table(1);
+    let table = table();
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink {

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-// Original synthetic five-segment type-3 bytes; no standard MQ states.
+// Original synthetic five-segment type-3 bytes, MQ-coded for the standard
+// T.88 states by the test-only encoder. The including module provides
+// `mq_encoder`.
+
+use super::mq_encoder;
 
 pub(super) fn segment(number: u8, kind: u8, refs: &[u8], data: &[u8]) -> Vec<u8> {
     let retain = 1 | (((1 << refs.len()) - 1) << 1);
@@ -30,7 +34,9 @@ pub(super) fn dictionary_data(flags: u16) -> Vec<u8> {
     data.extend_from_slice(&[2, 0xff]); // template-2 adaptive position (2,-1)
     data.extend_from_slice(&0_u32.to_be_bytes()); // exported symbols
     data.extend_from_slice(&0_u32.to_be_bytes()); // new symbols
-    data.extend_from_slice(&[0xff, 0xac]); // invented-table zero IAEX run
+    let mut body = mq_encoder();
+    body.integer(0, Some(0)); // one zero IAEX run
+    data.extend(body.finish());
     data
 }
 
@@ -53,7 +59,9 @@ pub(super) fn text_data(width: u32, height: u32, flags: u16) -> Vec<u8> {
     data.push(0); // external OR
     data.extend_from_slice(&flags.to_be_bytes());
     data.extend_from_slice(&0_u32.to_be_bytes()); // zero text instances
-    data.extend_from_slice(&[0, 0, 0, 0, 0, 0xff, 0xac]);
+    let mut body = mq_encoder();
+    body.integer(0, Some(-4)); // STRIPT
+    data.extend(body.finish());
     data
 }
 
@@ -64,7 +72,12 @@ pub(super) fn generic_data(width: u32, height: u32) -> Vec<u8> {
     data.extend_from_slice(&0_u32.to_be_bytes());
     data.extend_from_slice(&0_u32.to_be_bytes());
     data.extend_from_slice(&[0, 4, 2, 0xff]); // OR, template 2, AT (2,-1)
-    data.extend_from_slice(&[0, 0, 0, 0xff, 0xac]);
+    // Only the top-left pixel is black.
+    let mut rows = vec![vec![false; width as usize]; height as usize];
+    rows[0][0] = true;
+    let mut body = mq_encoder();
+    body.template2(0, &rows);
+    data.extend(body.finish());
     data
 }
 

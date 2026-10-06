@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod arith;
 pub mod caj;
 mod error;
 mod fallible;

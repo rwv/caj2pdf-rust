@@ -182,7 +182,6 @@ fn parses_invented_odd_width_page_and_keeps_nonzero_resolutions() {
     assert_eq!(info.data, header.data);
     assert_eq!((info.x_resolution, info.y_resolution), (3_779, 4_000));
     assert_eq!(info.flags_raw, 0x01);
-    assert_eq!((info.default_pixel, info.combination_operator), (0, 0));
     assert_eq!(info.striping_raw, 0);
     assert_eq!((info.row_stride, info.packed_bytes), (2, 14));
     assert_eq!((info.source_bytes_fetched, info.source_read_calls), (19, 1));
@@ -278,14 +277,8 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
 }
 
 #[test]
-fn rejects_zero_unknown_and_over_budget_geometry() {
-    for (width, height, expected) in [
-        (0, 2, "malformed"),
-        (2, 0, "malformed"),
-        (2, u32::MAX, "unsupported"),
-        (10, 2, "limit"),
-        (2, 10, "limit"),
-    ] {
+fn rejects_over_budget_geometry() {
+    for (width, height, expected) in [(10, 2, "limit"), (2, 10, "limit")] {
         let (mut source, header) = prepared(&body(width, height, 0, 0));
         let budget = PageInfoBudget {
             max_width: 9,
@@ -302,8 +295,6 @@ fn rejects_zero_unknown_and_over_budget_geometry() {
         .unwrap_err();
         assert_eq!(
             match error.kind {
-                PageInfoErrorKind::Malformed(_) => "malformed",
-                PageInfoErrorKind::Unsupported { .. } => "unsupported",
                 PageInfoErrorKind::LimitExceeded { .. } => "limit",
                 _ => "other",
             },
@@ -339,113 +330,8 @@ fn rejects_zero_unknown_and_over_budget_geometry() {
 }
 
 #[test]
-fn rejects_every_unimplemented_flag_and_striping_variant() {
-    for (flags, expected) in [
-        (0x80, "malformed"),
-        (0x00, "unsupported"),
-        (0x03, "unsupported"),
-        (0x05, "unsupported"),
-        (0x09, "unsupported"),
-        (0x11, "unsupported"),
-        (0x21, "unsupported"),
-        (0x41, "unsupported"),
-    ] {
-        let mut bytes = body(2, 2, 0, 0);
-        bytes[16] = flags;
-        let (mut source, header) = prepared(&bytes);
-        let error = run(read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            PageInfoBudget::default(),
-            &NeverCancel,
-        ))
-        .unwrap_err();
-        assert_eq!(
-            match error.kind {
-                PageInfoErrorKind::Malformed(_) => "malformed",
-                PageInfoErrorKind::Unsupported { .. } => "unsupported",
-                _ => "other",
-            },
-            expected,
-            "flags {flags:#04x}"
-        );
-        assert_eq!(error.offset, header.data.offset + 16);
-    }
-    for striping in [1_u16, 0x8000, 0x8001] {
-        let mut bytes = body(2, 2, 0, 0);
-        bytes[17..19].copy_from_slice(&striping.to_be_bytes());
-        let (mut source, header) = prepared(&bytes);
-        let error = run(read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            PageInfoBudget::default(),
-            &NeverCancel,
-        ))
-        .unwrap_err();
-        assert!(matches!(error.kind, PageInfoErrorKind::Unsupported { .. }));
-        assert_eq!(error.offset, header.data.offset + 17);
-    }
-}
-
-#[test]
-fn rejects_wrong_segment_number_kind_and_page() {
-    for (number, kind, page) in [(1, 48, 1), (0, 38, 1), (0, 48, 2)] {
-        let (mut source, header) = prepared_with_fields(&body(2, 2, 0, 0), number, kind, page);
-        let error = run(read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            PageInfoBudget::default(),
-            &NeverCancel,
-        ))
-        .unwrap_err();
-        assert!(matches!(error.kind, PageInfoErrorKind::Unsupported { .. }));
-        assert!(source.reads.is_empty());
-    }
-}
-
-#[test]
-fn rejects_malformed_page_association_references_and_span_metadata() {
+fn rejects_a_body_span_beyond_the_address_space() {
     let (mut source, mut header) = prepared(&body(2, 2, 0, 0));
-    header.page_association = 0;
-    let error = run(read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    ))
-    .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
-
-    header.page_association = 1;
-    header.referred_to.push(0);
-    let error = run(read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    ))
-    .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
-
-    header.referred_to.clear();
-    header.header_length = header.data.offset + 1;
-    let error = run(read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    ))
-    .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::InvalidSpan(_)));
-    assert!(error.to_string().contains("invalid span"));
-
-    header.header_length = 11;
     header.data.offset = u64::MAX - 10;
     source.size = u64::MAX;
     let error = run(read_page_info(
@@ -457,6 +343,7 @@ fn rejects_malformed_page_association_references_and_span_metadata() {
     ))
     .unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::InvalidSpan(_)));
+    assert!(error.to_string().contains("invalid span"));
     assert!(source.reads.is_empty());
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Invented MQ probabilities and bytes test bounded image-model behavior only.
+//! Synthetic MQ bytes for the standard states test bounded image-model
+//! behavior only.
 //! They do not establish T.88 Table E.1 or CAJ/HN pixel compatibility.
 
 mod common;
@@ -10,10 +11,10 @@ use caj2pdf_core::{
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{
-            GenericBudget, GenericError, GenericErrorKind, GenericHeaderSink, GenericRegionDecoder,
-            GenericRegionHeader, VerifiedGenericHeader, read_generic_region_header,
+            GenericBudget, GenericError, GenericErrorKind, GenericRegionDecoder,
+            read_generic_region_header,
         },
-        mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqErrorKind, MqState, MqTable},
+        mq::{ArithmeticErrorKind, ContextBank, MqBudget, MqTable},
         read_segment_header,
     },
 };
@@ -164,45 +165,6 @@ impl SequentialSink for Sink {
     }
 }
 
-struct HeaderGate {
-    output: Sink,
-    expected: GenericRegionHeader,
-    armed: bool,
-    fail_arm: bool,
-}
-
-impl SequentialSink for HeaderGate {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        if !self.armed {
-            return Err(caj2pdf_core::Error::InvalidInput {
-                reason: "generic header gate is unarmed",
-            });
-        }
-        self.output.write(bytes).await
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        if !self.armed {
-            return Err(caj2pdf_core::Error::InvalidInput {
-                reason: "generic header gate is unarmed",
-            });
-        }
-        self.output.flush().await
-    }
-}
-
-impl GenericHeaderSink for HeaderGate {
-    fn arm_checked_header(&mut self, header: VerifiedGenericHeader) -> caj2pdf_core::Result<()> {
-        if self.fail_arm || header.header() != self.expected {
-            return Err(caj2pdf_core::Error::InvalidInput {
-                reason: "generic header gate rejected metadata",
-            });
-        }
-        self.armed = true;
-        Ok(())
-    }
-}
-
 fn record(
     width: u32,
     height: u32,
@@ -237,26 +199,12 @@ fn header(source: &mut Source) -> SegmentHeader {
     .unwrap()
 }
 fn table() -> MqTable {
-    // With C initially zero and Qe=0x4000, the invented state machine emits
-    // LPS=1 for each early symbol; every renormalization restores A=0x8000.
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_lps = 1;
-    states[1].next_lps = 1;
-    states[1].next_mps = 1;
-    MqTable::new(states, &Limits::default()).unwrap()
+    MqTable::standard()
 }
-fn contexts(limits: &Limits, budget: &MqBudget) -> MqContexts {
-    MqContexts::new(1024, limits, budget).unwrap()
+fn contexts(limits: &Limits, budget: &MqBudget) -> ContextBank {
+    budget.context_bank(1024, limits).unwrap()
 }
-const SHORT_STREAM: &[u8] = &[0, 0, 0, 0xff, 0xac];
+const SHORT_STREAM: &[u8] = &[0xfc, 0xaf, 0xff, 0xac];
 
 #[test]
 fn page_preflight_detects_a_changed_generic_header_before_any_output() {
@@ -313,116 +261,6 @@ fn page_preflight_detects_a_changed_generic_header_before_any_output() {
 }
 
 #[test]
-fn page_output_arming_compares_actual_header_and_poisoned_failures_emit_nothing() {
-    let limits = Limits::default();
-    let mq_budget = MqBudget::default();
-    let table = table();
-    let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
-    let hdr = header(&mut source);
-    let inspected = ready(read_generic_region_header(
-        &mut source,
-        &hdr,
-        &limits,
-        &CancelAfter::Never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-
-    let mut bank = contexts(&limits, &mq_budget);
-    let mut gate = HeaderGate {
-        output: Sink::default(),
-        expected: inspected,
-        armed: false,
-        fail_arm: false,
-    };
-    let mut decoder = ready(GenericRegionDecoder::new(
-        &mut source,
-        &hdr,
-        &table,
-        &mut bank,
-        &mut gate,
-        &limits,
-        &CancelAfter::Never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-    decoder.arm_page_output(inspected).unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    assert!(matches!(
-        decoder.arm_page_output(inspected).unwrap_err().kind,
-        GenericErrorKind::Poisoned
-    ));
-    assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
-        GenericErrorKind::Poisoned
-    ));
-    drop(decoder);
-    assert_eq!(gate.output.bytes.len(), 1);
-
-    source.bytes[hdr.data.offset as usize + 3] = 4;
-    let mut gate = HeaderGate {
-        output: Sink::default(),
-        expected: inspected,
-        armed: false,
-        fail_arm: false,
-    };
-    let mut decoder = ready(GenericRegionDecoder::new(
-        &mut source,
-        &hdr,
-        &table,
-        &mut bank,
-        &mut gate,
-        &limits,
-        &CancelAfter::Never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-    assert!(matches!(
-        decoder.arm_page_output(inspected).unwrap_err().kind,
-        GenericErrorKind::Malformed("generic header differs from page preflight")
-    ));
-    assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
-        GenericErrorKind::Poisoned
-    ));
-    drop(decoder);
-    assert!(gate.output.bytes.is_empty());
-
-    source.bytes[hdr.data.offset as usize + 3] = 3;
-    let mut gate = HeaderGate {
-        output: Sink::default(),
-        expected: inspected,
-        armed: false,
-        fail_arm: true,
-    };
-    let mut decoder = ready(GenericRegionDecoder::new(
-        &mut source,
-        &hdr,
-        &table,
-        &mut bank,
-        &mut gate,
-        &limits,
-        &CancelAfter::Never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-    assert!(matches!(
-        decoder.arm_page_output(inspected).unwrap_err().kind,
-        GenericErrorKind::Sink(_)
-    ));
-    assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
-        GenericErrorKind::Poisoned
-    ));
-    drop(decoder);
-    assert!(gate.output.bytes.is_empty());
-}
-
-#[test]
 fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
     let limits = Limits {
         io_chunk_bytes: 2,
@@ -434,14 +272,26 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
     source.max_read = 1;
     let table = table();
     let mut bank = contexts(&limits, &mq_budget);
-    bank.set(
-        0,
-        caj2pdf_core::jbig2::mq::MqContext {
-            state_index: 1,
-            mps: true,
-        },
-    )
+    // An earlier region adapts the bank; this region must start from reset
+    // contexts.
+    let mut earlier = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
+    let earlier_header = header(&mut earlier);
+    let mut discard = Sink::default();
+    let mut decoder = ready(GenericRegionDecoder::new(
+        &mut earlier,
+        &earlier_header,
+        &table,
+        &mut bank,
+        &mut discard,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
     .unwrap();
+    while ready(decoder.decode_next_row()).unwrap() {}
+    ready(decoder.finish()).unwrap();
+    assert!((0..bank.len()).any(|index| bank.get(index).unwrap().state_index != 0));
     let mut sink = Sink {
         max_write: 1,
         ..Sink::default()
@@ -476,9 +326,7 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
     assert_eq!(report.progress.pixels_decoded, 6);
     assert_eq!(report.progress.rows_written, 2);
     assert!(report.progress.mq.source_bytes_fetched >= 4);
-    assert!(
-        report.progress.mq.current_input_offset < report.mq_span.offset + report.mq_span.length
-    );
+    assert!(report.progress.mq.input_offset < report.mq_span.offset + report.mq_span.length);
     assert!(!report.progress.poisoned);
 }
 
@@ -682,7 +530,8 @@ fn preflights_area_output_allocation_and_input_budgets() {
         ),
         (
             Limits {
-                max_input_bytes: 24,
+                // One byte short of the 20 header bytes and the stream.
+                max_input_bytes: 19 + SHORT_STREAM.len() as u64,
                 ..Limits::default()
             },
             GenericBudget::default(),
@@ -702,7 +551,7 @@ fn preflights_area_output_allocation_and_input_budgets() {
             Limits::default(),
             GenericBudget::default(),
             MqBudget {
-                max_span_bytes: 4,
+                max_span_bytes: SHORT_STREAM.len() as u64 - 1,
                 ..mq_budget
             },
             "span",
@@ -764,7 +613,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         ),
     ];
     for (region_budget, selected_mq_budget, count, expected) in cases {
-        let mut bank = MqContexts::new(count, &limits, &mq_budget).unwrap();
+        let mut bank = ContextBank::new(count, &limits).unwrap();
         let mut sink = Sink::default();
         let err = match ready(GenericRegionDecoder::new(
             &mut source,
@@ -1102,7 +951,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
     let never = CancelAfter::Never;
     let mq_budget = MqBudget::default();
     let table = table();
-    let stream = [0, 0, 0, 0, 0xff, 0xac];
+    let stream = [0xf9, 0xff, 0xac];
     let mut source = record(9, 1, 0, 4, (2, -1), &stream);
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
@@ -1292,7 +1141,8 @@ fn rejects_terminal_errors_and_incomplete_finish() {
     assert!(std::error::Error::source(&err).is_none());
     for bad_tail in [[0xff, 0xab], [0x00, 0xac]] {
         let mut bytes = SHORT_STREAM.to_vec();
-        bytes[3..].copy_from_slice(&bad_tail);
+        let tail = bytes.len() - 2;
+        bytes[tail..].copy_from_slice(&bad_tail);
         let mut source = record(3, 1, 0, 4, (2, -1), &bytes);
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
@@ -1342,7 +1192,10 @@ fn unexpected_internal_marker_keeps_the_mq_source_location() {
     let err = ready(decoder.decode_next_row()).unwrap_err();
     match &err.kind {
         GenericErrorKind::Mq(inner) => {
-            assert!(matches!(inner.kind, MqErrorKind::InvalidMarker(0x90)));
+            assert!(matches!(
+                inner.kind,
+                ArithmeticErrorKind::InvalidMarker(0x90)
+            ));
             assert_eq!(Some(err.offset), inner.offset);
         }
         _ => panic!("expected located MQ marker error: {err}"),
@@ -1428,7 +1281,9 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
             Err(err) => {
                 let cancelled = match &err.kind {
                     GenericErrorKind::Cancelled => true,
-                    GenericErrorKind::Mq(inner) => matches!(inner.kind, MqErrorKind::Cancelled),
+                    GenericErrorKind::Mq(inner) => {
+                        matches!(inner.kind, ArithmeticErrorKind::Cancelled)
+                    }
                     _ => false,
                 };
                 assert!(cancelled, "poll {polls}: {err}");

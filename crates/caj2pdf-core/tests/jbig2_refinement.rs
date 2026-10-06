@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 
-//! Public refinement API tests with an invented probability table and bitmaps.
-//! No normative MQ states or external document pixels are included.
+//! Public refinement API tests with synthetic bitmaps, MQ-coded for the
+//! standard T.88 states by the test-only encoder. No external document
+//! pixels are included.
+
+mod common;
 
 use caj2pdf_core::{
     Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
         dictionary::SymbolDescriptor,
-        iaid::IaidContextBanks,
-        mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqSpan, MqState, MqTable},
+        integer::BITMAP_BASE,
+        mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqDecoder, MqTable},
         refinement::{
             RefinementBudget, RefinementDecoder, RefinementError, RefinementErrorKind,
             RefinementReference, RefinementRequest,
@@ -111,40 +114,30 @@ impl SequentialSink for Sink {
     }
 }
 
-fn table(limits: &Limits) -> MqTable {
-    // The MPS transition records whether a context was used once or twice.
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 2,
-            next_lps: 2,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_mps = 1;
-    states[0].next_lps = 1;
-    MqTable::new(states, limits).unwrap()
+fn table() -> MqTable {
+    MqTable::standard()
 }
 
-fn banks(limits: &Limits, mq_budget: &MqBudget) -> IaidContextBanks {
-    let mut banks = IaidContextBanks::with_bitmap_contexts(1, 1024, limits, mq_budget).unwrap();
-    let base = banks.layout().bitmap_base();
-    // On the invented FF AC stream, each explicitly decoded bit follows the
-    // MPS path. Choosing MPS=1 makes expected packed pixels visible.
-    for index in base..base + 1024 {
-        banks
-            .mq_contexts_mut()
-            .set(
-                index,
-                MqContext {
-                    state_index: 0,
-                    mps: true,
-                },
-            )
-            .unwrap();
+/// A coding unit's contexts with the bitmap range at
+/// [`BITMAP_BASE`]; refinement needs no IAID contexts.
+fn contexts(limits: &Limits, mq_budget: &MqBudget) -> ContextBank {
+    mq_budget.context_bank(BITMAP_BASE + 1024, limits).unwrap()
+}
+
+/// An MQ stream coding each `(context, pixel)` decision in order.
+fn stream(decisions: &[(usize, bool)]) -> Vec<u8> {
+    let mut encoder = common::mq_encoder();
+    for &(context, bit) in decisions {
+        encoder.encode(context, bit);
     }
-    banks
+    encoder.finish()
+}
+
+fn whole(bytes: &[u8]) -> CodedSpan {
+    CodedSpan {
+        offset: 0,
+        length: bytes.len() as u64,
+    }
 }
 
 fn reference(
@@ -188,19 +181,18 @@ fn request(
 fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let base = layout.bitmap_base();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let base = BITMAP_BASE;
+    // Figure 13: the reference centre is context bit 3. Both first pixels
+    // use GR context 8.
+    let bytes = stream(&[(base + 8, true), (base + 8, true)]);
+    let mut mq_source = Source::new(&bytes);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
-            offset: 0,
-            length: 2,
-        },
+        whole(&bytes),
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -213,7 +205,6 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
     let mut sink = Sink::new(&[0x57]);
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -235,10 +226,9 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
     drop(host);
     assert_eq!(sink.bytes, [0x57, 0x80, 0x80]);
     assert!(!sink.flushed);
-    // Figure 13: the reference centre is context bit 3. Both first pixels
-    // use GR context 8; their statistics advance 0 -> 1 -> 2.
-    assert_eq!(mq.context(base + 8).unwrap().state_index, 2);
-    assert_eq!(mq.context(base).unwrap().state_index, 0);
+    // The first decision, at A = 0x8000 in state 0, always renormalizes.
+    assert_ne!(mq.context(base + 8), Some(ContextState::default()));
+    assert_eq!(mq.context(base), Some(ContextState::default()));
     ready(mq.finish(2)).unwrap();
 }
 
@@ -246,19 +236,16 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
 fn an_interleaved_non_gr_mq_decision_keeps_the_sink_and_gr_session() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let gr_base = layout.bitmap_base();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let gr_base = BITMAP_BASE;
+    let bytes = stream(&[(gr_base + 8, true), (0, false), (gr_base + 8, true)]);
+    let mut mq_source = Source::new(&bytes);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
-            offset: 0,
-            length: 2,
-        },
+        whole(&bytes),
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -268,7 +255,6 @@ fn an_interleaved_non_gr_mq_decision_keeps_the_sink_and_gr_session() {
     let mut sink = Sink::new(&[0x57]);
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,
@@ -305,8 +291,7 @@ fn an_interleaved_non_gr_mq_decision_keeps_the_sink_and_gr_session() {
     drop(host);
     assert_eq!(sink.bytes, [0x57, 0x80, 0x80]);
     assert!(sink.flushed);
-    assert_eq!(mq.context(0).unwrap().state_index, 1);
-    assert_eq!(mq.context(gr_base + 8).unwrap().state_index, 2);
+    assert_ne!(mq.context(gr_base + 8), Some(ContextState::default()));
     ready(mq.finish(3)).unwrap();
 }
 
@@ -326,19 +311,16 @@ fn signed_offsets_select_the_specified_reference_taps_without_overflow() {
     for (dx, dy, expected_context) in cases {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let table = table(&limits);
-        let mut banks = banks(&limits, &mq_budget);
-        let layout = banks.layout();
-        let base = layout.bitmap_base();
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let table = table();
+        let mut contexts = contexts(&limits, &mq_budget);
+        let base = BITMAP_BASE;
+        let bytes = stream(&[(base + expected_context, true)]);
+        let mut mq_source = Source::new(&bytes);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
-                offset: 0,
-                length: 2,
-            },
+            whole(&bytes),
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -348,7 +330,6 @@ fn signed_offsets_select_the_specified_reference_taps_without_overflow() {
         let mut sink = Sink::new(&[]);
         let mut host = RefinementDecoder::new(
             &mut mq,
-            layout,
             &mut sink,
             &limits,
             &NeverCancel,
@@ -362,7 +343,9 @@ fn signed_offsets_select_the_specified_reference_taps_without_overflow() {
         .unwrap();
         assert_eq!(report.progress.pixels_decoded, 1);
         drop(host);
-        assert_eq!(sink.bytes, [0x80]);
+        assert_eq!(sink.bytes, [0x80], "offset ({dx}, {dy})");
+        // The only decision starts in state 0 at A = 0x8000, so it always
+        // renormalizes and moves its context to state 1.
         assert_eq!(
             mq.context(base + expected_context).unwrap().state_index,
             1,
@@ -379,18 +362,24 @@ fn one_byte_io_keeps_rows_packed_and_reuses_three_reference_rows() {
         ..Limits::default()
     };
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    // Every target pixel is set. The template-1 contexts of the 18 pixels,
+    // over the all-set reference: the left edge, the row interior, and the
+    // right edge, with the previous target row set on the second row.
+    let base = BITMAP_BASE;
+    let mut decisions = vec![(base + 15, true)];
+    decisions.extend([(base + 95, true); 7]);
+    decisions.extend([(base + 90, true), (base + 431, true)]);
+    decisions.extend([(base + 1023, true); 7]);
+    decisions.push((base + 890, true));
+    let bytes = stream(&decisions);
+    let mut mq_source = Source::new(&bytes);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
-            offset: 0,
-            length: 2,
-        },
+        whole(&bytes),
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -410,7 +399,7 @@ fn one_byte_io_keeps_rows_packed_and_reuses_three_reference_rows() {
         ..RefinementBudget::default()
     };
     let mut host =
-        RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget).unwrap();
+        RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
     let report = ready(host.decode_bitmap(
         &mut reference_source,
         request(9, 2, reference(9, 3, 0, 0), 0, 0),
@@ -440,34 +429,26 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
     for (width, expected, clear_pixels) in cases {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let table = table(&limits);
-        let mut banks = banks(&limits, &mq_budget);
-        let layout = banks.layout();
-        if clear_pixels {
-            // With an all-zero reference and previously decoded zero pixels,
-            // every decision uses GR context zero. The invented stream takes
-            // its MPS path; switching that context's MPS to zero must leave
-            // both packed bytes clear, including the seven padding bits.
-            banks
-                .mq_contexts_mut()
-                .set(
-                    layout.bitmap_base(),
-                    MqContext {
-                        state_index: 0,
-                        mps: false,
-                    },
-                )
-                .unwrap();
-        }
-        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let table = table();
+        let mut contexts = contexts(&limits, &mq_budget);
+        // Over an all-zero reference, the only nonzero template-1 neighbour
+        // in one row is the target pixel to the left (context bit 6). Clear
+        // pixels must leave both packed bytes clear, including the seven
+        // padding bits.
+        let base = BITMAP_BASE;
+        let decisions: Vec<_> = (0..width)
+            .map(|x| {
+                let left = !clear_pixels && x > 0;
+                (base + if left { 64 } else { 0 }, !clear_pixels)
+            })
+            .collect();
+        let bytes = stream(&decisions);
+        let mut mq_source = Source::new(&bytes);
         let mut mq = ready(MqDecoder::new(
             &mut mq_source,
-            MqSpan {
-                offset: 0,
-                length: 2,
-            },
+            whole(&bytes),
             &table,
-            banks.mq_contexts_mut(),
+            &mut contexts,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -477,7 +458,6 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
         let mut sink = Sink::new(&[]);
         let mut host = RefinementDecoder::new(
             &mut mq,
-            layout,
             &mut sink,
             &limits,
             &NeverCancel,
@@ -504,18 +484,15 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
 fn a_failed_bitmap_poisons_interleaved_mq_access() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
-    let table = table(&limits);
-    let mut banks = banks(&limits, &mq_budget);
-    let layout = banks.layout();
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let table = table();
+    let mut contexts = contexts(&limits, &mq_budget);
+    let bytes = stream(&[(BITMAP_BASE + 8, true)]);
+    let mut mq_source = Source::new(&bytes);
     let mut mq = ready(MqDecoder::new(
         &mut mq_source,
-        MqSpan {
-            offset: 0,
-            length: 2,
-        },
+        whole(&bytes),
         &table,
-        banks.mq_contexts_mut(),
+        &mut contexts,
         &limits,
         &NeverCancel,
         mq_budget,
@@ -526,7 +503,6 @@ fn a_failed_bitmap_poisons_interleaved_mq_access() {
     sink.max_write = 0;
     let mut host = RefinementDecoder::new(
         &mut mq,
-        layout,
         &mut sink,
         &limits,
         &NeverCancel,

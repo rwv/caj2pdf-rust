@@ -13,10 +13,7 @@ use caj2pdf_core::{
         ComposeError, ComposeOptions, ComposeReport, ComposeType3Workspaces, ComposeVisitor,
         Variant, convert_source_pages_pdf,
     },
-    jbig2::{
-        mq::{MQ_STATE_COUNT, MqState, MqTable},
-        text_composer::RandomAccessScratch,
-    },
+    jbig2::{mq::MqTable, text_composer::RandomAccessScratch},
     qm::QmTable,
 };
 use flate2::{Compression, write::ZlibEncoder};
@@ -169,20 +166,6 @@ pub fn document(variant: Variant, pages: &[Vec<Image>]) -> Built {
     built
 }
 
-/// Invented stationary MQ states; no normative table is embedded.
-pub fn invented_mq_table() -> MqTable {
-    let states = vec![
-        MqState {
-            qe: 1,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        MQ_STATE_COUNT
-    ];
-    MqTable::new(states, &Limits::default()).unwrap()
-}
-
 /// An in-memory store; optionally fails reads after a number of calls.
 #[derive(Default)]
 pub struct Store {
@@ -244,7 +227,7 @@ where
     V: ComposeVisitor,
     C: Cancellation,
 {
-    let mq = invented_mq_table();
+    let mq = MqTable::standard();
     let [text, first, second, refined] = stores;
     ready(convert_source_pages_pdf(
         source,

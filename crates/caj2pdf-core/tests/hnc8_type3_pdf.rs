@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Original synthetic HN/C8 type-3 records composed through the document
-//! pipeline with invented MQ states. No normative table, private document,
-//! or oracle pixel is embedded.
+//! pipeline, MQ-coded for the standard T.88 states by the test-only encoder.
+//! No private document or oracle pixel is embedded.
 
 mod common;
 
@@ -18,6 +18,7 @@ use caj2pdf_core::{
 use common::{
     CancelAfter,
     hnc8_document::{Image, RENDER_DPI, Store, convert as compose, document, ready},
+    mq_encoder,
 };
 use std::{
     fs, io,
@@ -32,6 +33,22 @@ const LAYOUTS: [Variant; 2] = [Variant::C8, Variant::HnA];
 #[path = "common/type3_fixture.rs"]
 mod type3_fixture;
 use type3_fixture::*;
+
+/// Payload offsets of the five segments of `type3(width, height, _)` and
+/// the payload end; each header has a one-byte page association.
+fn segment_starts(payload: &[u8]) -> [usize; 6] {
+    let mut starts = [0; 6];
+    let mut at = 48;
+    for start in &mut starts[..5] {
+        *start = at;
+        let references = usize::from(payload[at + 5] >> 5);
+        let header = 6 + references + 1 + 4;
+        let length = u32::from_be_bytes(payload[at + header - 4..at + header].try_into().unwrap());
+        at += header + length as usize;
+    }
+    starts[5] = at;
+    starts
+}
 
 fn type3(width: u32, height: u32, text_flags: u16) -> Image {
     Image {
@@ -485,14 +502,13 @@ fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_image_ou
 fn located_stage_errors_cover_each_checked_metadata_boundary() {
     let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
     let base = built.payloads[0][0] as usize;
-    // Five original segments are 30, 25, 26, 42, and 36 bytes long.
-    let segment = [48, 78, 103, 129, 171];
+    let segment = segment_starts(&type3(9, 2, 0x10).payload);
     for (name, relative, value, expected) in [
         (
             "page flags",
             segment[0] + 11 + 16,
             0xff,
-            Type3Stage::PageInfo,
+            Type3Stage::Profile,
         ),
         (
             "text flags",
@@ -625,7 +641,8 @@ fn page_compose_and_context_budgets_are_checked() {
 fn second_dictionary_context_growth_and_text_scratch_budget_are_checked() {
     let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
     let mut bytes = built.bytes.clone();
-    let second_data = built.payloads[0][0] as usize + 103 + 12;
+    let segment = segment_starts(&type3(9, 2, 0x10).payload);
+    let second_data = built.payloads[0][0] as usize + segment[2] + 12;
     bytes[second_data + 8..second_data + 12].copy_from_slice(&2_u32.to_be_bytes());
     let (error, pdf) = run_error(
         bytes,
@@ -827,20 +844,21 @@ fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
 fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
     let built = document(Variant::HnA, &[vec![type3(9, 3, 0x10)]]);
     let base = built.payloads[0][0];
+    let segment = segment_starts(&type3(9, 3, 0x10).payload).map(|at| at as u64);
     for (name, relative, expected) in [
         (
             "first dictionary header",
-            78 + 11,
+            segment[1] + 11,
             Type3Stage::FirstDictionary,
         ),
         (
             "second dictionary count header",
-            103 + 12,
+            segment[2] + 12,
             Type3Stage::SecondDictionary,
         ),
         (
             "generic coded bytes",
-            171 + 11 + 20,
+            segment[4] + 11 + 20,
             Type3Stage::GenericRegion,
         ),
     ] {
@@ -861,17 +879,17 @@ fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
     for (name, relative, expected) in [
         (
             "first dictionary body",
-            78 + 11 + 12,
+            segment[1] + 11 + 12,
             Type3Stage::FirstDictionary,
         ),
         (
             "second dictionary body",
-            103 + 12 + 12,
+            segment[2] + 12 + 12,
             Type3Stage::SecondDictionary,
         ),
         (
             "text body terminal",
-            129 + 12 + 23 + 5,
+            segment[4] - 2,
             Type3Stage::TextCompose,
         ),
     ] {
@@ -883,7 +901,7 @@ fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
     }
 
     let mut source = Source::new(built.bytes);
-    source.fail_on_offset_visit = Some((base + 129 + 12, 2));
+    source.fail_on_offset_visit = Some((base + segment[3] + 12, 2));
     let error = run(
         &mut source,
         &mut Sink::default(),

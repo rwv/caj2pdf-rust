@@ -2,14 +2,15 @@
 
 //! Bounded, row-streamed T.88 template-1 generic refinement bitmaps.
 //!
-//! This is one bitmap operation inside an existing MQ coding unit. The caller
-//! owns the probability table, context layout, reference store, and output
-//! store. No official MQ state rows or document pixels are bundled here.
+//! This is one bitmap operation inside an existing MQ coding unit, over the
+//! bitmap contexts at the coding unit's fixed [`BITMAP_BASE`]. The caller owns
+//! the reference store and the output store. No document pixels are bundled
+//! here.
 
 use super::{
     dictionary::SymbolDescriptor,
-    iaid::IaidLayout,
-    mq::{MQ_STATE_COUNT, MqContext, MqDecoder, MqError, MqSnapshot, MqState},
+    integer::BITMAP_BASE,
+    mq::{ArithmeticError, ArithmeticSnapshot, ContextState, MQ_STATE_COUNT, MqDecoder, MqState},
 };
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
@@ -119,7 +120,7 @@ pub struct RefinementProgress {
     pub sink_writes: u64,
     pub flushes: u64,
     pub context_work: u64,
-    pub mq: Option<MqSnapshot>,
+    pub mq: Option<ArithmeticSnapshot>,
     pub poisoned: bool,
 }
 
@@ -160,7 +161,7 @@ pub enum RefinementErrorKind {
     Cancelled,
     ReferenceSource(Error),
     Sink(Error),
-    Mq(Box<MqError>),
+    Mq(Box<ArithmeticError>),
     Poisoned,
 }
 
@@ -226,14 +227,12 @@ struct Geometry {
 
 /// Reusable template-1 refinement host borrowing *one* existing MQ coding
 /// unit, *one* append-only output sink, and persistent disjoint 1,024 GR
-/// contexts. Construct it with the typed layout returned by
-/// `IaidContextBanks::with_bitmap_contexts`. The bound sink cannot change
-/// between bitmaps, so relative descriptor offsets remain in one store.
+/// contexts at [`BITMAP_BASE`]. The bound sink cannot change between
+/// bitmaps, so relative descriptor offsets remain in one store.
 /// No MQ initialization, finish, context reset, or store flush occurs here.
 pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink> {
     mq: &'a mut MqDecoder<'mq, M, C>,
     sink: &'a mut W,
-    context_base: usize,
     limits: &'a Limits,
     cancellation: &'a C,
     budget: RefinementBudget,
@@ -262,13 +261,12 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     /// any source or sink call. The caller retains all other model contexts.
     pub fn new(
         mq: &'a mut MqDecoder<'mq, M, C>,
-        layout: IaidLayout,
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: RefinementBudget,
     ) -> RefinementResult<Self> {
-        Self::new_observed(mq, layout, sink, limits, cancellation, budget, None)
+        Self::new_observed(mq, sink, limits, cancellation, budget, None)
     }
 
     /// Internal completion/drop monitor for a dictionary that owns this host
@@ -277,7 +275,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_observed(
         mq: &'a mut MqDecoder<'mq, M, C>,
-        layout: IaidLayout,
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
@@ -317,16 +314,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 }));
             }
         }
-        let context_base = layout.bitmap_base();
-        if mq.iaid_code_len() != Some(layout.code_len())
-            || layout.total_contexts() != mq.context_count()
-            || layout
-                .total_contexts()
-                .checked_sub(context_base)
-                .is_none_or(|available| available < CONTEXT_COUNT)
-        {
+        if mq.context_count() < BITMAP_BASE + CONTEXT_COUNT {
             return Err(invalid(RefinementErrorKind::InvalidSpan(
-                "GR context range does not match IAID owner",
+                "coding unit lacks the GR context range",
             )));
         }
         if mq.snapshot().poisoned {
@@ -335,7 +325,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         Ok(Self {
             mq,
             sink,
-            context_base,
             limits,
             cancellation,
             budget,
@@ -350,7 +339,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_continuing(
         mq: &'a mut MqDecoder<'mq, M, C>,
-        layout: IaidLayout,
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
@@ -360,7 +348,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     ) -> RefinementResult<Self> {
         let mut host = Self::new_observed(
             mq,
-            layout,
             sink,
             limits,
             cancellation,
@@ -673,7 +660,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         // The existing MQ bank's constructor already checked this allocation
         // with the same fixed table/buffer terms. Include the entire bank,
         // not only the GR slice, in the combined cap.
-        let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<MqContext>() as u64
+        let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<ContextState>() as u64
             + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
             + MQ_BUFFER_BYTES;
         // `row_bytes <= 5 * 2^29`, and the allocated context bank occupies
@@ -919,7 +906,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 );
                 let bit = self
                     .mq
-                    .decode_bit(self.context_base + context)
+                    .decode_bit(BITMAP_BASE + context)
                     .await
                     .map_err(|error| {
                         let offset = error.offset;
@@ -1057,8 +1044,8 @@ fn template1_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jbig2::iaid::IaidContextBanks;
-    use crate::jbig2::mq::{MqBudget, MqSpan, MqTable};
+    use crate::jbig2::iaid::IAID_BASE;
+    use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqTable};
     use crate::native::{SeekableSource, WriteSink};
     use crate::test_support::ready;
     use crate::{MAX_BUDGET_COUNT, NeverCancel};
@@ -1068,25 +1055,17 @@ mod tests {
     fn the_bitmap_index_cannot_pass_u32_max() {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
-        let state = MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        let table = MqTable::new(vec![state; MQ_STATE_COUNT], &limits).unwrap();
-        let mut banks =
-            IaidContextBanks::with_bitmap_contexts(1, CONTEXT_COUNT, &limits, &mq_budget).unwrap();
-        let layout = banks.layout();
+        let table = MqTable::standard();
+        let mut banks = ContextBank::new(IAID_BASE + 2, &limits).unwrap();
         let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
         let mut mq = ready(MqDecoder::new(
             &mut source,
-            MqSpan {
+            CodedSpan {
                 offset: 0,
                 length: 3,
             },
             &table,
-            banks.mq_contexts_mut(),
+            &mut banks,
             &limits,
             &NeverCancel,
             mq_budget,
@@ -1098,8 +1077,7 @@ mod tests {
             ..RefinementBudget::default()
         };
         let mut decoder =
-            RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
-                .unwrap();
+            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
         decoder.progress.completed_bitmaps = u32::MAX;
         let symbol = SymbolDescriptor {
             width: 1,

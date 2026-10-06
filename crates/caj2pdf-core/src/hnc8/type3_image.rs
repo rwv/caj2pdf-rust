@@ -6,17 +6,18 @@
 use super::{At, ComposeError, ComposeErrorKind, ComposeStage, ImageRecord};
 use crate::jbig2::{
     DirectoryLimits, HeaderLimits, SegmentSpan,
-    dictionary::{DictionaryBudget, DirectDictionaryDecoder},
+    dictionary::{
+        DictionaryBudget, DictionaryStores, ImportedDictionary, RefinementDictionaryBudget,
+        SymbolDictionaryDecoder, coding_unit_contexts, symbol_code_length,
+    },
     generic::{GenericBudget, GenericRegionDecoder, read_generic_region_header},
-    iaid::IaidContextBanks,
-    integer::IntegerContextBanks,
-    mq::{MqBudget, MqContexts, MqTable},
+    iaid::IAID_BASE,
+    mq::{ArithmeticError, ArithmeticResult, ContextBank, MqBudget, MqTable},
     page_compose::{PageComposeBudget, PageComposeReport, PageOrSink},
     page_info::{PageInfo, PageInfoBudget, read_page_info},
     page_profile::{PageProfile, validate_observed_page_profile},
     read_embedded_directory,
     refinement::RefinementBudget,
-    refinement_dictionary::{RefinementDictionaryBudget, RefinementDictionaryDecoder},
     text::{TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy},
     text_composer::{
         RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
@@ -373,21 +374,29 @@ where
     let directory = &checked.directory;
     let text = checked.profile.text_header();
     let at = image_at.with_offset(image.payload.offset);
-    let mut first_banks = IntegerContextBanks::with_extra_contexts(1024, limits, &options.mq)
-        .map_err(|error| {
-            at.with_offset(directory.segments[1].data.offset)
-                .stage(Type3Stage::Contexts, error)
-        })?;
-    let mut first_decoder = DirectDictionaryDecoder::new(
+    let first_contexts = options.mq.context_bank(IAID_BASE, limits);
+    let first_at = at.with_offset(directory.segments[1].data.offset);
+    let mut first_contexts = work_stage(first_contexts, first_at, Type3Stage::Contexts)?;
+    // A direct dictionary has no import and never reads its own store.
+    let mut first_decoder = SymbolDictionaryDecoder::new(
         source,
         &directory.segments[1],
+        None,
+        DictionaryStores {
+            imported: workspaces.second.reader,
+            imported_base: 0,
+            new_reader: workspaces.first.reader,
+            new_writer: workspaces.first.writer,
+            new_base: 0,
+        },
         table,
-        &mut first_banks,
-        workspaces.first.writer,
+        &mut first_contexts,
         limits,
         cancellation,
         options.mq,
         options.dictionary,
+        options.refinement,
+        options.refinement_dictionary,
     )
     .await
     .map_err(|error| {
@@ -414,23 +423,29 @@ where
         )
         .await?,
     );
-    let first_code_len = code_length(imported_count + second_count);
-    let second_contexts =
-        IaidContextBanks::with_bitmap_contexts(first_code_len, 1024, limits, &options.mq);
+    let second_contexts = context_bank(
+        symbol_code_length(imported_count + second_count),
+        limits,
+        &options.mq,
+    );
     let second_at = at.with_offset(directory.segments[2].data.offset);
-    let mut second_banks = work_stage(second_contexts, second_at, Type3Stage::Contexts)?;
-    let mut second_decoder = RefinementDictionaryDecoder::new(
+    let mut second_contexts = work_stage(second_contexts, second_at, Type3Stage::Contexts)?;
+    let mut second_decoder = SymbolDictionaryDecoder::new(
         source,
         &directory.segments[2],
-        &directory.segments[1],
-        &first_report,
-        workspaces.first.reader,
-        0,
-        workspaces.second.reader,
-        workspaces.second.writer,
-        0,
+        Some(ImportedDictionary {
+            segment: &directory.segments[1],
+            report: &first_report,
+        }),
+        DictionaryStores {
+            imported: workspaces.first.reader,
+            imported_base: 0,
+            new_reader: workspaces.second.reader,
+            new_writer: workspaces.second.writer,
+            new_base: 0,
+        },
         table,
-        &mut second_banks,
+        &mut second_contexts,
         limits,
         cancellation,
         options.mq,
@@ -451,10 +466,13 @@ where
         |error| error.offset,
     )?;
     drop(second_decoder);
-    let code_len = code_length(second_report.catalog.exported_symbols.len() as u64);
-    let text_contexts = IaidContextBanks::with_bitmap_contexts(code_len, 1024, limits, &options.mq);
+    let text_contexts = context_bank(
+        symbol_code_length(second_report.catalog.exported_symbols.len() as u64),
+        limits,
+        &options.mq,
+    );
     let text_at = at.with_offset(directory.segments[3].data.offset);
-    let mut text_banks = work_stage(text_contexts, text_at, Type3Stage::Contexts)?;
+    let mut text_contexts = work_stage(text_contexts, text_at, Type3Stage::Contexts)?;
     let text_decoder = TextInstanceDecoder::new_with_header_policy(
         source,
         &directory.segments[3],
@@ -468,7 +486,7 @@ where
         workspaces.refined.writer,
         0,
         table,
-        &mut text_banks,
+        &mut text_contexts,
         limits,
         cancellation,
         options.mq,
@@ -577,7 +595,7 @@ where
         options.page_compose,
     )
     .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
-    let generic_result = MqContexts::new(1024, limits, &options.mq);
+    let generic_result = options.mq.context_bank(1024, limits);
     let generic_at = at.with_offset(directory.segments[4].data.offset);
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
     let generic_result = async {
@@ -642,12 +660,19 @@ impl<W: SequentialSink> SequentialSink for PaddedRows<'_, W> {
     }
 }
 
-fn code_length(symbols: u64) -> u32 {
-    if symbols <= 1 {
-        0
-    } else {
-        64 - (symbols - 1).leading_zeros()
-    }
+/// The contexts of a coding unit whose IAID width is `code_len`.
+fn context_bank(
+    code_len: u32,
+    limits: &Limits,
+    budget: &MqBudget,
+) -> ArithmeticResult<ContextBank> {
+    let count = coding_unit_contexts(code_len).ok_or_else(|| ArithmeticError {
+        coder: Some(crate::arith::Coder::T88),
+        offset: None,
+        context: None,
+        kind: crate::arith::ArithmeticErrorKind::InvalidContext,
+    })?;
+    budget.context_bank(count, limits)
 }
 
 async fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
@@ -744,10 +769,10 @@ mod tests {
             assert!(message.contains(fragment), "{message}");
             assert_eq!(error.source().is_some(), chained);
         }
-        assert_eq!(code_length(0), 0);
-        assert_eq!(code_length(1), 0);
-        assert_eq!(code_length(2), 1);
-        assert_eq!(code_length(5), 3);
+        assert_eq!(symbol_code_length(0), 0);
+        assert_eq!(symbol_code_length(1), 0);
+        assert_eq!(symbol_code_length(2), 1);
+        assert_eq!(symbol_code_length(5), 3);
     }
 
     #[test]
@@ -802,6 +827,8 @@ mod tests {
             Ok(count)
         }
     }
+
+    use crate::test_support::mq_encoder;
 
     mod fixture {
         include!("../../tests/common/type3_fixture.rs");
@@ -860,26 +887,10 @@ mod tests {
 
     #[test]
     fn shared_emitter_appends_two_asymmetric_images_to_an_existing_document() {
-        use crate::{
-            NeverCancel,
-            hnc8::Span,
-            jbig2::mq::{MQ_STATE_COUNT, MqState},
-        };
+        use crate::{NeverCancel, hnc8::Span};
         let limits = Limits::default();
         let options = Type3PdfOptions::default();
-        let table = MqTable::new(
-            vec![
-                MqState {
-                    qe: 1,
-                    next_mps: 0,
-                    next_lps: 0,
-                    switch_mps: false,
-                };
-                MQ_STATE_COUNT
-            ],
-            &limits,
-        )
-        .unwrap();
+        let table = MqTable::standard();
         let mut sink = Memory::default();
         let output = sink.clone();
         let mut document = ready(PdfDocument::new(&mut sink, &limits, &NeverCancel)).unwrap();
