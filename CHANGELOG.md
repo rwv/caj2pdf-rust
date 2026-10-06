@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed: on x87 targets (Linux i586 GNU and musl), the type-0 and type-3
+  image matrix of an image spanning the full page height is written as `0`
+  instead of `0.000000000000026201263381153694`; the top-first flip now rounds
+  both terms to `f64` before adding them. SSE2 and other targets are unchanged.
+  The release platform matrix skips the renamed qpdf-dependent compose test on
+  the platforms without PDF validators again.
+
 - CLI: arguments are parsed with `clap` and `inspect --json` is written with
   `serde` and `serde_json` (#361); the hand-written argument parser, its help
   text and the hand-written JSON string writer are removed. The documented
