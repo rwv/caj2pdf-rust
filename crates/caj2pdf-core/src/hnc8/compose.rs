@@ -8,11 +8,12 @@ use super::placement::{source_image_transform, source_page_geometry};
 use std::io::Write;
 mod native;
 mod route;
-mod type3;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::type3_image::{CheckedType3, Type3PdfOptions, Type3Stage, preflight_type3};
+use super::type3_image::{
+    CheckedType3, Type3PdfOptions, Type3Stage, Type3Stores, emit_type3, preflight_type3,
+};
 use super::{
     ApplicationInfoStatus, At, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
     JpegColor, JpegInfo, Locate, OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant,
@@ -22,8 +23,7 @@ use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::jbig1::{
     Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info,
 };
-use crate::jbig2::text_composer::RandomAccessScratch;
-use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
+use crate::jbig2::text::TextHeaderAnomaly;
 use crate::pdf::{
     BilevelImageSpec, BookmarkView, ImageEncoding, ImagePlacement, ImageSpec,
     MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
@@ -31,40 +31,33 @@ use crate::pdf::{
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    MAX_BUDGET_COUNT, RangedSource,
+    MAX_BUDGET_COUNT, Payload, RangedSource, read_payload,
 };
 use std::{error, fmt, mem::size_of};
 
-/// Caller-owned stores reused between type-3 images: three symbol stores,
-/// the full-page text scratch and the standard MQ table. Type-0 and JPEG
-/// images stream straight to the PDF and use no store.
-pub struct ComposeType3Workspaces<'a, T> {
-    pub table: &'a MqTable,
-    pub first: &'a mut T,
-    pub second: &'a mut T,
-    pub refined: &'a mut T,
-    pub text: &'a mut T,
-}
-
-/// Per-page metadata and per-image type-3 storage ceilings. The type-3
-/// limits cover all four stores together. Scratch work
-/// charges requested read/write bytes, including requests that fail or make
-/// short progress. These limits do not cap PDF indexes or process residency.
+/// Per-page metadata ceiling. It does not cap PDF indexes, the image
+/// payload, the type-3 stores or process residency; each payload and store is
+/// a single allocation within `Limits::max_allocation_bytes`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComposeBudget {
     pub max_page_metadata_bytes: u64,
-    pub max_type3_store_bytes: u64,
-    pub max_type3_store_io_bytes: u64,
 }
 
 impl Default for ComposeBudget {
     fn default() -> Self {
         Self {
             max_page_metadata_bytes: 4 * 1024 * 1024,
-            max_type3_store_bytes: 64 * 1024 * 1024,
-            max_type3_store_io_bytes: 256 * 1024 * 1024,
         }
     }
+}
+
+/// Memory reused between images: the arithmetic contexts of type-0 images,
+/// the payload being decoded, and the type-3 symbol stores and text region.
+#[derive(Default)]
+struct ImageBuffers {
+    contexts: Option<ContextBank>,
+    payload: Vec<u8>,
+    type3: Type3Stores,
 }
 
 /// Independent codec/resource choices. The geometry is the measured profile
@@ -193,10 +186,8 @@ pub enum ComposeStage {
     Headers,
     Geometry,
     Decode,
-    Scratch,
     Pdf,
     Visitor,
-    Cleanup,
 }
 
 #[derive(Debug)]
@@ -205,7 +196,6 @@ pub enum ComposeErrorKind {
     Unsupported(&'static str),
     UnsupportedImageType(u32),
     MissingTable,
-    MissingType3Workspaces,
     NoImages,
     Container(Box<Hnc8Error>),
     Image(Box<Type0Error>),
@@ -220,16 +210,10 @@ pub enum ComposeErrorKind {
     },
     Contexts(Box<ArithmeticError>),
     Io(Error),
-    /// Both failures are preserved; neither makes the partial output valid.
-    Cleanup {
-        primary: Box<ComposeError>,
-        cleanup: Error,
-    },
 }
 
 /// One-based source identity and absolute source offset when known. Every
-/// error requires discarding the PDF. Caller-owned storage must be disposed
-/// by its adapter if a pending conversion future is dropped.
+/// error requires discarding the PDF.
 #[derive(Debug)]
 pub struct ComposeError {
     pub variant: Option<Variant>,
@@ -265,9 +249,6 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::MissingTable => {
                 f.write_str("type-0 image requires a caller QM table")
             }
-            ComposeErrorKind::MissingType3Workspaces => {
-                f.write_str("type-3 image requires MQ table and symbol stores")
-            }
             ComposeErrorKind::Type3Dib(reason) => write!(f, "malformed type-3 DIB: {reason}"),
             ComposeErrorKind::Type3 { stage, source } => write!(f, "type-3 {stage:?}: {source}"),
             ComposeErrorKind::NoImages => f.write_str("image-only output has no image to draw"),
@@ -276,9 +257,6 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::Jpeg(error) => write!(f, "{error}"),
             ComposeErrorKind::Contexts(error) => write!(f, "{error}"),
             ComposeErrorKind::Io(error) => write!(f, "{error}"),
-            ComposeErrorKind::Cleanup { primary, cleanup } => {
-                write!(f, "{primary}; store cleanup also failed: {cleanup}")
-            }
         }
     }
 }
@@ -292,7 +270,6 @@ impl error::Error for ComposeError {
             ComposeErrorKind::Contexts(error) => Some(error),
             ComposeErrorKind::Type3 { source, .. } => Some(source.as_ref()),
             ComposeErrorKind::Io(error) => Some(error),
-            ComposeErrorKind::Cleanup { primary, .. } => Some(primary),
             _ => None,
         }
     }
@@ -405,8 +382,8 @@ fn type0_decode(at: At) -> impl Fn(Type0Error) -> ComposeError {
 /// decode (top-first) order; the caller's positive-height matrix puts the
 /// first row on top. The PDF writer drops each row's DIB storage padding.
 #[allow(clippy::too_many_arguments)]
-fn emit_type0<S, W, C>(
-    source: &mut S,
+fn emit_type0<W, C>(
+    payload: Payload<'_>,
     document: &mut PdfDocument<'_, W, C>,
     record: ImageRecord,
     info: Type0Info,
@@ -418,7 +395,6 @@ fn emit_type0<S, W, C>(
     cancellation: &C,
 ) -> Result<crate::pdf::ImageObject, ComposeError>
 where
-    S: RangedSource,
     W: Write,
     C: Cancellation,
 {
@@ -433,7 +409,7 @@ where
         .type0_span()
         .expect("type-0 record checked by composition preflight");
     let mut decoder = Type0Decoder::new(
-        source,
+        payload,
         span,
         table,
         contexts,
@@ -508,8 +484,6 @@ fn validate(options: ComposeOptions, limits: &Limits) -> Result<(), ComposeError
     if !counters.contains(&options.arithmetic.max_symbols)
         || !counters.contains(&options.arithmetic.max_work)
         || !counters.contains(&options.budget.max_page_metadata_bytes)
-        || !counters.contains(&options.budget.max_type3_store_bytes)
-        || !counters.contains(&options.budget.max_type3_store_io_bytes)
     {
         return Err(At::NONE.error((
             ComposeStage::Preflight,
@@ -598,7 +572,6 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
     variant: Variant,
     image_at: At,
     table: Option<&QmTable>,
-    has_type3_workspaces: bool,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -627,12 +600,6 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
             )
         }
         3 if variant != Variant::HnB => {
-            if !has_type3_workspaces {
-                return Err(image_at.error((
-                    ComposeStage::Headers,
-                    ComposeErrorKind::MissingType3Workspaces,
-                )));
-            }
             let checked = preflight_type3(
                 source,
                 record,
@@ -671,16 +638,16 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
 
 /// Decode one preflighted descriptor into the current PDF document. Kept
 /// independent of page placement so native text pages can reuse the same
-/// codec, scratch accounting and cleanup path as image-only composition.
+/// codecs and buffers as image-only composition. A type-0 or type-3 payload
+/// is read into memory once before decoding; JPEG bytes are copied unchanged.
 #[allow(clippy::too_many_arguments)]
-fn emit_image<S, W, T, C>(
+fn emit_image<S, W, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     image: &mut ComposedImage,
     type3: Option<CheckedType3>,
     image_at: At,
-    contexts: &mut Option<ContextBank>,
-    stores: &mut Option<ComposeType3Workspaces<'_, T>>,
+    buffers: &mut ImageBuffers,
     table: Option<&QmTable>,
     options: ComposeOptions,
     limits: &Limits,
@@ -690,21 +657,32 @@ fn emit_image<S, W, T, C>(
 where
     S: RangedSource,
     W: Write,
-    T: RandomAccessScratch,
     C: Cancellation,
 {
+    let record = image.record;
+    let payload_at = image_at.with_offset(record.payload.offset);
     let object = match image.checked {
         CheckedImage::Type0(info) => {
-            if contexts.is_none() {
-                *contexts = Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
+            if buffers.contexts.is_none() {
+                buffers.contexts =
+                    Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
             }
-            let object = emit_type0(
+            let payload = read_payload(
                 source,
+                record.payload.offset,
+                record.payload.length,
+                &mut buffers.payload,
+                limits,
+                cancellation,
+            )
+            .map_err(payload_at.io(ComposeStage::Decode))?;
+            let object = emit_type0(
+                payload,
                 document,
-                image.record,
+                record,
                 info,
                 table.expect("type-zero table checked"),
-                contexts.as_mut().expect("contexts constructed"),
+                buffers.contexts.as_mut().expect("contexts constructed"),
                 image_at,
                 options,
                 limits,
@@ -714,24 +692,32 @@ where
             object
         }
         CheckedImage::Type3 => {
-            let (object, anomaly) = type3::emit(
+            let payload = read_payload(
                 source,
+                record.payload.offset,
+                record.payload.length,
+                &mut buffers.payload,
+                limits,
+                cancellation,
+            )
+            .map_err(payload_at.io(ComposeStage::Decode))?;
+            let (object, page) = emit_type3(
+                payload,
                 document,
-                image_at,
+                &mut buffers.type3,
                 type3.expect("type-3 metadata retained from preflight"),
-                stores.as_mut().expect("type-3 stores checked"),
-                options,
+                image_at,
+                options.type3,
                 limits,
                 cancellation,
             )?;
-            image.type3_text_header_anomaly = anomaly;
+            image.type3_text_header_anomaly = page.text_header_anomaly;
             report.type3_images += 1;
             object
         }
         CheckedImage::Jpeg(info) => {
             // The checked marker profile is streamed unchanged: /DeviceGray
             // for grayscale, /DeviceRGB with /ColorTransform 1 for YCbCr.
-            let record = image.record;
             let encoding = match info.color {
                 JpegColor::Gray => ImageEncoding::JpegGray8,
                 JpegColor::Ycbcr => ImageEncoding::JpegRgb8,
@@ -743,11 +729,7 @@ where
             };
             let object = document
                 .add_image(source, record.payload.offset, record.payload.length, spec)
-                .map_err(
-                    image_at
-                        .with_offset(record.payload.offset)
-                        .io(ComposeStage::Pdf),
-                )?;
+                .map_err(payload_at.io(ComposeStage::Pdf))?;
             report.jpeg_images += 1;
             object
         }
@@ -768,19 +750,15 @@ where
 /// rows stream top-first under a positive-height CTM equivalent to the
 /// reference's negative-height matrix for bottom-first rows. JPEG bytes are
 /// copied unchanged. Only current-page plans/placements and checked type-3
-/// directories are held; the existing PDF writer retains its indexes. Only
-/// type-3 images use the `type3` stores: three symbol stores and the text
-/// scratch are cleared per image; their aggregate size and I/O share the
-/// store budget. Normal completed type-3 paths truncate their stores,
-/// including errors.
-/// A dropped pending future cannot perform async cleanup: the adapter must
-/// dispose of its store and partial output, and never resume that session.
+/// directories are held; the existing PDF writer retains its indexes. One
+/// type-0 or type-3 payload at a time is held in memory, and type-3 images
+/// decode into three in-memory symbol stores and a text region, each a
+/// single allocation within `Limits::max_allocation_bytes`.
 #[allow(clippy::too_many_arguments)]
-pub fn convert_source_pages_pdf<'a, S, W, T, V, C>(
+pub fn convert_source_pages_pdf<S, W, V, C>(
     source: &mut S,
     sink: &mut W,
     table: Option<&QmTable>,
-    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     visitor: &mut V,
     options: ComposeOptions,
     limits: &Limits,
@@ -789,7 +767,6 @@ pub fn convert_source_pages_pdf<'a, S, W, T, V, C>(
 where
     S: RangedSource,
     W: Write,
-    T: RandomAccessScratch + 'a,
     V: ComposeVisitor,
     C: Cancellation,
 {
@@ -811,7 +788,7 @@ where
     // and is reported rather than failing the whole conversion.
     let include_bookmarks = options.include_bookmarks && header.variant == Variant::HnA;
     report.outline.unverified = options.include_bookmarks && !include_bookmarks;
-    let mut contexts = None;
+    let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
         .map_err(|error| container(error, ComposeStage::Container))?
@@ -918,7 +895,6 @@ where
                 header.variant,
                 image_at,
                 table,
-                type3.is_some(),
                 options,
                 limits,
                 cancellation,
@@ -1004,8 +980,7 @@ where
                 image,
                 plan,
                 image_at,
-                &mut contexts,
-                &mut type3,
+                &mut buffers,
                 table,
                 options,
                 limits,
@@ -1033,7 +1008,7 @@ where
             })
             .map_err(at.io(ComposeStage::Visitor))?;
         // All current-page coordinates, plans and placements drop here before
-        // the next row; only the reusable contexts and PDF indexes persist.
+        // the next row; only the reusable buffers and PDF indexes persist.
     }
     if report.output_pages == 0 {
         return Err(document_at.error((ComposeStage::Preflight, ComposeErrorKind::NoImages)));

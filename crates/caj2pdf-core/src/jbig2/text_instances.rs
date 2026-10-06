@@ -2,9 +2,9 @@
 
 //! Pull decoding of bounded arithmetic text-region instances (T.88 §6.4.5).
 //!
-//! The caller owns both dictionary stores and the temporary refinement store.
-//! This module emits checked placements; it does not allocate or compose a
-//! region bitmap. It contains no normative MQ probability states.
+//! The caller owns both dictionary stores and the temporary refinement store,
+//! all in memory. This module emits checked placements; it does not allocate
+//! or compose a region bitmap. It contains no normative MQ probability states.
 
 use super::{
     PreflightKind, PreflightSite, SegmentHeader,
@@ -19,7 +19,7 @@ use super::{
         MqBudget, MqDecoder, MqState, MqTable,
     },
     refinement::{
-        RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
+        ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
         RefinementReference, RefinementRequest,
     },
     text::{
@@ -27,11 +27,8 @@ use super::{
         read_text_region_header_with_policy,
     },
 };
-use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, RangedSource};
-use std::io::Write;
+use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, Payload};
 use std::{error, fmt, mem};
-
-const MQ_BUFFER_BYTES: u64 = 256;
 
 /// Additional bounds for one text-region instance stream. The MQ and generic
 /// refinement budgets separately cap arithmetic work, row I/O, and writes.
@@ -113,8 +110,7 @@ pub enum TextDecision {
     Complete,
 }
 
-/// Physical MQ/refinement counters and the next semantic decision. A dropped
-/// pending `next` leaves `poisoned` set and requires discarding temporary data.
+/// MQ and refinement counters and the next semantic decision.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextInstanceProgress {
     pub completed_instances: u32,
@@ -124,20 +120,8 @@ pub struct TextInstanceProgress {
     pub total_instance_pixels: u64,
     pub decision: TextDecision,
     pub header_bytes_fetched: u64,
-    /// MQ bytes fetched only if initialization failed before a snapshot existed.
-    /// Zero after construction because `mq` already includes the prefetch.
-    pub mq_initialization_bytes_fetched: u64,
     pub refinement: RefinementProgress,
     pub mq: Option<ArithmeticSnapshot>,
-    pub poisoned: bool,
-}
-
-impl TextInstanceProgress {
-    pub fn source_bytes_fetched(self) -> u64 {
-        self.header_bytes_fetched
-            .saturating_add(self.mq_initialization_bytes_fetched)
-            .saturating_add(self.mq.map_or(0, |mq| mq.source_bytes_fetched))
-    }
 }
 
 #[derive(Debug)]
@@ -165,7 +149,6 @@ pub enum TextInstanceErrorKind {
     Header(Box<TextRegionError>),
     Mq(Box<ArithmeticError>),
     Refinement(Box<RefinementError>),
-    Poisoned,
 }
 
 pub type TextInstanceResult<T> = Result<T, TextInstanceError>;
@@ -192,7 +175,6 @@ impl fmt::Display for TextInstanceError {
             TextInstanceErrorKind::Header(value) => write!(f, "header: {value}"),
             TextInstanceErrorKind::Mq(value) => write!(f, "MQ: {value}"),
             TextInstanceErrorKind::Refinement(value) => write!(f, "refinement: {value}"),
-            TextInstanceErrorKind::Poisoned => f.write_str("decoder is poisoned or complete"),
         }
     }
 }
@@ -285,7 +267,7 @@ fn validate_descriptor(
         .checked_add(relative_end)
         .ok_or_else(|| bad("dictionary absolute store end overflow"))?;
     if absolute_end > source_size {
-        return Err(bad("dictionary bitmap outside ranged store"));
+        return Err(bad("dictionary bitmap outside its store"));
     }
     Ok(())
 }
@@ -394,21 +376,14 @@ fn refined_geometry(
 }
 
 /// One MQ coding unit and sequential pull cursor. `next` must be called until
-/// it returns `None` to check the terminal pair. On any failure or abandoned
-/// pending call, discard all temporary bitmap output for this region.
-pub struct TextInstanceDecoder<
-    'a,
-    S: RangedSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    W: Write,
-    C: Cancellation,
-> {
-    mq: MqDecoder<'a, S, C>,
-    imported_source: &'a mut RI,
-    new_source: &'a mut RN,
-    temporary_sink: &'a mut W,
-    temporary_store_base: u64,
+/// it returns `None` to check the terminal pair. On any failure, discard all
+/// refined bitmap output for this region.
+pub struct TextInstanceDecoder<'a, C: Cancellation> {
+    mq: MqDecoder<'a>,
+    imported: &'a [u8],
+    new: &'a [u8],
+    refined: &'a mut Vec<u8>,
+    refined_base: u64,
     dictionary: &'a [StoredSymbol],
     header: TextRegionHeader,
     segment: u32,
@@ -423,39 +398,27 @@ pub struct TextInstanceDecoder<
     current_s: i64,
     initialized: bool,
     strip_open: bool,
-    poisoned: bool,
     complete: bool,
 }
 
-impl<S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cancellation> Drop
-    for TextInstanceDecoder<'_, S, RI, RN, W, C>
-{
-    fn drop(&mut self) {
-        if !self.complete {
-            self.mq.poison();
-        }
-    }
-}
-
-impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cancellation>
-    TextInstanceDecoder<'a, S, RI, RN, W, C>
-{
-    /// Reparse the segment header and validate both stores before MQ input.
-    /// The supplied temporary sink must append to the store represented by
-    /// `temporary_store_base`; that identity is owned by the caller.
+impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
+    /// Reparse the segment header from `input`, which must hold the whole
+    /// segment data, and validate both dictionary stores before MQ input.
+    /// Refined bitmaps are appended to `refined`, whose length must be
+    /// `refined_base`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        source: &'a mut S,
+        input: Payload<'a>,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
         dictionary_segment: &SegmentHeader,
         dictionary: &'a DictionaryReport,
-        imported_source: &'a mut RI,
+        imported: &'a [u8],
         imported_store_base: u64,
-        new_source: &'a mut RN,
+        new: &'a [u8],
         new_store_base: u64,
-        temporary_sink: &'a mut W,
-        temporary_store_base: u64,
+        refined: &'a mut Vec<u8>,
+        refined_base: u64,
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
@@ -466,17 +429,17 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
         budget: TextInstanceBudget,
     ) -> TextInstanceResult<Self> {
         Self::new_with_header_policy(
-            source,
+            input,
             segment,
             parsed,
             dictionary_segment,
             dictionary,
-            imported_source,
+            imported,
             imported_store_base,
-            new_source,
+            new,
             new_store_base,
-            temporary_sink,
-            temporary_store_base,
+            refined,
+            refined_base,
             table,
             contexts,
             limits,
@@ -493,17 +456,17 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
     /// The original `new` constructor always keeps strict T.88 validation.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_header_policy(
-        source: &'a mut S,
+        input: Payload<'a>,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
         dictionary_segment: &SegmentHeader,
         dictionary: &'a DictionaryReport,
-        imported_source: &'a mut RI,
+        imported: &'a [u8],
         imported_store_base: u64,
-        new_source: &'a mut RN,
+        new: &'a [u8],
         new_store_base: u64,
-        temporary_sink: &'a mut W,
-        temporary_store_base: u64,
+        refined: &'a mut Vec<u8>,
+        refined_base: u64,
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
@@ -515,7 +478,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
         policy: TextHeaderPolicy,
     ) -> TextInstanceResult<Self> {
         let checked = read_text_region_header_with_policy(
-            source,
+            &mut { input },
             segment,
             dictionary_segment,
             limits,
@@ -598,8 +561,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
             || dictionary_header.exported_symbols as usize
                 != dictionary.catalog.exported_symbols.len()
             || dictionary.progress.completed_symbols != dictionary_header.new_symbols
-            || dictionary.progress.poisoned
-            || dictionary.progress.mq.is_none_or(|mq| mq.poisoned)
+            || dictionary.progress.mq.is_none()
         {
             return Err(bad(TextInstanceErrorKind::Malformed(
                 "dictionary is not a complete ordered report",
@@ -637,7 +599,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                 "nonempty text region with no symbols",
             )));
         }
-        if temporary_store_base
+        if refined_base
             .checked_add(budget.max_temporary_store_bytes)
             .is_none()
         {
@@ -645,9 +607,14 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                 "temporary store range overflow",
             )));
         }
-        if imported_store_base > imported_source.size() || new_store_base > new_source.size() {
+        if refined.len() as u64 != refined_base {
             return Err(bad(TextInstanceErrorKind::InvalidSpan(
-                "dictionary store base outside ranged source",
+                "refined store base differs from the store length",
+            )));
+        }
+        if imported_store_base > imported.len() as u64 || new_store_base > new.len() as u64 {
+            return Err(bad(TextInstanceErrorKind::InvalidSpan(
+                "dictionary store base outside its store",
             )));
         }
         // Bound caller-owned catalog work before walking any descriptors. A
@@ -682,7 +649,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                 },
                 SymbolStore::New,
                 new_store_base,
-                new_source.size(),
+                new.len() as u64,
                 budget.max_new_store_span,
             )?;
             last_catalog_end = descriptor.relative_store_offset + descriptor.stored_bytes;
@@ -699,14 +666,14 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                         )));
                     }
                     (
-                        imported_source.size(),
+                        imported.len() as u64,
                         imported_store_base,
                         budget.max_imported_store_span,
                     )
                 }
                 SymbolStore::New => {
                     seen_new = true;
-                    (new_source.size(), new_store_base, budget.max_new_store_span)
+                    (new.len() as u64, new_store_base, budget.max_new_store_span)
                 }
             };
             validate_descriptor(
@@ -757,7 +724,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
         let reference_row = u64::from(refinement_budget.max_reference_width).div_ceil(8);
         let working = contexts.len() as u128 * mem::size_of::<ContextState>() as u128
             + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u128
-            + u128::from(MQ_BUFFER_BYTES)
             + u128::from(metadata_count)
             + 2 * u128::from(target_row)
             + 3 * u128::from(reference_row);
@@ -783,9 +749,8 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
         };
         // A fresh text region resets every arithmetic statistic.
         contexts.reset();
-        let mut init_fetched = 0;
-        let mq = MqDecoder::new_with_init_progress(
-            source,
+        let mq = MqDecoder::new(
+            input,
             CodedSpan {
                 offset: parsed.body.offset,
                 length: parsed.body.length,
@@ -793,27 +758,23 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
             table,
             contexts,
             limits,
-            cancellation,
             mq_budget,
-            &mut init_fetched,
         )
         .map_err(|error| {
             let offset = error.offset.unwrap_or(at);
-            let mut located = preflight_error(
+            preflight_error(
                 segment.number,
                 offset,
                 fetched,
                 TextInstanceErrorKind::Mq(Box::new(error)),
-            );
-            located.progress.mq_initialization_bytes_fetched = init_fetched;
-            located
+            )
         })?;
         Ok(Self {
             mq,
-            imported_source,
-            new_source,
-            temporary_sink,
-            temporary_store_base,
+            imported,
+            new,
+            refined,
+            refined_base,
             dictionary: &dictionary.catalog.exported_symbols,
             header: parsed,
             segment: segment.number,
@@ -831,7 +792,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
             current_s: 0,
             initialized: false,
             strip_open: false,
-            poisoned: false,
             complete: false,
         })
     }
@@ -839,8 +799,12 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
     pub fn progress(&self) -> TextInstanceProgress {
         let mut progress = self.progress;
         progress.mq = Some(self.mq.snapshot());
-        progress.poisoned = self.poisoned || progress.mq.is_some_and(|mq| mq.poisoned);
         progress
+    }
+
+    /// The refined store, which holds every refined bitmap returned so far.
+    pub fn refined_store(&self) -> &[u8] {
+        self.refined
     }
 
     /// The validated region header owned by this instance stream.
@@ -907,44 +871,33 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
         reference: StoredSymbol,
         request: RefinementRequest,
     ) -> Result<SymbolDescriptor, RefinementError> {
-        let prior = self.progress.refinement;
+        let store = match reference.store {
+            SymbolStore::Imported => self.imported,
+            SymbolStore::New => self.new,
+        };
         let mut host = RefinementDecoder::new_continuing(
             &mut self.mq,
-            self.temporary_sink,
+            self.refined,
             self.limits,
             self.cancellation,
             self.refinement_budget,
-            prior,
-            &mut self.progress.refinement,
+            self.progress.refinement,
         )?;
-        let report = match reference.store {
-            SymbolStore::Imported => host.decode_bitmap(self.imported_source, request),
-            SymbolStore::New => host.decode_bitmap(self.new_source, request),
-        }?;
-        // Pull consumers may reopen the temporary store as soon as this
-        // handle is returned. Make the appended rows visible first.
-        host.flush_store()?;
-        Ok(report.target)
+        let report = host.decode_bitmap(ReferenceStore::Other(store), request);
+        self.progress.refinement = host.progress();
+        Ok(report?.target)
     }
 
     /// Decode one placement. `None` means the declared count and exact MQ
-    /// terminal were checked; subsequent calls return `None` without I/O.
-    pub fn next(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    /// terminal were checked; subsequent calls return `None`.
+    pub fn next_instance(&mut self) -> TextInstanceResult<Option<TextInstance>> {
         if self.complete {
             return Ok(None);
         }
-        if self.poisoned {
-            return Err(self.error(TextInstanceErrorKind::Poisoned));
-        }
-        self.poisoned = true;
-        let result = self.next_inner();
-        if result.is_ok() {
-            self.poisoned = false;
-        }
-        result
+        self.decode_instance()
     }
 
-    fn next_inner(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    fn decode_instance(&mut self) -> TextInstanceResult<Option<TextInstance>> {
         self.check_cancelled()?;
         if !self.initialized {
             let initial = self.signed(IntegerProcedure::Iadt, TextDecision::InitialStripT)?;
@@ -957,7 +910,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                 let expected = self.mq.snapshot().symbols_decoded;
                 let snapshot = self
                     .mq
-                    .finish_with_snapshot_mut(expected)
+                    .finish(expected)
                     .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
                 self.progress.mq = Some(snapshot);
                 self.check_cancelled()?;
@@ -1086,7 +1039,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cance
                     self.error(TextInstanceErrorKind::Refinement(Box::new(error)))
                 })?;
                 bitmap = TextBitmap::Refined {
-                    store_base: self.temporary_store_base,
+                    store_base: self.refined_base,
                     symbol: descriptor,
                 };
             }

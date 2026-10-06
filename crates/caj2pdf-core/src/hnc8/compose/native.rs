@@ -27,18 +27,16 @@ pub struct C8FontSource<F> {
 /// Convert every page of the admitted raw C8 or text/vector HN-B profile.
 ///
 /// Fonts are caller-owned stable ranged resources. Images use the same
-/// preflight, codecs and reusable scratch as image-only composition. Only
+/// preflight, codecs and reusable buffers as image-only composition. Only
 /// current-page image handles are retained; native content streams in source
 /// order. Unknown required records and missing glyphs fail explicitly.
-/// The caller must discard partial output on error or a dropped future.
+/// The caller must discard partial output on error.
 /// Bookmarks remain unsupported. CLI/JavaScript transport is separate.
-#[allow(clippy::too_many_arguments)]
-pub fn convert_c8_native_pdf<'a, S, F, W, T, C>(
+pub fn convert_c8_native_pdf<S, F, W, C>(
     source: &mut S,
     sink: &mut W,
     fonts: C8FontSources<'_, F>,
     table: Option<&QmTable>,
-    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -47,7 +45,6 @@ where
     S: RangedSource,
     F: RangedSource,
     W: Write,
-    T: RandomAccessScratch + 'a,
     C: Cancellation,
 {
     validate(options, limits)?;
@@ -122,7 +119,7 @@ where
     let mut report = ComposeReport::new(header);
     // C8/HN-B outlines are unverified; a request writes none and is reported.
     report.outline.unverified = options.include_bookmarks;
-    let mut contexts = None;
+    let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
         .map_err(|error| container(error, ComposeStage::Container))?
@@ -153,7 +150,6 @@ where
                 header.variant,
                 image_at,
                 table,
-                type3.is_some(),
                 options,
                 limits,
                 cancellation,
@@ -177,8 +173,7 @@ where
                 &mut image,
                 plan,
                 image_at,
-                &mut contexts,
-                &mut type3,
+                &mut buffers,
                 table,
                 options,
                 limits,

@@ -86,9 +86,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// and C8 use the compressed or raw page-text reader with the same
     /// coordinate-group rule as composition. C8 spans whose compressed header
     /// is absent, and all HN-B spans, are framed as native records. Errors are
-    /// the first located error of the deciding reader. Like
-    /// [`Hnc8Reader::visit_native_records`], a failed native framing poisons
-    /// the reader; open a fresh cursor to continue with later pages.
+    /// the first located error of the deciding reader.
     pub fn inspect_text(&mut self, budget: TextBudget) -> Result<TextStructure> {
         let header = self.header;
         let loc = Location {
@@ -97,9 +95,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             page: None,
             image: None,
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
         let page = self
             .current
             .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?

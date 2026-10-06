@@ -14,8 +14,6 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     }];
     let mut sink = Sink::default();
     let limits = Limits::default();
-    let mq = MqTable::standard();
-    let (mut text, mut first, mut second, mut refined) = Default::default();
     let result = convert_document_pdf(
         &mut source,
         &mut sink,
@@ -24,29 +22,12 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
             roles: roles(),
         }),
         Some(&table()),
-        workspaces(&mq, &mut text, &mut first, &mut second, &mut refined),
         &mut Visitor::default(),
         ComposeOptions::default(),
         &limits,
         &NeverCancel,
     );
     (result, sink.bytes)
-}
-
-fn workspaces<'a>(
-    table: &'a MqTable,
-    text: &'a mut Scratch,
-    first: &'a mut Scratch,
-    second: &'a mut Scratch,
-    refined: &'a mut Scratch,
-) -> Option<ComposeType3Workspaces<'a, Scratch>> {
-    Some(ComposeType3Workspaces {
-        table,
-        first,
-        second,
-        refined,
-        text,
-    })
 }
 
 fn native(bytes: &[u8]) -> Result<bool, ComposeError> {
@@ -127,8 +108,6 @@ fn native_documents_use_native_composition_only_with_fonts() {
         }];
         let mut sink = Sink::default();
         let limits = Limits::default();
-        let mq = MqTable::standard();
-        let (mut text, mut first, mut second, mut refined) = Default::default();
         let direct = convert_c8_native_pdf(
             &mut source,
             &mut sink,
@@ -137,7 +116,6 @@ fn native_documents_use_native_composition_only_with_fonts() {
                 roles: roles(),
             },
             Some(&table()),
-            workspaces(&mq, &mut text, &mut first, &mut second, &mut refined),
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
@@ -254,7 +232,6 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
             roles: roles(),
         }),
         Some(&table()),
-        no_stores(),
         &mut (),
         ComposeOptions::default(),
         &Limits::default(),

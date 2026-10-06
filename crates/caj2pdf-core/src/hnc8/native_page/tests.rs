@@ -276,7 +276,7 @@ fn convert_with_fonts(
                     row_stride: 1,
                 })
                 .unwrap();
-            image.write(&[0x80, 0x40]).unwrap();
+            image.write_all(&[0x80, 0x40]).unwrap();
             images.push(image.finish().unwrap());
         }
         if mode == 6 {

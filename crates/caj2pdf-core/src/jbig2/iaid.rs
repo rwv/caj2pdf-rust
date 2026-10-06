@@ -13,7 +13,6 @@ use super::{
 };
 use crate::arith::Coder;
 use crate::fallible::try_convert;
-use crate::{Cancellation, RangedSource};
 use std::{error, fmt};
 
 /// The first IAID context of a coding unit.
@@ -24,13 +23,9 @@ pub const IAID_BASE: usize = BITMAP_BASE + BITMAP_CONTEXT_COUNT;
 ///
 /// The decoder's bank must hold the `2^code_len` IAID contexts at
 /// [`IAID_BASE`]; missing capacity is rejected before a decision. Every call
-/// consumes exactly `code_len` MQ symbols. A zero-bit call still checks
-/// cancellation and poisoned state. Context adaptation persists across calls
-/// until the caller resets the bank.
-pub fn decode_iaid<S: RangedSource, C: Cancellation>(
-    decoder: &mut MqDecoder<'_, S, C>,
-    code_len: u32,
-) -> ArithmeticResult<u64> {
+/// consumes exactly `code_len` MQ symbols. Context adaptation persists across
+/// calls until the caller resets the bank.
+pub fn decode_iaid(decoder: &mut MqDecoder<'_>, code_len: u32) -> ArithmeticResult<u64> {
     let ids = 1usize.checked_shl(code_len);
     let last = ids.and_then(|ids| IAID_BASE.checked_add(ids - 1));
     if last.is_none_or(|last| decoder.context(last).is_none()) {
@@ -41,7 +36,6 @@ pub fn decode_iaid<S: RangedSource, C: Cancellation>(
             kind: ArithmeticErrorKind::InvalidContext,
         });
     }
-    decoder.check_ready(Some(IAID_BASE))?;
     let mut prev = 1u64;
     for _ in 0..code_len {
         // Before each decision `prev < 2^code_len`, and the last context was

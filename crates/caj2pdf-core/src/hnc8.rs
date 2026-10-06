@@ -27,8 +27,8 @@ pub use appinfo::{
 };
 pub use compose::{
     C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
-    ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
-    ComposedImage, convert_document_pdf, convert_source_pages_pdf, uses_native_text,
+    ComposePage, ComposeReport, ComposeStage, ComposeVisitor, ComposedImage, convert_document_pdf,
+    convert_source_pages_pdf, uses_native_text,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{
@@ -225,7 +225,6 @@ pub enum ErrorKind {
     Cancelled,
     IncompletePage,
     NoCurrentPage,
-    Poisoned,
 }
 
 impl ErrorKind {
@@ -240,7 +239,6 @@ impl ErrorKind {
             Self::Cancelled => "cancellation",
             Self::IncompletePage => "image count",
             Self::NoCurrentPage => "page cursor",
-            Self::Poisoned => "reader state",
         }
     }
 
@@ -254,7 +252,6 @@ impl ErrorKind {
             Self::Cancelled => "cancelled",
             Self::IncompletePage => "incomplete_page",
             Self::NoCurrentPage => "no_current_page",
-            Self::Poisoned => "poisoned",
         }
     }
 }
@@ -309,7 +306,6 @@ impl fmt::Display for ErrorKind {
             Self::Cancelled => f.write_str("cancelled"),
             Self::IncompletePage => f.write_str("page has unread image records"),
             Self::NoCurrentPage => f.write_str("no current page"),
-            Self::Poisoned => f.write_str("reader is poisoned after an interrupted or failed read"),
         }
     }
 }
@@ -443,8 +439,8 @@ struct CurrentPage {
     next_descriptor: u64,
 }
 
-/// A one-page-at-a-time cursor. A failed or dropped read poisons the cursor.
-/// The source remains borrowable for type-0 decoding between records.
+/// A one-page-at-a-time cursor. A failed read leaves the cursor where it was;
+/// the caller abandons it. The source remains borrowable between records.
 pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     source: &'a mut S,
     limits: &'a Limits,
@@ -455,7 +451,6 @@ pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     next_page: u32,
     current: Option<CurrentPage>,
     declared_images: u64,
-    poisoned: bool,
 }
 
 impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
@@ -709,7 +704,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_page: start_page,
             current: None,
             declared_images: 0,
-            poisoned: false,
         })
     }
 
@@ -728,9 +722,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             page: Some(self.next_page),
             image: None,
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
         if let Some(current) = self
             .current
             .filter(|page| page.next_image <= page.page.image_count)
@@ -753,7 +744,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         let row_offset =
             self.header.page_index.offset + u64::from(page_number - 1) * self.page_row_bytes;
         let loc = loc.at(row_offset);
-        self.poisoned = true;
         let mut row = [0; PAGE_ROW_BYTES as usize];
         read_fixed(
             self.source,
@@ -833,7 +823,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_descriptor: text.checked_end().expect("checked text span"),
         });
         self.next_page += 1;
-        self.poisoned = false;
         Ok(Some(page))
     }
 
@@ -844,9 +833,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             page: self.current.map(|current| current.page.page_number),
             image: self.current.map(|current| current.next_image),
         };
-        if self.poisoned {
-            return Err(loc.error(ErrorKind::Poisoned));
-        }
         let current = self
             .current
             .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?;
@@ -858,7 +844,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         }
         let descriptor_offset = current.next_descriptor;
         let loc = loc.at(descriptor_offset);
-        self.poisoned = true;
         let descriptor = checked_span(
             self.source.size(),
             descriptor_offset,
@@ -953,7 +938,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             next_descriptor: payload.checked_end().expect("checked image span"),
             ..current
         });
-        self.poisoned = false;
         Ok(Some(record))
     }
 }

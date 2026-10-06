@@ -12,6 +12,7 @@ use caj2pdf_core::{
         read_segment_header,
     },
     native::SeekableSource,
+    read_payload,
 };
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -148,8 +149,18 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
         assert_eq!(header.segment_type, 38);
         let mut contexts = ContextBank::new(1024, &limits).unwrap();
         let mut sink = HashSink::new();
-        let mut decoder = GenericRegionDecoder::new(
+        let mut buffer = Vec::new();
+        let payload = read_payload(
             &mut source,
+            offset,
+            length,
+            &mut buffer,
+            &limits,
+            &NeverCancel,
+        )
+        .unwrap();
+        let mut decoder = GenericRegionDecoder::new(
+            payload,
             &header,
             &table,
             &mut contexts,
@@ -183,11 +194,10 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             "pixel mismatch: {name}"
         );
         eprintln!(
-            "PASS generic-only {name}: {} rows, {} pixels, semantic MQ byte {}, physically fetched {} bytes",
+            "PASS generic-only {name}: {} rows, {} pixels, semantic MQ byte {}",
             report.progress.rows_written,
             report.progress.pixels_decoded,
             report.progress.mq.input_offset,
-            report.progress.mq.source_bytes_fetched
         );
     }
 }

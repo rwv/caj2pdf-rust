@@ -161,7 +161,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// desubroutinized charstrings are held in memory, within
     /// [`Limits::max_allocation_bytes`]. Planning only
     /// reads, so a failure there can be retried; a failure after emission
-    /// starts poisons the document.
+    /// starts fails the document.
     pub fn embed_font<S: RangedSource>(
         &mut self,
         handle: &FontObject,
@@ -320,7 +320,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// Begin an incrementally drawn page with previously emitted resources.
     ///
     /// Resources are borrowed and bounded to 128 fonts and 8192 images. Draws
-    /// are awaited in source order; no page-sized content list is retained.
+    /// are written in source order; no page-sized content list is retained.
     /// An abandoned or failed page prevents finishing the document.
     pub fn begin_content_page<'d, 'r>(
         &'d mut self,

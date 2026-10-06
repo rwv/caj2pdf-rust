@@ -48,14 +48,14 @@ impl From<ObjectId> for PdfRef {
 /// The sink side shared by every PDF emitter.
 ///
 /// It counts accepted bytes, refuses a write that would end past the classic
-/// xref's ten-digit offsets before the sink sees it, and poisons itself after
+/// xref's ten-digit offsets before the sink sees it, and refuses every write after
 /// a sink failure, which may leave a partial PDF.
 pub(super) struct Output<'a, W: Write, C: Cancellation> {
     sink: &'a mut W,
     pub(super) limits: &'a Limits,
     pub(super) cancellation: &'a C,
     pub(super) position: u64,
-    poisoned: bool,
+    failed: bool,
 }
 
 impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
@@ -65,12 +65,12 @@ impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
             limits,
             cancellation,
             position: 0,
-            poisoned: false,
+            failed: false,
         }
     }
 
     pub(super) fn ensure_healthy(&self) -> Result<()> {
-        if self.poisoned {
+        if self.failed {
             Err(Error::InvalidInput {
                 reason: "PDF writer cannot continue after a sink failure",
             })
@@ -104,20 +104,20 @@ impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
             self.cancellation,
         );
         if result.is_err() {
-            self.poisoned = true;
+            self.failed = true;
         }
         result
     }
 
     /// Flush the sink, checking cancellation on both sides because a flush
-    /// can itself await sink backpressure.
+    /// can itself take long.
     pub(super) fn flush(&mut self) -> Result<()> {
         self.ensure_healthy()?;
         if self.cancellation.is_cancelled() {
             return Err(Error::Cancelled);
         }
         self.sink.flush().inspect_err(|_| {
-            self.poisoned = true;
+            self.failed = true;
         })?;
         if self.cancellation.is_cancelled() {
             return Err(Error::Cancelled);
@@ -139,9 +139,9 @@ enum State {
 /// Writes one PDF to a caller-owned, forward-only sink.
 ///
 /// The writer retains one checked `u64` offset per reserved object. Payload
-/// bytes are passed directly to the bounded core sink helper, which awaits
-/// backpressure and checks cancellation between writes. An I/O failure poisons
-/// this writer because the sink may then contain a partial PDF.
+/// bytes are passed directly to the bounded core sink helper, which writes
+/// them in I/O chunks and checks cancellation between chunks. An I/O failure
+/// fails this writer because the sink may then contain a partial PDF.
 pub struct PdfWriter<'a, W: Write, C: Cancellation> {
     out: Output<'a, W, C>,
     /// Zero means reserved but not emitted; the PDF header makes zero an

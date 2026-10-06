@@ -8,8 +8,8 @@
 //! refinement template 1 and `REFAGGNINST = 1` for every symbol). Each new
 //! symbol either decodes a template-2 bitmap or refines one earlier symbol;
 //! aggregation, Huffman coding and bitmap-context carry are refused. The
-//! caller owns every bitmap store, and the segment directory has already
-//! framed the segment.
+//! caller owns every bitmap store, in memory, and the segment directory has
+//! already framed the segment.
 
 use super::{
     FieldCursor, FieldFault, PreflightKind, PreflightSite, SegmentHeader, SegmentSpan,
@@ -21,16 +21,13 @@ use super::{
         MqBudget, MqDecoder, MqState, MqTable,
     },
     refinement::{
-        RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
+        ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
         RefinementReference, RefinementRequest,
     },
 };
 use crate::fallible::try_convert;
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource};
-use std::io::Write;
-use std::{error, fmt, io, mem};
-
-const MQ_BUFFER_BYTES: u64 = 256;
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, Payload, RangedSource};
+use std::{error, fmt, mem};
 
 /// Resource bounds for one symbol dictionary, in addition to `Limits` and `MqBudget`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,10 +46,8 @@ pub struct DictionaryBudget {
     pub max_stored_bitmap_bytes: u64,
     pub max_catalog_bytes: u64,
     pub max_export_runs: u32,
-    pub max_sink_writes: u64,
     pub max_source_request_bytes: usize,
-    pub max_sink_request_bytes: usize,
-    /// Combined contexts, table, MQ buffer, descriptor capacity, and rows.
+    /// Combined contexts, table, descriptor capacity, and rows.
     pub max_working_bytes: u64,
 }
 
@@ -72,9 +67,7 @@ impl Default for DictionaryBudget {
             max_stored_bitmap_bytes: 128 * 1024 * 1024,
             max_catalog_bytes: 1024 * 1024,
             max_export_runs: 8192,
-            max_sink_writes: 2_000_000,
             max_source_request_bytes: 256,
-            max_sink_request_bytes: 64 * 1024,
             max_working_bytes: 16 * 1024 * 1024,
         }
     }
@@ -189,29 +182,15 @@ pub struct DictionaryProgress {
     pub decoded_pixels: u64,
     pub height_classes: u32,
     pub export_runs: u32,
-    pub sink_writes: u64,
     pub iaai: IaaiBranches,
     /// Segment-data header bytes read; the directory read the framing.
     pub header_bytes_fetched: u64,
-    /// MQ bytes fetched if initialization failed before a snapshot existed.
-    /// Zero once a decoder was constructed; then `mq` includes prefetch.
-    pub mq_initialization_bytes_fetched: u64,
     pub refinement: RefinementProgress,
     pub mq: Option<ArithmeticSnapshot>,
-    pub poisoned: bool,
-}
-
-impl DictionaryProgress {
-    /// Includes data-header reads and MQ prefetch/terminal lookahead.
-    pub fn source_bytes_fetched(self) -> u64 {
-        self.header_bytes_fetched
-            .saturating_add(self.mq_initialization_bytes_fetched)
-            .saturating_add(self.mq.map_or(0, |snapshot| snapshot.source_bytes_fetched))
-    }
 }
 
 /// Successful dictionary result. Store offsets are relative to the first byte
-/// appended by this decoder; the adapter owns subsequent ranged reopening.
+/// appended by this decoder.
 #[derive(Debug, Eq, PartialEq)]
 pub struct DictionaryReport {
     pub header: DictionaryDataHeader,
@@ -248,10 +227,8 @@ pub enum DictionaryErrorKind {
     AllocationFailed,
     Cancelled,
     Source(Error),
-    Sink(Error),
     Mq(Box<ArithmeticError>),
     Refinement(Box<RefinementError>),
-    Poisoned,
 }
 
 pub type DictionaryResult<T> = Result<T, DictionaryError>;
@@ -283,10 +260,8 @@ impl fmt::Display for DictionaryError {
             DictionaryErrorKind::AllocationFailed => f.write_str("allocation failed"),
             DictionaryErrorKind::Cancelled => f.write_str("cancelled"),
             DictionaryErrorKind::Source(source) => write!(f, "source: {source}"),
-            DictionaryErrorKind::Sink(source) => write!(f, "sink: {source}"),
             DictionaryErrorKind::Mq(source) => write!(f, "MQ: {source}"),
             DictionaryErrorKind::Refinement(source) => write!(f, "refinement: {source}"),
-            DictionaryErrorKind::Poisoned => f.write_str("decoder state is poisoned or complete"),
         }
     }
 }
@@ -294,7 +269,7 @@ impl fmt::Display for DictionaryError {
 impl error::Error for DictionaryError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match &self.kind {
-            DictionaryErrorKind::Source(error) | DictionaryErrorKind::Sink(error) => Some(error),
+            DictionaryErrorKind::Source(error) => Some(error),
             DictionaryErrorKind::Mq(error) => Some(error),
             DictionaryErrorKind::Refinement(error) => Some(error),
             _ => None,
@@ -417,7 +392,7 @@ fn data_header_bounds(
     limits
         .validate()
         .map_err(|e| site.error(DictionaryErrorKind::Source(e)))?;
-    if budget.max_source_request_bytes == 0 || budget.max_sink_request_bytes == 0 {
+    if budget.max_source_request_bytes == 0 {
         return Err(site.error(DictionaryErrorKind::Malformed("zero I/O request bound")));
     }
     if cancellation.is_cancelled() {
@@ -623,15 +598,14 @@ pub struct ImportedDictionary<'a> {
     pub report: &'a DictionaryReport,
 }
 
-/// The bitmap stores of one dictionary. A store's descriptor offsets are
-/// relative to its base. The new-symbol reader must observe the writer's
-/// appends; a refinement dictionary reads earlier new symbols through it
-/// after an explicit flush. A direct dictionary uses only the writer.
-pub struct DictionaryStores<'a, RI, RN, W> {
-    pub imported: &'a mut RI,
+/// The bitmap stores of one dictionary, in memory. A store's descriptor
+/// offsets are relative to its base. New symbols are appended to `new`,
+/// whose length must be `new_base`; a refinement dictionary reads earlier new
+/// symbols back from it. A direct dictionary reads no store.
+pub struct DictionaryStores<'a> {
+    pub imported: &'a [u8],
     pub imported_base: u64,
-    pub new_reader: &'a mut RN,
-    pub new_writer: &'a mut W,
+    pub new: &'a mut Vec<u8>,
     pub new_base: u64,
 }
 
@@ -681,9 +655,8 @@ fn validate_imported(
         || imported_end != segment_end
         || report.header.new_symbols as usize != report.catalog.new_symbols.len()
         || report.header.exported_symbols as usize != report.catalog.exported_symbols.len()
-        || report.progress.poisoned
         || report.progress.completed_symbols != report.header.new_symbols
-        || report.progress.mq.is_none_or(|mq| mq.poisoned)
+        || report.progress.mq.is_none()
         || report
             .catalog
             .exported_symbols
@@ -693,7 +666,7 @@ fn validate_imported(
         return Err(bad("imported dictionary is not a complete direct report"));
     }
     if store_base > store_size {
-        return Err(bad("imported store base outside source"));
+        return Err(bad("imported store base outside the store"));
     }
     preflight_cap(
         site,
@@ -750,7 +723,7 @@ fn validate_imported(
             .checked_add(relative_end)
             .ok_or_else(|| bad("imported store absolute end overflow"))?;
         if absolute_end > store_size {
-            return Err(bad("imported descriptor outside ranged source"));
+            return Err(bad("imported descriptor outside the store"));
         }
         for (name, cap, value) in [
             (
@@ -801,7 +774,7 @@ struct Plan {
     refine: bool,
     /// The IAID width over imported exports and new symbols.
     code_len: u32,
-    /// Contexts, table, MQ buffer, and catalog metadata.
+    /// Contexts, table, and catalog metadata.
     base_working: u64,
     working_cap: u64,
     refinement_budget: RefinementBudget,
@@ -864,6 +837,11 @@ fn check_header(
             u64::from(segment.page_association),
         ));
     }
+    if stores[1].1 != stores[1].0 {
+        return Err(site.error(DictionaryErrorKind::InvalidSpan(
+            "new store base differs from the store length",
+        )));
+    }
     let imported_exports = match import {
         _ if !refine => {
             if !segment.referred_to.is_empty() {
@@ -902,16 +880,6 @@ fn check_header(
                 second_budget,
                 refinement_budget,
             )?;
-            if stores[1].1 > stores[1].0 {
-                return Err(site.error(DictionaryErrorKind::InvalidSpan(
-                    "new store base outside ranged source",
-                )));
-            }
-            if refinement_budget.max_source_request_bytes == 0
-                || refinement_budget.max_sink_request_bytes == 0
-            {
-                return Err(malformed("zero refinement I/O request bound"));
-            }
             import.report.catalog.exported_symbols.len() as u64
         }
     };
@@ -974,15 +942,8 @@ fn check_header(
     // bounded by isize::MAX; the u32-limited metadata cannot overflow u64.
     let base_working = context_count as u64 * mem::size_of::<ContextState>() as u64
         + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-        + MQ_BUFFER_BYTES
         + metadata;
     preflight_cap(site, "dictionary working bytes", working_cap, base_working)?;
-    preflight_cap(
-        site,
-        "MQ source request bytes",
-        budget.max_source_request_bytes as u64,
-        limits.io_chunk_bytes.min(MQ_BUFFER_BYTES as usize) as u64,
-    )?;
     let refinement_budget = RefinementBudget {
         max_width: refinement_budget.max_width.min(budget.max_width),
         max_height: refinement_budget.max_height.min(budget.max_height),
@@ -998,15 +959,6 @@ fn check_header(
         max_total_output_bytes: refinement_budget
             .max_total_output_bytes
             .min(budget.max_stored_bitmap_bytes),
-        max_sink_writes: refinement_budget
-            .max_sink_writes
-            .min(budget.max_sink_writes),
-        max_source_request_bytes: refinement_budget
-            .max_source_request_bytes
-            .min(budget.max_source_request_bytes),
-        max_sink_request_bytes: refinement_budget
-            .max_sink_request_bytes
-            .min(budget.max_sink_request_bytes),
         ..refinement_budget
     };
     Ok(Plan {
@@ -1103,22 +1055,14 @@ fn symbol_geometry(
 }
 
 /// One symbol dictionary coding unit over the exact segment body (T.88
-/// §6.5.5). A direct dictionary streams every new symbol's packed rows to
+/// §6.5.5). A direct dictionary appends every new symbol's packed rows to
 /// the new store; a refinement dictionary refines one imported or earlier
 /// new symbol per new symbol. `decode()` then checks the export runs and the
-/// single MQ tail. A failed or dropped pending call permanently poisons this
-/// object; the caller must discard all bytes appended to the new store unless
-/// a complete `DictionaryReport` is returned.
-pub struct SymbolDictionaryDecoder<
-    'a,
-    S: RangedSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    W: Write,
-    C: Cancellation,
-> {
-    mq: MqDecoder<'a, S, C>,
-    stores: DictionaryStores<'a, RI, RN, W>,
+/// single MQ tail. On error the caller must discard all bytes appended to the
+/// new store.
+pub struct SymbolDictionaryDecoder<'a, C: Cancellation> {
+    mq: MqDecoder<'a>,
+    stores: DictionaryStores<'a>,
     imported: &'a [StoredSymbol],
     plan: Plan,
     header: DictionaryDataHeader,
@@ -1127,31 +1071,22 @@ pub struct SymbolDictionaryDecoder<
     cancellation: &'a C,
     budget: DictionaryBudget,
     progress: DictionaryProgress,
-    refinement_observer: RefinementProgress,
     catalog: DictionaryCatalog,
-    poisoned: bool,
-    complete: bool,
 }
 
-impl<'a, S, RI, RN, W, C> SymbolDictionaryDecoder<'a, S, RI, RN, W, C>
-where
-    S: RangedSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    W: Write,
-    C: Cancellation,
-{
-    /// Parse and check the dictionary, then start its MQ coding unit over
-    /// `contexts`: [`IAID_BASE`] contexts for a direct dictionary, or
+impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
+    /// Parse and check the dictionary from `input`, which must hold the
+    /// whole segment data, then start its MQ coding unit over `contexts`:
+    /// [`IAID_BASE`] contexts for a direct dictionary, or
     /// [`coding_unit_contexts`] of its `SBSYMCODELEN` for a refinement
     /// dictionary. Every context is reset; this profile never carries bitmap
     /// contexts. A refinement dictionary needs `import`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        source: &'a mut S,
+        input: Payload<'a>,
         segment: &SegmentHeader,
         import: Option<ImportedDictionary<'a>>,
-        stores: DictionaryStores<'a, RI, RN, W>,
+        stores: DictionaryStores<'a>,
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
@@ -1161,14 +1096,15 @@ where
         refinement_budget: RefinementBudget,
         second_budget: RefinementDictionaryBudget,
     ) -> DictionaryResult<Self> {
-        let header = read_dictionary_data_header(source, segment, limits, budget, cancellation)?;
+        let header =
+            read_dictionary_data_header(&mut { input }, segment, limits, budget, cancellation)?;
         let plan = check_header(
             segment,
             &header,
             import,
             [
-                (stores.imported.size(), stores.imported_base),
-                (stores.new_reader.size(), stores.new_base),
+                (stores.imported.len() as u64, stores.imported_base),
+                (stores.new.len() as u64, stores.new_base),
             ],
             contexts.len(),
             limits,
@@ -1190,26 +1126,14 @@ where
             offset: header.body.offset,
             length: header.body.length,
         };
-        let mut mq_initialization_bytes_fetched = 0;
-        let mq = MqDecoder::new_with_init_progress(
-            source,
-            span,
-            table,
-            contexts,
-            limits,
-            cancellation,
-            mq_budget,
-            &mut mq_initialization_bytes_fetched,
-        )
-        .map_err(|error| {
-            let mut located = PreflightSite {
-                offset: error.offset.unwrap_or(site.offset),
-                ..site
-            }
-            .error(DictionaryErrorKind::Mq(Box::new(error)));
-            located.progress.mq_initialization_bytes_fetched = mq_initialization_bytes_fetched;
-            located
-        })?;
+        let mq =
+            MqDecoder::new(input, span, table, contexts, limits, mq_budget).map_err(|error| {
+                PreflightSite {
+                    offset: error.offset.unwrap_or(site.offset),
+                    ..site
+                }
+                .error(DictionaryErrorKind::Mq(Box::new(error)))
+            })?;
         let progress = DictionaryProgress {
             header_bytes_fetched: header.header_bytes,
             mq: Some(mq.snapshot()),
@@ -1230,49 +1154,24 @@ where
             cancellation,
             budget,
             progress,
-            refinement_observer: RefinementProgress::default(),
             catalog: DictionaryCatalog {
                 new_symbols,
                 exported_symbols,
             },
-            poisoned: false,
-            complete: false,
         })
     }
 
-    /// Current progress. A failed or dropped pending `decode` call reports
-    /// `poisoned=true`; `ArithmeticSnapshot` distinguishes semantic and
-    /// fetched input.
+    /// Current progress, with the MQ snapshot.
     pub fn progress(&self) -> DictionaryProgress {
         let mut progress = self.progress;
-        if self.plan.refine {
-            progress.refinement = self.refinement_observer;
-        }
         progress.mq = Some(self.mq.snapshot());
-        progress.poisoned = self.poisoned || progress.mq.is_some_and(|mq| mq.poisoned);
         progress
     }
 
-    fn error(&self, kind: DictionaryErrorKind, offset: u64) -> DictionaryError {
-        DictionaryError {
-            segment: self.segment,
-            offset,
-            progress: Box::new(self.progress()),
-            kind,
-        }
-    }
-
     /// Decode all new symbols, ordered exports, and the exact MQ terminal
-    /// sequence, then flush the new store. `Ok` is the only state in which
-    /// the catalog and store are valid.
-    pub fn decode(&mut self) -> DictionaryResult<DictionaryReport> {
-        if self.poisoned || self.complete {
-            return Err(self.error(
-                DictionaryErrorKind::Poisoned,
-                self.mq.snapshot().input_offset,
-            ));
-        }
-        self.poisoned = true;
+    /// sequence. `Ok` is the only state in which the catalog and the new
+    /// store are valid.
+    pub fn decode(mut self) -> DictionaryResult<DictionaryReport> {
         let segment = self.segment;
         let initial_offset = self.mq.snapshot().input_offset;
         let initial_progress = self.progress();
@@ -1280,6 +1179,7 @@ where
             segment: self.segment,
             header: self.header,
             imported: self.imported,
+            imported_store: self.stores.imported,
             imported_base: self.stores.imported_base,
             new_base: self.stores.new_base,
             plan: &self.plan,
@@ -1291,13 +1191,12 @@ where
             rows: [Vec::new(), Vec::new(), Vec::new()],
         };
         let mut unit = if self.plan.refine {
-            let host = RefinementDecoder::new_observed(
+            let host = RefinementDecoder::new(
                 &mut self.mq,
-                &mut *self.stores.new_writer,
+                &mut *self.stores.new,
                 self.limits,
                 self.cancellation,
                 self.plan.refinement_budget,
-                Some(&mut self.refinement_observer),
             )
             .map_err(|error| DictionaryError {
                 segment,
@@ -1309,70 +1208,55 @@ where
         } else {
             Unit::Direct {
                 mq: &mut self.mq,
-                writer: &mut *self.stores.new_writer,
+                store: &mut *self.stores.new,
             }
         };
-        let decoded = session.decode_all(
-            &mut unit,
-            &mut *self.stores.imported,
-            &mut *self.stores.new_reader,
-        );
+        let decoded = session.decode_all(&mut unit);
+        if let Unit::Refined(host) = &unit {
+            self.progress.refinement = host.progress();
+        }
         drop(unit);
         decoded?;
         let expected = self.mq.snapshot().symbols_decoded;
-        let snapshot = self
-            .mq
-            .finish_with_snapshot_mut(expected)
-            .map_err(|error| {
-                let offset = error.offset.unwrap_or(self.mq.snapshot().input_offset);
-                self.error(DictionaryErrorKind::Mq(Box::new(error)), offset)
-            })?;
+        let snapshot = self.mq.finish(expected).map_err(|error| {
+            let offset = error.offset.unwrap_or(self.mq.snapshot().input_offset);
+            self.error(DictionaryErrorKind::Mq(Box::new(error)), offset)
+        })?;
         self.progress.mq = Some(snapshot);
-        if self.cancellation.is_cancelled() {
-            return Err(self.error(DictionaryErrorKind::Cancelled, snapshot.input_offset));
-        }
-        self.stores
-            .new_writer
-            .flush()
-            .map_err(Error::from)
-            .map_err(|error| {
-                self.error(
-                    if matches!(error, Error::Cancelled) {
-                        DictionaryErrorKind::Cancelled
-                    } else {
-                        DictionaryErrorKind::Sink(error)
-                    },
-                    snapshot.input_offset,
-                )
-            })?;
-        if self.cancellation.is_cancelled() {
-            return Err(self.error(DictionaryErrorKind::Cancelled, snapshot.input_offset));
-        }
-        self.complete = true;
-        self.poisoned = false;
-        let catalog = mem::replace(
-            &mut self.catalog,
-            DictionaryCatalog {
-                new_symbols: Vec::new(),
-                exported_symbols: Vec::new(),
-            },
-        );
         Ok(DictionaryReport {
             header: self.header,
-            catalog,
-            progress: self.progress(),
+            catalog: self.catalog,
+            progress: self.progress,
         })
+    }
+
+    fn error(&self, kind: DictionaryErrorKind, offset: u64) -> DictionaryError {
+        DictionaryError {
+            segment: self.segment,
+            offset,
+            progress: Box::new(self.progress()),
+            kind,
+        }
     }
 }
 
 /// The coding unit of one `decode` call: the raw MQ decoder and the new
 /// store for a direct dictionary, or the refinement host that borrows both.
-enum Unit<'u, 'mq, M: RangedSource, C: Cancellation, W: Write> {
+enum Unit<'u, 'mq, C: Cancellation> {
     Direct {
-        mq: &'u mut MqDecoder<'mq, M, C>,
-        writer: &'u mut W,
+        mq: &'u mut MqDecoder<'mq>,
+        store: &'u mut Vec<u8>,
     },
-    Refined(Box<RefinementDecoder<'u, 'mq, M, C, W>>),
+    Refined(Box<RefinementDecoder<'u, 'mq, C>>),
+}
+
+impl<'mq, C: Cancellation> Unit<'_, 'mq, C> {
+    fn mq(&mut self) -> &mut MqDecoder<'mq> {
+        match self {
+            Unit::Direct { mq, .. } => mq,
+            Unit::Refined(host) => host.mq_mut(),
+        }
+    }
 }
 
 /// The state of one `decode` call, apart from the coding unit.
@@ -1380,6 +1264,7 @@ struct Session<'s, C: Cancellation> {
     segment: u32,
     header: DictionaryDataHeader,
     imported: &'s [StoredSymbol],
+    imported_store: &'s [u8],
     imported_base: u64,
     new_base: u64,
     plan: &'s Plan,
@@ -1406,7 +1291,6 @@ impl<C: Cancellation> Session<'_, C> {
             progress.refinement = refinement;
         }
         progress.mq = mq;
-        progress.poisoned = true;
         DictionaryError {
             segment: self.segment,
             offset: mq.map_or(self.header.body.offset, |snapshot| snapshot.input_offset),
@@ -1415,30 +1299,20 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    fn error<M: RangedSource, W: Write>(
-        &self,
-        unit: &Unit<'_, '_, M, C, W>,
-        kind: DictionaryErrorKind,
-    ) -> DictionaryError {
+    fn error(&self, unit: &Unit<'_, '_, C>, kind: DictionaryErrorKind) -> DictionaryError {
         match unit {
             Unit::Direct { mq, .. } => self.error_with(Some(mq.snapshot()), None, kind),
-            Unit::Refined(host) => self.host_error(host, kind),
+            Unit::Refined(host) => {
+                let progress = host.progress();
+                self.error_with(progress.mq, Some(progress), kind)
+            }
         }
     }
 
-    fn host_error<M: RangedSource, W: Write>(
-        &self,
-        host: &RefinementDecoder<'_, '_, M, C, W>,
-        kind: DictionaryErrorKind,
-    ) -> DictionaryError {
-        let progress = host.progress();
-        self.error_with(progress.mq, Some(progress), kind)
-    }
-
     /// Locate an error at its own offset when it has one.
-    fn located<M: RangedSource, W: Write>(
+    fn located(
         &self,
-        unit: &Unit<'_, '_, M, C, W>,
+        unit: &Unit<'_, '_, C>,
         offset: Option<u64>,
         kind: DictionaryErrorKind,
     ) -> DictionaryError {
@@ -1447,17 +1321,13 @@ impl<C: Cancellation> Session<'_, C> {
         error
     }
 
-    fn malformed<M: RangedSource, W: Write>(
-        &self,
-        unit: &Unit<'_, '_, M, C, W>,
-        reason: &'static str,
-    ) -> DictionaryError {
+    fn malformed(&self, unit: &Unit<'_, '_, C>, reason: &'static str) -> DictionaryError {
         self.error(unit, DictionaryErrorKind::Malformed(reason))
     }
 
-    fn cap<M: RangedSource, W: Write>(
+    fn cap(
         &self,
-        unit: &Unit<'_, '_, M, C, W>,
+        unit: &Unit<'_, '_, C>,
         resource: &'static str,
         maximum: u64,
         attempted: u64,
@@ -1465,10 +1335,7 @@ impl<C: Cancellation> Session<'_, C> {
         check_budget(resource, maximum, attempted).map_err(|kind| self.error(unit, kind))
     }
 
-    fn check_cancelled<M: RangedSource, W: Write>(
-        &self,
-        unit: &Unit<'_, '_, M, C, W>,
-    ) -> DictionaryResult<()> {
+    fn check_cancelled(&self, unit: &Unit<'_, '_, C>) -> DictionaryResult<()> {
         if self.cancellation.is_cancelled() {
             Err(self.error(unit, DictionaryErrorKind::Cancelled))
         } else {
@@ -1477,9 +1344,9 @@ impl<C: Cancellation> Session<'_, C> {
     }
 
     /// The next value of a `u32` counter, refusing a wrap.
-    fn next_count<M: RangedSource, W: Write>(
+    fn next_count(
         &self,
-        unit: &Unit<'_, '_, M, C, W>,
+        unit: &Unit<'_, '_, C>,
         value: u32,
         field: &'static str,
     ) -> DictionaryResult<u32> {
@@ -1488,52 +1355,27 @@ impl<C: Cancellation> Session<'_, C> {
             .ok_or_else(|| self.error(unit, DictionaryErrorKind::InvalidSpan(field)))
     }
 
-    fn integer<M: RangedSource, W: Write>(
+    fn integer(
         &self,
-        unit: &mut Unit<'_, '_, M, C, W>,
+        unit: &mut Unit<'_, '_, C>,
         procedure: IntegerProcedure,
     ) -> DictionaryResult<IntegerValue> {
-        let result = match unit {
-            Unit::Direct { mq, .. } => decode_integer(mq, procedure),
-            Unit::Refined(host) => match host.mq_mut() {
-                Ok(mq) => decode_integer(mq, procedure),
-                Err(error) => {
-                    return Err(
-                        self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
-                    );
-                }
-            },
-        };
-        result.map_err(|error| {
+        decode_integer(unit.mq(), procedure).map_err(|error| {
             let offset = error.offset;
             self.located(unit, offset, DictionaryErrorKind::Mq(Box::new(error)))
         })
     }
 
-    fn iaid<M: RangedSource, W: Write>(
-        &self,
-        unit: &mut Unit<'_, '_, M, C, W>,
-    ) -> DictionaryResult<u64> {
-        let result = match unit {
-            Unit::Direct { mq, .. } => decode_iaid(mq, self.plan.code_len),
-            Unit::Refined(host) => match host.mq_mut() {
-                Ok(mq) => decode_iaid(mq, self.plan.code_len),
-                Err(error) => {
-                    return Err(
-                        self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
-                    );
-                }
-            },
-        };
-        result.map_err(|error| {
+    fn iaid(&self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<u64> {
+        decode_iaid(unit.mq(), self.plan.code_len).map_err(|error| {
             let offset = error.offset;
             self.located(unit, offset, DictionaryErrorKind::Mq(Box::new(error)))
         })
     }
 
-    fn signed<M: RangedSource, W: Write>(
+    fn signed(
         &self,
-        unit: &Unit<'_, '_, M, C, W>,
+        unit: &Unit<'_, '_, C>,
         value: IntegerValue,
         field: &'static str,
     ) -> DictionaryResult<i64> {
@@ -1563,9 +1405,9 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// Check one decoded size against every budget before any bitmap work,
     /// including the mode's working rows: three for a direct bitmap.
-    fn geometry<M: RangedSource, W: Write>(
+    fn geometry(
         &self,
-        unit: &Unit<'_, '_, M, C, W>,
+        unit: &Unit<'_, '_, C>,
         width: i64,
         height: i64,
     ) -> DictionaryResult<SymbolGeometry> {
@@ -1585,14 +1427,8 @@ impl<C: Cancellation> Session<'_, C> {
         // `symbol_geometry` capped both totals, so neither sum overflows.
         let stored = bytes_so_far + bytes;
         if let Unit::Refined(_) = unit {
-            self.new_base.checked_add(stored).ok_or_else(|| {
-                self.error(
-                    unit,
-                    DictionaryErrorKind::InvalidSpan("new store absolute end overflow"),
-                )
-            })?;
-            // The refinement host also caps output against Limits before
-            // writes, and its working rows depend on the reference.
+            // The refinement host caps output against Limits before writing,
+            // and its working rows depend on the reference.
             return Ok(geometry);
         }
         self.cap(unit, "output bytes", self.limits.max_output_bytes, stored)?;
@@ -1612,37 +1448,15 @@ impl<C: Cancellation> Session<'_, C> {
         Ok(geometry)
     }
 
-    fn decode_all<M, RI, RN, W>(
-        &mut self,
-        unit: &mut Unit<'_, '_, M, C, W>,
-        imported_source: &mut RI,
-        new_source: &mut RN,
-    ) -> DictionaryResult<()>
-    where
-        M: RangedSource,
-        RI: RangedSource,
-        RN: RangedSource,
-        W: Write,
-    {
-        self.decode_symbols(unit, imported_source, new_source)?;
+    fn decode_all(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
+        self.decode_symbols(unit)?;
         self.decode_exports(unit)?;
         self.check_cancelled(unit)
     }
 
     /// T.88 §6.5.5 steps 4b–4c: height classes of new symbols, each either a
     /// direct bitmap or the single-reference refinement of an earlier symbol.
-    fn decode_symbols<M, RI, RN, W>(
-        &mut self,
-        unit: &mut Unit<'_, '_, M, C, W>,
-        imported_source: &mut RI,
-        new_source: &mut RN,
-    ) -> DictionaryResult<()>
-    where
-        M: RangedSource,
-        RI: RangedSource,
-        RN: RangedSource,
-        W: Write,
-    {
+    fn decode_symbols(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
             self.check_cancelled(unit)?;
@@ -1687,12 +1501,10 @@ impl<C: Cancellation> Session<'_, C> {
                 let (width, height, pixels, bytes) =
                     self.geometry(unit, class_width, class_height)?;
                 let descriptor = match unit {
-                    Unit::Direct { mq, writer } => {
-                        self.direct_bitmap(mq, &mut **writer, width, height, pixels, bytes)?
+                    Unit::Direct { mq, store } => {
+                        self.direct_bitmap(mq, store, width, height, pixels, bytes)?
                     }
-                    Unit::Refined(_) => {
-                        self.refined_bitmap(unit, width, height, imported_source, new_source)?
-                    }
+                    Unit::Refined(_) => self.refined_bitmap(unit, width, height)?,
                 };
                 self.catalog.new_symbols.push(descriptor);
                 self.progress.completed_symbols += 1;
@@ -1702,20 +1514,12 @@ impl<C: Cancellation> Session<'_, C> {
     }
 
     /// T.88 §6.5.8.2: one REFAGGNINST = 1 symbol refining one active symbol.
-    fn refined_bitmap<M, RI, RN, W>(
+    fn refined_bitmap(
         &mut self,
-        unit: &mut Unit<'_, '_, M, C, W>,
+        unit: &mut Unit<'_, '_, C>,
         width: u32,
         height: u32,
-        imported_source: &mut RI,
-        new_source: &mut RN,
-    ) -> DictionaryResult<SymbolDescriptor>
-    where
-        M: RangedSource,
-        RI: RangedSource,
-        RN: RangedSource,
-        W: Write,
-    {
+    ) -> DictionaryResult<SymbolDescriptor> {
         let instances = self.integer(unit, IntegerProcedure::Iaai)?;
         let instances = self.signed(unit, instances, "REFAGGNINST OOB")?;
         if instances == 0 {
@@ -1771,60 +1575,72 @@ impl<C: Cancellation> Session<'_, C> {
                 symbol: reference.symbol,
             },
         };
+        let store = match reference.store {
+            SymbolStore::Imported => ReferenceStore::Other(self.imported_store),
+            SymbolStore::New => ReferenceStore::Output,
+        };
         let Unit::Refined(host) = unit else {
             unreachable!("a refined bitmap needs the refinement host");
         };
-        let result = match reference.store {
-            SymbolStore::Imported => host.decode_bitmap(imported_source, request),
-            SymbolStore::New => {
-                if let Err(error) = host.flush_store() {
-                    return Err(
-                        self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
-                    );
-                }
-                host.decode_bitmap(new_source, request)
-            }
-        };
-        match result {
+        match host.decode_bitmap(store, request) {
             Ok(report) => Ok(report.target),
             Err(error) => {
                 let offset = error.offset;
-                let mut located =
-                    self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)));
-                located.offset = offset.unwrap_or(located.offset);
-                Err(located)
+                Err(self.located(
+                    unit,
+                    offset,
+                    DictionaryErrorKind::Refinement(Box::new(error)),
+                ))
             }
         }
     }
 
-    /// One template-2 generic bitmap (T.88 §6.2 with TPGDON off), streamed
+    /// One template-2 generic bitmap (T.88 §6.2 with TPGDON off), appended
     /// row by row to the new store.
-    fn direct_bitmap<M: RangedSource, W: Write>(
+    fn direct_bitmap(
         &mut self,
-        mq: &mut MqDecoder<'_, M, C>,
-        writer: &mut W,
+        mq: &mut MqDecoder<'_>,
+        store: &mut Vec<u8>,
         width: u32,
         height: u32,
         pixels: u64,
         bytes: u64,
     ) -> DictionaryResult<SymbolDescriptor> {
+        let fail = |session: &Self, mq: &MqDecoder<'_>, kind| {
+            session.error_with(Some(mq.snapshot()), None, kind)
+        };
         let relative_store_offset = self.progress.stored_bitmap_bytes;
+        // The store is in memory, so its length fits a `u64`.
+        let attempted = (store.len() as u64).saturating_add(bytes);
+        if attempted > self.limits.max_allocation_bytes {
+            return Err(fail(
+                self,
+                mq,
+                DictionaryErrorKind::LimitExceeded {
+                    resource: "symbol store bytes",
+                    limit: self.limits.max_allocation_bytes,
+                    attempted,
+                },
+            ));
+        }
+        // `bytes` fits the allocation limit, hence a `usize` on this target.
+        if store.try_reserve(bytes as usize).is_err() {
+            return Err(fail(self, mq, DictionaryErrorKind::AllocationFailed));
+        }
         // At most 2^29 bytes; even wasm32's usize can represent it.
         let stride = width.div_ceil(8) as usize;
         for row in &mut self.rows {
             if row.len() < stride && row.try_reserve_exact(stride - row.len()).is_err() {
-                return Err(self.error_with(
-                    Some(mq.snapshot()),
-                    None,
-                    DictionaryErrorKind::AllocationFailed,
-                ));
+                return Err(fail(self, mq, DictionaryErrorKind::AllocationFailed));
             }
             row.resize(stride, 0);
             row.fill(0);
         }
         for _ in 0..height {
+            if self.cancellation.is_cancelled() {
+                return Err(fail(self, mq, DictionaryErrorKind::Cancelled));
+            }
             for x in 0..width {
-                self.direct_check_cancelled(mq)?;
                 let [previous_two, previous_one, current] = &self.rows;
                 let context =
                     BITMAP_BASE + template2_context(previous_two, previous_one, current, width, x);
@@ -1832,11 +1648,7 @@ impl<C: Cancellation> Session<'_, C> {
                     Ok(bit) => bit,
                     Err(error) => {
                         let offset = error.offset;
-                        let mut located = self.error_with(
-                            Some(mq.snapshot()),
-                            None,
-                            DictionaryErrorKind::Mq(Box::new(error)),
-                        );
+                        let mut located = fail(self, mq, DictionaryErrorKind::Mq(Box::new(error)));
                         located.offset = offset.unwrap_or(located.offset);
                         return Err(located);
                     }
@@ -1845,7 +1657,10 @@ impl<C: Cancellation> Session<'_, C> {
                     self.rows[2][x as usize / 8] |= 0x80 >> (x % 8);
                 }
             }
-            self.write_row(mq, writer)?;
+            store.extend_from_slice(&self.rows[2]);
+            // `symbol_geometry` checked that this symbol's packed bytes fit
+            // `max_stored_bitmap_bytes` after every earlier symbol.
+            self.progress.stored_bitmap_bytes += stride as u64;
             self.rows.rotate_left(1);
             self.rows[2].fill(0);
         }
@@ -1863,85 +1678,10 @@ impl<C: Cancellation> Session<'_, C> {
         })
     }
 
-    fn direct_check_cancelled<M: RangedSource>(
-        &self,
-        mq: &MqDecoder<'_, M, C>,
-    ) -> DictionaryResult<()> {
-        if self.cancellation.is_cancelled() {
-            Err(self.error_with(Some(mq.snapshot()), None, DictionaryErrorKind::Cancelled))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn write_row<M: RangedSource, W: Write>(
-        &mut self,
-        mq: &MqDecoder<'_, M, C>,
-        writer: &mut W,
-    ) -> DictionaryResult<()> {
-        let fail = |session: &Self, kind| session.error_with(Some(mq.snapshot()), None, kind);
-        let mut done = 0;
-        let length = self.rows[2].len();
-        while done < length {
-            self.direct_check_cancelled(mq)?;
-            // Every earlier write stored at least one byte (a failed write
-            // poisons the decoder), so `sink_writes <= stored_bitmap_bytes`.
-            // At least one byte of this symbol is still pending, and the
-            // whole symbol fits `max_stored_bitmap_bytes`, so
-            // `stored_bitmap_bytes < u64::MAX` and this cannot overflow.
-            debug_assert!(self.progress.sink_writes <= self.progress.stored_bitmap_bytes);
-            let attempted_writes = self.progress.sink_writes + 1;
-            check_budget("sink writes", self.budget.max_sink_writes, attempted_writes)
-                .map_err(|kind| fail(self, kind))?;
-            let count = (length - done)
-                .min(self.limits.io_chunk_bytes)
-                .min(self.budget.max_sink_request_bytes);
-            self.progress.sink_writes = attempted_writes;
-            let written = writer
-                .write(&self.rows[2][done..done + count])
-                .map_err(Error::from)
-                .map_err(|error| {
-                    fail(
-                        self,
-                        if matches!(error, Error::Cancelled) {
-                            DictionaryErrorKind::Cancelled
-                        } else {
-                            DictionaryErrorKind::Sink(error)
-                        },
-                    )
-                })?;
-            if written > count {
-                return Err(fail(
-                    self,
-                    DictionaryErrorKind::Malformed("sink write length"),
-                ));
-            }
-            if written == 0 {
-                return Err(fail(
-                    self,
-                    DictionaryErrorKind::Sink(Error::Io(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "symbol store made no progress",
-                    ))),
-                ));
-            }
-            // `symbol_geometry` checked that this symbol's packed bytes fit
-            // `max_stored_bitmap_bytes` after every earlier symbol, and the
-            // rows written so far never exceed them.
-            self.progress.stored_bitmap_bytes += written as u64;
-            done += written;
-            self.direct_check_cancelled(mq)?;
-        }
-        Ok(())
-    }
-
     /// T.88 §6.5.10: alternating export runs over the imported exports and
     /// the new symbols. The first IAEX decode precedes the repeat-until
     /// condition, so even a zero-total dictionary consumes one zero run.
-    fn decode_exports<M: RangedSource, W: Write>(
-        &mut self,
-        unit: &mut Unit<'_, '_, M, C, W>,
-    ) -> DictionaryResult<()> {
+    fn decode_exports(&mut self, unit: &mut Unit<'_, '_, C>) -> DictionaryResult<()> {
         let total = self.imported.len() + self.catalog.new_symbols.len();
         let mut index = 0usize;
         let mut export = false;

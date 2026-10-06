@@ -5,6 +5,7 @@
 
 mod common;
 
+use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
@@ -14,7 +15,7 @@ use caj2pdf_core::{
 };
 use common::{
     CancelAfter,
-    hnc8_document::{Image, RENDER_DPI, convert as compose, document},
+    hnc8_document::{Image, RENDER_DPI, document},
 };
 use std::io::Write;
 use std::{
@@ -278,16 +279,7 @@ fn run(
     limits: &Limits,
     cancel: &impl Cancellation,
 ) -> Result<ComposeReport, ComposeError> {
-    compose(
-        source,
-        sink,
-        None,
-        &mut Default::default(),
-        &mut (),
-        options,
-        limits,
-        cancel,
-    )
+    compose(source, sink, None, &mut (), options, limits, cancel)
 }
 
 fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {

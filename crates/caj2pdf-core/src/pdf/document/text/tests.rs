@@ -24,7 +24,7 @@ impl Write for Sink {
                 .fail_after
                 .is_some_and(|limit| self.bytes.len() >= limit)
         {
-            return Err(std::io::Error::other("injected output failure").into());
+            return Err(std::io::Error::other("injected output failure"));
         }
         let count = bytes.len().min(7);
         self.bytes.extend_from_slice(&bytes[..count]);

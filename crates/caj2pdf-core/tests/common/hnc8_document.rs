@@ -7,17 +7,9 @@
 //! carry opaque text and admit only one JPEG. All bytes are original test
 //! data, not corpus content.
 
-use caj2pdf_core::{
-    Cancellation, Error, Limits, RangedSource,
-    hnc8::{
-        ComposeError, ComposeOptions, ComposeReport, ComposeType3Workspaces, ComposeVisitor,
-        Variant, convert_source_pages_pdf,
-    },
-    jbig2::{mq::MqTable, text_composer::RandomAccessScratch},
-    qm::QmTable,
-};
+use caj2pdf_core::hnc8::Variant;
 use flate2::{Compression, write::ZlibEncoder};
-use std::io::{self, Write};
+use std::io::Write;
 
 /// Source units per image pixel when every image fits in a 16-bit extent.
 /// At [`RENDER_DPI`] one image pixel is then one device pixel:
@@ -148,85 +140,4 @@ pub fn document(variant: Variant, pages: &[Vec<Image>]) -> Built {
         built.payloads.push(payloads);
     }
     built
-}
-
-/// An in-memory store; optionally fails reads after a number of calls.
-#[derive(Default)]
-pub struct Store {
-    pub bytes: Vec<u8>,
-    pub fail_read_after: Option<usize>,
-    pub read_calls: usize,
-}
-
-impl RandomAccessScratch for Store {
-    fn size(&self) -> caj2pdf_core::Result<u64> {
-        Ok(self.bytes.len() as u64)
-    }
-
-    fn set_len(&mut self, length: u64) -> caj2pdf_core::Result<()> {
-        self.bytes.resize(length as usize, 0);
-        Ok(())
-    }
-
-    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> caj2pdf_core::Result<usize> {
-        self.read_calls += 1;
-        if self
-            .fail_read_after
-            .is_some_and(|count| self.read_calls > count)
-        {
-            return Err(Error::Io(io::Error::other("injected scratch read failure")));
-        }
-        let start = offset as usize;
-        let count = bytes.len().min(self.bytes.len().saturating_sub(start));
-        bytes[..count].copy_from_slice(&self.bytes[start..start + count]);
-        Ok(count)
-    }
-
-    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        let start = offset as usize;
-        self.bytes[start..start + bytes.len()].copy_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        Ok(())
-    }
-}
-
-/// Run the document pipeline with the type-3 text scratch and symbol stores.
-#[allow(clippy::too_many_arguments)]
-pub fn convert<S, W, V, C>(
-    source: &mut S,
-    sink: &mut W,
-    table: Option<&QmTable>,
-    stores: &mut [Store; 4],
-    visitor: &mut V,
-    options: ComposeOptions,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<ComposeReport, ComposeError>
-where
-    S: RangedSource,
-    W: Write,
-    V: ComposeVisitor,
-    C: Cancellation,
-{
-    let mq = MqTable::standard();
-    let [text, first, second, refined] = stores;
-    convert_source_pages_pdf(
-        source,
-        sink,
-        table,
-        Some(ComposeType3Workspaces {
-            table: &mq,
-            first,
-            second,
-            refined,
-            text,
-        }),
-        visitor,
-        options,
-        limits,
-        cancellation,
-    )
 }

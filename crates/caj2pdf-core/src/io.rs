@@ -88,6 +88,103 @@ impl RangedSource for &[u8] {
     }
 }
 
+/// Bytes read into memory, with the source offset of their first byte.
+///
+/// The image decoders read a payload from memory but address it in source
+/// coordinates, so their errors keep naming source offsets. As a
+/// [`RangedSource`] it has the size of its end offset; bytes before its start
+/// are not readable.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Payload<'a> {
+    offset: u64,
+    bytes: &'a [u8],
+}
+
+impl<'a> Payload<'a> {
+    /// `bytes` start at source offset `offset`; their end must fit a `u64`.
+    pub fn new(offset: u64, bytes: &'a [u8]) -> Result<Self> {
+        offset
+            .checked_add(len_u64(bytes.len()))
+            .ok_or(Error::InvalidInput {
+                reason: "payload end overflows 64-bit offset",
+            })?;
+        Ok(Self { offset, bytes })
+    }
+
+    /// The source offset of the first byte.
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    pub fn bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+
+    /// The source offset just past the last byte.
+    pub fn end(&self) -> u64 {
+        // Checked by `new`.
+        self.offset + len_u64(self.bytes.len())
+    }
+
+    /// The `length` bytes at source offset `start`, if all lie in this payload.
+    pub fn get(&self, start: u64, length: u64) -> Option<&'a [u8]> {
+        let first = usize::try_from(start.checked_sub(self.offset)?).ok()?;
+        let last = first.checked_add(usize::try_from(length).ok()?)?;
+        self.bytes.get(first..last)
+    }
+}
+
+/// A slice starting at source offset zero.
+impl<'a> From<&'a [u8]> for Payload<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        Self { offset: 0, bytes }
+    }
+}
+
+impl RangedSource for Payload<'_> {
+    fn size(&self) -> u64 {
+        self.end()
+    }
+
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let relative = offset.checked_sub(self.offset).ok_or(Error::InvalidInput {
+            reason: "read starts before the payload",
+        })?;
+        self.bytes.read_at(relative, destination)
+    }
+}
+
+/// Read `length` bytes at `offset` into `buffer`, replacing its contents, in
+/// requests of at most one I/O chunk. The length must fit
+/// `limits.max_allocation_bytes`; the buffer is reused between payloads.
+pub fn read_payload<'a, S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    offset: u64,
+    length: u64,
+    buffer: &'a mut Vec<u8>,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Payload<'a>> {
+    limits.check_allocation(length)?;
+    let size =
+        usize::try_from(length).map_err(|_| limits.allocation_refused("payload bytes", length))?;
+    buffer.clear();
+    buffer
+        .try_reserve_exact(size)
+        .map_err(|_| limits.allocation_refused("payload bytes", length))?;
+    buffer.resize(size, 0);
+    for (index, chunk) in buffer.chunks_mut(limits.io_chunk_bytes).enumerate() {
+        // Each chunk starts below `length`, which fits a `usize`.
+        let at = offset
+            .checked_add(len_u64(index * limits.io_chunk_bytes))
+            .ok_or(Error::InvalidInput {
+                reason: "payload offset overflows 64-bit offset",
+            })?;
+        read_exact_at(source, at, chunk, limits, cancellation)?;
+    }
+    Payload::new(offset, buffer)
+}
+
 /// A platform-provided cancellation signal, checked between rows, pages and
 /// I/O chunks.
 pub trait Cancellation {

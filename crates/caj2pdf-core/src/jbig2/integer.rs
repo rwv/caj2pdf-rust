@@ -10,7 +10,6 @@
 
 use super::mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult, MqDecoder};
 use crate::arith::Coder;
-use crate::{Cancellation, RangedSource};
 
 pub const CONTEXTS_PER_PROCEDURE: usize = 512;
 pub const INTEGER_CONTEXT_COUNT: usize = 13 * CONTEXTS_PER_PROCEDURE;
@@ -64,8 +63,8 @@ pub enum IntegerValue {
     OutOfBand,
 }
 
-fn take<S: RangedSource, C: Cancellation>(
-    decoder: &mut MqDecoder<'_, S, C>,
+fn take(
+    decoder: &mut MqDecoder<'_>,
     base: usize,
     prev: &mut u16,
     decisions: &mut u8,
@@ -98,10 +97,10 @@ fn take<S: RangedSource, C: Cancellation>(
 ///
 /// The fixed layout reserves slots `0..6656` for the thirteen procedure
 /// banks. Missing capacity is rejected before any decision. One invocation
-/// consumes at most 38 MQ symbols; source, budget, and cancellation errors
-/// are returned unchanged. The caller decides whether OOB is legal here.
-pub fn decode_integer<S: RangedSource, C: Cancellation>(
-    decoder: &mut MqDecoder<'_, S, C>,
+/// consumes at most 38 MQ symbols; marker and budget errors are returned
+/// unchanged. The caller decides whether OOB is legal here.
+pub fn decode_integer(
+    decoder: &mut MqDecoder<'_>,
     procedure: IntegerProcedure,
 ) -> ArithmeticResult<IntegerValue> {
     let last = INTEGER_CONTEXT_COUNT - 1;
@@ -145,14 +144,7 @@ mod tests {
     use super::*;
     use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
     use crate::test_support::mq_encoder;
-    use crate::{Limits, NeverCancel, native::SeekableSource};
-    use std::{cell::Cell, io::Cursor, rc::Rc};
-
-    /// Every test reads through this one source type, so their paths share
-    /// one instantiation of the generic decoders.
-    fn vec_source(bytes: &[u8]) -> SeekableSource<Cursor<Vec<u8>>> {
-        SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap()
-    }
+    use crate::{Limits, Payload};
 
     fn whole(bytes: &[u8]) -> CodedSpan {
         CodedSpan {
@@ -176,15 +168,14 @@ mod tests {
         let bytes = encoder.finish();
         let limits = Limits::default();
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&bytes);
+        let source = Payload::from(&(&bytes)[..]);
         let table = MqTable::standard();
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&bytes),
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();
@@ -374,15 +365,14 @@ mod tests {
         for bytes in [&[0x00, 0x00][..], &[0x00, 0x00, 0x00, 0x00]] {
             let limits = Limits::default();
             let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-            let mut source = vec_source(bytes);
+            let source = Payload::from(bytes);
             let table = MqTable::standard();
             let mut decoder = MqDecoder::new(
-                &mut source,
+                source,
                 whole(bytes),
                 &table,
                 &mut bank,
                 &limits,
-                &NeverCancel,
                 MqBudget::default(),
             )
             .unwrap();
@@ -401,15 +391,14 @@ mod tests {
         let bytes = [0xff, 0xac];
         let limits = Limits::default();
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&bytes);
+        let source = Payload::from(&(&bytes)[..]);
         let table = MqTable::standard();
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&bytes),
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();
@@ -448,14 +437,13 @@ mod tests {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&bytes);
+        let source = Payload::from(&(&bytes)[..]);
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&bytes),
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();
@@ -473,14 +461,13 @@ mod tests {
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(INTEGER_CONTEXT_COUNT - 1, &limits).unwrap();
         let bytes = [0xff, 0xac];
-        let mut source = vec_source(&bytes);
+        let source = Payload::from(&(&bytes)[..]);
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&bytes),
             &table,
             &mut contexts,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();
@@ -492,15 +479,8 @@ mod tests {
         decoder.finish(0).unwrap();
     }
 
-    struct Flag(Rc<Cell<bool>>);
-    impl Cancellation for Flag {
-        fn is_cancelled(&self) -> bool {
-            self.0.get()
-        }
-    }
-
     #[test]
-    fn real_mq_budget_cancel_and_marker_errors_remain_visible() {
+    fn real_mq_budget_and_marker_errors_remain_visible() {
         let limits = Limits::default();
         let table = MqTable::standard();
         // IAAI 3 needs four decisions; a three-symbol budget stops it.
@@ -512,17 +492,9 @@ mod tests {
             ..MqBudget::default()
         };
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&bytes);
-        let mut decoder = MqDecoder::new(
-            &mut source,
-            whole(&bytes),
-            &table,
-            &mut bank,
-            &limits,
-            &NeverCancel,
-            budget,
-        )
-        .unwrap();
+        let source = Payload::from(&(&bytes)[..]);
+        let mut decoder =
+            MqDecoder::new(source, whole(&bytes), &table, &mut bank, &limits, budget).unwrap();
         let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
         assert!(matches!(
             error.kind,
@@ -533,25 +505,6 @@ mod tests {
         ));
         assert_eq!(decoder.snapshot().symbols_decoded, 3);
 
-        let cancelled = Rc::new(Cell::new(false));
-        let flag = Flag(cancelled.clone());
-        let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&bytes);
-        let mut decoder = MqDecoder::new(
-            &mut source,
-            whole(&bytes),
-            &table,
-            &mut bank,
-            &limits,
-            &flag,
-            MqBudget::default(),
-        )
-        .unwrap();
-        cancelled.set(true);
-        let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
-        assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
-        assert_eq!(decoder.snapshot().symbols_decoded, 0);
-
         // One complete integer, then an invalid pair where FF AC belongs.
         let mut encoder = mq_encoder();
         encoder.integer(IntegerProcedure::Iaai.base(), Some(3));
@@ -559,14 +512,13 @@ mod tests {
         invalid.resize(19, 0);
         invalid.extend_from_slice(&[0xff, 0x90]);
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&invalid);
+        let source = Payload::from(&(&invalid)[..]);
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&invalid),
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();
@@ -583,14 +535,13 @@ mod tests {
 
         let short = [0x80, 0];
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
-        let mut source = vec_source(&short);
+        let source = Payload::from(&(&short)[..]);
         let mut decoder = MqDecoder::new(
-            &mut source,
+            source,
             whole(&short),
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             MqBudget::default(),
         )
         .unwrap();

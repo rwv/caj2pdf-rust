@@ -176,7 +176,7 @@ fn create_unique(directory: &Path, stem: &OsString, mode: u32) -> io::Result<(Pa
 
 /// Create private storage whose name is removed before it is used. The OS
 /// releases the file when the handle closes, including after process exit.
-pub fn anonymous_file(directory: &Path) -> io::Result<File> {
+fn anonymous_file(directory: &Path) -> io::Result<File> {
     let (path, file) = create_unique(directory, &OsString::from(".caj2pdf-spool"), 0o600)?;
     fs::remove_file(path)?;
     Ok(file)

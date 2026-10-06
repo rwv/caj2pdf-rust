@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::NeverCancel;
+use crate::Payload;
 use crate::jbig2::{
     SegmentHeader, SegmentSpan,
     dictionary::{
@@ -22,13 +23,7 @@ use crate::jbig2::{
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
-use std::io::Write;
-use std::{
-    cell::{Cell, RefCell},
-    error::Error as StdError,
-    io,
-    rc::Rc,
-};
+use std::{cell::Cell, error::Error as StdError, rc::Rc};
 
 /// Raw text-region flags with the top-left reference corner.
 fn flags(default_pixel: bool, combination: SymbolCombination) -> u16 {
@@ -60,24 +55,6 @@ fn stored(store: SymbolStore, symbol: SymbolDescriptor) -> StoredSymbol {
         store,
         store_base: 0,
         symbol,
-    }
-}
-
-fn event(index: u32, symbol_id: u32, x: i64, y: i64, bitmap: TextBitmap) -> TextInstance {
-    let symbol = match bitmap {
-        TextBitmap::Stored(stored) => stored.symbol,
-        TextBitmap::Refined { symbol, .. } => symbol,
-    };
-    TextInstance {
-        index,
-        strip: 0,
-        symbol_id,
-        ri: matches!(bitmap, TextBitmap::Refined { .. }),
-        x,
-        y,
-        width: symbol.width,
-        height: symbol.height,
-        bitmap,
     }
 }
 
@@ -261,11 +238,9 @@ fn report(catalog: &[StoredSymbol]) -> DictionaryReport {
                 code: 0,
                 bit_counter: 0,
                 input_offset: 100,
-                source_bytes_fetched: 0,
                 synthesized_inputs: 0,
                 symbols_decoded: 0,
                 work_done: 0,
-                poisoned: false,
             }),
             ..DictionaryProgress::default()
         },
@@ -277,22 +252,21 @@ fn report(catalog: &[StoredSymbol]) -> DictionaryReport {
 }
 
 /// A text region coded for the real instance decoder, with the decoder's
-/// own views of the dictionary stores.
+/// own copies of the dictionary stores.
 struct Region {
-    source: Bytes,
+    source: Vec<u8>,
     text_segment: SegmentHeader,
     dictionary_segment: SegmentHeader,
     header: TextRegionHeader,
     report: DictionaryReport,
-    imported: Bytes,
+    imported: Vec<u8>,
     imported_base: u64,
-    new: Bytes,
+    new: Vec<u8>,
     new_base: u64,
     contexts: ContextBank,
     table: MqTable,
     limits: Limits,
     budget: TextInstanceBudget,
-    refined_base: u64,
 }
 
 impl Region {
@@ -322,15 +296,14 @@ impl Region {
             dictionary_segment,
             header,
             report: report(catalog),
-            imported: Bytes::new(imported),
+            imported: imported.to_vec(),
             imported_base: 0,
-            new: Bytes::new(new),
+            new: new.to_vec(),
             new_base: 0,
             contexts,
             table: MqTable::standard(),
             limits,
             budget: TextInstanceBudget::default(),
-            refined_base: 0,
         }
     }
 
@@ -340,12 +313,12 @@ impl Region {
         flags: u16,
         instances: u32,
         body: &[u8],
-    ) -> (TextRegionHeader, Bytes, SegmentHeader, SegmentHeader) {
-        let mut source = Bytes::new(&text_data(width, height, flags, instances, body));
-        let text_segment = segment(3, 6, vec![2], 0, source.size());
+    ) -> (TextRegionHeader, Vec<u8>, SegmentHeader, SegmentHeader) {
+        let source = text_data(width, height, flags, instances, body);
+        let text_segment = segment(3, 6, vec![2], 0, source.len() as u64);
         let dictionary_segment = segment(2, 0, vec![1], 100, 2);
         let header = read_text_region_header_with_policy(
-            &mut source,
+            &mut &source[..],
             &text_segment,
             &dictionary_segment,
             &Limits::default(),
@@ -374,24 +347,24 @@ impl Region {
         self.report.catalog.exported_symbols.clone()
     }
 
-    /// The real instance decoder, appending refined bitmaps to `temporary`.
+    /// The real instance decoder, appending refined bitmaps to `refined`.
     fn decoder<'r, C: Cancellation>(
         &'r mut self,
-        temporary: &'r mut Appender,
+        refined: &'r mut Vec<u8>,
         cancellation: &'r C,
-    ) -> TextInstanceDecoder<'r, Bytes, Bytes, Bytes, Appender, C> {
+    ) -> TextInstanceDecoder<'r, C> {
         TextInstanceDecoder::new_with_header_policy(
-            &mut self.source,
+            Payload::from(&self.source[..]),
             &self.text_segment,
             self.header,
             &self.dictionary_segment,
             &self.report,
-            &mut self.imported,
+            &self.imported,
             self.imported_base,
-            &mut self.new,
+            &self.new,
             self.new_base,
-            temporary,
-            self.refined_base,
+            refined,
+            0,
             &self.table,
             &mut self.contexts,
             &self.limits,
@@ -406,294 +379,57 @@ impl Region {
     }
 }
 
-#[derive(Default)]
-struct Bytes {
-    data: Rc<RefCell<Vec<u8>>>,
-    max_part: usize,
-    zero_at_call: Option<usize>,
-    over_at_call: Option<usize>,
-    shrink_at_call: Option<usize>,
-    shrink_after_read_at_call: Option<usize>,
-    reported_size: Option<u64>,
-    calls: usize,
+/// A completed composition: the report, the packed region bitmap, and the
+/// refined store the decoder appended to.
+struct Composed {
+    report: TextComposeReport,
+    bitmap: Vec<u8>,
+    refined: Vec<u8>,
 }
 
-impl Bytes {
-    fn new(data: &[u8]) -> Self {
-        Self {
-            data: Rc::new(RefCell::new(data.to_vec())),
-            max_part: usize::MAX,
-            ..Self::default()
-        }
-    }
-
-    /// A sink appending to these bytes, as the decoder's refined store.
-    fn appender(&self) -> Appender {
-        Appender(Rc::clone(&self.data))
-    }
-}
-
-impl RangedSource for Bytes {
-    fn size(&self) -> u64 {
-        self.reported_size
-            .unwrap_or(self.data.borrow().len() as u64)
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        self.calls += 1;
-        let mut data = self.data.borrow_mut();
-        if self.shrink_at_call == Some(self.calls) {
-            data.clear();
-        }
-        if self.zero_at_call == Some(self.calls) {
-            return Ok(0);
-        }
-        if self.over_at_call == Some(self.calls) {
-            return Ok(destination.len() + 1);
-        }
-        let start = usize::try_from(offset).unwrap_or(usize::MAX);
-        if start >= data.len() {
-            return Ok(0);
-        }
-        let n = destination.len().min(self.max_part).min(data.len() - start);
-        destination[..n].copy_from_slice(&data[start..start + n]);
-        if self.shrink_after_read_at_call == Some(self.calls) {
-            data.clear();
-        }
-        Ok(n)
-    }
-}
-
-/// Appends the decoder's refined bitmaps to a [`Bytes`] view.
-struct Appender(Rc<RefCell<Vec<u8>>>);
-
-impl Write for Appender {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.borrow_mut().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct Scratch {
-    data: Vec<u8>,
-    size_calls: Cell<usize>,
-    fail_size_at_call: Option<usize>,
-    max_part: usize,
-    read_calls: usize,
-    write_calls: usize,
-    flushes: usize,
-    fail_set_len: bool,
-    incorrect_set_len: bool,
-    fail_flush_at: Option<usize>,
-    zero_read_at: Option<usize>,
-    zero_write_at: Option<usize>,
-    over_read_at: Option<usize>,
-    over_write_at: Option<usize>,
-    shrink_after_write: Option<usize>,
-    shrink_after_read: Option<usize>,
-    invalid_size_when: Option<Rc<Cell<bool>>>,
-    cancel_after_write: Option<(usize, Rc<Cell<bool>>)>,
-}
-
-impl Scratch {
-    fn new() -> Self {
-        Self {
-            max_part: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl RandomAccessScratch for Scratch {
-    fn size(&self) -> crate::Result<u64> {
-        let call = self.size_calls.get() + 1;
-        self.size_calls.set(call);
-        if self.fail_size_at_call == Some(call) {
-            return Err(Error::Io(io::Error::other("size")));
-        }
-        if self
-            .invalid_size_when
-            .as_ref()
-            .is_some_and(|flag| flag.get())
-        {
-            Ok(0)
-        } else {
-            Ok(self.data.len() as u64)
-        }
-    }
-
-    fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
-        if self.fail_set_len {
-            return Err(Error::Io(io::Error::other("set_len")));
-        }
-        self.data
-            .resize(bytes as usize - usize::from(self.incorrect_set_len), 0);
-        Ok(())
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        self.read_calls += 1;
-        if self.zero_read_at == Some(self.read_calls) {
-            return Ok(0);
-        }
-        if self.over_read_at == Some(self.read_calls) {
-            return Ok(destination.len() + 1);
-        }
-        let start = offset as usize;
-        if start >= self.data.len() {
-            return Ok(0);
-        }
-        let n = destination
-            .len()
-            .min(self.max_part)
-            .min(self.data.len() - start);
-        destination[..n].copy_from_slice(&self.data[start..start + n]);
-        if self.shrink_after_read == Some(self.read_calls) {
-            self.data.clear();
-        }
-        Ok(n)
-    }
-
-    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
-        self.write_calls += 1;
-        if self.zero_write_at == Some(self.write_calls) {
-            return Ok(0);
-        }
-        if self.over_write_at == Some(self.write_calls) {
-            return Ok(bytes.len() + 1);
-        }
-        let start = offset as usize;
-        if start >= self.data.len() {
-            return Ok(0);
-        }
-        let n = bytes.len().min(self.max_part).min(self.data.len() - start);
-        self.data[start..start + n].copy_from_slice(&bytes[..n]);
-        if self.shrink_after_write == Some(self.write_calls) {
-            self.data.clear();
-        }
-        if let Some((call, flag)) = &self.cancel_after_write
-            && *call == self.write_calls
-        {
-            flag.set(true);
-        }
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> crate::Result<()> {
-        self.flushes += 1;
-        if self.fail_flush_at == Some(self.flushes) {
-            Err(Error::Io(io::Error::other("scratch flush")))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Default)]
-struct Sink {
-    data: Vec<u8>,
-    max_part: usize,
-    calls: usize,
-    flushes: usize,
-    zero_at_call: Option<usize>,
-    over_at_call: Option<usize>,
-    fail_flush: bool,
-    change_size_on_flush: Option<Rc<Cell<bool>>>,
-}
-
-impl Sink {
-    fn new() -> Self {
-        Self {
-            max_part: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl Write for Sink {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.calls += 1;
-        if self.zero_at_call == Some(self.calls) {
-            return Ok(0);
-        }
-        if self.over_at_call == Some(self.calls) {
-            return Ok(bytes.len() + 1);
-        }
-        let n = bytes.len().min(self.max_part);
-        self.data.extend_from_slice(&bytes[..n]);
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.flushes += 1;
-        if let Some(flag) = &self.change_size_on_flush {
-            flag.set(true);
-        }
-        if self.fail_flush {
-            Err(io::Error::other("output flush"))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// Decode `region` with the real instance decoder and compose it through the
-/// given composer views. The refined view is the store the decoder appends
-/// refined bitmaps to.
-fn compose(
+/// Decode `region` with the real instance decoder and compose it over the
+/// given catalog and views of the dictionary stores.
+fn compose_views<C: Cancellation>(
     region: &mut Region,
-    imported: &mut Bytes,
-    new: &mut Bytes,
-    refined: &mut Bytes,
-    scratch: &mut Scratch,
-    output: &mut Sink,
+    catalog: &[StoredSymbol],
+    [imported, new]: [&[u8]; 2],
+    refined_base: u64,
     budget: TextComposeBudget,
-) -> TextComposeResult<TextComposeReport> {
-    let catalog = region.catalog();
+    cancellation: &C,
+) -> TextComposeResult<Composed> {
     let header = region.header;
     let limits = Limits::default();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut composer = TextComposer::new(
+    let mut refined = Vec::new();
+    let mut bitmap = Vec::new();
+    let mut decoder = region.decoder(&mut refined, cancellation);
+    let report = TextComposer::new(
         3,
         header,
-        &catalog,
+        catalog,
         &mut decoder,
         imported,
         0,
         new,
         0,
-        refined,
-        0,
-        scratch,
-        output,
+        refined_base,
+        &mut bitmap,
         &limits,
-        &NeverCancel,
+        cancellation,
         budget,
-    )?;
-    composer.compose()
+    )?
+    .compose()?;
+    Ok(Composed {
+        report,
+        bitmap,
+        refined,
+    })
 }
 
-fn one_pixel_run(
-    imported: &mut Bytes,
-    scratch: &mut Scratch,
-    output: &mut Sink,
-    budget: TextComposeBudget,
-) -> TextComposeResult<TextComposeReport> {
-    compose(
-        &mut Region::one_pixel(),
-        imported,
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        scratch,
-        output,
-        budget,
-    )
+/// Compose `region` over its own catalog and stores.
+fn compose(region: &mut Region, budget: TextComposeBudget) -> TextComposeResult<Composed> {
+    let catalog = region.catalog();
+    let (imported, new) = (region.imported.clone(), region.new.clone());
+    compose_views(region, &catalog, [&imported, &new], 0, budget, &NeverCancel)
 }
 
 #[test]
@@ -703,16 +439,9 @@ fn completed_report_retains_explicit_header_anomaly() {
     let mut region = Region::new(1, 1, 0xa40c, &[symbol], [&[0x80], &[]], &[place(0, 0, 0)]);
     assert_eq!(region.header.flags.log_strips, 3);
     assert_eq!(region.header.flags.ds_offset, 9);
-    let report = compose(
-        &mut region,
-        &mut Bytes::new(&[0x80]),
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        &mut Scratch::new(),
-        &mut Sink::new(),
-        TextComposeBudget::default(),
-    )
-    .unwrap();
+    let report = compose(&mut region, TextComposeBudget::default())
+        .unwrap()
+        .report;
     assert_eq!(report.text_flags_raw, 0xa40c);
     assert_eq!(
         report.header_anomaly,
@@ -739,42 +468,20 @@ fn composes_imported_new_and_refined_handles_in_nonmonotone_order() {
             place(1, -4, 1),
         ],
     );
-    let mut imported = Bytes::new(&imported_rows);
-    let mut new = Bytes::new(&new_rows);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let report = compose(
-        &mut region,
-        &mut imported,
-        &mut new,
-        &mut refined,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap();
+    let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
     // The decoder appended the refined 1x2 bitmap the composer then read.
-    assert_eq!(*refined.data.borrow(), [0x80, 0x80]);
-    assert_eq!(output.data, [0xd0, 0xb8, 0x18]);
-    assert_eq!(scratch.data, output.data);
+    assert_eq!(composed.refined, [0x80, 0x80]);
+    assert_eq!(composed.bitmap, [0xd0, 0xb8, 0x18]);
+    let report = composed.report;
     assert_eq!(
         (
             report.progress.completed_instances,
-            report.progress.output_rows,
             report.progress.touched_pixels
         ),
-        (4, 3, 12)
+        (4, 12)
     );
-    assert_eq!(
-        (report.packed_bytes, report.progress.output_bytes_written),
-        (3, 3)
-    );
+    assert_eq!(report.packed_bytes, 3);
     assert_eq!(report.progress.stage, TextComposeStage::Complete);
-    assert!(!report.progress.poisoned);
-    assert_eq!(report.progress.source_bytes_read, 6);
-    assert_eq!(scratch.flushes, 2);
-    assert_eq!(output.flushes, 1);
 }
 
 #[test]
@@ -789,20 +496,10 @@ fn exact_negative_clipping_and_entirely_off_region_instances() {
         [&rows, &[]],
         &[place(0, -1, -1), place(0, 5, 4)],
     );
-    let mut output = Sink::new();
-    let report = compose(
-        &mut region,
-        &mut Bytes::new(&rows),
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        &mut Scratch::new(),
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap();
-    assert_eq!(output.data, [0x80, 0x00]);
-    assert_eq!(report.progress.touched_pixels, 2);
-    assert_eq!(report.progress.source_bytes_read, 1);
+    let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+    assert_eq!(composed.bitmap, [0x80, 0x00]);
+    assert_eq!(composed.report.progress.touched_pixels, 2);
+    assert_eq!(composed.report.progress.completed_instances, 2);
 }
 
 #[test]
@@ -825,18 +522,8 @@ fn all_symbol_operators_preserve_placement_order_and_padding() {
             [&rows, &[]],
             &[place(0, 0, 0), place(1, 1, 0)],
         );
-        let mut output = Sink::new();
-        compose(
-            &mut region,
-            &mut Bytes::new(&rows),
-            &mut Bytes::new(&[]),
-            &mut Bytes::new(&[]),
-            &mut Scratch::new(),
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap();
-        assert_eq!(output.data, [expected], "{operator:?}");
+        let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+        assert_eq!(composed.bitmap, [expected], "{operator:?}");
     }
 }
 
@@ -854,22 +541,10 @@ fn zero_instances_initialize_both_default_pixels_and_clear_padding() {
             [&[], &[]],
             &[],
         );
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let report = compose(
-            &mut region,
-            &mut Bytes::new(&[]),
-            &mut Bytes::new(&[]),
-            &mut Bytes::new(&[]),
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap();
-        assert_eq!(output.data, expected);
-        assert_eq!(scratch.data, expected);
-        assert_eq!(report.progress.completed_instances, 0);
-        assert_eq!(report.progress.output_rows, 2);
+        let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+        assert_eq!(composed.bitmap, expected);
+        assert_eq!(composed.report.progress.completed_instances, 0);
+        assert_eq!(composed.report.progress.work_units, 4);
     }
 }
 
@@ -886,181 +561,12 @@ fn checked_top_left_placement_is_used_for_every_corner_and_transpose_mode() {
             let raw = code << 4 | u16::from(transposed) << 6;
             let mut region = Region::new(4, 3, raw, &[symbol], [&[0xc0], &[]], &[place(0, 1, 2)]);
             assert_eq!(region.header.flags.reference_corner, corner);
-            let mut output = Sink::new();
-            compose(
-                &mut region,
-                &mut Bytes::new(&[0xc0]),
-                &mut Bytes::new(&[]),
-                &mut Bytes::new(&[]),
-                &mut Scratch::new(),
-                &mut output,
-                TextComposeBudget::default(),
-            )
-            .unwrap();
+            let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
             assert_eq!(
-                output.data,
+                composed.bitmap,
                 [0, 0, 0x60],
                 "{corner:?}, transposed={transposed}"
             );
-        }
-    }
-}
-
-#[test]
-fn short_io_is_counted_and_request_sizes_stay_bounded() {
-    let symbol = stored(SymbolStore::Imported, descriptor(10, 2, 0));
-    let rows = [0xff, 0xc0, 0x80, 0x00];
-    let mut region = Region::new(
-        10,
-        2,
-        flags(false, SymbolCombination::Or),
-        &[symbol],
-        [&rows, &[]],
-        &[place(0, 0, 0)],
-    );
-    let mut imported = Bytes::new(&rows);
-    imported.max_part = 1;
-    let mut scratch = Scratch::new();
-    scratch.max_part = 1;
-    let mut output = Sink::new();
-    output.max_part = 1;
-    let budget = TextComposeBudget {
-        max_request_bytes: 1,
-        ..TextComposeBudget::default()
-    };
-    let report = compose(
-        &mut region,
-        &mut imported,
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        &mut scratch,
-        &mut output,
-        budget,
-    )
-    .unwrap();
-    assert_eq!(output.data, [0xff, 0xc0, 0x80, 0x00]);
-    assert_eq!(
-        (
-            report.progress.source_bytes_read,
-            report.progress.scratch_bytes_read,
-            report.progress.scratch_bytes_written,
-            report.progress.output_bytes_written
-        ),
-        (4, 8, 8, 4)
-    );
-    assert_eq!(report.progress.max_request_bytes, 1);
-    assert!(report.progress.peak_resident_bytes <= budget.max_resident_bytes);
-    assert_eq!(report.progress.output_rows, 2);
-}
-
-#[test]
-fn zero_and_overreported_source_io_are_located_and_poisoned() {
-    for overreported in [false, true] {
-        let mut imported = Bytes::new(&[0x80]);
-        if overreported {
-            imported.over_at_call = Some(1);
-        } else {
-            imported.zero_at_call = Some(1);
-        }
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let error = one_pixel_run(
-            &mut imported,
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap_err();
-        assert_eq!(error.progress.stage, TextComposeStage::Instance);
-        assert!(error.progress.poisoned);
-        assert_eq!(error.progress.completed_instances, 0);
-        assert_eq!(error.offset, 0);
-        if overreported {
-            assert!(matches!(
-                error.kind,
-                TextComposeErrorKind::Malformed("symbol source overreported read")
-            ));
-        } else {
-            assert!(matches!(
-                error.kind,
-                TextComposeErrorKind::Source {
-                    store: BitmapStore::Imported,
-                    error: Error::TruncatedInput { .. }
-                }
-            ));
-        }
-    }
-}
-
-#[test]
-fn scratch_initialization_rmw_and_readback_failures_preserve_physical_progress() {
-    for phase in 0..8 {
-        let mut imported = Bytes::new(&[0x80]);
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        match phase {
-            0 => scratch.fail_set_len = true,
-            1 => scratch.incorrect_set_len = true,
-            2 => scratch.zero_write_at = Some(1),
-            3 => scratch.over_write_at = Some(1),
-            4 => scratch.zero_read_at = Some(1),
-            5 => scratch.zero_write_at = Some(3),
-            6 => scratch.zero_read_at = Some(2),
-            _ => scratch.over_read_at = Some(2),
-        }
-        let error = one_pixel_run(
-            &mut imported,
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap_err();
-        assert!(error.progress.poisoned, "phase {phase}");
-        assert_eq!(error.progress.output_bytes_written, 0, "phase {phase}");
-        assert!(
-            matches!(
-                error.kind,
-                TextComposeErrorKind::Scratch(_) | TextComposeErrorKind::Malformed(_)
-            ),
-            "phase {phase}"
-        );
-        match phase {
-            0..=3 => assert_eq!(error.progress.stage, TextComposeStage::Initialize),
-            4..=5 => assert_eq!(error.progress.stage, TextComposeStage::Instance),
-            _ => assert_eq!(error.progress.stage, TextComposeStage::Readback),
-        }
-    }
-}
-
-#[test]
-fn output_partial_failure_and_flush_failure_are_poisoned() {
-    for failure in 0..3 {
-        let mut imported = Bytes::new(&[0x80]);
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        output.max_part = 1;
-        match failure {
-            0 => output.zero_at_call = Some(2),
-            1 => output.over_at_call = Some(2),
-            _ => output.fail_flush = true,
-        }
-        let error = one_pixel_run(
-            &mut imported,
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap_err();
-        assert!(error.progress.poisoned);
-        assert_eq!(
-            error.progress.output_bytes_written,
-            if failure == 2 { 2 } else { 1 }
-        );
-        assert_eq!(output.data.len(), if failure == 2 { 2 } else { 1 });
-        if failure == 2 {
-            assert_eq!(error.progress.stage, TextComposeStage::OutputFlush);
-        } else {
-            assert_eq!(error.progress.stage, TextComposeStage::Readback);
         }
     }
 }
@@ -1075,85 +581,41 @@ impl Cancellation for Flag {
 }
 
 #[test]
-fn cancellation_after_partial_initialization_poisoned_without_final_output() {
+fn cancellation_is_checked_before_initialization() {
     let mut region = Region::one_pixel();
     let catalog = region.catalog();
-    let header = region.header;
-    let mut imported = Bytes::new(&[0x80]);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
     let flag = Rc::new(Cell::new(false));
     let cancel = Flag(Rc::clone(&flag));
-    let mut scratch = Scratch::new();
-    scratch.cancel_after_write = Some((1, Rc::clone(&flag)));
-    let mut output = Sink::new();
+    let header = region.header;
     let limits = Limits::default();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &cancel);
-    let mut composer = TextComposer::new(
+    let mut refined = Vec::new();
+    let mut bitmap = Vec::new();
+    let mut decoder = region.decoder(&mut refined, &cancel);
+    let composer = TextComposer::new(
         3,
         header,
         &catalog,
         &mut decoder,
-        &mut imported,
+        &[0x80],
         0,
-        &mut new,
+        &[],
         0,
-        &mut refined,
         0,
-        &mut scratch,
-        &mut output,
+        &mut bitmap,
         &limits,
         &cancel,
         TextComposeBudget::default(),
     )
     .unwrap();
+    flag.set(true);
     let error = composer.compose().unwrap_err();
     assert!(matches!(error.kind, TextComposeErrorKind::Cancelled));
-    assert_eq!(error.progress.scratch_bytes_written, 1);
-    assert_eq!(error.progress.output_bytes_written, 0);
-    assert!(matches!(
-        composer.compose().unwrap_err().kind,
-        TextComposeErrorKind::Poisoned
-    ));
-}
-
-/// Compose `region` through views whose catalog differs from the decoder's.
-fn compose_with_catalog(
-    region: &mut Region,
-    catalog: &[StoredSymbol],
-    imported: &mut Bytes,
-    new: &mut Bytes,
-    refined: &mut Bytes,
-    output: &mut Sink,
-) -> TextComposeResult<TextComposeReport> {
-    let header = region.header;
-    let limits = Limits::default();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut scratch = Scratch::new();
-    let mut composer = TextComposer::new(
-        3,
-        header,
-        catalog,
-        &mut decoder,
-        imported,
-        0,
-        new,
-        0,
-        refined,
-        0,
-        &mut scratch,
-        output,
-        &limits,
-        &NeverCancel,
-        TextComposeBudget::default(),
-    )?;
-    composer.compose()
+    assert_eq!(error.progress.stage, TextComposeStage::Initialize);
+    assert_eq!(error.progress.work_units, 0);
 }
 
 #[test]
-fn handles_unlike_the_callers_catalog_or_views_fail_before_any_symbol_read() {
+fn handles_unlike_the_callers_catalog_or_views_fail_before_composition() {
     let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
     for refined_case in [false, true] {
         let (flags, placement) = if refined_case {
@@ -1163,27 +625,23 @@ fn handles_unlike_the_callers_catalog_or_views_fail_before_any_symbol_read() {
         };
         let mut region = Region::new(3, 2, flags, &[symbol], [&[0x80], &[]], &[placement]);
         let mut catalog = region.catalog();
-        if refined_case {
-            // The decoder appends refined bitmaps at a base the caller's
-            // refined view does not use.
-            region.refined_base = 1;
-        } else {
-            // The caller claims the symbol is in the new store.
+        // The decoder appends refined bitmaps at a base the caller's refined
+        // view does not use, or the caller claims the symbol is in the new
+        // store.
+        let refined_base = u64::from(refined_case);
+        if !refined_case {
             catalog[0].store = SymbolStore::New;
         }
-        let mut imported = Bytes::new(&[0x80]);
-        let mut new = Bytes::new(&[0x80]);
-        let mut refined = Bytes::new(&[0]);
-        let mut output = Sink::new();
-        let error = compose_with_catalog(
+        let error = compose_views(
             &mut region,
             &catalog,
-            &mut imported,
-            &mut new,
-            &mut refined,
-            &mut output,
+            [&[0x80], &[0x80]],
+            refined_base,
+            TextComposeBudget::default(),
+            &NeverCancel,
         )
-        .unwrap_err();
+        .err()
+        .expect("expected a refusal");
         assert!(
             matches!(
                 error.kind,
@@ -1191,9 +649,8 @@ fn handles_unlike_the_callers_catalog_or_views_fail_before_any_symbol_read() {
             ),
             "{error}"
         );
-        assert_eq!(imported.calls + new.calls + refined.calls, 0);
         assert_eq!(error.progress.completed_instances, 0);
-        assert!(output.data.is_empty());
+        assert_eq!(error.progress.touched_pixels, 0);
     }
 }
 
@@ -1224,17 +681,16 @@ fn catalog_store_base_must_match_the_caller_view() {
             SymbolStore::Imported => region.imported_base = 1,
             SymbolStore::New => region.new_base = 1,
         }
-        let mut imported = Bytes::new(&views);
-        let mut new = Bytes::new(&views);
-        let error = compose_with_catalog(
+        let error = compose_views(
             &mut region,
             &[symbol],
-            &mut imported,
-            &mut new,
-            &mut Bytes::new(&[]),
-            &mut Sink::new(),
+            [&views, &views],
+            0,
+            TextComposeBudget::default(),
+            &NeverCancel,
         )
-        .unwrap_err();
+        .err()
+        .expect("expected a refusal");
         assert!(
             matches!(
                 error.kind,
@@ -1242,95 +698,45 @@ fn catalog_store_base_must_match_the_caller_view() {
             ),
             "{error}"
         );
-        assert_eq!(imported.calls + new.calls, 0);
     }
 }
 
 #[test]
 fn region_and_runtime_budgets_refuse_before_excess_work() {
-    let mut checks: Vec<(TextComposeBudget, &str, TextComposeStage)> = Vec::new();
     let default = TextComposeBudget::default();
-    checks.push((
-        TextComposeBudget {
-            max_region_pixels: 5,
-            ..default
-        },
-        "region pixels",
-        TextComposeStage::Preflight,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_scratch_bytes: 1,
-            ..default
-        },
-        "scratch bytes",
-        TextComposeStage::Preflight,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_output_bytes: 1,
-            ..default
-        },
-        "final output bytes",
-        TextComposeStage::Preflight,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_row_bytes: 0,
-            ..default
-        },
-        "row bytes",
-        TextComposeStage::Preflight,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_touched_pixels_per_instance: 0,
-            ..default
-        },
-        "per-instance touched pixels",
-        TextComposeStage::Instance,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_source_read_bytes: 0,
-            ..default
-        },
-        "source read bytes",
-        TextComposeStage::Instance,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_scratch_read_bytes: 0,
-            ..default
-        },
-        "scratch read bytes",
-        TextComposeStage::Instance,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_scratch_write_bytes: 1,
-            ..default
-        },
-        "scratch write bytes",
-        TextComposeStage::Initialize,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_work_units: 2,
-            ..default
-        },
-        "composition work",
-        TextComposeStage::Instance,
-    ));
-    checks.push((
-        TextComposeBudget {
-            max_resident_bytes: 1,
-            ..default
-        },
-        "resident row bytes",
-        TextComposeStage::Instance,
-    ));
-    for (budget, resource, stage) in [
+    let checks = [
+        (
+            TextComposeBudget {
+                max_region_pixels: 5,
+                ..default
+            },
+            "region pixels",
+            TextComposeStage::Preflight,
+        ),
+        (
+            TextComposeBudget {
+                max_scratch_bytes: 1,
+                ..default
+            },
+            "scratch bytes",
+            TextComposeStage::Preflight,
+        ),
+        (
+            TextComposeBudget {
+                max_row_bytes: 0,
+                ..default
+            },
+            "row bytes",
+            TextComposeStage::Preflight,
+        ),
+        (
+            TextComposeBudget {
+                max_touched_pixels_per_instance: 0,
+                ..default
+            },
+            "per-instance touched pixels",
+            TextComposeStage::Instance,
+        ),
         (
             TextComposeBudget {
                 max_total_touched_pixels: 0,
@@ -1349,38 +755,6 @@ fn region_and_runtime_budgets_refuse_before_excess_work() {
         ),
         (
             TextComposeBudget {
-                max_source_read_calls: 0,
-                ..default
-            },
-            "source read calls",
-            TextComposeStage::Instance,
-        ),
-        (
-            TextComposeBudget {
-                max_scratch_read_calls: 0,
-                ..default
-            },
-            "scratch read calls",
-            TextComposeStage::Instance,
-        ),
-        (
-            TextComposeBudget {
-                max_scratch_write_calls: 0,
-                ..default
-            },
-            "scratch write calls",
-            TextComposeStage::Initialize,
-        ),
-        (
-            TextComposeBudget {
-                max_output_write_calls: 0,
-                ..default
-            },
-            "output write calls",
-            TextComposeStage::Readback,
-        ),
-        (
-            TextComposeBudget {
                 max_work_units: 0,
                 ..default
             },
@@ -1389,104 +763,23 @@ fn region_and_runtime_budgets_refuse_before_excess_work() {
         ),
         (
             TextComposeBudget {
-                max_work_units: 3,
+                max_work_units: 2,
                 ..default
             },
             "composition work",
-            TextComposeStage::Readback,
+            TextComposeStage::Instance,
         ),
-    ] {
-        checks.push((budget, resource, stage));
-    }
+    ];
     for (budget, resource, stage) in checks {
-        let mut imported = Bytes::new(&[0x80]);
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let error = one_pixel_run(&mut imported, &mut scratch, &mut output, budget).unwrap_err();
+        let error = compose(&mut Region::one_pixel(), budget)
+            .err()
+            .expect("expected a refusal");
         assert_eq!(error.progress.stage, stage, "{resource}");
         assert!(
             matches!(error.kind, TextComposeErrorKind::LimitExceeded { resource: actual, .. } if actual == resource),
             "{resource}"
         );
-        assert!(error.progress.scratch_bytes_written <= 3);
-        assert!(error.progress.source_bytes_read <= 1);
-        assert!(error.progress.output_bytes_written == 0);
-    }
-}
-
-#[test]
-fn changing_source_or_scratch_size_is_refused() {
-    let mut imported = Bytes::new(&[0x80]);
-    imported.shrink_after_read_at_call = Some(1);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Imported,
-            reason: "size changed"
-        }
-    ));
-    assert_eq!(error.progress.source_bytes_read, 1);
-    assert!(error.progress.poisoned);
-
-    let mut imported = Bytes::new(&[0x80]);
-    let mut scratch = Scratch::new();
-    scratch.shrink_after_write = Some(1);
-    let mut output = Sink::new();
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::Malformed("scratch size changed")
-    ));
-    assert_eq!(error.progress.scratch_bytes_written, 1);
-    assert!(error.progress.poisoned);
-}
-
-#[test]
-fn scratch_flush_failures_before_composition_and_readback_are_located() {
-    for at in [1, 2] {
-        let mut imported = Bytes::new(&[0x80]);
-        let mut scratch = Scratch::new();
-        scratch.fail_flush_at = Some(at);
-        let mut output = Sink::new();
-        let error = one_pixel_run(
-            &mut imported,
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error.kind,
-            TextComposeErrorKind::Scratch(Error::Io(_))
-        ));
-        assert_eq!(
-            error.progress.stage,
-            if at == 1 {
-                TextComposeStage::Initialize
-            } else {
-                TextComposeStage::Instance
-            }
-        );
-        assert_eq!(
-            error.progress.completed_instances,
-            if at == 1 { 0 } else { 1 }
-        );
-        assert_eq!(error.progress.output_bytes_written, 0);
+        assert_eq!(error.progress.touched_pixels, 0, "{resource}");
     }
 }
 
@@ -1512,21 +805,15 @@ fn fixed_budget_mutations_produce_bounded_success_or_typed_refusal() {
             max_scratch_bytes: 2,
             max_touched_pixels_per_instance: 1,
             max_total_touched_pixels: 1,
-            max_source_read_bytes: 1,
-            max_scratch_read_bytes: 3,
-            max_scratch_write_bytes: 3,
-            max_output_bytes: 2,
-            max_work_units: 5,
+            max_work_units: 3,
             max_row_bytes: 1,
-            max_request_bytes: 1,
-            max_resident_bytes: 2,
             ..TextComposeBudget::default()
         };
         match state & 7 {
             0 => budget.max_region_pixels = 5,
             1 => budget.max_touched_pixels_per_instance = 0,
             2 => budget.max_work_units = 2,
-            3 => budget.max_scratch_write_bytes = 1,
+            3 => budget.max_symbol_bytes = 0,
             _ => {}
         }
         let mut region = Region::new(
@@ -1537,18 +824,11 @@ fn fixed_budget_mutations_produce_bounded_success_or_typed_refusal() {
             [&[0x80], &[]],
             &[place(0, x, y)],
         );
-        match compose(
-            &mut region,
-            &mut Bytes::new(&[0x80]),
-            &mut Bytes::new(&[]),
-            &mut Bytes::new(&[]),
-            &mut Scratch::new(),
-            &mut Sink::new(),
-            budget,
-        ) {
-            Ok(report) => {
+        match compose(&mut region, budget) {
+            Ok(composed) => {
                 completed += 1;
-                assert_eq!(report.progress.output_bytes_written, 2);
+                assert_eq!(composed.bitmap.len(), 2);
+                assert!(composed.report.progress.work_units <= 3);
             }
             Err(error) => {
                 refused += 1;
@@ -1558,10 +838,7 @@ fn fixed_budget_mutations_produce_bounded_success_or_typed_refusal() {
                         | TextComposeErrorKind::InvalidSpan(_)
                         | TextComposeErrorKind::LimitExceeded { .. }
                 ));
-                assert!(error.progress.source_bytes_read <= 1);
-                assert!(error.progress.scratch_bytes_read <= 3);
-                assert!(error.progress.scratch_bytes_written <= 3);
-                assert!(error.progress.output_bytes_written <= 2);
+                assert!(error.progress.touched_pixels <= 1);
             }
         }
     }
@@ -1601,25 +878,6 @@ fn composition_errors_have_stable_messages_and_nested_causes() {
             "instance:",
             true,
         ),
-        (
-            TextComposeErrorKind::Source {
-                store: BitmapStore::New,
-                error: Error::Io(io::Error::other("source")),
-            },
-            "New symbol source",
-            true,
-        ),
-        (
-            TextComposeErrorKind::Scratch(Error::Io(io::Error::other("scratch"))),
-            "scratch:",
-            true,
-        ),
-        (
-            TextComposeErrorKind::Output(Error::Io(io::Error::other("output"))),
-            "output:",
-            true,
-        ),
-        (TextComposeErrorKind::Poisoned, "poisoned", false),
     ];
     for (kind, phrase, has_source) in cases {
         let error = TextComposeError {
@@ -1664,96 +922,11 @@ fn composition_error_display_propagates_partial_writer_failure() {
 }
 
 #[test]
-fn short_reader_mutation_and_final_scratch_mutation_are_rejected() {
-    let mut imported = Bytes::new(&[0x80]);
-    let mut scratch = Scratch::new();
-    scratch.shrink_after_read = Some(1);
-    let mut output = Sink::new();
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::Malformed("scratch size changed")
-    ));
-    assert_eq!(error.progress.scratch_bytes_read, 1);
-
-    let mut imported = Bytes::new(&[0x80]);
-    let mut scratch = Scratch::new();
-    let flag = Rc::new(Cell::new(false));
-    scratch.invalid_size_when = Some(Rc::clone(&flag));
-    let mut output = Sink::new();
-    output.change_size_on_flush = Some(flag);
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::Malformed("scratch size changed")
-    ));
-    assert_eq!(error.progress.stage, TextComposeStage::OutputFlush);
-    assert_eq!(error.progress.output_bytes_written, 2);
-}
-
-#[test]
-fn scratch_size_errors_are_typed_and_located() {
-    let mut imported = Bytes::new(&[0x80]);
-    let mut scratch = Scratch::new();
-    scratch.fail_size_at_call = Some(1);
-    let mut output = Sink::new();
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::Scratch(Error::Io(_))
-    ));
-    assert_eq!(error.progress.stage, TextComposeStage::Preflight);
-
-    let mut imported = Bytes::new(&[0x80]);
-    let mut scratch = Scratch::new();
-    scratch.fail_size_at_call = Some(2);
-    let mut output = Sink::new();
-    let error = one_pixel_run(
-        &mut imported,
-        &mut scratch,
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::Scratch(Error::Io(_))
-    ));
-    assert_eq!(error.progress.stage, TextComposeStage::Initialize);
-    assert_eq!(error.offset, 0);
-    assert!(error.progress.poisoned);
-}
-
-#[test]
 fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
-    for case in 0..13 {
+    for case in 0..10 {
         let mut region = Region::one_pixel();
         let mut h = region.header;
-        let mut imported = Bytes::new(&[0x80]);
-        let mut new = Bytes::new(&[]);
-        let mut refined = Bytes::new(&[]);
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
         let mut limits = Limits::default();
-        let mut budget = TextComposeBudget::default();
         let mut segment = 3;
         let mut catalog = region.catalog();
         let mut imported_base = 0;
@@ -1765,32 +938,28 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
             3 => h.region.width = 0,
             4 => h.flags.huffman = true,
             5 => catalog.clear(),
-            6 => budget.max_request_bytes = 0,
-            7 => budget.max_request_bytes = limits.io_chunk_bytes + 1,
-            8 => imported_base = 2,
-            9 => scratch.data.push(0),
-            10 => h.flags.refine = true,
-            11 => h.region.width = 4,
+            6 => imported_base = 2,
+            7 => h.flags.refine = true,
+            8 => h.region.width = 4,
             _ => h.segment = 4,
         }
-        let mut temporary = refined.appender();
-        let mut decoder = region.decoder(&mut temporary, &NeverCancel);
+        let mut refined = Vec::new();
+        let mut bitmap = Vec::new();
+        let mut decoder = region.decoder(&mut refined, &NeverCancel);
         let error = TextComposer::new(
             segment,
             h,
             &catalog,
             &mut decoder,
-            &mut imported,
+            &[0x80],
             imported_base,
-            &mut new,
+            &[],
             0,
-            &mut refined,
             0,
-            &mut scratch,
-            &mut output,
+            &mut bitmap,
             &limits,
             &NeverCancel,
-            budget,
+            TextComposeBudget::default(),
         )
         .err()
         .expect("expected preflight refusal");
@@ -1799,21 +968,20 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
             TextComposeStage::Preflight,
             "case {case}"
         );
-        assert_eq!(error.progress.scratch_bytes_written, 0, "case {case}");
-        assert_eq!(error.progress.output_bytes_written, 0, "case {case}");
+        assert!(bitmap.is_empty(), "case {case}");
         match case {
             1 => assert!(matches!(
                 error.kind,
                 TextComposeErrorKind::LimitExceeded { .. }
             )),
-            8 => assert!(matches!(error.kind, TextComposeErrorKind::InvalidSpan(_))),
+            6 => assert!(matches!(error.kind, TextComposeErrorKind::InvalidSpan(_))),
             _ => assert!(matches!(error.kind, TextComposeErrorKind::Malformed(_))),
         }
     }
 }
 
 #[test]
-fn malformed_source_descriptors_are_refused_before_io() {
+fn malformed_source_descriptors_are_refused() {
     let cases = [
         descriptor(0, 1, 0),
         descriptor(1, 0, 0),
@@ -1827,245 +995,28 @@ fn malformed_source_descriptors_are_refused_before_io() {
         },
     ];
     for descriptor in cases {
-        let mut region = Region::one_pixel();
-        let mut imported = Bytes::new(&[0x80, 0]);
-        let error = compose_with_catalog(
-            &mut region,
+        let error = compose_views(
+            &mut Region::one_pixel(),
             &[stored(SymbolStore::Imported, descriptor)],
-            &mut imported,
-            &mut Bytes::new(&[]),
-            &mut Bytes::new(&[]),
-            &mut Sink::new(),
-        )
-        .unwrap_err();
-        assert!(matches!(error.kind, TextComposeErrorKind::Malformed(_)));
-        assert_eq!(imported.calls, 0);
-    }
-}
-
-#[test]
-fn internal_io_error_mapping_and_pre_io_size_guards_are_located() {
-    let mut region = Region::one_pixel();
-    let catalog = region.catalog();
-    let header = region.header;
-    let symbol = catalog[0];
-    let mut imported = Bytes::new(&[0x80]);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let limits = Limits::default();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut composer = TextComposer::new(
-        3,
-        header,
-        &catalog,
-        &mut decoder,
-        &mut imported,
-        0,
-        &mut new,
-        0,
-        &mut refined,
-        0,
-        &mut scratch,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        TextComposeBudget::default(),
-    )
-    .unwrap();
-    assert!(matches!(
-        composer.scratch_error(2, Error::Cancelled).kind,
-        TextComposeErrorKind::Cancelled
-    ));
-    assert!(matches!(
-        composer.output_error(2, Error::Cancelled).kind,
-        TextComposeErrorKind::Cancelled
-    ));
-    assert!(matches!(
-        composer
-            .source_error(2, BitmapStore::Imported, Error::Cancelled)
-            .kind,
-        TextComposeErrorKind::Cancelled
-    ));
-    assert!(matches!(
-        composer
-            .source_error(2, BitmapStore::Imported, Error::Io(io::Error::other("I/O")))
-            .kind,
-        TextComposeErrorKind::Source {
-            store: BitmapStore::Imported,
-            error: Error::Io(_)
-        }
-    ));
-    assert!(matches!(
-        composer.scratch_write(0, &[0]).unwrap_err().kind,
-        TextComposeErrorKind::Malformed("scratch size changed")
-    ));
-    assert!(matches!(
-        composer.scratch_read(0, &mut [0]).unwrap_err().kind,
-        TextComposeErrorKind::Malformed("scratch size changed")
-    ));
-    composer.imported.data.borrow_mut().clear();
-    assert!(matches!(
-        composer
-            .checked_event(event(0, 0, 0, 0, TextBitmap::Stored(symbol)))
-            .unwrap_err()
-            .kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Imported,
-            reason: "size changed"
-        }
-    ));
-    assert!(matches!(
-        composer
-            .source_read(BitmapStore::Imported, 1, 0, &mut [0])
-            .unwrap_err()
-            .kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Imported,
-            reason: "size changed"
-        }
-    ));
-}
-
-#[test]
-fn refined_append_rules_are_checked_between_events() {
-    let mut region = Region::one_pixel();
-    let catalog = region.catalog();
-    let header = region.header;
-    let symbol = catalog[0];
-    let limits = Limits::default();
-    let mut imported = Bytes::new(&[0x80]);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut composer = TextComposer::new(
-        3,
-        header,
-        &catalog,
-        &mut decoder,
-        &mut imported,
-        0,
-        &mut new,
-        0,
-        &mut refined,
-        0,
-        &mut scratch,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        TextComposeBudget::default(),
-    )
-    .unwrap();
-    let unrefined_event = event(0, 0, 0, 0, TextBitmap::Stored(symbol));
-    let refined_event = event(
-        0,
-        0,
-        0,
-        0,
-        TextBitmap::Refined {
-            store_base: 0,
-            symbol: descriptor(1, 1, 0),
-        },
-    );
-    composer.refined.data.borrow_mut().push(0x80);
-    for event in [None, Some(&unrefined_event)] {
-        let error = composer.check_views_after_next(event).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            TextComposeErrorKind::StoreMutation {
-                store: BitmapStore::Refined,
-                reason: "append without refined instance"
-            }
-        ));
-    }
-    composer
-        .check_views_after_next(Some(&refined_event))
-        .unwrap();
-    assert_eq!(composer.refined_size, 1);
-
-    composer.refined.data.borrow_mut().clear();
-    let error = composer
-        .check_views_after_next(Some(&refined_event))
-        .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Refined,
-            reason: "shrank"
-        }
-    ));
-}
-
-#[test]
-fn fixed_bitmap_view_resize_between_events_is_rejected() {
-    let limits = Limits::default();
-    for store in [BitmapStore::Imported, BitmapStore::New] {
-        let mut region = Region::one_pixel();
-        let catalog = region.catalog();
-        let header = region.header;
-        let mut imported = Bytes::new(&[0x80]);
-        let mut new = Bytes::new(&[0x80]);
-        let mut refined = Bytes::new(&[]);
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let mut temporary = refined.appender();
-        let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-        let mut composer = TextComposer::new(
-            3,
-            header,
-            &catalog,
-            &mut decoder,
-            &mut imported,
+            [&[0x80, 0], &[]],
             0,
-            &mut new,
-            0,
-            &mut refined,
-            0,
-            &mut scratch,
-            &mut output,
-            &limits,
-            &NeverCancel,
             TextComposeBudget::default(),
+            &NeverCancel,
         )
-        .unwrap();
-        let view = match store {
-            BitmapStore::Imported => &mut composer.imported,
-            BitmapStore::New => &mut composer.new,
-            BitmapStore::Refined => unreachable!(),
-        };
-        view.data.borrow_mut().push(0x80);
-        let error = composer.check_views_after_next(None).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            TextComposeErrorKind::StoreMutation {
-                store: actual,
-                reason: "size changed"
-            } if actual == store
-        ));
-        assert_eq!(error.offset, 0);
+        .err()
+        .expect("expected a refusal");
+        assert!(matches!(error.kind, TextComposeErrorKind::Malformed(_)));
+        assert_eq!(error.progress.touched_pixels, 0);
     }
 }
 
 #[test]
-fn an_instance_refusal_stops_before_output() {
+fn an_instance_refusal_stops_composition() {
     let mut region = Region::one_pixel();
     region.budget.max_strips = 0;
-    let mut output = Sink::new();
-    let error = compose(
-        &mut region,
-        &mut Bytes::new(&[0x80]),
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        &mut Scratch::new(),
-        &mut output,
-        TextComposeBudget::default(),
-    )
-    .unwrap_err();
+    let error = compose(&mut region, TextComposeBudget::default())
+        .err()
+        .expect("expected a refusal");
     assert!(
         matches!(&error.kind, TextComposeErrorKind::Instance(instance)
         if matches!(instance.kind, crate::jbig2::text_instances::TextInstanceErrorKind::LimitExceeded {
@@ -2076,13 +1027,11 @@ fn an_instance_refusal_stops_before_output() {
     );
     assert_eq!(error.offset, region.header.body.offset + 2);
     assert_eq!(error.progress.completed_instances, 0);
-    assert_eq!(error.progress.output_bytes_written, 0);
-    assert!(error.progress.poisoned);
-    assert!(output.data.is_empty());
+    assert_eq!(error.progress.touched_pixels, 0);
 }
 
 #[test]
-fn source_row_cap_is_checked_before_reading() {
+fn symbol_row_cap_is_checked_before_composition() {
     let symbol = stored(SymbolStore::Imported, descriptor(9, 1, 0));
     let mut region = Region::new(
         3,
@@ -2092,20 +1041,15 @@ fn source_row_cap_is_checked_before_reading() {
         [&[0x80, 0x00], &[]],
         &[place(0, 0, 0)],
     );
-    let mut imported = Bytes::new(&[0x80, 0x00]);
     let error = compose(
         &mut region,
-        &mut imported,
-        &mut Bytes::new(&[]),
-        &mut Bytes::new(&[]),
-        &mut Scratch::new(),
-        &mut Sink::new(),
         TextComposeBudget {
             max_row_bytes: 1,
             ..TextComposeBudget::default()
         },
     )
-    .unwrap_err();
+    .err()
+    .expect("expected a refusal");
     assert!(matches!(
         error.kind,
         TextComposeErrorKind::LimitExceeded {
@@ -2113,63 +1057,5 @@ fn source_row_cap_is_checked_before_reading() {
             ..
         }
     ));
-    assert_eq!(error.progress.source_bytes_read, 0);
-    assert_eq!(imported.calls, 0);
-}
-
-#[test]
-fn resident_capacity_and_output_accounting_are_checked_after_preflight() {
-    let mut region = Region::one_pixel();
-    let catalog = region.catalog();
-    let header = region.header;
-    let mut imported = Bytes::new(&[0x80]);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let limits = Limits::default();
-    let budget = TextComposeBudget {
-        max_resident_bytes: 1,
-        max_output_bytes: 2,
-        ..TextComposeBudget::default()
-    };
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut composer = TextComposer::new(
-        3,
-        header,
-        &catalog,
-        &mut decoder,
-        &mut imported,
-        0,
-        &mut new,
-        0,
-        &mut refined,
-        0,
-        &mut scratch,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        budget,
-    )
-    .unwrap();
-    let error = composer
-        .note_resident(&vec![0; 2], &Vec::new())
-        .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::LimitExceeded {
-            resource: "resident row bytes",
-            ..
-        }
-    ));
-    composer.progress.output_bytes_written = 2;
-    let error = composer.output_write(2, &[0]).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::LimitExceeded {
-            resource: "output bytes",
-            ..
-        }
-    ));
+    assert_eq!(error.progress.touched_pixels, 0);
 }

@@ -9,6 +9,7 @@
 
 mod common;
 
+use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
@@ -17,11 +18,11 @@ use caj2pdf_core::{
     },
     jbig1::Type0ErrorKind,
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
-    qm::{ArithmeticErrorKind, QmTable},
+    qm::QmTable,
 };
 use common::{
     CancelAfter,
-    hnc8_document::{Image, RENDER_DPI, convert as compose, document},
+    hnc8_document::{Image, RENDER_DPI, document},
 };
 use std::io::Write;
 use std::{
@@ -187,7 +188,6 @@ fn convert_with<C: Cancellation>(
         source,
         sink,
         Some(&table()),
-        &mut Default::default(),
         &mut (),
         options,
         limits,
@@ -232,9 +232,7 @@ fn cancelled(error: &ComposeError) -> bool {
             inner.kind,
             Type0ErrorKind::Cancelled | Type0ErrorKind::Sink(Error::Cancelled)
         ),
-        ComposeErrorKind::Contexts(inner) => matches!(inner.kind, ArithmeticErrorKind::Cancelled),
         ComposeErrorKind::Io(Error::Cancelled) => true,
-        ComposeErrorKind::Cleanup { primary, .. } => cancelled(primary),
         _ => false,
     }
 }
@@ -841,8 +839,10 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
         assert_eq!(reason, "PDF page requires at least one image");
 
         let mut image = document.begin_bilevel_image(bilevel(8, 2, 1))?;
-        image.write(&[1])?;
-        let Err(Error::InvalidInput { reason }) = image.write(&[2, 3]).map_err(Error::from) else {
+        image.write_all(&[1])?;
+        let Err(Error::InvalidInput { reason }) =
+            image.write(&[2, 3]).map(drop).map_err(Error::from)
+        else {
             panic!("an extra row was accepted");
         };
         assert_eq!(reason, "bilevel image rows exceed the declared height");
@@ -866,7 +866,7 @@ fn bilevel_padding_writes_still_observe_cancellation() {
         let result = (|| {
             let mut document = PdfDocument::new(&mut sink, &limits, &cancellation)?;
             let mut image = document.begin_bilevel_image(bilevel(8, 1, 4))?;
-            image.write(&[0x81])?;
+            image.write_all(&[0x81])?;
             // The next check is reached only by this padding-only write.
             Ok::<_, Error>(image.write(&[0, 0, 0]).map_err(Error::from))
         })();

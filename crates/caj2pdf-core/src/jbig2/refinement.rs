@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Bounded, row-streamed T.88 template-1 generic refinement bitmaps.
+//! Bounded T.88 template-1 generic refinement bitmaps.
 //!
 //! This is one bitmap operation inside an existing MQ coding unit, over the
 //! bitmap contexts at the coding unit's fixed [`BITMAP_BASE`]. The caller owns
-//! the reference store and the output store. No document pixels are bundled
-//! here.
+//! the reference store and the append-only output store, both in memory. No
+//! document pixels are bundled here.
 
 use super::{
     dictionary::SymbolDescriptor,
@@ -13,21 +13,18 @@ use super::{
     mq::{ArithmeticError, ArithmeticSnapshot, ContextState, MQ_STATE_COUNT, MqDecoder, MqState},
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource};
-use std::io::Write;
-use std::{error, fmt, io, mem};
+use crate::{Cancellation, Limits, MAX_BUDGET_COUNT};
+use std::{error, fmt, mem};
 
 const CONTEXT_COUNT: usize = 1024;
-const MQ_BUFFER_BYTES: u64 = 256;
 
 /// A checked bound for one refinement session. All totals include every
 /// successfully decoded bitmap in the session; MQ itself has additional caps.
 ///
 /// The fields that bound running counters (`max_pixels_per_bitmap`,
-/// `max_total_pixels`, `max_total_output_bytes`, `max_reference_reads`,
-/// `max_reference_bytes_fetched`, `max_sink_writes`, and `max_flushes`) must
-/// each be at most [`MAX_BUDGET_COUNT`]. [`RefinementDecoder::new`] rejects a
-/// larger value as `LimitExceeded` before any source or sink call.
+/// `max_total_pixels` and `max_total_output_bytes`) must each be at most
+/// [`MAX_BUDGET_COUNT`]. [`RefinementDecoder::new`] rejects a larger value as
+/// `LimitExceeded` before decoding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RefinementBudget {
     pub max_width: u32,
@@ -40,20 +37,13 @@ pub struct RefinementBudget {
     pub max_total_pixels: u64,
     pub max_bytes_per_bitmap: u64,
     pub max_total_output_bytes: u64,
-    pub max_reference_reads: u64,
-    pub max_reference_bytes_fetched: u64,
-    pub max_sink_writes: u64,
-    /// Maximum explicit store flush attempts between bitmap decodes.
-    pub max_flushes: u64,
-    pub max_source_request_bytes: usize,
-    pub max_sink_request_bytes: usize,
     /// GR pixel decisions only; the borrowed MQ's own budget covers all
     /// interleaved dictionary decisions in the coding unit.
     pub max_mq_decisions: u64,
     /// Ten neighbor probes per explicitly decoded pixel.
     pub max_context_work: u64,
-    /// Full caller MQ bank, table, MQ input buffer, two target rows and three
-    /// reference rows; the backing reference/output stores are separate.
+    /// Full caller MQ bank and table, two target rows and three reference
+    /// rows; the reference and output stores are separate.
     pub max_working_bytes: u64,
 }
 
@@ -70,12 +60,6 @@ impl Default for RefinementBudget {
             max_total_pixels: 24_000_000,
             max_bytes_per_bitmap: 64 * 1024 * 1024,
             max_total_output_bytes: 128 * 1024 * 1024,
-            max_reference_reads: 1_000_000,
-            max_reference_bytes_fetched: 128 * 1024 * 1024,
-            max_sink_writes: 2_000_000,
-            max_flushes: 4096,
-            max_source_request_bytes: 256 * 1024,
-            max_sink_request_bytes: 256 * 1024,
             max_mq_decisions: 24_000_000,
             max_context_work: 240_000_000,
             max_working_bytes: 16 * 1024 * 1024,
@@ -83,14 +67,23 @@ impl Default for RefinementBudget {
     }
 }
 
-/// The bitmap in a caller-owned append-only store. `store_base` is the
-/// absolute ranged-source coordinate of this dictionary's first append;
-/// `symbol.relative_store_offset` is relative to that base. The adapter must
-/// reopen the *same* store after preceding writes become readable.
+/// The reference bitmap in a store. `store_base` is the store offset of its
+/// dictionary's first symbol; `symbol.relative_store_offset` is relative to
+/// that base.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RefinementReference {
     pub store_base: u64,
     pub symbol: SymbolDescriptor,
+}
+
+/// The store that holds a refinement's reference bitmap.
+#[derive(Clone, Copy, Debug)]
+pub enum ReferenceStore<'r> {
+    /// A store other than the output store.
+    Other(&'r [u8]),
+    /// The session's own output store, which a refinement dictionary reads
+    /// its earlier new symbols from.
+    Output,
 }
 
 /// One generic-refinement bitmap request. T.88 Table 6 permits zero geometry,
@@ -106,27 +99,19 @@ pub struct RefinementRequest {
     pub reference: RefinementReference,
 }
 
-/// The physical counters include completed short reads and partial writes;
-/// `reference_reads`, `sink_writes`, and `flushes` count attempted calls.
-/// `poisoned` is set before the first await and stays set after any error or
-/// dropped pending bitmap future.
+/// Session totals over every completed bitmap and the current one.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RefinementProgress {
     pub completed_bitmaps: u32,
     pub rows_written: u64,
     pub pixels_decoded: u64,
     pub output_bytes_written: u64,
-    pub reference_reads: u64,
-    pub reference_bytes_fetched: u64,
-    pub sink_writes: u64,
-    pub flushes: u64,
     pub context_work: u64,
     pub mq: Option<ArithmeticSnapshot>,
-    pub poisoned: bool,
 }
 
 /// A completed bitmap in the output store. Offset zero is the first byte
-/// appended by this refinement session, even if the sink was prefilled.
+/// appended by this refinement session, even if the store was prefilled.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RefinementReport {
     pub target: SymbolDescriptor,
@@ -148,7 +133,6 @@ pub struct RefinementError {
 pub enum RefinementErrorKind {
     Malformed(&'static str),
     InvalidSpan(&'static str),
-    TruncatedReference,
     Unsupported {
         feature: &'static str,
         value: u64,
@@ -160,10 +144,7 @@ pub enum RefinementErrorKind {
     },
     AllocationFailed,
     Cancelled,
-    ReferenceSource(Error),
-    Sink(Error),
     Mq(Box<ArithmeticError>),
-    Poisoned,
 }
 
 pub type RefinementResult<T> = Result<T, RefinementError>;
@@ -182,7 +163,6 @@ impl fmt::Display for RefinementError {
         match &self.kind {
             RefinementErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
             RefinementErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            RefinementErrorKind::TruncatedReference => f.write_str("truncated reference bitmap"),
             RefinementErrorKind::Unsupported { feature, value } => {
                 write!(f, "unsupported {feature} ({value})")
             }
@@ -195,10 +175,7 @@ impl fmt::Display for RefinementError {
             }
             RefinementErrorKind::AllocationFailed => f.write_str("row allocation failed"),
             RefinementErrorKind::Cancelled => f.write_str("cancelled"),
-            RefinementErrorKind::ReferenceSource(source) => write!(f, "reference source: {source}"),
-            RefinementErrorKind::Sink(source) => write!(f, "sink: {source}"),
             RefinementErrorKind::Mq(source) => write!(f, "MQ: {source}"),
-            RefinementErrorKind::Poisoned => f.write_str("refinement host is poisoned"),
         }
     }
 }
@@ -206,9 +183,6 @@ impl fmt::Display for RefinementError {
 impl error::Error for RefinementError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match &self.kind {
-            RefinementErrorKind::ReferenceSource(source) | RefinementErrorKind::Sink(source) => {
-                Some(source)
-            }
             RefinementErrorKind::Mq(source) => Some(source),
             _ => None,
         }
@@ -227,81 +201,66 @@ struct Geometry {
 }
 
 /// Reusable template-1 refinement host borrowing *one* existing MQ coding
-/// unit, *one* append-only output sink, and persistent disjoint 1,024 GR
-/// contexts at [`BITMAP_BASE`]. The bound sink cannot change between
+/// unit, *one* append-only output store, and persistent disjoint 1,024 GR
+/// contexts at [`BITMAP_BASE`]. The bound store cannot change between
 /// bitmaps, so relative descriptor offsets remain in one store.
-/// No MQ initialization, finish, context reset, or store flush occurs here.
-pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> {
-    mq: &'a mut MqDecoder<'mq, M, C>,
-    sink: &'a mut W,
+/// No MQ initialization, finish, or context reset occurs here. After an
+/// error the caller must discard the coding unit and the store's new bytes.
+pub struct RefinementDecoder<'a, 'mq, C: Cancellation> {
+    mq: &'a mut MqDecoder<'mq>,
+    output: &'a mut Vec<u8>,
     limits: &'a Limits,
     cancellation: &'a C,
     budget: RefinementBudget,
     progress: RefinementProgress,
-    progress_observer: Option<&'a mut RefinementProgress>,
 }
 
-impl<M: RangedSource, C: Cancellation, W: Write> Drop for RefinementDecoder<'_, '_, M, C, W> {
-    fn drop(&mut self) {
-        if self.progress.poisoned {
-            self.mq.poison();
-        }
-        let final_progress = self.progress();
-        if let Some(observer) = &mut self.progress_observer {
-            **observer = final_progress;
-        }
-    }
-}
-
-impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 'mq, M, C, W> {
+impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
     /// Check the context range and fixed working-memory configuration before
-    /// any source or sink call. The caller retains all other model contexts.
+    /// decoding. The caller retains all other model contexts.
     pub fn new(
-        mq: &'a mut MqDecoder<'mq, M, C>,
-        sink: &'a mut W,
+        mq: &'a mut MqDecoder<'mq>,
+        output: &'a mut Vec<u8>,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: RefinementBudget,
     ) -> RefinementResult<Self> {
-        Self::new_observed(mq, sink, limits, cancellation, budget, None)
+        Self::new_continuing(
+            mq,
+            output,
+            limits,
+            cancellation,
+            budget,
+            RefinementProgress::default(),
+        )
     }
 
-    /// Internal completion/drop monitor for a dictionary that owns this host
-    /// inside a pending async operation. It preserves physical I/O progress
-    /// when the enclosing future is abandoned.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_observed(
-        mq: &'a mut MqDecoder<'mq, M, C>,
-        sink: &'a mut W,
+    /// Resume the same append-only store after a completed bitmap. The
+    /// enclosing pull decoder owns the MQ unit and keeps this progress
+    /// between calls; it must bind the same store each time.
+    pub(crate) fn new_continuing(
+        mq: &'a mut MqDecoder<'mq>,
+        output: &'a mut Vec<u8>,
         limits: &'a Limits,
         cancellation: &'a C,
         budget: RefinementBudget,
-        progress_observer: Option<&'a mut RefinementProgress>,
+        previous: RefinementProgress,
     ) -> RefinementResult<Self> {
         let invalid = |kind| RefinementError {
             offset: None,
-            bitmap_index: 0,
+            bitmap_index: previous.completed_bitmaps,
             row: 0,
             x: 0,
-            progress: Box::new(RefinementProgress::default()),
+            progress: Box::new(previous),
             kind,
         };
         limits
             .validate()
             .map_err(|_| invalid(RefinementErrorKind::Malformed("Limits")))?;
-        if budget.max_source_request_bytes == 0 || budget.max_sink_request_bytes == 0 {
-            return Err(invalid(RefinementErrorKind::Malformed(
-                "zero I/O request cap",
-            )));
-        }
         for (resource, value) in [
             ("pixels per bitmap budget", budget.max_pixels_per_bitmap),
             ("total pixels budget", budget.max_total_pixels),
             ("total output bytes budget", budget.max_total_output_bytes),
-            ("reference reads budget", budget.max_reference_reads),
-            ("reference bytes budget", budget.max_reference_bytes_fetched),
-            ("sink writes budget", budget.max_sink_writes),
-            ("store flushes budget", budget.max_flushes),
         ] {
             if value > MAX_BUDGET_COUNT {
                 return Err(invalid(RefinementErrorKind::LimitExceeded {
@@ -316,49 +275,21 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
                 "coding unit lacks the GR context range",
             )));
         }
-        if mq.snapshot().poisoned {
-            return Err(invalid(RefinementErrorKind::Poisoned));
+        if previous.output_bytes_written > budget.max_total_output_bytes
+            || previous.pixels_decoded > budget.max_total_pixels
+        {
+            return Err(invalid(RefinementErrorKind::Malformed(
+                "previous progress exceeds the budget",
+            )));
         }
         Ok(Self {
             mq,
-            sink,
+            output,
             limits,
             cancellation,
             budget,
-            progress: RefinementProgress::default(),
-            progress_observer,
+            progress: previous,
         })
-    }
-
-    /// Resume the same append-only temporary store after a completed bitmap.
-    /// The enclosing pull decoder owns the MQ unit and keeps this progress
-    /// between calls; it must bind the same sink each time.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_continuing(
-        mq: &'a mut MqDecoder<'mq, M, C>,
-        sink: &'a mut W,
-        limits: &'a Limits,
-        cancellation: &'a C,
-        budget: RefinementBudget,
-        previous: RefinementProgress,
-        progress_observer: &'a mut RefinementProgress,
-    ) -> RefinementResult<Self> {
-        let mut host = Self::new_observed(
-            mq,
-            sink,
-            limits,
-            cancellation,
-            budget,
-            Some(progress_observer),
-        )?;
-        if previous.poisoned
-            || previous.output_bytes_written > budget.max_total_output_bytes
-            || previous.pixels_decoded > budget.max_total_pixels
-        {
-            return Err(host.error(RefinementErrorKind::Poisoned, None, 0, 0));
-        }
-        host.progress = previous;
-        Ok(host)
     }
 
     pub fn progress(&self) -> RefinementProgress {
@@ -369,53 +300,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
 
     /// Borrow the same coding unit for interleaved dictionary integer or
     /// IAID decisions. No GR statistics, bitmap offset, or budget is reset.
-    /// The enclosing dictionary must abandon this session if one of its own
-    /// semantic decisions fails, even when MQ itself remains usable.
-    pub fn mq_mut(&mut self) -> RefinementResult<&mut MqDecoder<'mq, M, C>> {
-        if self.progress.poisoned || self.mq.snapshot().poisoned {
-            self.progress.poisoned = true;
-            return Err(self.error(RefinementErrorKind::Poisoned, None, 0, 0));
-        }
-        self.check_cancelled(0, 0)?;
-        Ok(self.mq)
-    }
-
-    /// Flush the bound output store before an adapter reopens newly appended
-    /// symbols as references. This does not finish MQ or reset GR statistics.
-    /// An error or dropped pending flush poisons the session and coding unit;
-    /// a successful flush leaves both usable for more interleaved decisions.
-    pub fn flush_store(&mut self) -> RefinementResult<()> {
-        if self.progress.poisoned || self.mq.snapshot().poisoned {
-            self.progress.poisoned = true;
-            return Err(self.error(RefinementErrorKind::Poisoned, None, 0, 0));
-        }
-        self.progress.poisoned = true;
-        let result = self.flush_store_inner();
-        match result {
-            Ok(()) => {
-                self.progress.poisoned = false;
-                Ok(())
-            }
-            Err(error) => {
-                self.mq.poison();
-                Err(error)
-            }
-        }
-    }
-
-    fn flush_store_inner(&mut self) -> RefinementResult<()> {
-        self.check_cancelled(0, 0)?;
-        // `flushes <= max_flushes <= MAX_BUDGET_COUNT`.
-        let attempted = self.progress.flushes + 1;
-        if attempted > self.budget.max_flushes {
-            return Err(self.limit("store flushes", self.budget.max_flushes, attempted, 0, 0));
-        }
-        self.progress.flushes = attempted;
-        self.sink
-            .flush()
-            .map_err(|error| self.error(RefinementErrorKind::Sink(error.into()), None, 0, 0))?;
-        self.check_cancelled(0, 0)?;
-        Ok(())
+    pub fn mq_mut(&mut self) -> &mut MqDecoder<'mq> {
+        self.mq
     }
 
     fn error(
@@ -459,9 +345,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
         )
     }
 
-    fn check_cancelled(&self, row: u32, x: u32) -> RefinementResult<()> {
+    fn check_cancelled(&self, row: u32) -> RefinementResult<()> {
         if self.cancellation.is_cancelled() {
-            Err(self.error(RefinementErrorKind::Cancelled, None, row, x))
+            Err(self.error(RefinementErrorKind::Cancelled, None, row, 0))
         } else {
             Ok(())
         }
@@ -475,9 +361,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
         }
     }
 
-    fn geometry<R: RangedSource>(
+    fn geometry(
         &self,
-        reference_source: &R,
+        reference_size: u64,
         request: RefinementRequest,
     ) -> RefinementResult<Geometry> {
         // One-pixel bitmaps within a MAX_BUDGET_COUNT pixel budget could
@@ -586,9 +472,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
                     0,
                 )
             })?;
-        if reference_end > reference_source.size() {
+        if reference_end > reference_size {
             return Err(self.error(
-                RefinementErrorKind::InvalidSpan("reference outside ranged source"),
+                RefinementErrorKind::InvalidSpan("reference outside its store"),
                 Some(reference_offset),
                 0,
                 0,
@@ -654,11 +540,10 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
             })?;
         let row_bytes = 2 * target_stride as u64 + 3 * reference_stride as u64;
         // The existing MQ bank's constructor already checked this allocation
-        // with the same fixed table/buffer terms. Include the entire bank,
-        // not only the GR slice, in the combined cap.
+        // with the same fixed table term. Include the entire bank, not only
+        // the GR slice, in the combined cap.
         let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<ContextState>() as u64
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-            + MQ_BUFFER_BYTES;
+            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64;
         // `row_bytes <= 5 * 2^29`, and the allocated context bank occupies
         // at most `isize::MAX` bytes, so this sum stays below 2^64.
         let working = row_bytes + mq_bytes;
@@ -682,175 +567,39 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
         Ok(row)
     }
 
-    fn read_reference_row<R: RangedSource>(
-        &mut self,
-        source: &mut R,
-        geometry: Geometry,
-        row_id: i64,
-        row: &mut [u8],
-        target_y: u32,
-    ) -> RefinementResult<()> {
-        // `geometry` checked that `reference_offset` plus the stored
-        // reference bytes fits `u64`. This row and every byte offset within
-        // it lie below that end, because `row_id` is below the reference
-        // height and the row is one reference stride long.
-        let offset = geometry.reference_offset + row_id as u64 * geometry.reference_stride as u64;
-        let mut done = 0usize;
-        while done < row.len() {
-            self.check_cancelled(target_y, 0)?;
-            let count = (row.len() - done)
-                .min(self.limits.io_chunk_bytes)
-                .min(self.budget.max_source_request_bytes);
-            // `reference_reads <= max_reference_reads <= MAX_BUDGET_COUNT`.
-            let attempted = self.progress.reference_reads + 1;
-            if attempted > self.budget.max_reference_reads {
-                return Err(self.limit(
-                    "reference reads",
-                    self.budget.max_reference_reads,
-                    attempted,
-                    target_y,
-                    0,
-                ));
-            }
-            // The fetched count is at most `max_reference_bytes_fetched <=
-            // MAX_BUDGET_COUNT`, and `count` is at most one I/O chunk.
-            let requested_bytes = self.progress.reference_bytes_fetched + count as u64;
-            if requested_bytes > self.budget.max_reference_bytes_fetched {
-                return Err(self.limit(
-                    "reference bytes",
-                    self.budget.max_reference_bytes_fetched,
-                    requested_bytes,
-                    target_y,
-                    0,
-                ));
-            }
-            let current = offset + done as u64;
-            self.progress.reference_reads = attempted;
-            let read = source
-                .read_at(current, &mut row[done..done + count])
-                .map_err(|error| {
-                    self.error(
-                        RefinementErrorKind::ReferenceSource(error),
-                        Some(current),
-                        target_y,
-                        0,
-                    )
-                })?;
-            if read > count {
-                return Err(self.error(
-                    RefinementErrorKind::ReferenceSource(Error::InvalidInput {
-                        reason: "source overreported reference read",
-                    }),
-                    Some(current),
-                    target_y,
-                    0,
-                ));
-            }
-            self.progress.reference_bytes_fetched += read as u64;
-            self.check_cancelled(target_y, 0)?;
-            if read == 0 {
-                return Err(self.error(
-                    RefinementErrorKind::TruncatedReference,
-                    Some(current),
-                    target_y,
-                    0,
-                ));
-            }
-            done += read;
-        }
-        Ok(())
-    }
-
-    fn write_row(&mut self, row: &[u8], y: u32) -> RefinementResult<()> {
-        let mut done = 0usize;
-        while done < row.len() {
-            self.check_cancelled(y, 0)?;
-            let count = (row.len() - done)
-                .min(self.limits.io_chunk_bytes)
-                .min(self.budget.max_sink_request_bytes);
-            // `sink_writes <= max_sink_writes <= MAX_BUDGET_COUNT`.
-            let attempted = self.progress.sink_writes + 1;
-            if attempted > self.budget.max_sink_writes {
-                return Err(self.limit(
-                    "sink writes",
-                    self.budget.max_sink_writes,
-                    attempted,
-                    y,
-                    0,
-                ));
-            }
-            self.progress.sink_writes = attempted;
-            let written = self
-                .sink
-                .write(&row[done..done + count])
-                .map_err(|error| self.error(RefinementErrorKind::Sink(error.into()), None, y, 0))?;
-            if written > count {
-                return Err(self.error(
-                    RefinementErrorKind::Sink(Error::InvalidInput {
-                        reason: "sink overreported refinement write",
-                    }),
-                    None,
-                    y,
-                    0,
-                ));
-            }
-            if written == 0 {
-                return Err(self.error(
-                    RefinementErrorKind::Sink(Error::Io(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "sink made no progress",
-                    ))),
-                    None,
-                    y,
-                    0,
-                ));
-            }
-            self.progress.output_bytes_written += written as u64;
-            self.check_cancelled(y, 0)?;
-            done += written;
-        }
-        self.progress.rows_written += 1;
-        Ok(())
+    /// Reserve room for `bytes` more output bytes within the allocation limit.
+    fn reserve_output(&mut self, bytes: u64) -> RefinementResult<()> {
+        // The output store is in memory, so its length fits a `u64`.
+        let attempted = (self.output.len() as u64).saturating_add(bytes);
+        self.limits.check_allocation(attempted).map_err(|_| {
+            self.limit(
+                "refinement store bytes",
+                self.limits.max_allocation_bytes,
+                attempted,
+                0,
+                0,
+            )
+        })?;
+        // `bytes` fits the allocation limit, hence a `usize` on this target.
+        self.output
+            .try_reserve(bytes as usize)
+            .map_err(|_| self.error(RefinementErrorKind::AllocationFailed, None, 0, 0))
     }
 
     /// Append one packed bitmap; retain the GR contexts and MQ state for the
-    /// next bitmap while restarting target-row history at zero. On failure,
-    /// discard the partial store output and enclosing coding unit. Dropping a
-    /// pending future leaves this host poisoned; dropping the host poisons MQ.
-    pub fn decode_bitmap<R: RangedSource>(
+    /// next bitmap while restarting target-row history at zero.
+    pub fn decode_bitmap(
         &mut self,
-        reference_source: &mut R,
+        reference: ReferenceStore<'_>,
         request: RefinementRequest,
     ) -> RefinementResult<RefinementReport> {
-        if self.progress.poisoned || self.mq.snapshot().poisoned {
-            self.progress.poisoned = true;
-            return Err(self.error(RefinementErrorKind::Poisoned, None, 0, 0));
-        }
-        self.progress.poisoned = true;
-        let result = self.decode_bitmap_inner(reference_source, request);
-        match result {
-            Ok(target) => {
-                self.progress.poisoned = false;
-                Ok(RefinementReport {
-                    target,
-                    progress: self.progress(),
-                })
-            }
-            Err(error) => {
-                self.mq.poison();
-                Err(error)
-            }
-        }
-    }
-
-    fn decode_bitmap_inner<R: RangedSource>(
-        &mut self,
-        reference_source: &mut R,
-        request: RefinementRequest,
-    ) -> RefinementResult<SymbolDescriptor> {
-        let geometry = self.geometry(reference_source, request)?;
+        let reference_size = match reference {
+            ReferenceStore::Other(bytes) => bytes.len(),
+            ReferenceStore::Output => self.output.len(),
+        } as u64;
+        let geometry = self.geometry(reference_size, request)?;
+        self.reserve_output(geometry.bytes)?;
         let start_offset = self.progress.output_bytes_written;
-        self.check_cancelled(0, 0)?;
         let mut previous = self.row(geometry.target_stride)?;
         let mut current = self.row(geometry.target_stride)?;
         let mut reference_rows = [
@@ -862,7 +611,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
         // rows a target row needs never evict one another.
         let mut cached: [Option<i64>; 3] = [None; 3];
         for y in 0..request.height {
-            self.check_cancelled(y, 0)?;
+            self.check_cancelled(y)?;
             current.fill(0);
             let reference_y = i64::from(y) - i64::from(request.reference_dy);
             let needed = [reference_y - 1, reference_y, reference_y + 1];
@@ -874,17 +623,20 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
                 {
                     continue;
                 }
-                self.read_reference_row(
-                    reference_source,
-                    geometry,
-                    row_id,
-                    &mut reference_rows[slot],
-                    y,
-                )?;
+                // `geometry` checked that the whole reference bitmap lies in
+                // its store, so this row does too.
+                let start = (geometry.reference_offset
+                    + row_id as u64 * geometry.reference_stride as u64)
+                    as usize;
+                let store = match reference {
+                    ReferenceStore::Other(bytes) => bytes,
+                    ReferenceStore::Output => self.output.as_slice(),
+                };
+                reference_rows[slot]
+                    .copy_from_slice(&store[start..start + geometry.reference_stride]);
                 cached[slot] = Some(row_id);
             }
             for x in 0..request.width {
-                self.check_cancelled(y, x)?;
                 let reference_x = i64::from(x) - i64::from(request.reference_dx);
                 let context = template1_context(
                     &previous,
@@ -907,7 +659,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
                 self.progress.pixels_decoded += 1;
                 self.progress.context_work += 10;
             }
-            self.write_row(&current, y)?;
+            self.output.extend_from_slice(&current);
+            self.progress.output_bytes_written += current.len() as u64;
+            self.progress.rows_written += 1;
             mem::swap(&mut previous, &mut current);
         }
         let target = SymbolDescriptor {
@@ -927,7 +681,10 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 
             geometry.pixels,
             u64::from(request.width) * u64::from(request.height)
         );
-        Ok(target)
+        Ok(RefinementReport {
+            target,
+            progress: self.progress(),
+        })
     }
 }
 
@@ -1035,9 +792,7 @@ mod tests {
     use super::*;
     use crate::jbig2::iaid::IAID_BASE;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqTable};
-    use crate::native::SeekableSource;
     use crate::{MAX_BUDGET_COUNT, NeverCancel};
-    use std::io::Cursor;
 
     #[test]
     fn the_bitmap_index_cannot_pass_u32_max() {
@@ -1045,9 +800,9 @@ mod tests {
         let mq_budget = MqBudget::default();
         let table = MqTable::standard();
         let mut banks = ContextBank::new(IAID_BASE + 2, &limits).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
+        let bytes = [0, 0xff, 0xac];
         let mut mq = MqDecoder::new(
-            &mut source,
+            (&bytes[..]).into(),
             CodedSpan {
                 offset: 0,
                 length: 3,
@@ -1055,7 +810,6 @@ mod tests {
             &table,
             &mut banks,
             &limits,
-            &NeverCancel,
             mq_budget,
         )
         .unwrap();
@@ -1086,8 +840,9 @@ mod tests {
                 symbol,
             },
         };
-        let mut reference = SeekableSource::new(Cursor::new(vec![0])).unwrap();
-        let error = decoder.decode_bitmap(&mut reference, request).unwrap_err();
+        let error = decoder
+            .decode_bitmap(ReferenceStore::Other(&[0]), request)
+            .unwrap_err();
         assert_eq!(error.bitmap_index, u32::MAX);
         assert!(matches!(
             error.kind,

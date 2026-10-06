@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, Payload, RangedSource,
     jbig2::{
         DirectoryLimits, HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{
@@ -17,9 +17,7 @@ use caj2pdf_core::{
             ReferenceCorner, RegionCombination, RegionInfo, SymbolCombination, TextHeaderAnomaly,
             TextRegionFlags, TextRegionHeader,
         },
-        text_composer::{
-            RandomAccessScratch, TextComposeProgress, TextComposeReport, TextComposeStage,
-        },
+        text_composer::{TextComposeProgress, TextComposeReport, TextComposeStage},
     },
 };
 use std::io::Write;
@@ -111,7 +109,7 @@ fn synthetic_table() -> MqTable {
 }
 
 fn try_arm_from_source_with_header<C: Cancellation>(
-    sink: &mut PageOrSink<'_, Scratch, Output, C>,
+    sink: &mut PageOrSink<'_, Output, C>,
     bytes: Vec<u8>,
     expected: GenericRegionHeader,
     change_header: impl FnOnce(&mut SegmentHeader),
@@ -124,7 +122,7 @@ fn try_arm_from_source_with_header<C: Cancellation>(
     let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
     let never = NeverCancel;
     let mut decoder = GenericRegionDecoder::new(
-        &mut source,
+        Payload::from(&source.0[..]),
         &directory.segments[4],
         &table,
         &mut contexts,
@@ -138,7 +136,7 @@ fn try_arm_from_source_with_header<C: Cancellation>(
 }
 
 fn try_arm_from_source<C: Cancellation>(
-    sink: &mut PageOrSink<'_, Scratch, Output, C>,
+    sink: &mut PageOrSink<'_, Output, C>,
     bytes: Vec<u8>,
     expected: GenericRegionHeader,
 ) -> Result<(), GenericError> {
@@ -146,7 +144,7 @@ fn try_arm_from_source<C: Cancellation>(
 }
 
 fn arm_from_real_decoder<C: Cancellation>(
-    sink: &mut PageOrSink<'_, Scratch, Output, C>,
+    sink: &mut PageOrSink<'_, Output, C>,
     profile: PageProfile,
 ) {
     try_arm_from_source(
@@ -249,8 +247,6 @@ fn text_report(profile: PageProfile) -> TextComposeReport {
         header_anomaly: None,
         progress: TextComposeProgress {
             stage: TextComposeStage::Complete,
-            output_rows: page.height,
-            output_bytes_written: page.packed_bytes,
             ..TextComposeProgress::default()
         },
     }
@@ -272,98 +268,11 @@ fn generic_report(profile: PageProfile) -> GenericReport {
                 code: 0,
                 bit_counter: 0,
                 input_offset: 0,
-                source_bytes_fetched: 0,
                 synthesized_inputs: 0,
                 symbols_decoded: pixels,
                 work_done: 0,
-                poisoned: false,
             },
-            poisoned: false,
         },
-    }
-}
-
-#[derive(Default)]
-struct Scratch {
-    bytes: Vec<u8>,
-    max_read: usize,
-    zero_read: bool,
-    overreport: bool,
-    fail_read: bool,
-    wrong_size: bool,
-    external_wrong_size: Option<Rc<Cell<bool>>>,
-    fail_size: bool,
-    cancel_size: bool,
-    cancel_read: bool,
-    read_calls: usize,
-}
-
-impl Scratch {
-    fn with_bytes(bytes: &[u8]) -> Self {
-        Self {
-            bytes: bytes.to_vec(),
-            max_read: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl RandomAccessScratch for Scratch {
-    fn size(&self) -> caj2pdf_core::Result<u64> {
-        if self.cancel_size {
-            return Err(Error::Cancelled);
-        }
-        if self.fail_size {
-            return Err(Error::InvalidInput {
-                reason: "injected scratch size error",
-            });
-        }
-        let wrong = self.wrong_size
-            || self
-                .external_wrong_size
-                .as_ref()
-                .is_some_and(|flag| flag.get());
-        Ok(self.bytes.len() as u64 + u64::from(wrong))
-    }
-
-    fn set_len(&mut self, bytes: u64) -> caj2pdf_core::Result<()> {
-        self.bytes.resize(bytes as usize, 0);
-        Ok(())
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
-        self.read_calls += 1;
-        if self.cancel_read {
-            return Err(Error::Cancelled);
-        }
-        if self.fail_read {
-            return Err(Error::InvalidInput {
-                reason: "injected scratch error",
-            });
-        }
-        if self.overreport {
-            return Ok(destination.len() + 1);
-        }
-        if self.zero_read {
-            return Ok(0);
-        }
-        let start = offset as usize;
-        let count = destination
-            .len()
-            .min(self.bytes.len().saturating_sub(start))
-            .min(self.max_read);
-        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        Ok(count)
-    }
-
-    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        let start = offset as usize;
-        self.bytes[start..start + bytes.len()].copy_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        Ok(())
     }
 }
 
@@ -372,7 +281,6 @@ struct Output {
     bytes: Vec<u8>,
     max_write: usize,
     zero_write: bool,
-    overreport: bool,
     fail_write: bool,
     fail_flush: bool,
     cancel_write: bool,
@@ -403,9 +311,6 @@ impl Write for Output {
                 reason: "injected output error",
             }
             .into());
-        }
-        if self.overreport {
-            return Ok(bytes.len() + 1);
         }
         if self.zero_write {
             return Ok(0);
@@ -455,12 +360,12 @@ fn feed_all(sink: &mut impl Write, mut bytes: &[u8]) -> caj2pdf_core::Result<()>
 
 fn constructor_error(budget: PageComposeBudget, limits: Limits) -> PageComposeError {
     let profile = profile(9, 2);
-    let mut scratch = Scratch::with_bytes(&[0; 4]);
+    let scratch = vec![0; 4];
     let mut output = Output::new();
     PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &limits,
         &NeverCancel,
@@ -509,13 +414,6 @@ fn constructor_rejects_each_geometry_and_byte_budget_before_output() {
             },
         ),
         (
-            "scratch read bytes",
-            PageComposeBudget {
-                max_scratch_read_bytes: 3,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
             "page output bytes",
             PageComposeBudget {
                 max_output_bytes: 3,
@@ -525,7 +423,7 @@ fn constructor_rejects_each_geometry_and_byte_budget_before_output() {
         (
             "page work units",
             PageComposeBudget {
-                max_work_units: 11,
+                max_work_units: 7,
                 ..PageComposeBudget::default()
             },
         ),
@@ -537,35 +435,27 @@ fn constructor_rejects_each_geometry_and_byte_budget_before_output() {
             PageComposeErrorKind::LimitExceeded { resource: found, .. } if found == resource
         ));
     }
-    for (resource, limits) in [
-        (
-            "scratch read bytes",
-            Limits {
-                max_input_bytes: 3,
-                ..Limits::default()
-            },
-        ),
-        (
-            "page output bytes",
-            Limits {
-                max_output_bytes: 3,
-                ..Limits::default()
-            },
-        ),
-    ] {
-        let error = constructor_error(PageComposeBudget::default(), limits);
-        assert!(matches!(
-            error.kind,
-            PageComposeErrorKind::LimitExceeded { resource: found, .. } if found == resource
-        ));
-    }
+    let error = constructor_error(
+        PageComposeBudget::default(),
+        Limits {
+            max_output_bytes: 3,
+            ..Limits::default()
+        },
+    );
+    assert!(matches!(
+        error.kind,
+        PageComposeErrorKind::LimitExceeded {
+            resource: "page output bytes",
+            ..
+        }
+    ));
 }
 
 #[test]
-fn invalid_budget_limits_or_cancellation_reject_before_scratch_reads() {
+fn invalid_budget_limits_or_cancellation_reject_before_output() {
     let error = constructor_error(
         PageComposeBudget {
-            max_scratch_request_bytes: 0,
+            max_generic_request_bytes: 0,
             ..PageComposeBudget::default()
         },
         Limits::default(),
@@ -589,13 +479,13 @@ fn invalid_budget_limits_or_cancellation_reject_before_scratch_reads() {
     assert!(matches!(error.kind, PageComposeErrorKind::Limits(_)));
 
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let cancelled = FlagCancel(Rc::new(Cell::new(true)));
     let error = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &cancelled,
@@ -604,7 +494,6 @@ fn invalid_budget_limits_or_cancellation_reject_before_scratch_reads() {
     .err()
     .unwrap();
     assert!(matches!(error.kind, PageComposeErrorKind::Cancelled));
-    assert_eq!(scratch.read_calls, 0);
     assert!(output.bytes.is_empty());
 }
 
@@ -617,8 +506,8 @@ fn public_error_diagnostics_and_sources_are_stable() {
             false,
         ),
         (
-            PageComposeErrorKind::InvalidSpan("scratch size"),
-            "invalid span: scratch size",
+            PageComposeErrorKind::InvalidSpan("bitmap size"),
+            "invalid span: bitmap size",
             false,
         ),
         (
@@ -644,11 +533,6 @@ fn public_error_diagnostics_and_sources_are_stable() {
             true,
         ),
         (
-            PageComposeErrorKind::Scratch(Error::InvalidInput { reason: "bad read" }),
-            "scratch: ",
-            true,
-        ),
-        (
             PageComposeErrorKind::Output(Error::InvalidInput {
                 reason: "bad write",
             }),
@@ -658,11 +542,6 @@ fn public_error_diagnostics_and_sources_are_stable() {
         (
             PageComposeErrorKind::Incomplete,
             "page rows are incomplete",
-            false,
-        ),
-        (
-            PageComposeErrorKind::Poisoned,
-            "page operation is poisoned or complete",
             false,
         ),
     ];
@@ -682,14 +561,13 @@ fn public_error_diagnostics_and_sources_are_stable() {
 #[test]
 fn bytewise_or_respects_rows_partial_io_and_single_final_flush() {
     let profile = profile(9, 2);
-    let mut scratch = Scratch::with_bytes(&[0x80, 0x80, 0x20, 0x00]);
-    scratch.max_read = 1;
+    let scratch = vec![0x80, 0x80, 0x20, 0x00];
     let mut output = Output::new();
     output.max_write = 1;
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -703,21 +581,13 @@ fn bytewise_or_respects_rows_partial_io_and_single_final_flush() {
     assert_eq!(sink.write(&[]).unwrap(), 0);
     feed_all(&mut sink, &[0x01, 0x00, 0x80, 0x80]).unwrap();
     assert_eq!(sink.progress().rows_written, 2);
-    assert_eq!(sink.progress().scratch_read_calls, 4);
-    assert_eq!(sink.progress().output_write_calls, 4);
+    assert_eq!(sink.progress().output_write_calls, 2);
     sink.flush().unwrap();
     let report = sink.finish(&generic_report(profile)).unwrap();
-    assert!(report.progress.completed);
     assert_eq!(report.progress.generic_bytes_accepted, 4);
     assert_eq!(report.progress.max_request_bytes, 2);
     assert!(report.progress.peak_resident_bytes >= 2);
     assert!(report.progress.peak_resident_bytes <= PageComposeBudget::default().max_resident_bytes);
-    assert!(matches!(
-        sink.finish(&generic_report(profile)).unwrap_err().kind,
-        PageComposeErrorKind::Poisoned
-    ));
-    assert!(sink.flush().is_err());
-    drop(sink);
     assert_eq!(output.bytes, [0x81, 0x80, 0xa0, 0x80]);
     assert_eq!(output.flush_calls, 1);
 }
@@ -730,13 +600,13 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     let table = synthetic_table();
     let mq_budget = MqBudget::default();
     let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
-    let mut scratch = Scratch::with_bytes(&[0, 0]);
+    let scratch = vec![0, 0];
     let mut output = Output::new();
     output.max_write = 1;
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -744,7 +614,7 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     )
     .unwrap();
     let mut decoder = GenericRegionDecoder::new(
-        &mut source,
+        Payload::from(&source.0[..]),
         &directory.segments[4],
         &table,
         &mut contexts,
@@ -763,38 +633,34 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     let report = sink.finish(&generic).unwrap();
     assert_eq!(report.progress.rows_written, 2);
     assert_eq!(report.progress.output_bytes_written, 2);
-    drop(sink);
     assert_eq!(output.bytes, [0xe0, 0xe0]);
     assert_eq!(output.flush_calls, 1);
 }
 
 #[test]
-fn a_failed_or_late_arming_poisons_the_generic_decoder() {
+fn a_late_or_mismatched_arming_is_refused() {
     // 0: a second arming after a row; 1: a preflight header other than the
-    // parsed one; 2: a page sink that refuses the parsed header.
-    for case in 0..3 {
+    // parsed one.
+    for case in 0..2 {
         let profile = profile(3, 2);
         let mut source = BytesSource(observed_bytes(3, 2));
         let directory = directory(&mut source);
         let table = synthetic_table();
         let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
-        let mut scratch = Scratch::with_bytes(&[0, 0]);
+        let scratch = vec![0, 0];
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
             PageComposeBudget::default(),
         )
         .unwrap();
-        if case == 2 {
-            assert!(sink.flush().is_err());
-        }
         let mut decoder = GenericRegionDecoder::new(
-            &mut source,
+            Payload::from(&source.0[..]),
             &directory.segments[4],
             &table,
             &mut contexts,
@@ -806,30 +672,25 @@ fn a_failed_or_late_arming_poisons_the_generic_decoder() {
         )
         .unwrap();
         let mut expected = profile.generic_header();
-        let error = match case {
-            0 => {
-                decoder.arm_page_output(expected).unwrap();
-                assert!(decoder.decode_next_row().unwrap());
-                decoder.arm_page_output(expected).unwrap_err()
-            }
-            1 => {
-                expected.info.width = 2;
-                decoder.arm_page_output(expected).unwrap_err()
-            }
-            _ => decoder.arm_page_output(expected).unwrap_err(),
+        let error = if case == 0 {
+            decoder.arm_page_output(expected).unwrap();
+            assert!(decoder.decode_next_row().unwrap());
+            decoder.arm_page_output(expected).unwrap_err()
+        } else {
+            expected.info.width = 2;
+            decoder.arm_page_output(expected).unwrap_err()
         };
-        match case {
-            0 => assert!(matches!(error.kind, GenericErrorKind::Poisoned)),
-            1 => assert!(matches!(
+        if case == 0 {
+            assert!(matches!(
+                error.kind,
+                GenericErrorKind::Malformed("page output armed after the first row")
+            ));
+        } else {
+            assert!(matches!(
                 error.kind,
                 GenericErrorKind::Malformed("generic header differs from page preflight")
-            )),
-            _ => assert!(matches!(error.kind, GenericErrorKind::Sink(_))),
+            ));
         }
-        assert!(matches!(
-            decoder.decode_next_row().unwrap_err().kind,
-            GenericErrorKind::Poisoned
-        ));
         drop(decoder);
         drop(sink);
         // Only the row decoded before the late arming reached the output.
@@ -840,12 +701,12 @@ fn a_failed_or_late_arming_poisons_the_generic_decoder() {
 #[test]
 fn generic_header_mismatch_is_rejected_before_first_output_byte() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -858,7 +719,6 @@ fn generic_header_mismatch_is_rejected_before_first_output_byte() {
     assert!(try_arm_from_source(&mut sink, observed_bytes(7, 1), actual).is_err());
     let error = sink.take_failure().unwrap();
     assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
-    assert!(error.progress.poisoned);
     assert!(sink.write(&[0]).is_err());
     drop(sink);
     assert!(output.bytes.is_empty());
@@ -867,12 +727,12 @@ fn generic_header_mismatch_is_rejected_before_first_output_byte() {
 #[test]
 fn wrong_generic_page_association_with_same_data_is_rejected_before_output() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -889,7 +749,6 @@ fn wrong_generic_page_association_with_same_data_is_rejected_before_output() {
     );
     let failure = sink.take_failure().unwrap();
     assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
-    assert!(failure.progress.poisoned);
     drop(sink);
     assert_eq!(output.write_calls, 0);
     assert!(output.bytes.is_empty());
@@ -899,12 +758,12 @@ fn wrong_generic_page_association_with_same_data_is_rejected_before_output() {
 fn no_generic_write_or_flush_is_allowed_before_checked_header_arming() {
     for operation in 0..3 {
         let profile = profile(8, 1);
-        let mut scratch = Scratch::with_bytes(&[0]);
+        let scratch = vec![0];
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -924,14 +783,8 @@ fn no_generic_write_or_flush_is_allowed_before_checked_header_arming() {
         };
         assert!(matches!(
             kind,
-            PageComposeErrorKind::Poisoned | PageComposeErrorKind::Incomplete
+            PageComposeErrorKind::Malformed(_) | PageComposeErrorKind::Incomplete
         ));
-        assert!(sink.progress().poisoned);
-        assert!(
-            try_arm_from_source(&mut sink, observed_bytes(8, 1), profile.generic_header(),)
-                .is_err()
-        );
-        drop(sink);
         assert!(output.bytes.is_empty());
         assert_eq!(output.flush_calls, 0);
     }
@@ -941,12 +794,12 @@ fn no_generic_write_or_flush_is_allowed_before_checked_header_arming() {
 fn exact_header_span_geometry_and_pixel_count_are_bound_before_output() {
     for field in 0..3 {
         let profile = profile(8, 1);
-        let mut scratch = Scratch::with_bytes(&[0]);
+        let scratch = vec![0];
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -979,7 +832,6 @@ fn exact_header_span_geometry_and_pixel_count_are_bound_before_output() {
         } else {
             assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
         }
-        assert!(sink.progress().poisoned);
         drop(sink);
         assert!(output.bytes.is_empty());
         assert_eq!(output.write_calls, 0);
@@ -989,12 +841,12 @@ fn exact_header_span_geometry_and_pixel_count_are_bound_before_output() {
 #[test]
 fn a_checked_header_cannot_rearm_the_same_sink() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1007,21 +859,21 @@ fn a_checked_header_cannot_rearm_the_same_sink() {
     );
     assert!(matches!(
         sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Poisoned
+        PageComposeErrorKind::Malformed("page output is already armed")
     ));
     drop(sink);
     assert!(output.bytes.is_empty());
 }
 
 #[test]
-fn incomplete_flush_poison_and_extra_generic_bytes_are_rejected() {
+fn incomplete_flush_and_extra_generic_bytes_are_rejected() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1037,14 +889,13 @@ fn incomplete_flush_poison_and_extra_generic_bytes_are_rejected() {
     assert!(sink.flush().is_err());
     assert!(matches!(
         sink.finish(&generic_report(profile)).unwrap_err().kind,
-        PageComposeErrorKind::Poisoned
+        PageComposeErrorKind::Incomplete
     ));
-    drop(sink);
 
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1060,88 +911,18 @@ fn incomplete_flush_poison_and_extra_generic_bytes_are_rejected() {
         PageComposeErrorKind::Malformed("extra generic bytes")
     ));
     assert_eq!(failure.offset, 1);
-    assert!(failure.progress.poisoned);
 }
 
 #[test]
-fn changed_or_failing_scratch_size_and_cancelled_adapters_poison() {
+fn a_cancelled_output_write_is_reported_as_cancellation() {
     let profile = profile(8, 1);
-    let changed = Rc::new(Cell::new(false));
-    let mut scratch = Scratch::with_bytes(&[0]);
-    scratch.external_wrong_size = Some(changed.clone());
+    let scratch = vec![0];
     let mut output = Output::new();
-    let mut sink = PageOrSink::new(
-        profile,
-        text_report(profile),
-        &mut scratch,
-        &mut output,
-        &DEFAULT_LIMITS,
-        &NeverCancel,
-        PageComposeBudget::default(),
-    )
-    .unwrap();
-    arm_from_real_decoder(&mut sink, profile);
-    changed.set(true);
-    assert!(sink.write(&[0]).is_err());
-    assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::InvalidSpan("text scratch size changed")
-    ));
-    drop(sink);
-    changed.set(false);
-
-    scratch.fail_size = true;
-    let error = PageOrSink::new(
-        profile,
-        text_report(profile),
-        &mut scratch,
-        &mut output,
-        &DEFAULT_LIMITS,
-        &NeverCancel,
-        PageComposeBudget::default(),
-    )
-    .err()
-    .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Scratch(_)));
-    scratch.fail_size = false;
-    scratch.cancel_size = true;
-    let error = PageOrSink::new(
-        profile,
-        text_report(profile),
-        &mut scratch,
-        &mut output,
-        &DEFAULT_LIMITS,
-        &NeverCancel,
-        PageComposeBudget::default(),
-    )
-    .err()
-    .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Cancelled));
-    scratch.cancel_size = false;
-    scratch.cancel_read = true;
-    let mut sink = PageOrSink::new(
-        profile,
-        text_report(profile),
-        &mut scratch,
-        &mut output,
-        &DEFAULT_LIMITS,
-        &NeverCancel,
-        PageComposeBudget::default(),
-    )
-    .unwrap();
-    arm_from_real_decoder(&mut sink, profile);
-    assert!(sink.write(&[0]).is_err());
-    assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Cancelled
-    ));
-    drop(sink);
-    scratch.cancel_read = false;
     output.cancel_write = true;
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1162,7 +943,7 @@ fn cancellation_before_and_after_final_flush_prevents_completion() {
         let profile = profile(8, 1);
         let flag = Rc::new(Cell::new(false));
         let token = FlagCancel(flag.clone());
-        let mut scratch = Scratch::with_bytes(&[0]);
+        let scratch = vec![0];
         let mut output = Output::new();
         if cancel_during_flush {
             output.cancel_on_flush = Some(flag.clone());
@@ -1170,7 +951,7 @@ fn cancellation_before_and_after_final_flush_prevents_completion() {
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &token,
@@ -1185,8 +966,6 @@ fn cancellation_before_and_after_final_flush_prevents_completion() {
         }
         let error = sink.finish(&generic_report(profile)).unwrap_err();
         assert!(matches!(error.kind, PageComposeErrorKind::Cancelled));
-        assert!(error.progress.poisoned);
-        drop(sink);
         assert_eq!(output.flush_calls, usize::from(cancel_during_flush));
     }
 }
@@ -1199,12 +978,12 @@ fn narrow_and_byte_aligned_rows_have_exact_packed_boundaries() {
         (8, vec![0x01, 0x80], vec![0x80, 0x01], vec![0x81, 0x81]),
     ] {
         let profile = profile(width, 2);
-        let mut scratch = Scratch::with_bytes(&text);
+        let scratch = text;
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1215,7 +994,6 @@ fn narrow_and_byte_aligned_rows_have_exact_packed_boundaries() {
         feed_all(&mut sink, &generic).unwrap();
         sink.flush().unwrap();
         sink.finish(&generic_report(profile)).unwrap();
-        drop(sink);
         assert_eq!(output.bytes, expected, "width {width}");
     }
 }
@@ -1230,12 +1008,12 @@ fn empty_text_only_generic_only_and_overlapping_pixels_use_or() {
         (0x40, 0x80, 0xc0),
     ] {
         let profile = profile(8, 1);
-        let mut scratch = Scratch::with_bytes(&[text_byte]);
+        let scratch = vec![text_byte];
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1246,7 +1024,6 @@ fn empty_text_only_generic_only_and_overlapping_pixels_use_or() {
         feed_all(&mut sink, &[generic_byte]).unwrap();
         sink.flush().unwrap();
         sink.finish(&generic_report(profile)).unwrap();
-        drop(sink);
         assert_eq!(output.bytes, [expected]);
     }
 }
@@ -1261,12 +1038,12 @@ fn successful_report_retains_explicit_text_header_anomaly() {
     let mut text = text_report(profile);
     text.text_flags_raw = 0xa40c;
     text.header_anomaly = Some(TextHeaderAnomaly::UnusedRefinementTemplate);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text,
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1287,14 +1064,14 @@ fn successful_report_retains_explicit_text_header_anomaly() {
 #[test]
 fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
     let profile = profile(9, 2);
-    let mut scratch = Scratch::with_bytes(&[0; 4]);
+    let scratch = vec![0; 4];
     let mut output = Output::new();
     let mut incomplete = text_report(profile);
-    incomplete.progress.stage = TextComposeStage::Readback;
+    incomplete.progress.stage = TextComposeStage::Instance;
     let error = PageOrSink::new(
         profile,
         incomplete,
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1308,7 +1085,7 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
     let error = PageOrSink::new(
         profile,
         wrong,
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1332,7 +1109,7 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         let error = PageOrSink::new(
             profile,
             wrong,
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1342,11 +1119,11 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         .unwrap();
         assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
     }
-    scratch.wrong_size = true;
+    let wrong_size = vec![0; 5];
     let error = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &wrong_size,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1359,15 +1136,15 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
 }
 
 #[test]
-fn rejects_generic_and_scratch_padding_without_output() {
+fn rejects_generic_and_text_padding_without_output() {
     for (text, generic) in [([0, 0], [0, 1]), ([0, 1], [0, 0])] {
         let profile = profile(9, 1);
-        let mut scratch = Scratch::with_bytes(&text);
+        let scratch = text;
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1382,32 +1159,27 @@ fn rejects_generic_and_scratch_padding_without_output() {
             PageComposeErrorKind::Malformed("nonzero row padding")
         ));
         assert_eq!(failure.offset, 1);
-        assert!(failure.progress.poisoned);
         drop(sink);
         assert!(output.bytes.is_empty());
     }
 }
 
 #[test]
-fn faults_and_resource_caps_poison_the_sink_with_physical_progress() {
-    for fault in 0..6 {
+fn output_faults_and_the_write_call_cap_are_typed() {
+    for fault in 0..2 {
         let profile = profile(8, 1);
-        let mut scratch = Scratch::with_bytes(&[0x80]);
+        let scratch = vec![0x80];
         let mut output = Output::new();
         let mut budget = PageComposeBudget::default();
-        match fault {
-            0 => scratch.zero_read = true,
-            1 => scratch.overreport = true,
-            2 => scratch.fail_read = true,
-            3 => output.zero_write = true,
-            4 => output.overreport = true,
-            5 => budget.max_output_write_calls = 0,
-            _ => unreachable!(),
+        if fault == 0 {
+            output.zero_write = true;
+        } else {
+            budget.max_output_write_calls = 0;
         }
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1417,68 +1189,27 @@ fn faults_and_resource_caps_poison_the_sink_with_physical_progress() {
         arm_from_real_decoder(&mut sink, profile);
         assert!(sink.write(&[0]).is_err(), "fault {fault}");
         let failure = sink.take_failure().unwrap();
-        assert!(failure.progress.poisoned);
-        assert!(sink.write(&[0]).is_err());
-        match fault {
-            0 => assert!(matches!(failure.kind, PageComposeErrorKind::InvalidSpan(_))),
-            1 | 4 => assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_))),
-            2 => assert!(matches!(failure.kind, PageComposeErrorKind::Scratch(_))),
-            3 => assert!(matches!(failure.kind, PageComposeErrorKind::Output(_))),
-            5 => assert!(matches!(
+        if fault == 0 {
+            assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
+        } else {
+            assert!(matches!(
                 failure.kind,
                 PageComposeErrorKind::LimitExceeded { .. }
-            )),
-            _ => unreachable!(),
+            ));
         }
     }
-}
-
-#[test]
-fn one_byte_scratch_reads_hit_call_budget_with_exact_progress() {
-    let profile = profile(9, 1);
-    let mut scratch = Scratch::with_bytes(&[0, 0]);
-    scratch.max_read = 1;
-    let mut output = Output::new();
-    let mut sink = PageOrSink::new(
-        profile,
-        text_report(profile),
-        &mut scratch,
-        &mut output,
-        &DEFAULT_LIMITS,
-        &NeverCancel,
-        PageComposeBudget {
-            max_scratch_read_calls: 1,
-            ..PageComposeBudget::default()
-        },
-    )
-    .unwrap();
-    arm_from_real_decoder(&mut sink, profile);
-    assert!(sink.write(&[0, 0]).is_err());
-    let failure = sink.take_failure().unwrap();
-    assert!(matches!(
-        failure.kind,
-        PageComposeErrorKind::LimitExceeded {
-            resource: "scratch read calls",
-            ..
-        }
-    ));
-    assert_eq!(failure.offset, 1);
-    assert_eq!(failure.progress.scratch_bytes_read, 1);
-    assert_eq!(failure.progress.scratch_read_calls, 1);
-    drop(sink);
-    assert!(output.bytes.is_empty());
 }
 
 #[test]
 fn final_report_must_belong_to_preflighted_generic_segment() {
     for field in 0..3 {
         let profile = profile(8, 1);
-        let mut scratch = Scratch::with_bytes(&[0]);
+        let scratch = vec![0];
         let mut output = Output::new();
         let mut sink = PageOrSink::new(
             profile,
             text_report(profile),
-            &mut scratch,
+            &scratch,
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
@@ -1502,8 +1233,6 @@ fn final_report_must_belong_to_preflighted_generic_segment() {
         } else {
             assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
         }
-        assert!(failure.progress.poisoned);
-        drop(sink);
         assert_eq!(output.flush_calls, 0);
     }
 }
@@ -1511,13 +1240,13 @@ fn final_report_must_belong_to_preflighted_generic_segment() {
 #[test]
 fn output_error_and_cancellation_do_not_commit_a_page() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     output.fail_write = true;
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1540,7 +1269,7 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &token,
@@ -1548,7 +1277,9 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
-    assert!(sink.write(&[0x80]).is_err());
+    // The write completes; the next checkpoint observes the cancellation.
+    feed_all(&mut sink, &[0x80]).unwrap();
+    assert!(sink.flush().is_err());
     let failure = sink.take_failure().unwrap();
     assert!(matches!(failure.kind, PageComposeErrorKind::Cancelled));
     assert_eq!(failure.progress.output_bytes_written, 1);
@@ -1558,12 +1289,12 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
 #[test]
 fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
     let profile = profile(8, 1);
-    let mut scratch = Scratch::with_bytes(&[0]);
+    let scratch = vec![0];
     let mut output = Output::new();
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1577,15 +1308,13 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
     wrong.progress.mq.symbols_decoded -= 1;
     let failure = sink.finish(&wrong).unwrap_err();
     assert!(matches!(failure.kind, PageComposeErrorKind::Incomplete));
-    assert!(failure.progress.poisoned);
-    drop(sink);
     assert_eq!(output.flush_calls, 0);
 
     output.fail_flush = true;
     let mut sink = PageOrSink::new(
         profile,
         text_report(profile),
-        &mut scratch,
+        &scratch,
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
@@ -1597,7 +1326,5 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
     sink.flush().unwrap();
     let failure = sink.finish(&generic_report(profile)).unwrap_err();
     assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
-    assert!(failure.progress.poisoned);
-    drop(sink);
     assert_eq!(output.flush_calls, 1);
 }

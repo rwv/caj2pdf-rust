@@ -250,7 +250,7 @@ fn rejected_text_reports_the_deciding_reader_error() {
 }
 
 #[test]
-fn inspect_text_requires_a_current_unpoisoned_page() {
+fn inspect_text_requires_a_current_page() {
     let mut source = Memory {
         bytes: container(Variant::C8, &[(words(&[[0xffff, 0xffff]]), 0)]),
         fail_at: u64::MAX,
@@ -263,8 +263,6 @@ fn inspect_text_requires_a_current_unpoisoned_page() {
         assert!(matches!(error.kind, ErrorKind::NoCurrentPage));
         reader.next_page().unwrap();
         reader.inspect_text(TextBudget::default()).unwrap_err();
-        let error = reader.inspect_text(TextBudget::default()).unwrap_err();
-        assert!(matches!(error.kind, ErrorKind::Poisoned));
     };
 }
 

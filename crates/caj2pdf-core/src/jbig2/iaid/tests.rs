@@ -3,10 +3,7 @@
 use super::*;
 use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
 use crate::test_support::mq_encoder;
-use crate::{Limits, NeverCancel, native::SeekableSource};
-use std::io::Cursor;
-
-type Source = SeekableSource<Cursor<Vec<u8>>>;
+use crate::{Limits, Payload};
 
 /// Decode `values` as consecutive IAIDs of `code_len` bits from a stream
 /// that codes them, over a bank of exactly the contexts the width needs.
@@ -21,10 +18,10 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
     let limits = Limits::default();
     let contexts = IAID_BASE + (1 << code_len);
     let mut bank = ContextBank::new(contexts, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes.clone())).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
     let mut decoder = MqDecoder::new(
-        &mut source,
+        source,
         CodedSpan {
             offset: 0,
             length: bytes.len() as u64,
@@ -32,7 +29,6 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
     )
     .unwrap();
@@ -80,13 +76,13 @@ fn largest_default_width_and_truncated_stream_error() {
     );
 
     // A span without the FF AC terminal pair ends within the ID.
-    let bytes = vec![0x00, 0x00];
+    let bytes = [0x00, 0x00];
     let limits = Limits::default();
     let mut bank = ContextBank::new(IAID_BASE + 32_768, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes)).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
     let mut decoder = MqDecoder::new(
-        &mut source,
+        source,
         CodedSpan {
             offset: 0,
             length: 2,
@@ -94,7 +90,6 @@ fn largest_default_width_and_truncated_stream_error() {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
     )
     .unwrap();
@@ -110,13 +105,13 @@ fn largest_default_width_and_truncated_stream_error() {
 
 #[test]
 fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
-    let bytes = vec![0xff, 0xac];
+    let bytes = [0xff, 0xac];
     let limits = Limits::default();
     let mut bank = ContextBank::new(IAID_BASE + 8, &limits).unwrap();
-    let mut source = Source::new(Cursor::new(bytes)).unwrap();
+    let source = Payload::from(&bytes[..]);
     let table = MqTable::standard();
     let mut decoder = MqDecoder::new(
-        &mut source,
+        source,
         CodedSpan {
             offset: 0,
             length: 2,
@@ -124,7 +119,6 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         &table,
         &mut bank,
         &limits,
-        &NeverCancel,
         MqBudget::default(),
     )
     .unwrap();

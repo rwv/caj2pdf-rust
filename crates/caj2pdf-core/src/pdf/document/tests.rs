@@ -365,7 +365,7 @@ fn shared_image<W: Write>(document: &mut PdfDocument<'_, W, CancelAfter>) -> Res
         pixel_height: 1,
         row_stride: 1,
     })?;
-    writer.write(&[0])?;
+    writer.write_all(&[0])?;
     writer.finish()
 }
 
@@ -691,7 +691,7 @@ fn bilevel_compression_is_independent_of_row_and_output_chunk_boundaries() {
                 .unwrap();
             assert!(image.zlib.encoded.len() <= DEFLATE_CHUNK_BYTES);
             for bytes in raw.chunks(split) {
-                image.write(bytes).unwrap();
+                image.write_all(bytes).unwrap();
             }
             assert_eq!(image.zlib.encoder.total_in(), expected.len() as u64);
             let object = image.finish().unwrap();
@@ -774,7 +774,7 @@ fn bilevel_finish_observes_output_limits() {
                 row_stride: 1,
             })
             .unwrap();
-        image.write(&[0]).unwrap();
+        image.write_all(&[0]).unwrap();
         // The final zlib bytes must pass through the PDF output limit.
         image
             .document
@@ -807,7 +807,7 @@ fn bilevel_finish_observes_cancellation_while_draining() {
                 pixel_height: 1,
                 row_stride: 1,
             })?;
-            image.write(&[0])?;
+            image.write_all(&[0])?;
             Ok::<_, Error>(image.finish())
         })();
         match result {

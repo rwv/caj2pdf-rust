@@ -20,45 +20,26 @@ use crate::jbig2::{
     refinement::RefinementBudget,
     text::{TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy},
     text_composer::{
-        RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
-        TextComposeReport, TextComposer,
+        TextComposeBudget, TextComposeError, TextComposeErrorKind, TextComposeReport, TextComposer,
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
-use crate::{Cancellation, Limits, RangedSource, read_exact_at};
+use crate::{Cancellation, Limits, Payload, RangedSource, read_exact_at};
 use std::error;
 use std::io::Write;
 
 const DIB_BYTES: u64 = 48;
 
-/// One symbol-dictionary store. Both read handles must observe writes by the
-/// writer, including a changing length. All handles refer to the same
-/// initially empty store; the writer appends from byte zero.
-pub(super) struct Type3Store<'a, R: RangedSource, W: Write> {
-    pub reader: &'a mut R,
-    /// Independent handle for text composition while the instance decoder
-    /// holds `reader`. It observes the same backing bytes.
-    pub compose_reader: &'a mut R,
-    pub writer: &'a mut W,
-}
-
-/// One refined-symbol store. Its reader observes writer growth while text
-/// instances are decoded and composed. Both handles refer to the same
-/// initially empty store; the writer appends from byte zero.
-pub(super) struct Type3RefinedStore<'a, R: RangedSource, W: Write> {
-    pub reader: &'a mut R,
-    pub writer: &'a mut W,
-}
-
-/// Three bounded symbol stores plus the one full-page text scratch, each
-/// empty on entry. The second and refined stores must support reading while
-/// their paired writer appends. No intermediate is a second full-page bitmap.
-pub(super) struct Type3Workspaces<'a, R: RangedSource, W: Write, T: RandomAccessScratch> {
-    pub first: Type3Store<'a, R, W>,
-    pub second: Type3Store<'a, R, W>,
-    pub refined: Type3RefinedStore<'a, R, W>,
-    pub text: &'a mut T,
+/// The three symbol stores and the composed text region of one type-3
+/// image, in memory. The composition pipeline owns them and reuses their
+/// allocations between images; each is cleared before an image.
+#[derive(Default)]
+pub(super) struct Type3Stores {
+    first: Vec<u8>,
+    second: Vec<u8>,
+    refined: Vec<u8>,
+    text: Vec<u8>,
 }
 
 /// Decoder budgets and the text-header policy for the observed type-3 profile.
@@ -166,17 +147,6 @@ fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, C
     })
 }
 
-struct DiscardSink;
-
-impl Write for DiscardSink {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 /// Checked source metadata from one preflight pass. Geometry is exposed
 /// without decoding pixels; the directory and profile are reused for decode.
 #[derive(Debug)]
@@ -209,12 +179,11 @@ impl CheckedType3 {
     }
 }
 
-/// Prepared text pixels borrow their scratch until image emission finishes.
-/// Symbol decoder contexts/catalogs have already been released.
-pub(super) struct PreparedType3<'a, T> {
+/// Prepared text pixels, composed in the stores' text region. Symbol
+/// decoder contexts and catalogs have already been released.
+pub(super) struct PreparedType3 {
     checked: CheckedType3,
     text_report: TextComposeReport,
-    text: &'a mut T,
 }
 
 /// Check one type-3 record's DIB wrapper and JBIG2 metadata without decoding
@@ -350,26 +319,66 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     })
 }
 
-/// Decode symbol dictionaries and the text layer before the image's PDF
-/// stream is opened, so their failures leave no partial image object.
+/// Decode one checked type-3 record from its `payload` into `document`,
+/// using and first clearing `stores`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn prepare_type3_image<'a, S, R, W, T, C>(
-    source: &mut S,
-    table: &MqTable,
-    workspaces: &'a mut Type3Workspaces<'_, R, W, T>,
+pub(super) fn emit_type3<W: Write, C: Cancellation>(
+    payload: Payload<'_>,
+    document: &mut PdfDocument<'_, W, C>,
+    stores: &mut Type3Stores,
     checked: CheckedType3,
     image_at: At,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<PreparedType3<'a, T>, ComposeError>
-where
-    S: RangedSource,
-    R: RangedSource,
-    W: Write,
-    T: RandomAccessScratch,
-    C: Cancellation,
-{
+) -> Result<(ImageObject, PageComposeReport), ComposeError> {
+    let table = MqTable::standard();
+    let width = checked.page().width;
+    for store in [
+        &mut stores.first,
+        &mut stores.second,
+        &mut stores.refined,
+        &mut stores.text,
+    ] {
+        store.clear();
+    }
+    let prepared = prepare_type3_image(
+        payload,
+        &table,
+        stores,
+        checked,
+        image_at,
+        options,
+        limits,
+        cancellation,
+    )?;
+    emit_type3_xobject(
+        payload,
+        document,
+        &table,
+        prepared,
+        &stores.text,
+        width,
+        image_at,
+        options,
+        limits,
+        cancellation,
+    )
+}
+
+/// Decode symbol dictionaries and the text layer before the image's PDF
+/// stream is opened, so their failures leave no partial image object.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_type3_image<C: Cancellation>(
+    payload: Payload<'_>,
+    table: &MqTable,
+    stores: &mut Type3Stores,
+    checked: CheckedType3,
+    image_at: At,
+    options: Type3PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<PreparedType3, ComposeError> {
     let image = checked.image;
     let directory = &checked.directory;
     let text = checked.profile.text_header();
@@ -378,15 +387,14 @@ where
     let first_at = at.with_offset(directory.segments[1].data.offset);
     let mut first_contexts = work_stage(first_contexts, first_at, Type3Stage::Contexts)?;
     // A direct dictionary has no import and never reads its own store.
-    let mut first_decoder = SymbolDictionaryDecoder::new(
-        source,
+    let first_decoder = SymbolDictionaryDecoder::new(
+        payload,
         &directory.segments[1],
         None,
         DictionaryStores {
-            imported: workspaces.second.reader,
+            imported: &[],
             imported_base: 0,
-            new_reader: workspaces.first.reader,
-            new_writer: workspaces.first.writer,
+            new: &mut stores.first,
             new_base: 0,
         },
         table,
@@ -409,11 +417,10 @@ where
         Type3Stage::FirstDictionary,
         |error| error.offset,
     )?;
-    drop(first_decoder);
     let imported_count = u64::from(first_report.header.exported_symbols);
     let second_count = u64::from(read_second_new_symbol_count(
         directory,
-        source,
+        payload,
         limits,
         cancellation,
         options.dictionary,
@@ -426,18 +433,17 @@ where
     );
     let second_at = at.with_offset(directory.segments[2].data.offset);
     let mut second_contexts = work_stage(second_contexts, second_at, Type3Stage::Contexts)?;
-    let mut second_decoder = SymbolDictionaryDecoder::new(
-        source,
+    let second_decoder = SymbolDictionaryDecoder::new(
+        payload,
         &directory.segments[2],
         Some(ImportedDictionary {
             segment: &directory.segments[1],
             report: &first_report,
         }),
         DictionaryStores {
-            imported: workspaces.first.reader,
+            imported: &stores.first,
             imported_base: 0,
-            new_reader: workspaces.second.reader,
-            new_writer: workspaces.second.writer,
+            new: &mut stores.second,
             new_base: 0,
         },
         table,
@@ -460,7 +466,6 @@ where
         Type3Stage::SecondDictionary,
         |error| error.offset,
     )?;
-    drop(second_decoder);
     let text_contexts = context_bank(
         symbol_code_length(second_report.catalog.exported_symbols.len() as u64),
         limits,
@@ -469,16 +474,16 @@ where
     let text_at = at.with_offset(directory.segments[3].data.offset);
     let mut text_contexts = work_stage(text_contexts, text_at, Type3Stage::Contexts)?;
     let text_decoder = TextInstanceDecoder::new_with_header_policy(
-        source,
+        payload,
         &directory.segments[3],
         text,
         &directory.segments[2],
         &second_report,
-        workspaces.first.reader,
+        &stores.first,
         0,
-        workspaces.second.reader,
+        &stores.second,
         0,
-        workspaces.refined.writer,
+        &mut stores.refined,
         0,
         table,
         &mut text_contexts,
@@ -493,70 +498,47 @@ where
     let mut text_decoder = source_stage(text_decoder, at, Type3Stage::TextInstances, |error| {
         error.offset
     })?;
-    let mut discard = DiscardSink;
-    // The shared I/O limit is another ceiling. The text composer requires its
-    // own request cap to be no larger than that limit, rather than taking the
-    // minimum internally as the other stages do.
-    let text_compose_budget = TextComposeBudget {
-        max_request_bytes: options
-            .text_compose
-            .max_request_bytes
-            .min(limits.io_chunk_bytes),
-        ..options.text_compose
-    };
-    let text_report = {
-        let composer_result = TextComposer::new(
-            directory.segments[3].number,
-            text,
-            &second_report.catalog.exported_symbols,
-            &mut text_decoder,
-            workspaces.first.compose_reader,
-            0,
-            workspaces.second.compose_reader,
-            0,
-            workspaces.refined.reader,
-            0,
-            workspaces.text,
-            &mut discard,
-            limits,
-            cancellation,
-            text_compose_budget,
-        );
-        let mut composer = work_stage(composer_result, at, Type3Stage::TextCompose)?;
-        composed_stage(composer.compose(), at)?
-    };
-    drop(text_decoder);
+    let composer = TextComposer::new(
+        directory.segments[3].number,
+        text,
+        &second_report.catalog.exported_symbols,
+        &mut text_decoder,
+        &stores.first,
+        0,
+        &stores.second,
+        0,
+        0,
+        &mut stores.text,
+        limits,
+        cancellation,
+        options.text_compose,
+    );
+    let composer = work_stage(composer, at, Type3Stage::TextCompose)?;
+    let text_report = composed_stage(composer.compose(), at)?;
     Ok(PreparedType3 {
         checked,
         text_report,
-        text: workspaces.text,
     })
 }
 
 /// Append one image to an existing PDF. Page creation/placement belongs to
 /// the caller; the decoder never opens or finishes another document.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn emit_type3_xobject<S, W, T, C>(
-    source: &mut S,
+pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
+    payload: Payload<'_>,
     document: &mut PdfDocument<'_, W, C>,
     table: &MqTable,
-    prepared: PreparedType3<'_, T>,
+    prepared: PreparedType3,
+    text: &[u8],
     display_width: u32,
     image_at: At,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport), ComposeError>
-where
-    S: RangedSource,
-    W: Write,
-    T: RandomAccessScratch,
-    C: Cancellation,
-{
+) -> Result<(ImageObject, PageComposeReport), ComposeError> {
     let PreparedType3 {
         checked,
         text_report,
-        text,
     } = prepared;
     let image = checked.image;
     let page = checked.page();
@@ -591,23 +573,18 @@ where
     let generic_result = options.mq.context_bank(1024, limits);
     let generic_at = at.with_offset(directory.segments[4].data.offset);
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
-    let generic_result = (|| {
-        let mut decoder = GenericRegionDecoder::new(
-            source,
-            &directory.segments[4],
-            table,
-            &mut generic_contexts,
-            &mut page_sink,
-            limits,
-            cancellation,
-            options.mq,
-            options.generic,
-        )?;
-        decoder.arm_page_output(profile.generic_header())?;
-        while decoder.decode_next_row()? {}
-        decoder.finish()
-    })();
-    let generic_report = generic_result.map_err(|error| {
+    let generic_report = decode_generic(
+        payload,
+        &directory.segments[4],
+        table,
+        &mut generic_contexts,
+        &mut page_sink,
+        profile,
+        options,
+        limits,
+        cancellation,
+    )
+    .map_err(|error| {
         if let Some(failure) = page_sink.take_failure() {
             at.stage(Type3Stage::PageCompose, failure)
         } else {
@@ -618,9 +595,37 @@ where
     let page_compose = page_sink
         .finish(&generic_report)
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
-    drop(page_sink);
     let object = rows.finish().map_err(at.pdf())?;
     Ok((object, page_compose))
+}
+
+/// Decode the generic region into the armed page sink.
+#[allow(clippy::too_many_arguments)]
+fn decode_generic<W: Write, C: Cancellation>(
+    payload: Payload<'_>,
+    segment: &crate::jbig2::SegmentHeader,
+    table: &MqTable,
+    contexts: &mut ContextBank,
+    page_sink: &mut PageOrSink<'_, W, C>,
+    profile: PageProfile,
+    options: Type3PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> crate::jbig2::generic::GenericResult<crate::jbig2::generic::GenericReport> {
+    let mut decoder = GenericRegionDecoder::new(
+        payload,
+        segment,
+        table,
+        contexts,
+        page_sink,
+        limits,
+        cancellation,
+        options.mq,
+        options.generic,
+    )?;
+    decoder.arm_page_output(profile.generic_header())?;
+    while decoder.decode_next_row()? {}
+    decoder.finish()
 }
 
 /// Internal adapter for a checked visible/DIB width. BilevelImageWriter
@@ -665,9 +670,9 @@ fn context_bank(
     budget.context_bank(count, limits)
 }
 
-fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
+fn read_second_new_symbol_count<C: Cancellation>(
     directory: &crate::jbig2::SegmentDirectory,
-    source: &mut S,
+    payload: Payload<'_>,
     limits: &Limits,
     cancellation: &C,
     budget: DictionaryBudget,
@@ -675,7 +680,13 @@ fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
 ) -> Result<u32, ComposeError> {
     use crate::jbig2::dictionary::read_dictionary_data_header;
     let result = source_stage(
-        read_dictionary_data_header(source, &directory.segments[2], limits, budget, cancellation),
+        read_dictionary_data_header(
+            &mut { payload },
+            &directory.segments[2],
+            limits,
+            budget,
+            cancellation,
+        ),
         at,
         Type3Stage::SecondDictionary,
         |error| error.offset,
@@ -790,30 +801,15 @@ mod tests {
         );
         assert!(error.to_string().contains("source byte 555"));
 
-        let scratch = TextComposeError {
+        let malformed = TextComposeError {
             segment: 3,
             offset: 7,
             progress: Box::new(TextComposeProgress::default()),
-            kind: TextComposeErrorKind::Scratch(invalid_input()),
+            kind: TextComposeErrorKind::Malformed("invented"),
         };
-        let error = composed_stage::<()>(Err(scratch), at).unwrap_err();
+        let error = composed_stage::<()>(Err(malformed), at).unwrap_err();
         assert_eq!(error.offset, Some(100));
         assert!(error.to_string().contains("source byte 100"));
-    }
-
-    struct ByteReader(Vec<u8>);
-
-    impl RangedSource for ByteReader {
-        fn size(&self) -> u64 {
-            self.0.len() as u64
-        }
-
-        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-            let start = offset as usize;
-            let count = destination.len().min(self.0.len().saturating_sub(start));
-            destination[..count].copy_from_slice(&self.0[start..start + count]);
-            Ok(count)
-        }
     }
 
     use crate::test_support::mq_encoder;
@@ -825,22 +821,6 @@ mod tests {
     #[derive(Clone, Default)]
     struct Memory(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
 
-    impl RangedSource for Memory {
-        fn size(&self) -> u64 {
-            self.0.borrow().len() as u64
-        }
-        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-            let bytes = self.0.borrow();
-            let start = offset as usize;
-            let count = destination
-                .len()
-                .min(bytes.len().saturating_sub(start))
-                .min(2);
-            destination[..count].copy_from_slice(&bytes[start..start + count]);
-            Ok(count)
-        }
-    }
-
     impl Write for Memory {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             let count = bytes.len().min(3);
@@ -848,27 +828,6 @@ mod tests {
             Ok(count)
         }
         fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl RandomAccessScratch for Memory {
-        fn size(&self) -> crate::Result<u64> {
-            Ok(RangedSource::size(self))
-        }
-        fn set_len(&mut self, length: u64) -> crate::Result<()> {
-            self.0.borrow_mut().resize(length as usize, 0);
-            Ok(())
-        }
-        fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
-            RangedSource::read_at(self, offset, bytes)
-        }
-        fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
-            let start = offset as usize;
-            self.0.borrow_mut()[start..start + bytes.len()].copy_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> crate::Result<()> {
             Ok(())
         }
     }
@@ -887,7 +846,7 @@ mod tests {
             height_points: 20.0,
         };
         let mut placements = Vec::new();
-        let mut scratch = Memory::default();
+        let mut stores = Type3Stores::default();
         for (number, width, height) in [(1, 3, 2), (2, 9, 3)] {
             let bytes = fixture::payload(width, height, 0x10);
             let image = ImageRecord {
@@ -900,42 +859,25 @@ mod tests {
                     length: bytes.len() as u64,
                 },
             };
-            let mut source = ByteReader(bytes);
-            let checked =
-                preflight_type3(&mut source, image, At::NONE, options, &limits, &NeverCancel)
-                    .unwrap();
+            let checked = preflight_type3(
+                &mut &bytes[..],
+                image,
+                At::NONE,
+                options,
+                &limits,
+                &NeverCancel,
+            )
+            .unwrap();
+            let payload = Payload::from(&bytes[..]);
             assert_eq!(
                 (checked.page().width, checked.page().height),
                 (width, height)
             );
-            let mut first = Memory::default();
-            let (mut first_reader, mut first_compose) = (first.clone(), first.clone());
-            let mut second = Memory::default();
-            let (mut second_reader, mut second_compose) = (second.clone(), second.clone());
-            let mut refined = Memory::default();
-            let mut refined_reader = refined.clone();
-            let mut workspaces = Type3Workspaces {
-                first: Type3Store {
-                    reader: &mut first_reader,
-                    compose_reader: &mut first_compose,
-                    writer: &mut first,
-                },
-                second: Type3Store {
-                    reader: &mut second_reader,
-                    compose_reader: &mut second_compose,
-                    writer: &mut second,
-                },
-                refined: Type3RefinedStore {
-                    reader: &mut refined_reader,
-                    writer: &mut refined,
-                },
-                text: &mut scratch,
-            };
             let before = output.0.borrow().len();
             let prepared = prepare_type3_image(
-                &mut source,
+                payload,
                 &table,
-                &mut workspaces,
+                &mut stores,
                 checked,
                 At::NONE,
                 options,
@@ -949,10 +891,11 @@ mod tests {
                 "preparation must not write PDF bytes"
             );
             let (object, report) = emit_type3_xobject(
-                &mut source,
+                payload,
                 &mut document,
                 &table,
                 prepared,
+                &stores.text,
                 width,
                 At::NONE,
                 options,
@@ -975,7 +918,7 @@ mod tests {
                     0.0,
                 ],
             });
-            scratch.set_len(0).unwrap();
+            stores = Type3Stores::default();
         }
         document.add_placed_page(size, &placements).unwrap();
         let report = document.finish().unwrap();

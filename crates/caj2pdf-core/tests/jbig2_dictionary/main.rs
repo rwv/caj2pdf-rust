@@ -13,7 +13,7 @@ mod decode;
 mod faults;
 
 use caj2pdf_core::{
-    Limits, RangedSource,
+    Limits, Payload, RangedSource,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{
@@ -32,7 +32,6 @@ use caj2pdf_core::{
     },
 };
 use common::CancelAfter;
-use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 const ONE_SYMBOL: [u8; 5] = [0x94, 0xa7, 0x7f, 0xff, 0xac];
@@ -87,6 +86,17 @@ impl Source {
     }
 }
 
+impl Source {
+    /// The visible bytes, as a decoder reads them from memory.
+    fn payload(&self) -> Payload<'_> {
+        let end = self
+            .visible_end
+            .min(self.bytes.len())
+            .min(usize::try_from(self.advertised).unwrap_or(usize::MAX));
+        Payload::from(&self.bytes[..end])
+    }
+}
+
 impl RangedSource for Source {
     fn size(&self) -> u64 {
         self.advertised
@@ -123,56 +133,10 @@ impl RangedSource for Source {
     }
 }
 
-/// A symbol store that accepts at most `max_write` bytes per write and can
-/// fail, stay pending, over-report, or raise a cancellation flag.
+/// A symbol store.
 #[derive(Default)]
 struct Store {
     bytes: Vec<u8>,
-    max_write: usize,
-    fail: bool,
-    overreport: bool,
-    cancel_after_write: Option<Rc<Cell<bool>>>,
-    write_fault: Option<Fault>,
-    flush_fault: Option<Fault>,
-    flushed: bool,
-}
-
-impl Store {
-    /// A store that accepts whole writes.
-    fn unbounded() -> Self {
-        Self {
-            max_write: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl Write for Store {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if let Some(fault) = self.write_fault {
-            return Err(fault.error().into());
-        }
-        if self.fail {
-            return Err(io::Error::other("test store failure"));
-        }
-        if self.overreport {
-            return Ok(bytes.len() + 1);
-        }
-        let count = bytes.len().min(self.max_write);
-        self.bytes.extend_from_slice(&bytes[..count]);
-        if let Some(flag) = &self.cancel_after_write {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        if let Some(fault) = self.flush_fault {
-            return Err(fault.error().into());
-        }
-        self.flushed = true;
-        Ok(())
-    }
 }
 
 fn header(source: &mut Source) -> SegmentHeader {
@@ -213,31 +177,20 @@ fn exported(report: &DictionaryReport) -> Vec<SymbolDescriptor> {
         .collect()
 }
 
-/// The symbol stores a direct dictionary never reads.
+/// The imported store a direct dictionary never reads.
+#[derive(Default)]
 struct Unread {
-    imported: Source,
-    new: Source,
+    imported: Vec<u8>,
 }
 
-impl Default for Unread {
-    fn default() -> Self {
-        Self {
-            imported: Source::new(Vec::new()),
-            new: Source::new(Vec::new()),
-        }
-    }
-}
-
-/// The stores of a direct dictionary: only `store` receives symbols.
-fn direct_stores<'a>(
-    unread: &'a mut Unread,
-    store: &'a mut Store,
-) -> DictionaryStores<'a, Source, Source, Store> {
+/// The stores of a direct dictionary: only `store` receives symbols, after
+/// any bytes it already holds.
+fn direct_stores<'a>(unread: &'a Unread, store: &'a mut Store) -> DictionaryStores<'a> {
+    let new_base = store.bytes.len() as u64;
     DictionaryStores {
-        imported: &mut unread.imported,
+        imported: &unread.imported,
         imported_base: 0,
-        new_reader: &mut unread.new,
-        new_writer: store,
-        new_base: 0,
+        new: &mut store.bytes,
+        new_base,
     }
 }

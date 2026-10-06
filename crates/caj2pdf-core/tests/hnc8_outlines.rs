@@ -192,7 +192,7 @@ impl BookmarkVisitor for FailedVisitor {
 }
 
 #[test]
-fn visitor_failure_poisoning_prevents_replaying_partial_output() {
+fn visitor_failure_and_cancellation_are_located() {
     for cancelled in [false, true] {
         {
             let mut input = SeekableSource::new(Cursor::new(source(&[(b"x", b"1", 1)]))).unwrap();
@@ -211,12 +211,6 @@ fn visitor_failure_poisoning_prevents_replaying_partial_output() {
                     "outline visitor"
                 }
             );
-            let mut entries = Entries::default();
-            let again = reader
-                .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
-                .unwrap_err();
-            assert!(matches!(again.kind, ErrorKind::Poisoned));
-            assert!(entries.0.is_empty());
         };
     }
 }

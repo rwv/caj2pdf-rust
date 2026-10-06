@@ -1064,13 +1064,15 @@ fn hn_failures_preserve_inputs_and_existing_output_and_remove_temporary_files() 
         );
         assert_eq!(fs::read(scratch.path("input.hn")).unwrap(), input);
     }
-    let failed = scratch
+    // A conversion from a file creates no temporary file, so an unusable
+    // temporary directory does not matter.
+    let converted = scratch
         .command(["input.hn", "-o", "new.pdf"])
         .env("TMPDIR", scratch.path("missing"))
         .output()
         .unwrap();
-    assert_failure(&failed, 1, "cannot create HN/C8 scratch");
-    assert!(!scratch.path("new.pdf").exists());
+    assert_success(&converted);
+    fs::remove_file(scratch.path("new.pdf")).unwrap();
     let mut empty = hn();
     put_u32(&mut empty, 0x90, 1);
     put_u32(&mut empty, 0xd8, 0xd8 + 40);

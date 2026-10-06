@@ -26,7 +26,7 @@ use std::io::Write;
 /// A document without text uses image composition. Image composition refuses
 /// every native C8 page, so a mixed document fails in either composer, at its
 /// first page the composer cannot draw. A malformed container, page row or
-/// descriptor uses image composition, which reports it. A dropped source read
+/// descriptor uses image composition, which reports it. A failed source read
 /// or cancellation is returned. Reads are ranged and bounded by
 /// `options.container` and `options.text`; no image payload is read and no
 /// text is retained.
@@ -91,12 +91,11 @@ fn image_unless_fatal(error: Hnc8Error, stage: ComposeStage) -> Result<bool, Com
 /// routing reads are added to `conversion.input_bytes_read`. The CLI, Node
 /// and browser adapters all route through this function.
 #[allow(clippy::too_many_arguments)]
-pub fn convert_document_pdf<'a, S, F, W, T, V, C>(
+pub fn convert_document_pdf<S, F, W, V, C>(
     source: &mut S,
     sink: &mut W,
     fonts: Option<C8FontSources<'_, F>>,
     table: Option<&QmTable>,
-    type3: Option<ComposeType3Workspaces<'a, T>>,
     visitor: &mut V,
     options: ComposeOptions,
     limits: &Limits,
@@ -106,7 +105,6 @@ where
     S: RangedSource,
     F: RangedSource,
     W: Write,
-    T: RandomAccessScratch + 'a,
     V: ComposeVisitor,
     C: Cancellation,
 {
@@ -119,26 +117,12 @@ where
         _ => None,
     };
     let mut report = match native {
-        Some(fonts) => convert_c8_native_pdf(
-            source,
-            sink,
-            fonts,
-            table,
-            type3,
-            options,
-            limits,
-            cancellation,
-        )?,
-        None => convert_source_pages_pdf(
-            source,
-            sink,
-            table,
-            type3,
-            visitor,
-            options,
-            limits,
-            cancellation,
-        )?,
+        Some(fonts) => {
+            convert_c8_native_pdf(source, sink, fonts, table, options, limits, cancellation)?
+        }
+        None => {
+            convert_source_pages_pdf(source, sink, table, visitor, options, limits, cancellation)?
+        }
     };
     report.conversion.input_bytes_read = report.conversion.input_bytes_read.saturating_add(routing);
     Ok(report)

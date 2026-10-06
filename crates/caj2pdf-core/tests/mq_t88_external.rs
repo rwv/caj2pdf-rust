@@ -4,17 +4,11 @@
 //! Ordinary CI reports NOT_RUN; a requested missing or changed file fails.
 
 use caj2pdf_core::{
-    Limits, NeverCancel,
+    Limits, Payload,
     jbig2::mq::{CodedSpan, ContextBank, MQ_STATE_COUNT, MqBudget, MqDecoder, MqState, MqTable},
-    native::SeekableSource,
 };
 use sha2::{Digest, Sha256};
-use std::{
-    env,
-    fs::File,
-    io::{Cursor, Read},
-    path::Path,
-};
+use std::{env, fs::File, io::Read, path::Path};
 
 // Digest of the local, official-PDF-derived text fixture; the normative rows,
 // vector bytes, and trace values are intentionally absent from this repository.
@@ -159,9 +153,8 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
     assert_eq!(fixture.states, caj2pdf_core::jbig2::mq::STANDARD_STATES);
     let table = MqTable::standard();
     let mut contexts = ContextBank::new(1, &limits).unwrap();
-    let mut source = SeekableSource::new(Cursor::new(fixture.compressed)).unwrap();
     let mut decoder = MqDecoder::new(
-        &mut source,
+        Payload::from(&fixture.compressed[..]),
         CodedSpan {
             offset: 0,
             length: 30,
@@ -169,7 +162,6 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         budget,
     )
     .expect("Annex H.2 initialization failed");

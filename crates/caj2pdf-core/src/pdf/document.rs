@@ -177,7 +177,7 @@ impl Zlib {
 
     /// Compress `input`, and with `finish` end the zlib stream. Compression
     /// can consume input before a later output write fails, so a failed call
-    /// cannot be retried; callers must poison their stream.
+    /// cannot be retried; callers must abandon their stream.
     pub(super) fn write<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
@@ -233,7 +233,7 @@ impl<W: Write, C: Cancellation> Write for BilevelImageWriter<'_, '_, W, C> {
             let row_left = self.stride - self.column;
             let count = row_left.min(bytes.len() - done);
             let kept = count.min(self.visible.saturating_sub(self.column));
-            // Padding-only chunks still pass an empty slice, so a poisoned
+            // Padding-only chunks still pass an empty slice, so a failed
             // writer or cancellation is reported for them too.
             self.encode(&bytes[done..done + kept], false)?;
             // Account for the bytes only after the document accepted them.

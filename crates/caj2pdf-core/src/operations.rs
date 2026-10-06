@@ -141,7 +141,7 @@ pub struct Bookmark {
     pub page_index: u32,
 }
 
-/// A backpressure-aware recipient for streamed bookmark entries.
+/// A recipient for streamed bookmark entries, called once per entry.
 pub trait BookmarkVisitor {
     fn visit(&mut self, bookmark: Bookmark) -> Result<()>;
 }

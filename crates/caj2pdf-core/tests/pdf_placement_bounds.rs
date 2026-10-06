@@ -572,7 +572,7 @@ fn source_failure_after_partial_image_prevents_any_later_success() -> Result<()>
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    for fault in [Fault::Zero, Fault::Io] {
+    for fault in [Fault::Zero, Fault::Overreport, Fault::Io] {
         let (mut sink, state) = CountingSink::new();
         let mut valid = GeneratedSource::new(1);
         let mut source = GeneratedSource::new(12);

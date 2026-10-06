@@ -6,18 +6,16 @@ use crate::signals::ProcessCancellation;
 use crate::{
     CliError,
     args::{ConvertOptions, Endpoint, FONT_EXTENSIONS, FONT_FILES},
-    files::{Input, anonymous_file, open_input},
+    files::{Input, open_input},
 };
 use caj2pdf_core::{
     Error, Limits, RangedSource,
     hnc8::{
         ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, C8FontSource,
-        C8FontSources, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
-        OutlineReport, Type3PdfOptions, convert_document_pdf,
+        C8FontSources, ComposeOptions, ComposePage, ComposeVisitor, OutlineReport, Type3PdfOptions,
+        convert_document_pdf,
     },
-    jbig2::mq::MqTable,
     jbig2::text::TextHeaderPolicy,
-    native::FileScratch,
     qm::QmTable,
 };
 use std::io::Write;
@@ -219,28 +217,6 @@ pub fn convert<S: RangedSource, W: Write>(
     limits: &Limits,
 ) -> Result<(OutlineReport, ApplicationInfoStatus), String> {
     let options = compose_options(include_bookmarks);
-    let directory = std::env::temp_dir();
-    let scratch = || {
-        let file = anonymous_file(&directory).map_err(|e| {
-            format!(
-                "cannot create HN/C8 scratch in '{}': {e}",
-                directory.display()
-            )
-        })?;
-        FileScratch::new(file, options.budget.max_type3_store_bytes).map_err(|e| e.to_string())
-    };
-    let mut first = scratch()?;
-    let mut second = scratch()?;
-    let mut refined = scratch()?;
-    let mut text = scratch()?;
-    let mq = MqTable::standard();
-    let type3 = Some(ComposeType3Workspaces {
-        table: &mq,
-        first: &mut first,
-        second: &mut second,
-        refined: &mut refined,
-        text: &mut text,
-    });
     // Empty unless fonts were supplied.
     let mut fonts = resources
         .inputs
@@ -263,7 +239,6 @@ pub fn convert<S: RangedSource, W: Write>(
             roles,
         }),
         Some(&QmTable::standard()),
-        type3,
         &mut CompletePages,
         options,
         limits,

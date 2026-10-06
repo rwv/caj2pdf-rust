@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use caj2pdf_core::read_payload;
 use caj2pdf_core::{
     Cancellation, Limits, RangedSource,
     hnc8::{Budget, ErrorKind, Hnc8Reader, Variant},
@@ -331,8 +332,18 @@ fn type0_handoff_keeps_outer_type_and_full_dib_span() {
     reader.next_page().unwrap();
     let span = reader.next_image().unwrap().unwrap().type0_span().unwrap();
     assert_eq!((span.record_type, span.offset, span.length), (0, 256, 51));
-    let mut decoder = Type0Decoder::new(
+    let mut buffer = Vec::new();
+    let payload = read_payload(
         reader.source_mut(),
+        span.offset,
+        span.length,
+        &mut buffer,
+        &limits,
+        &NEVER,
+    )
+    .unwrap();
+    let mut decoder = Type0Decoder::new(
+        payload,
         span,
         &table,
         &mut contexts,
@@ -534,10 +545,6 @@ fn malformed_descriptors_are_located_and_poison_normal_cursor() {
             (error.kind.field(), error.offset, error.image),
             (field, error_offset, Some(1))
         );
-        assert!(matches!(
-            reader.next_page().unwrap_err().kind,
-            ErrorKind::Poisoned
-        ));
     }
 }
 
@@ -857,13 +864,12 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     );
     assert!(incomplete.to_string().contains("page 1, image 1"));
     reader.source_mut().overreport = true;
-    assert!(reader.next_image().is_err());
-    let poisoned = reader.next_image().unwrap_err();
+    let source = reader.next_image().unwrap_err();
     assert_eq!(
-        (poisoned.kind.field(), poisoned.kind.as_str()),
-        ("reader state", "poisoned")
+        (source.kind.field(), source.kind.as_str()),
+        ("image descriptor", "source")
     );
-    assert!(poisoned.to_string().contains("reader is poisoned"));
+    assert!(std::error::Error::source(&source).is_some());
 }
 
 #[test]

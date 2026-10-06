@@ -402,86 +402,6 @@ impl Write for Sink {
 }
 
 #[derive(Default)]
-struct Scratch {
-    bytes: Vec<u8>,
-    peak: usize,
-    max_request: usize,
-    short: Option<usize>,
-    read_fault: Option<Fault>,
-    write_fault: Option<Fault>,
-    fail_initialize: bool,
-    fail_flush: bool,
-    fail_cleanup: bool,
-    cancel_write: Option<Rc<Cell<bool>>>,
-    cancel_read: Option<Rc<Cell<bool>>>,
-    written: u64,
-    read: u64,
-}
-
-impl RandomAccessScratch for Scratch {
-    fn size(&self) -> crate::Result<u64> {
-        Ok(self.bytes.len() as u64)
-    }
-
-    fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
-        if (bytes > 0 && self.fail_initialize) || (bytes == 0 && self.fail_cleanup && self.peak > 0)
-        {
-            return Err(Error::Io(io::Error::other(
-                "synthetic scratch resize failure",
-            )));
-        }
-        self.bytes.resize(usize::try_from(bytes).unwrap(), 0);
-        self.peak = self.peak.max(self.bytes.len());
-        Ok(())
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        self.max_request = self.max_request.max(destination.len());
-        if let Some(mode) = self.read_fault {
-            return fault(mode, destination.len());
-        }
-        let start = usize::try_from(offset).unwrap();
-        assert!(start <= self.bytes.len());
-        let count = destination
-            .len()
-            .min(self.short.unwrap_or(usize::MAX))
-            .min(self.bytes.len() - start);
-        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        self.read += count as u64;
-        if let Some(flag) = &self.cancel_read {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-
-    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
-        self.max_request = self.max_request.max(bytes.len());
-        if let Some(mode) = self.write_fault {
-            return fault(mode, bytes.len());
-        }
-        let start = usize::try_from(offset).unwrap();
-        let count = bytes.len().min(self.short.unwrap_or(usize::MAX));
-        assert!(start + count <= self.bytes.len());
-        self.bytes[start..start + count].copy_from_slice(&bytes[..count]);
-        self.written += count as u64;
-        if let Some(flag) = &self.cancel_write {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> crate::Result<()> {
-        if self.fail_flush {
-            Err(Error::Io(io::Error::other(
-                "synthetic scratch flush failure",
-            )))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Default)]
 struct Visitor {
     mappings: Vec<(u32, Option<u32>)>,
     images: Vec<(ImageRecord, u32, u32, u32, [f64; 6])>,
@@ -523,21 +443,7 @@ fn convert(
     options: ComposeOptions,
     limits: &Limits,
 ) -> Result<ComposeReport, ComposeError> {
-    convert_source_pages_pdf(
-        source,
-        sink,
-        table,
-        no_stores(),
-        visitor,
-        options,
-        limits,
-        &NeverCancel,
-    )
-}
-
-/// Type-0 and JPEG images use no store.
-fn no_stores<'a>() -> Option<ComposeType3Workspaces<'a, Scratch>> {
-    None
+    convert_source_pages_pdf(source, sink, table, visitor, options, limits, &NeverCancel)
 }
 
 fn contains(bytes: &[u8], needle: &[u8]) -> bool {
@@ -588,7 +494,6 @@ impl Harness {
             &mut self.source,
             &mut self.sink,
             Some(&table()),
-            no_stores(),
             &mut self.visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -626,7 +531,6 @@ fn hnb_maps_all_six_rows_without_a_table() {
         &mut source,
         &mut sink,
         None,
-        no_stores(),
         &mut visitor,
         ComposeOptions::default(),
         &Limits::default(),
@@ -805,7 +709,6 @@ fn invalid_text_marker_is_rejected_without_emitting_images() {
             &mut case.source,
             &mut case.sink,
             None,
-            no_stores(),
             &mut case.visitor,
             ComposeOptions::default(),
             &Limits::default(),
@@ -871,7 +774,7 @@ fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
 }
 
 #[test]
-fn late_invalid_type1_or_missing_type3_workspace_refuses_page_before_output() {
+fn late_invalid_type1_or_type3_header_refuses_page_before_output() {
     for kind in [1, 3] {
         let first = Record::jpeg(8, 8, 70, 0, 0);
         let mut second = Record::jpeg(8, 8, 190, 0, 0);
@@ -886,12 +789,7 @@ fn late_invalid_type1_or_missing_type3_workspace_refuses_page_before_output() {
         located(&error, Variant::C8, Some(1), Some(2));
         assert_eq!(error.stage, ComposeStage::Headers);
         if kind == 3 {
-            assert_eq!(error.offset, Some(case.fixture.descriptors[0][1]));
-            assert!(matches!(
-                error.kind,
-                ComposeErrorKind::MissingType3Workspaces
-            ));
-            assert!(error.to_string().contains("symbol stores"));
+            assert!(matches!(error.kind, ComposeErrorKind::Type3Dib(_)));
         } else {
             assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
             assert_eq!(error.offset, Some(case.fixture.payloads[0][1]));
@@ -1068,17 +966,15 @@ fn visitor_failure_and_inter_page_cancellation_invalidate_the_whole_conversion()
 }
 
 #[test]
-fn invalid_configuration_is_refused_before_source_sink_or_store_access() {
-    for field in 0..5 {
+fn invalid_configuration_is_refused_before_source_or_sink_access() {
+    for field in 0..3 {
         for value in [0, MAX_BUDGET_COUNT + 1] {
             let mut case = Harness::type0();
             let mut options = ComposeOptions::default();
             match field {
                 0 => options.arithmetic.max_symbols = value,
                 1 => options.arithmetic.max_work = value,
-                2 => options.budget.max_page_metadata_bytes = value,
-                3 => options.budget.max_type3_store_bytes = value,
-                _ => options.budget.max_type3_store_io_bytes = value,
+                _ => options.budget.max_page_metadata_bytes = value,
             }
             let error = case
                 .run(Some(&table()), options, &Limits::default())
@@ -1587,9 +1483,8 @@ fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
 }
 
 #[test]
-fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
+fn type3_complete_mixed_pages_keep_top_first_pixels() {
     let limits = Limits::default();
-    let mq = MqTable::standard();
     let mut first_image = type3_record(3, 5, 0, 0);
     first_image.coordinate.width = 3000;
     first_image.coordinate.height = 5000;
@@ -1610,25 +1505,11 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     f.bytes[34..36].copy_from_slice(&5000_u16.to_le_bytes());
     let mut source = Source::new(f.bytes);
     let mut sink = Sink::default();
-    let mut text = Scratch::default();
-    let mut first = Scratch {
-        short: Some(1),
-        ..Default::default()
-    };
-    let mut second = Scratch::default();
-    let mut refined = Scratch::default();
     let mut visitor = Visitor::default();
     let report = convert_source_pages_pdf(
         &mut source,
         &mut sink,
         Some(&table()),
-        Some(ComposeType3Workspaces {
-            table: &mq,
-            first: &mut first,
-            second: &mut second,
-            refined: &mut refined,
-            text: &mut text,
-        }),
         &mut visitor,
         ComposeOptions {
             type3: Type3PdfOptions {
@@ -1648,9 +1529,6 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         (report.output_pages, report.type3_images, report.jpeg_images),
         (2, 3, 1)
     );
-    for store in [&text, &first, &second, &refined] {
-        assert!(store.bytes.is_empty());
-    }
     assert_eq!(report.type0_images, 1);
     let raster = render_original_pdf(&sink.bytes);
     let header = b"P5\n32 5\n255\n";
@@ -1677,10 +1555,9 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
 }
 
 #[test]
-fn type3_failures_keep_location_and_cleanup_all_stores() {
-    for mode in 0..11 {
+fn type3_dib_sink_and_cancellation_failures_keep_location() {
+    for mode in 0..3 {
         let limits = Limits::default();
-        let mq = MqTable::standard();
         let mut record = type3_record(9, 3, 0, 0);
         if mode == 0 {
             record.bytes[4..8].copy_from_slice(&0_i32.to_le_bytes());
@@ -1688,47 +1565,22 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         let f = fixture(Variant::C8, &[vec![record]]);
         let mut source = Source::new(f.bytes);
         let mut sink = Sink::default();
-        let mut text = Scratch::default();
-        let mut first = Scratch::default();
-        let mut second = Scratch::default();
-        let mut refined = Scratch::default();
-        let flag = Rc::new(Cell::new(false));
-        let mut options = ComposeOptions::default();
-        match mode {
-            1 => text.fail_initialize = true,
-            2 => text.write_fault = Some(Fault::Overreport),
-            3 => text.read_fault = Some(Fault::Overreport),
-            4 => text.cancel_write = Some(flag.clone()),
-            5 => options.budget.max_type3_store_bytes = 1,
-            6 => options.budget.max_type3_store_io_bytes = 1,
-            7 => text.fail_cleanup = true,
-            8 => {
-                text.fail_cleanup = true;
-                text.read_fault = Some(Fault::Io);
-            }
-            9 => text.fail_flush = true,
-            10 => sink.fail_after = Some(20),
-            _ => (),
+        if mode == 1 {
+            sink.fail_after = Some(20);
         }
+        let flag = Rc::new(Cell::new(mode == 2));
         let error = convert_source_pages_pdf(
             &mut source,
             &mut sink,
             Some(&table()),
-            Some(ComposeType3Workspaces {
-                table: &mq,
-                first: &mut first,
-                second: &mut second,
-                refined: &mut refined,
-                text: &mut text,
-            }),
             &mut (),
-            options,
+            ComposeOptions::default(),
             &limits,
             &Flag(flag),
         )
         .unwrap_err();
-        located(&error, Variant::C8, Some(1), Some(1));
         if mode == 0 {
+            located(&error, Variant::C8, Some(1), Some(1));
             assert!(
                 matches!(error.kind, ComposeErrorKind::Type3Dib(_))
                     && error.stage == ComposeStage::Headers,
@@ -1739,16 +1591,6 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
                 std::error::Error::source(&error).is_some(),
                 "mode {mode}: {error}"
             );
-        }
-        assert!(!error.to_string().is_empty());
-        if mode == 8 {
-            assert!(matches!(error.kind, ComposeErrorKind::Cleanup { .. }));
-        }
-        for store in [&first, &second, &refined] {
-            assert!(store.bytes.is_empty());
-        }
-        if !text.fail_cleanup {
-            assert!(text.bytes.is_empty());
         }
         assert!(!contains(&sink.bytes, b"%%EOF"));
     }
@@ -1766,31 +1608,17 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
         let kind = record.kind;
         let length = record.bytes.len() as u64;
         let limits = Limits::default();
-        let mq = MqTable::standard();
         let mut f = fixture(Variant::C8, &[vec![record]]);
         // Keep the application-info probe at end of file off the payload.
         f.bytes.extend_from_slice(&[0; 64]);
         let mut source = Source::new(f.bytes);
         source.short = 7;
         source.payload = Some((f.payloads[0][0], f.payloads[0][0] + length));
-        let (mut text, mut first, mut second, mut refined) = (
-            Scratch::default(),
-            Scratch::default(),
-            Scratch::default(),
-            Scratch::default(),
-        );
         let mut sink = Sink::default();
         convert_source_pages_pdf(
             &mut source,
             &mut sink,
             Some(&table()),
-            Some(ComposeType3Workspaces {
-                table: &mq,
-                first: &mut first,
-                second: &mut second,
-                refined: &mut refined,
-                text: &mut text,
-            }),
             &mut (),
             ComposeOptions::default(),
             &limits,
@@ -1821,26 +1649,16 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     ] {
         let limits = Limits::default();
-        let table = MqTable::standard();
         let mut record = type3_record(3, 2, 0, 0);
         record.bytes = type3_fixture::payload(3, 2, 0xa40c);
         let f = fixture(Variant::C8, &[vec![record]]);
         let mut source = Source::new(f.bytes);
         let mut sink = Sink::default();
-        let mut stores: [Scratch; 4] = Default::default();
-        let [text, first, second, refined] = &mut stores;
         let mut visitor = Anomalies(Vec::new());
         let result = convert_source_pages_pdf(
             &mut source,
             &mut sink,
             None,
-            Some(ComposeType3Workspaces {
-                table: &table,
-                first,
-                second,
-                refined,
-                text,
-            }),
             &mut visitor,
             ComposeOptions {
                 type3: Type3PdfOptions {
@@ -1862,7 +1680,6 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
                 [Some(TextHeaderAnomaly::UnusedRefinementTemplate)]
             );
         }
-        assert!(stores.iter().all(|s| s.bytes.is_empty()));
     }
 }
 
@@ -1896,7 +1713,6 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
         (Variant::C8, repeated_direct),
     ] {
         let limits = Limits::default();
-        let mq = MqTable::standard();
         let pair = [type3_record(3, 5, 0, 0), Record::jpeg(7, 4, 130, 2, 3)];
         let mut reference = None;
         for repetitions in [1, 3] {
@@ -1910,20 +1726,11 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
             let mut source = Source::new(f.bytes);
             source.short = 11;
             let mut sink = Sink::default();
-            let mut stores: [Scratch; 4] = Default::default();
-            let [text, first, second, refined] = &mut stores;
             let mut aliases = Aliases(Vec::new());
             let report = convert_source_pages_pdf(
                 &mut source,
                 &mut sink,
                 None,
-                Some(ComposeType3Workspaces {
-                    table: &mq,
-                    first,
-                    second,
-                    refined,
-                    text,
-                }),
                 &mut aliases,
                 ComposeOptions::default(),
                 &limits,
@@ -1943,7 +1750,6 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
                 report.duplicate_image_records,
                 ((repetitions - 1) * 2) as u64
             );
-            assert!(stores.iter().all(|s| s.bytes.is_empty()));
             if repetitions == 1 {
                 reference = Some(sink.bytes);
                 assert_eq!(aliases.0, [None, None]);
@@ -2197,34 +2003,13 @@ fn mixed_codec_content_page() -> Vec<u8> {
     };
     let options = ComposeOptions::default();
     let qm = table();
-    let mq = MqTable::standard();
-    let (mut text, mut first, mut second, mut refined) = (
-        Scratch::default(),
-        Scratch::default(),
-        Scratch::default(),
-        Scratch::default(),
-    );
-    let mut workspaces = Some(ComposeType3Workspaces {
-        table: &mq,
-        first: &mut first,
-        second: &mut second,
-        refined: &mut refined,
-        text: &mut text,
-    });
+    let mut buffers = ImageBuffers::default();
     let mut plan = Plan::default();
     let mut baseline = Sink::default();
-    let stores = workspaces.as_mut().unwrap();
     let mut report = convert_source_pages_pdf(
         &mut source,
         &mut baseline,
         Some(&qm),
-        Some(ComposeType3Workspaces {
-            table: &mq,
-            first: &mut *stores.first,
-            second: &mut *stores.second,
-            refined: &mut *stores.refined,
-            text: &mut *stores.text,
-        }),
         &mut plan,
         options,
         &limits,
@@ -2243,7 +2028,6 @@ fn mixed_codec_content_page() -> Vec<u8> {
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
         let handle = document.add_font(&font).unwrap();
         let mut handles = Vec::new();
-        let mut contexts = None;
         for image in &mut plan.0 {
             // The visitor sees only the copyable plan; re-check type-3
             // metadata the composer moved into its own emit.
@@ -2268,8 +2052,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
                     image,
                     type3,
                     At::NONE.image(image.record),
-                    &mut contexts,
-                    &mut workspaces,
+                    &mut buffers,
                     Some(&qm),
                     options,
                     &limits,
@@ -2308,16 +2091,6 @@ fn mixed_codec_content_page() -> Vec<u8> {
         (report.type0_images, report.jpeg_images, report.type3_images),
         (2, 2, 2)
     );
-    let stores = workspaces.as_mut().unwrap();
-    for store in [
-        &*stores.text,
-        &*stores.first,
-        &*stores.second,
-        &*stores.refined,
-    ] {
-        assert!(store.bytes.is_empty());
-        assert!(store.max_request <= 64);
-    }
     assert_eq!(
         crate::test_support::bilevel_pixels(&baseline.bytes),
         crate::test_support::bilevel_pixels(&sink.bytes)

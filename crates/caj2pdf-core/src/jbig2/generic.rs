@@ -10,16 +10,14 @@ use super::{
         MqBudget, MqDecoder, MqTable,
     },
     page_compose::PageOrSink,
-    text_composer::RandomAccessScratch,
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at, write_counted};
+use crate::{Cancellation, Error, Limits, Payload, RangedSource, read_exact_at, write_counted};
 use std::io::Write;
 use std::{error, fmt, mem};
 
 const HEADER_BYTES: u64 = 20;
 const CONTEXT_COUNT: usize = 1024;
-const MQ_BUFFER_BYTES: u64 = 256;
 
 /// Bounds for one generic-region image model, in addition to `Limits` and `MqBudget`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,8 +65,7 @@ pub struct GenericRegionHeader {
     pub pixels: u64,
 }
 
-/// Progress includes the semantic MQ input byte and physical fetched bytes
-/// separately. Prefetch and terminal lookahead can make these differ.
+/// Rows, decisions and output so far, with the MQ register snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GenericProgress {
     pub info: GenericRegionInfo,
@@ -76,8 +73,6 @@ pub struct GenericProgress {
     pub pixels_decoded: u64,
     pub output_bytes_written: u64,
     pub mq: ArithmeticSnapshot,
-    /// Set before every awaited row operation. A dropped future leaves it set.
-    pub poisoned: bool,
 }
 
 /// A successful, fully delimited single-region decode.
@@ -122,7 +117,6 @@ pub enum GenericErrorKind {
     Sink(Error),
     Mq(Box<ArithmeticError>),
     Incomplete,
-    Poisoned,
 }
 
 pub type GenericResult<T> = Result<T, GenericError>;
@@ -155,7 +149,6 @@ impl fmt::Display for GenericError {
             GenericErrorKind::Sink(source) => write!(f, "sink: {source}"),
             GenericErrorKind::Mq(source) => write!(f, "MQ: {source}"),
             GenericErrorKind::Incomplete => f.write_str("not all rows were decoded"),
-            GenericErrorKind::Poisoned => f.write_str("decoder state is poisoned"),
         }
     }
 }
@@ -208,8 +201,8 @@ fn limit(
 }
 
 fn checked_row(stride: usize, segment: u32, offset: u64) -> GenericResult<Vec<u8>> {
-    // checked_layout already caps all three rows plus table, contexts, and
-    // the MQ buffer before this first reserve.
+    // checked_layout already caps all three rows plus table and contexts
+    // before this first reserve.
     let mut row = Vec::new();
     let failed = at(segment, offset, GenericErrorKind::AllocationFailed);
     reserve_exact(&mut row, stride, failed)?;
@@ -408,7 +401,6 @@ fn checked_layout(
                     + MQ_STATE_COUNT * mem::size_of::<super::mq::MqState>()) as u64,
             )
         })
-        .and_then(|v| v.checked_add(MQ_BUFFER_BYTES))
         .ok_or(failure)?;
     if rows_alloc > limits.max_allocation_bytes {
         return Err(limit(
@@ -594,10 +586,10 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
     })
 }
 
-/// Stateful row decoder. A failed or dropped row future poisons this object;
-/// partial sink output must be discarded by the caller.
-pub struct GenericRegionDecoder<'a, S: RangedSource, W: Write, C: Cancellation> {
-    mq: MqDecoder<'a, S, C>,
+/// Stateful row decoder over a segment read into memory. After an error the
+/// caller must discard the decoder and any partial sink output.
+pub struct GenericRegionDecoder<'a, W: Write, C: Cancellation> {
+    mq: MqDecoder<'a>,
     sink: &'a mut W,
     limits: &'a Limits,
     cancellation: &'a C,
@@ -613,13 +605,14 @@ pub struct GenericRegionDecoder<'a, S: RangedSource, W: Write, C: Cancellation> 
     current: Vec<u8>,
     rows_written: u32,
     output_bytes_written: u64,
-    poisoned: bool,
 }
 
-impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S, W, C> {
+impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
+    /// Parse the segment's header from `input`, which must hold the whole
+    /// segment data, and start its MQ coding unit.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        source: &'a mut S,
+        input: Payload<'a>,
         header: &SegmentHeader,
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
@@ -631,8 +624,14 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
     ) -> GenericResult<Self> {
         let segment = header.number;
         let offset = header.data.offset;
-        let checked =
-            read_generic_region_header(source, header, limits, cancellation, mq_budget, budget)?;
+        let checked = read_generic_region_header(
+            &mut { input },
+            header,
+            limits,
+            cancellation,
+            mq_budget,
+            budget,
+        )?;
         let info = checked.info;
         let mq_span = checked.mq_span;
         let pixels = checked.pixels;
@@ -647,22 +646,14 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
         let previous_one = checked_row(info.row_stride, segment, offset)?;
         let current = checked_row(info.row_stride, segment, offset)?;
         contexts.reset();
-        let mq = MqDecoder::new(
-            source,
-            mq_span,
-            table,
-            contexts,
-            limits,
-            cancellation,
-            mq_budget,
-        )
-        .map_err(|e| {
-            at(
-                segment,
-                e.offset.unwrap_or(mq_span.offset),
-                GenericErrorKind::Mq(Box::new(e)),
-            )
-        })?;
+        let mq =
+            MqDecoder::new(input, mq_span, table, contexts, limits, mq_budget).map_err(|e| {
+                at(
+                    segment,
+                    e.offset.unwrap_or(mq_span.offset),
+                    GenericErrorKind::Mq(Box::new(e)),
+                )
+            })?;
         Ok(Self {
             mq,
             sink,
@@ -680,7 +671,6 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
             current,
             rows_written: 0,
             output_bytes_written: 0,
-            poisoned: false,
         })
     }
 
@@ -692,13 +682,10 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
             pixels_decoded: mq.symbols_decoded,
             output_bytes_written: self.output_bytes_written,
             mq,
-            poisoned: self.poisoned || mq.poisoned,
         }
     }
 
     /// Metadata rechecked by this decoder before any row was emitted.
-    /// Compare with `read_generic_region_header` if source bytes could have
-    /// changed between preflight and decoder construction.
     pub fn checked_header(&self) -> GenericRegionHeader {
         GenericRegionHeader {
             segment: self.segment,
@@ -723,23 +710,15 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
         }
     }
 
-    /// Emits one packed row. Returns `false` after the final row. Any error or
-    /// dropped pending future leaves this decoder poisoned and the sink partial.
+    /// Emits one packed row. Returns `false` after the final row.
     pub fn decode_next_row(&mut self) -> GenericResult<bool> {
-        if self.poisoned {
-            return Err(self.error(GenericErrorKind::Poisoned));
-        }
         if self.rows_written == self.info.height {
             return Ok(false);
         }
         if self.cancellation.is_cancelled() {
             return Err(self.error(GenericErrorKind::Cancelled));
         }
-        self.poisoned = true;
         for x in 0..self.info.width {
-            if self.cancellation.is_cancelled() {
-                return Err(self.error(GenericErrorKind::Cancelled));
-            }
             let context = template2_context(
                 &self.previous_two,
                 &self.previous_one,
@@ -776,104 +755,79 @@ impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S,
         mem::swap(&mut self.previous_one, &mut self.current);
         self.current.fill(0);
         self.rows_written += 1;
-        self.poisoned = false;
         Ok(true)
     }
 
     /// Verify exactly width × height MQ decisions and the delimited FF AC tail,
     /// then flush. The semantic MQ byte need not be the terminal byte.
     pub fn finish(mut self) -> GenericResult<GenericReport> {
-        if self.poisoned {
-            return Err(self.error(GenericErrorKind::Poisoned));
-        }
         if self.rows_written != self.info.height {
             return Err(self.error(GenericErrorKind::Incomplete));
         }
-        self.poisoned = true;
         let progress = self.progress();
         let segment = self.segment;
-        let data = self.data;
         let mq_span = self.mq_span;
-        let mut report = GenericReport {
-            data,
-            mq_span,
-            progress,
+        let failed = |offset, kind| GenericError {
+            offset,
+            segment,
+            rows_written: progress.rows_written,
+            pixels_decoded: progress.pixels_decoded,
+            output_bytes_written: progress.output_bytes_written,
+            kind,
         };
-        report.progress.mq =
-            self.mq
-                .finish_with_snapshot(self.pixels)
-                .map_err(|e| GenericError {
-                    offset: e.offset.unwrap_or(mq_span.offset),
-                    segment,
-                    rows_written: progress.rows_written,
-                    pixels_decoded: progress.pixels_decoded,
-                    output_bytes_written: progress.output_bytes_written,
-                    kind: GenericErrorKind::Mq(Box::new(e)),
-                })?;
+        let mq = self.mq.finish(self.pixels).map_err(|e| {
+            failed(
+                e.offset.unwrap_or(mq_span.offset),
+                GenericErrorKind::Mq(Box::new(e)),
+            )
+        })?;
         if self.cancellation.is_cancelled() {
-            return Err(GenericError {
-                offset: report.progress.mq.input_offset,
-                segment,
-                rows_written: progress.rows_written,
-                pixels_decoded: progress.pixels_decoded,
-                output_bytes_written: progress.output_bytes_written,
-                kind: GenericErrorKind::Cancelled,
-            });
+            return Err(failed(mq.input_offset, GenericErrorKind::Cancelled));
         }
-        self.sink
-            .flush()
-            .map_err(Error::from)
-            .map_err(|e| GenericError {
-                offset: report.progress.mq.input_offset,
-                segment,
-                rows_written: progress.rows_written,
-                pixels_decoded: progress.pixels_decoded,
-                output_bytes_written: progress.output_bytes_written,
-                kind: GenericErrorKind::Sink(e),
-            })?;
+        self.sink.flush().map_err(|e| {
+            failed(
+                mq.input_offset,
+                match crate::Error::from(e) {
+                    crate::Error::Cancelled => GenericErrorKind::Cancelled,
+                    other => GenericErrorKind::Sink(other),
+                },
+            )
+        })?;
+        // A flush can take long enough for the caller to give up.
         if self.cancellation.is_cancelled() {
-            return Err(GenericError {
-                offset: report.progress.mq.input_offset,
-                segment,
-                rows_written: progress.rows_written,
-                pixels_decoded: progress.pixels_decoded,
-                output_bytes_written: progress.output_bytes_written,
-                kind: GenericErrorKind::Cancelled,
-            });
+            return Err(failed(mq.input_offset, GenericErrorKind::Cancelled));
         }
-        report.progress.poisoned = false;
-        Ok(report)
+        Ok(GenericReport {
+            data: self.data,
+            mq_span,
+            progress: GenericProgress { mq, ..progress },
+        })
     }
 }
 
-impl<'a, 'p, S, T, P, PC, C> GenericRegionDecoder<'a, S, PageOrSink<'p, T, P, PC>, C>
+impl<'p, P, PC, C> GenericRegionDecoder<'_, PageOrSink<'p, P, PC>, C>
 where
-    S: RangedSource,
-    T: RandomAccessScratch,
     P: Write,
     PC: Cancellation,
     C: Cancellation,
 {
     /// Bind a pre-inspected header to the page sink, which rejects all
-    /// writes until armed with the header this decoder parsed itself. A
-    /// mismatch or a refused arming poisons this decoder; no row can be
-    /// emitted after the failure.
+    /// writes until armed with the header this decoder parsed itself.
     pub fn arm_page_output(&mut self, expected: GenericRegionHeader) -> GenericResult<()> {
-        if self.poisoned || self.rows_written != 0 {
-            self.poisoned = true;
-            return Err(self.error(GenericErrorKind::Poisoned));
+        if self.rows_written != 0 {
+            return Err(self.error(GenericErrorKind::Malformed(
+                "page output armed after the first row",
+            )));
         }
         let checked = self.checked_header();
         if checked != expected {
-            self.poisoned = true;
             return Err(self.error(GenericErrorKind::Malformed(
                 "generic header differs from page preflight",
             )));
         }
-        self.sink.arm_checked_header(checked).map_err(|error| {
-            self.poisoned = true;
-            self.error(GenericErrorKind::Sink(error))
-        })
+        self.sink
+            .arm_checked_header(checked)
+            .map_err(|error| self.error(GenericErrorKind::Sink(error)))
     }
 }
 

@@ -1,139 +1,22 @@
 // SPDX-License-Identifier: MIT
 
-//! Adversarial tests of the public refinement host and its caller-owned I/O.
+//! Adversarial tests of the public refinement host over in-memory stores.
 
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
+    Cancellation, Limits, MAX_BUDGET_COUNT, NeverCancel, Payload,
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
         mq::{ArithmeticErrorKind, CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable},
         refinement::{
-            RefinementBudget, RefinementDecoder, RefinementError, RefinementErrorKind,
-            RefinementReference, RefinementRequest,
+            ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError,
+            RefinementErrorKind, RefinementReference, RefinementRequest,
         },
     },
 };
-use std::io::Write;
-use std::{cell::Cell, io, rc::Rc};
-
-#[derive(Default)]
-struct Source {
-    bytes: Vec<u8>,
-    advertised: Option<u64>,
-    max_read: usize,
-    zero_at: Option<u64>,
-    error_at: Option<u64>,
-    overreport_at: Option<u64>,
-    cancel_after_read: Option<Rc<Cell<bool>>>,
-    calls: u64,
-    max_request: usize,
-}
-
-impl Source {
-    fn new(bytes: &[u8]) -> Self {
-        Self {
-            bytes: bytes.to_vec(),
-            max_read: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl RangedSource for Source {
-    fn size(&self) -> u64 {
-        self.advertised.unwrap_or(self.bytes.len() as u64)
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
-        self.calls += 1;
-        self.max_request = self.max_request.max(destination.len());
-        if self.error_at == Some(offset) {
-            return Err(Error::Io(io::Error::other(
-                "injected reference read failure",
-            )));
-        }
-        if self.overreport_at == Some(offset) {
-            return Ok(destination.len() + 1);
-        }
-        if self.zero_at == Some(offset) {
-            return Ok(0);
-        }
-        let start = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = self
-            .bytes
-            .len()
-            .saturating_sub(start)
-            .min(destination.len())
-            .min(self.max_read);
-        if count != 0 {
-            destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-            if let Some(flag) = &self.cancel_after_read {
-                flag.set(true);
-            }
-        }
-        Ok(count)
-    }
-}
-
-#[derive(Default)]
-struct Sink {
-    bytes: Vec<u8>,
-    max_write: usize,
-    zero_on_call: Option<u64>,
-    error_on_call: Option<u64>,
-    overreport_on_call: Option<u64>,
-    cancel_after_write: Option<Rc<Cell<bool>>>,
-    calls: u64,
-    max_request: usize,
-    flush_calls: u64,
-    flush_error: bool,
-    cancel_after_flush: Option<Rc<Cell<bool>>>,
-}
-
-impl Sink {
-    fn new() -> Self {
-        Self {
-            max_write: usize::MAX,
-            ..Self::default()
-        }
-    }
-}
-
-impl Write for Sink {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.calls += 1;
-        self.max_request = self.max_request.max(bytes.len());
-        if self.error_on_call == Some(self.calls) {
-            return Err(io::Error::other("injected refinement write failure"));
-        }
-        if self.overreport_on_call == Some(self.calls) {
-            return Ok(bytes.len() + 1);
-        }
-        if self.zero_on_call == Some(self.calls) {
-            return Ok(0);
-        }
-        let count = bytes.len().min(self.max_write);
-        self.bytes.extend_from_slice(&bytes[..count]);
-        if let Some(flag) = &self.cancel_after_write {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.flush_calls += 1;
-        if self.flush_error {
-            return Err(io::Error::other("injected refinement flush failure"));
-        }
-        if let Some(flag) = &self.cancel_after_flush {
-            flag.set(true);
-        }
-        Ok(())
-    }
-}
+use std::{cell::Cell, rc::Rc};
 
 struct Flag(Rc<Cell<bool>>);
 
@@ -151,6 +34,13 @@ fn table() -> MqTable {
 /// [`BITMAP_BASE`]; refinement needs no IAID contexts.
 fn contexts(limits: &Limits, budget: &MqBudget) -> ContextBank {
     budget.context_bank(BITMAP_BASE + 1024, limits).unwrap()
+}
+
+fn span(bytes: &[u8]) -> CodedSpan {
+    CodedSpan {
+        offset: 0,
+        length: bytes.len() as u64,
+    }
 }
 
 /// An MQ stream that refines `request` to an all-set target over the
@@ -216,74 +106,46 @@ fn request(width: u32, height: u32, reference: RefinementReference) -> Refinemen
     }
 }
 
+/// Decode one refinement of `request` over `reference` and return its error
+/// and the output store.
 fn observe_error<C: Cancellation>(
-    mut reference_source: Source,
-    mut sink: Sink,
+    reference: &[u8],
     request: RefinementRequest,
     budget: RefinementBudget,
     limits: Limits,
     cancellation: &C,
-) -> (RefinementError, Source, Sink) {
+) -> (RefinementError, Vec<u8>) {
     let mq_budget = MqBudget::default();
     let table = table();
     let mut contexts = contexts(&limits, &mq_budget);
-    let bytes = set_stream(&request, &reference_source.bytes);
-    let mut mq_source = Source::new(&bytes);
+    let bytes = set_stream(&request, reference);
     let mut mq = MqDecoder::new(
-        &mut mq_source,
-        CodedSpan {
-            offset: 0,
-            length: bytes.len() as u64,
-        },
+        Payload::from(&bytes[..]),
+        span(&bytes),
         &table,
         &mut contexts,
         &limits,
-        cancellation,
         mq_budget,
     )
     .unwrap();
+    let mut output = Vec::new();
     let mut host =
-        RefinementDecoder::new(&mut mq, &mut sink, &limits, cancellation, budget).unwrap();
+        RefinementDecoder::new(&mut mq, &mut output, &limits, cancellation, budget).unwrap();
     let error = host
-        .decode_bitmap(&mut reference_source, request)
+        .decode_bitmap(ReferenceStore::Other(reference), request)
         .unwrap_err();
-    // Diagnostics must identify a failed bitmap without exposing an unrelated
-    // source namespace; nested I/O errors remain available via Error::source.
+    // Diagnostics identify the failed bitmap; nested MQ errors remain
+    // available via Error::source.
     assert!(error.to_string().contains("JBIG2 refinement bitmap 0"));
-    if matches!(
-        error.kind,
-        RefinementErrorKind::ReferenceSource(_)
-            | RefinementErrorKind::Sink(_)
-            | RefinementErrorKind::Mq(_)
-    ) {
-        assert!(std::error::Error::source(&error).is_some());
-    } else {
-        assert!(std::error::Error::source(&error).is_none());
-    }
-    assert!(error.progress.poisoned);
-    assert!(host.progress().poisoned);
-    assert!(matches!(
-        host.mq_mut(),
-        Err(RefinementError {
-            kind: RefinementErrorKind::Poisoned,
-            ..
-        })
-    ));
-    let retry = host
-        .decode_bitmap(&mut reference_source, request)
-        .unwrap_err();
-    assert!(matches!(retry.kind, RefinementErrorKind::Poisoned));
-    assert!(retry.to_string().contains("poisoned"));
-    drop(host);
-    assert!(matches!(
-        mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-        ArithmeticErrorKind::Poisoned
-    ));
-    (error, reference_source, sink)
+    assert_eq!(
+        std::error::Error::source(&error).is_some(),
+        matches!(error.kind, RefinementErrorKind::Mq(_))
+    );
+    (error, output)
 }
 
 #[test]
-fn unsupported_modes_and_zero_dimensions_fail_before_reference_or_sink_io() {
+fn unsupported_modes_and_zero_dimensions_fail_before_decoding() {
     let valid = request(1, 1, reference(1, 1));
     let variants = [
         RefinementRequest {
@@ -302,9 +164,8 @@ fn unsupported_modes_and_zero_dimensions_fail_before_reference_or_sink_io() {
         },
     ];
     for request in variants {
-        let (error, source, sink) = observe_error(
-            Source::new(&[0x80]),
-            Sink::new(),
+        let (error, output) = observe_error(
+            &[0x80],
             request,
             RefinementBudget::default(),
             Limits::default(),
@@ -314,14 +175,13 @@ fn unsupported_modes_and_zero_dimensions_fail_before_reference_or_sink_io() {
             error.kind,
             RefinementErrorKind::Unsupported { .. }
         ));
-        assert_eq!(source.calls, 0);
-        assert_eq!(sink.calls, 0);
+        assert!(output.is_empty());
         assert_eq!(error.progress.pixels_decoded, 0);
     }
 }
 
 #[test]
-fn forged_reference_descriptors_and_store_ranges_are_rejected_before_reads() {
+fn forged_reference_descriptors_and_store_ranges_are_rejected_before_decoding() {
     let mut malformed_stride = reference(9, 1);
     malformed_stride.symbol.row_stride = 1;
     let mut malformed_length = reference(1, 1);
@@ -329,8 +189,8 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_reads() {
     let mut overflow_base = reference(1, 1);
     overflow_base.store_base = u64::MAX;
     overflow_base.symbol.relative_store_offset = 1;
-    let mut outside_source = reference(1, 1);
-    outside_source.symbol.relative_store_offset = 1;
+    let mut outside_store = reference(1, 1);
+    outside_store.symbol.relative_store_offset = 1;
     let mut overflow_end = reference(1, 1);
     overflow_end.store_base = u64::MAX;
     for (reference, expect_malformed) in [
@@ -338,11 +198,10 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_reads() {
         (malformed_length, true),
         (overflow_base, false),
         (overflow_end, false),
-        (outside_source, false),
+        (outside_store, false),
     ] {
-        let (error, source, sink) = observe_error(
-            Source::new(&[0x80]),
-            Sink::new(),
+        let (error, output) = observe_error(
+            &[0x80],
             request(1, 1, reference),
             RefinementBudget::default(),
             Limits::default(),
@@ -353,14 +212,14 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_reads() {
         } else {
             assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
         }
-        assert_eq!(source.calls, 0);
-        assert_eq!(sink.calls, 0);
+        assert!(output.is_empty());
+        assert_eq!(error.progress.pixels_decoded, 0);
     }
 }
 
 #[test]
-fn constructor_rejects_invalid_limits_request_caps_and_layout() {
-    for invalid in ["limits", "source cap", "sink cap", "short GR bank"] {
+fn constructor_rejects_invalid_limits_and_layout() {
+    for invalid in ["limits", "short GR bank"] {
         let limits = Limits::default();
         let mq_budget = MqBudget::default();
         let table = table();
@@ -368,17 +227,13 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
         let mut contexts = mq_budget
             .context_bank(BITMAP_BASE + 1024 - short, &limits)
             .unwrap();
-        let mut mq_source = Source::new(&[0x3f, 0xff, 0xac]);
+        let bytes = [0x3f, 0xff, 0xac];
         let mut mq = MqDecoder::new(
-            &mut mq_source,
-            CodedSpan {
-                offset: 0,
-                length: 3,
-            },
+            Payload::from(&bytes[..]),
+            span(&bytes),
             &table,
             &mut contexts,
             &limits,
-            &NeverCancel,
             mq_budget,
         )
         .unwrap();
@@ -391,25 +246,22 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
         } else {
             &limits
         };
-        let mut budget = RefinementBudget::default();
-        if invalid == "source cap" {
-            budget.max_source_request_bytes = 0;
-        }
-        if invalid == "sink cap" {
-            budget.max_sink_request_bytes = 0;
-        }
-        let mut sink = Sink::new();
-        let error =
-            match RefinementDecoder::new(&mut mq, &mut sink, host_limits, &NeverCancel, budget) {
-                Ok(_) => panic!("accepted invalid {invalid}"),
-                Err(error) => error,
-            };
+        let mut output = Vec::new();
+        let error = match RefinementDecoder::new(
+            &mut mq,
+            &mut output,
+            host_limits,
+            &NeverCancel,
+            RefinementBudget::default(),
+        ) {
+            Ok(_) => panic!("accepted invalid {invalid}"),
+            Err(error) => error,
+        };
         if invalid == "short GR bank" {
             assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
         } else {
             assert!(matches!(error.kind, RefinementErrorKind::Malformed(_)));
         }
-        assert!(!error.progress.poisoned);
         assert!(error.to_string().contains("JBIG2 refinement bitmap"));
         // Rejected construction has not started a bitmap and leaves MQ usable.
         mq.decode_bit(BITMAP_BASE).unwrap();
@@ -417,70 +269,18 @@ fn constructor_rejects_invalid_limits_request_caps_and_layout() {
 }
 
 #[test]
-fn constructor_rejects_an_already_poisoned_mq_coding_unit() {
-    let limits = Limits::default();
-    // Two prefetched bytes and the first byte-input consume three work units;
-    // the first decision then fails before it can update any bitmap context.
-    let mq_budget = MqBudget {
-        max_work: 3,
-        ..MqBudget::default()
-    };
-    let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
-    let mut mq_source = Source::new(&[0xff, 0xac]);
-    let mut mq = MqDecoder::new(
-        &mut mq_source,
-        CodedSpan {
-            offset: 0,
-            length: 2,
-        },
-        &table,
-        &mut contexts,
-        &limits,
-        &NeverCancel,
-        mq_budget,
-    )
-    .unwrap();
-    assert!(matches!(
-        mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-        ArithmeticErrorKind::LimitExceeded {
-            resource: "arithmetic work",
-            ..
-        }
-    ));
-    assert!(mq.snapshot().poisoned);
-    let mut sink = Sink::new();
-    let error = match RefinementDecoder::new(
-        &mut mq,
-        &mut sink,
-        &limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    ) {
-        Ok(_) => panic!("accepted poisoned MQ stream"),
-        Err(error) => error,
-    };
-    assert!(matches!(error.kind, RefinementErrorKind::Poisoned));
-    assert_eq!(error.progress.completed_bitmaps, 0);
-}
-
-#[test]
-fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
+fn reference_byte_limit_uses_the_host_limits_before_decoding() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
     let table = table();
     let mut contexts = contexts(&limits, &mq_budget);
-    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let bytes = [0xff, 0xac];
     let mut mq = MqDecoder::new(
-        &mut mq_source,
-        CodedSpan {
-            offset: 0,
-            length: 2,
-        },
+        Payload::from(&bytes[..]),
+        span(&bytes),
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         mq_budget,
     )
     .unwrap();
@@ -488,18 +288,20 @@ fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
         max_input_bytes: 0,
         ..limits
     };
-    let mut reference_source = Source::new(&[0x80]);
-    let mut sink = Sink::new();
+    let mut output = Vec::new();
     let mut host = RefinementDecoder::new(
         &mut mq,
-        &mut sink,
+        &mut output,
         &host_limits,
         &NeverCancel,
         RefinementBudget::default(),
     )
     .unwrap();
     let error = host
-        .decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))
+        .decode_bitmap(
+            ReferenceStore::Other(&[0x80]),
+            request(1, 1, reference(1, 1)),
+        )
         .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -508,14 +310,8 @@ fn reference_byte_limit_uses_the_host_limits_before_any_reference_io() {
             ..
         }
     ));
-    assert_eq!(reference_source.calls, 0);
-    assert!(error.progress.poisoned);
-    drop(host);
-    assert_eq!(sink.calls, 0);
-    assert!(matches!(
-        mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-        ArithmeticErrorKind::Poisoned
-    ));
+    assert_eq!(error.progress.pixels_decoded, 0);
+    assert!(output.is_empty());
 }
 
 #[test]
@@ -529,9 +325,8 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
         max_width: 240_000,
         ..RefinementBudget::default()
     };
-    let (target_error, source, sink) = observe_error(
-        Source::new(&[0x80]),
-        Sink::new(),
+    let (target_error, output) = observe_error(
+        &[0x80],
         request(240_000, 1, reference(1, 1)),
         budget,
         limits,
@@ -544,16 +339,14 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
             ..
         }
     ));
-    assert_eq!(source.calls, 0);
-    assert_eq!(sink.calls, 0);
+    assert!(output.is_empty());
 
     let budget = RefinementBudget {
         max_reference_width: 240_000,
         ..RefinementBudget::default()
     };
-    let (reference_error, source, sink) = observe_error(
-        Source::new(&vec![0; 30_000]),
-        Sink::new(),
+    let (reference_error, output) = observe_error(
+        &vec![0; 30_000],
         request(1, 1, reference(240_000, 1)),
         budget,
         limits,
@@ -566,44 +359,41 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
             ..
         }
     ));
-    assert_eq!(source.calls, 0);
-    assert_eq!(sink.calls, 0);
+    assert!(output.is_empty());
 }
 
 #[test]
-fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
+fn mq_marker_failure_keeps_its_actual_byte_offset() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
     let table = table();
     let mut contexts = contexts(&limits, &mq_budget);
     // Initial bytes are legal. FF followed by 90 is forbidden once byte-in
     // reaches that position; the final FF AC remains a separate tail.
-    let mut mq_source = Source::new(&[0x00, 0x00, 0xff, 0x90, 0xff, 0xac]);
+    let bytes = [0x00, 0x00, 0xff, 0x90, 0xff, 0xac];
     let mut mq = MqDecoder::new(
-        &mut mq_source,
-        CodedSpan {
-            offset: 0,
-            length: 6,
-        },
+        Payload::from(&bytes[..]),
+        span(&bytes),
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         mq_budget,
     )
     .unwrap();
-    let mut reference_source = Source::new(&[0x80]);
-    let mut sink = Sink::new();
+    let mut output = Vec::new();
     let mut host = RefinementDecoder::new(
         &mut mq,
-        &mut sink,
+        &mut output,
         &limits,
         &NeverCancel,
         RefinementBudget::default(),
     )
     .unwrap();
     let error = host
-        .decode_bitmap(&mut reference_source, request(128, 1, reference(1, 1)))
+        .decode_bitmap(
+            ReferenceStore::Other(&[0x80]),
+            request(128, 1, reference(1, 1)),
+        )
         .unwrap_err();
     match &error.kind {
         RefinementErrorKind::Mq(inner) => {
@@ -618,17 +408,11 @@ fn mq_marker_failure_keeps_its_actual_byte_offset_and_poisoned_host() {
     }
     assert!(error.to_string().contains("source byte 3"));
     assert!(std::error::Error::source(&error).is_some());
-    assert!(error.progress.poisoned);
-    drop(host);
-    assert_eq!(sink.calls, 0);
-    assert!(matches!(
-        mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-        ArithmeticErrorKind::Poisoned
-    ));
+    assert!(output.is_empty());
 }
 
 #[test]
-fn per_bitmap_and_cumulative_caps_are_checked_before_io() {
+fn per_bitmap_and_cumulative_caps_are_checked_before_decoding() {
     let cases: &[(RefinementBudget, &str)] = &[
         (
             RefinementBudget {
@@ -723,9 +507,8 @@ fn per_bitmap_and_cumulative_caps_are_checked_before_io() {
         ),
     ];
     for &(budget, expected) in cases {
-        let (error, source, sink) = observe_error(
-            Source::new(&[0x80]),
-            Sink::new(),
+        let (error, output) = observe_error(
+            &[0x80],
             request(1, 1, reference(1, 1)),
             budget,
             Limits::default(),
@@ -735,70 +518,8 @@ fn per_bitmap_and_cumulative_caps_are_checked_before_io() {
             matches!(error.kind, RefinementErrorKind::LimitExceeded { resource, .. } if resource == expected),
             "{error}"
         );
-        assert_eq!(source.calls, 0);
-        assert_eq!(sink.calls, 0);
+        assert!(output.is_empty());
     }
-}
-
-#[test]
-fn reference_read_and_output_write_caps_stop_before_the_next_io_call() {
-    for cap_reference_bytes in [false, true] {
-        let mut source = Source::new(&[0x80, 0x80]);
-        source.max_read = 1;
-        let mut budget = RefinementBudget {
-            max_source_request_bytes: 1,
-            ..RefinementBudget::default()
-        };
-        if cap_reference_bytes {
-            budget.max_reference_bytes_fetched = 1;
-        } else {
-            budget.max_reference_reads = 1;
-        }
-        let (error, source, sink) = observe_error(
-            source,
-            Sink::new(),
-            request(1, 1, reference(9, 1)),
-            budget,
-            Limits::default(),
-            &NeverCancel,
-        );
-        assert!(
-            matches!(error.kind, RefinementErrorKind::LimitExceeded { resource, .. }
-            if resource == if cap_reference_bytes { "reference bytes" } else { "reference reads" })
-        );
-        assert_eq!(source.calls, 1);
-        assert_eq!(error.progress.reference_reads, 1);
-        assert_eq!(error.progress.reference_bytes_fetched, 1);
-        assert_eq!(sink.calls, 0);
-    }
-
-    let mut sink = Sink::new();
-    sink.max_write = 1;
-    let budget = RefinementBudget {
-        max_sink_writes: 1,
-        max_sink_request_bytes: 1,
-        ..RefinementBudget::default()
-    };
-    let (error, _, sink) = observe_error(
-        Source::new(&[0x80]),
-        sink,
-        request(9, 1, reference(1, 1)),
-        budget,
-        Limits::default(),
-        &NeverCancel,
-    );
-    assert!(matches!(
-        error.kind,
-        RefinementErrorKind::LimitExceeded {
-            resource: "sink writes",
-            ..
-        }
-    ));
-    assert_eq!(error.progress.pixels_decoded, 9);
-    assert_eq!(error.progress.sink_writes, 1);
-    assert_eq!(error.progress.output_bytes_written, 1);
-    assert_eq!(sink.calls, 1);
-    assert_eq!(sink.bytes, [0xff]);
 }
 
 #[test]
@@ -808,22 +529,18 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
         let mq_budget = MqBudget::default();
         let table = table();
         let mut contexts = contexts(&limits, &mq_budget);
-        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
+        let bytes = [0xbf, 0xff, 0xac];
         let mut mq = MqDecoder::new(
-            &mut mq_source,
-            CodedSpan {
-                offset: 0,
-                length: 3,
-            },
+            Payload::from(&bytes[..]),
+            span(&bytes),
             &table,
             &mut contexts,
             &limits,
-            &NeverCancel,
             mq_budget,
         )
         .unwrap();
-        let mut reference_source = Source::new(&[0x80]);
-        let mut sink = Sink::new();
+        let reference_store = [0x80];
+        let mut output = Vec::new();
         let mut budget = RefinementBudget::default();
         if cap_pixels {
             budget.max_total_pixels = 1;
@@ -831,11 +548,17 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
             budget.max_total_output_bytes = 1;
         }
         let mut host =
-            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
-        host.decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))
-            .unwrap();
+            RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel, budget).unwrap();
+        host.decode_bitmap(
+            ReferenceStore::Other(&reference_store),
+            request(1, 1, reference(1, 1)),
+        )
+        .unwrap();
         let error = host
-            .decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))
+            .decode_bitmap(
+                ReferenceStore::Other(&reference_store),
+                request(1, 1, reference(1, 1)),
+            )
             .unwrap_err();
         assert!(
             matches!(error.kind, RefinementErrorKind::LimitExceeded { resource, .. }
@@ -844,266 +567,24 @@ fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
         assert_eq!(error.progress.completed_bitmaps, 1);
         assert_eq!(error.progress.pixels_decoded, 1);
         assert_eq!(error.progress.output_bytes_written, 1);
-        assert!(error.progress.poisoned);
-        drop(host);
-        assert_eq!(sink.bytes, [0x80]);
-        assert!(matches!(
-            mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-            ArithmeticErrorKind::Poisoned
-        ));
+        assert_eq!(output, [0x80]);
     }
 }
 
 #[test]
-fn short_reference_read_then_zero_reports_exact_physical_progress() {
-    let mut source = Source::new(&[0x80]);
-    source.advertised = Some(2);
-    source.max_read = 1;
-    source.zero_at = Some(1);
-    let (error, source, sink) = observe_error(
-        source,
-        Sink::new(),
-        request(1, 1, reference(9, 1)),
-        RefinementBudget::default(),
-        Limits::default(),
-        &NeverCancel,
-    );
-    assert!(matches!(
-        error.kind,
-        RefinementErrorKind::TruncatedReference
-    ));
-    assert_eq!(error.offset, Some(1));
-    assert_eq!(error.progress.reference_reads, 2);
-    assert_eq!(error.progress.reference_bytes_fetched, 1);
-    assert_eq!(source.calls, 2);
-    assert_eq!(sink.calls, 0);
-}
-
-#[test]
-fn reference_error_and_overreport_preserve_read_location_and_progress() {
-    for overreport in [false, true] {
-        let mut source = Source::new(&[0x80, 0x80]);
-        source.max_read = 1;
-        if overreport {
-            source.overreport_at = Some(1);
-        } else {
-            source.error_at = Some(1);
-        }
-        let (error, source, sink) = observe_error(
-            source,
-            Sink::new(),
-            request(1, 1, reference(9, 1)),
-            RefinementBudget::default(),
-            Limits::default(),
-            &NeverCancel,
-        );
-        assert!(matches!(
-            error.kind,
-            RefinementErrorKind::ReferenceSource(_)
-        ));
-        assert_eq!(error.offset, Some(1));
-        assert_eq!(error.progress.reference_reads, 2);
-        assert_eq!(error.progress.reference_bytes_fetched, 1);
-        assert_eq!(source.calls, 2);
-        assert_eq!(sink.calls, 0);
-    }
-}
-
-#[test]
-fn partial_output_before_sink_failure_is_counted_and_poisoned() {
-    for failure in ["zero", "error", "overreport"] {
-        let mut sink = Sink::new();
-        sink.max_write = 1;
-        match failure {
-            "zero" => sink.zero_on_call = Some(2),
-            "error" => sink.error_on_call = Some(2),
-            "overreport" => sink.overreport_on_call = Some(2),
-            _ => unreachable!(),
-        }
-        let (error, source, sink) = observe_error(
-            Source::new(&[0x80]),
-            sink,
-            request(9, 1, reference(1, 1)),
-            RefinementBudget::default(),
-            Limits::default(),
-            &NeverCancel,
-        );
-        assert!(matches!(error.kind, RefinementErrorKind::Sink(_)));
-        assert_eq!(error.progress.pixels_decoded, 9);
-        assert_eq!(error.progress.rows_written, 0);
-        assert_eq!(error.progress.output_bytes_written, 1);
-        assert_eq!(error.progress.sink_writes, 2);
-        assert_eq!(sink.bytes, [0xff]);
-        assert_eq!(source.calls, 1);
-    }
-}
-
-#[test]
-fn cancellation_after_a_reference_read_counts_that_read() {
-    let cancelled = Rc::new(Cell::new(false));
-    let signal = Flag(cancelled.clone());
-    let mut source = Source::new(&[0x80, 0x80]);
-    source.max_read = 1;
-    source.cancel_after_read = Some(cancelled);
-    let (error, source, sink) = observe_error(
-        source,
-        Sink::new(),
-        request(1, 1, reference(9, 1)),
+fn cancellation_is_checked_between_rows() {
+    let cancelled = Rc::new(Cell::new(true));
+    let signal = Flag(cancelled);
+    let (error, output) = observe_error(
+        &[0x80],
+        request(9, 2, reference(1, 1)),
         RefinementBudget::default(),
         Limits::default(),
         &signal,
     );
     assert!(matches!(error.kind, RefinementErrorKind::Cancelled));
-    assert_eq!(error.progress.reference_reads, 1);
-    assert_eq!(error.progress.reference_bytes_fetched, 1);
-    assert_eq!(source.calls, 1);
-    assert_eq!(sink.calls, 0);
-}
-
-#[test]
-fn cancellation_after_a_partial_sink_write_counts_that_write() {
-    let cancelled = Rc::new(Cell::new(false));
-    let signal = Flag(cancelled.clone());
-    let mut sink = Sink::new();
-    sink.max_write = 1;
-    sink.cancel_after_write = Some(cancelled);
-    let (error, _, sink) = observe_error(
-        Source::new(&[0x80]),
-        sink,
-        request(9, 1, reference(1, 1)),
-        RefinementBudget::default(),
-        Limits::default(),
-        &signal,
-    );
-    assert!(matches!(error.kind, RefinementErrorKind::Cancelled));
-    assert_eq!(error.progress.output_bytes_written, 1);
-    assert_eq!(error.progress.sink_writes, 1);
-    assert_eq!(sink.bytes, [0xff]);
-}
-
-#[test]
-fn failed_or_capped_flush_poisoned_the_session_without_losing_output_progress() {
-    for capped in [false, true] {
-        let limits = Limits::default();
-        let mq_budget = MqBudget::default();
-        let table = table();
-        let mut contexts = contexts(&limits, &mq_budget);
-        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
-        let mut mq = MqDecoder::new(
-            &mut mq_source,
-            CodedSpan {
-                offset: 0,
-                length: 3,
-            },
-            &table,
-            &mut contexts,
-            &limits,
-            &NeverCancel,
-            mq_budget,
-        )
-        .unwrap();
-        let mut reference_source = Source::new(&[0x80]);
-        let mut sink = Sink::new();
-        sink.flush_error = !capped;
-        let budget = RefinementBudget {
-            max_flushes: 1,
-            ..RefinementBudget::default()
-        };
-        let mut host =
-            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
-        host.decode_bitmap(&mut reference_source, request(1, 1, reference(1, 1)))
-            .unwrap();
-        if capped {
-            host.flush_store().unwrap();
-            assert_eq!(host.progress().flushes, 1);
-        }
-        let error = host.flush_store().unwrap_err();
-        if capped {
-            assert!(matches!(
-                error.kind,
-                RefinementErrorKind::LimitExceeded {
-                    resource: "store flushes",
-                    ..
-                }
-            ));
-            assert!(
-                error
-                    .to_string()
-                    .contains("store flushes limit 1 exceeded by 2")
-            );
-            assert_eq!(error.progress.flushes, 1);
-        } else {
-            assert!(matches!(error.kind, RefinementErrorKind::Sink(_)));
-            assert_eq!(error.progress.flushes, 1);
-            assert!(std::error::Error::source(&error).is_some());
-        }
-        assert_eq!(error.progress.completed_bitmaps, 1);
-        assert_eq!(error.progress.output_bytes_written, 1);
-        assert!(error.progress.poisoned);
-        // A failed or over-budget flush cannot be repeated on this session.
-        assert!(matches!(
-            host.flush_store().unwrap_err().kind,
-            RefinementErrorKind::Poisoned
-        ));
-        assert!(matches!(
-            host.mq_mut(),
-            Err(RefinementError {
-                kind: RefinementErrorKind::Poisoned,
-                ..
-            })
-        ));
-        drop(host);
-        assert_eq!(sink.bytes, [0x80]);
-        assert_eq!(sink.flush_calls, 1);
-        assert!(matches!(
-            mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-            ArithmeticErrorKind::Poisoned
-        ));
-    }
-}
-
-#[test]
-fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
-    let limits = Limits::default();
-    let mq_budget = MqBudget::default();
-    let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
-    let signal = Rc::new(Cell::new(false));
-    let cancellation = Flag(signal.clone());
-    let mut mq_source = Source::new(&[0xff, 0xac]);
-    let mut mq = MqDecoder::new(
-        &mut mq_source,
-        CodedSpan {
-            offset: 0,
-            length: 2,
-        },
-        &table,
-        &mut contexts,
-        &limits,
-        &cancellation,
-        mq_budget,
-    )
-    .unwrap();
-    let mut sink = Sink::new();
-    sink.cancel_after_flush = Some(signal);
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut sink,
-        &limits,
-        &cancellation,
-        RefinementBudget::default(),
-    )
-    .unwrap();
-    let error = host.flush_store().unwrap_err();
-    assert!(matches!(error.kind, RefinementErrorKind::Cancelled));
-    assert_eq!(error.progress.flushes, 1);
-    assert!(error.progress.poisoned);
-    drop(host);
-    assert_eq!(sink.flush_calls, 1);
-    assert!(matches!(
-        mq.decode_bit(BITMAP_BASE).unwrap_err().kind,
-        ArithmeticErrorKind::Poisoned
-    ));
+    assert_eq!(error.progress.rows_written, 0);
+    assert!(output.is_empty());
 }
 
 /// Every cap at its most permissive accepted value: dimensions and
@@ -1120,12 +601,6 @@ fn ceiling_budget() -> RefinementBudget {
         max_total_pixels: MAX_BUDGET_COUNT,
         max_bytes_per_bitmap: u64::MAX,
         max_total_output_bytes: MAX_BUDGET_COUNT,
-        max_reference_reads: MAX_BUDGET_COUNT,
-        max_reference_bytes_fetched: MAX_BUDGET_COUNT,
-        max_sink_writes: MAX_BUDGET_COUNT,
-        max_flushes: MAX_BUDGET_COUNT,
-        max_source_request_bytes: usize::MAX,
-        max_sink_request_bytes: usize::MAX,
         max_mq_decisions: u64::MAX,
         max_context_work: u64::MAX,
         max_working_bytes: u64::MAX,
@@ -1135,46 +610,36 @@ fn ceiling_budget() -> RefinementBudget {
 #[test]
 fn constructor_rejects_counter_budgets_above_the_ceiling() {
     type Field = fn(&mut RefinementBudget) -> &mut u64;
-    let fields: [(&str, Field); 7] = [
+    let fields: [(&str, Field); 3] = [
         ("pixels per bitmap budget", |b| &mut b.max_pixels_per_bitmap),
         ("total pixels budget", |b| &mut b.max_total_pixels),
         ("total output bytes budget", |b| {
             &mut b.max_total_output_bytes
         }),
-        ("reference reads budget", |b| &mut b.max_reference_reads),
-        ("reference bytes budget", |b| {
-            &mut b.max_reference_bytes_fetched
-        }),
-        ("sink writes budget", |b| &mut b.max_sink_writes),
-        ("store flushes budget", |b| &mut b.max_flushes),
     ];
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
     let table = table();
     for (name, field) in fields {
         let mut contexts = contexts(&limits, &mq_budget);
-        let mut mq_source = Source::new(&[0xbf, 0xff, 0xac]);
+        let bytes = [0xbf, 0xff, 0xac];
         let mut mq = MqDecoder::new(
-            &mut mq_source,
-            CodedSpan {
-                offset: 0,
-                length: 3,
-            },
+            Payload::from(&bytes[..]),
+            span(&bytes),
             &table,
             &mut contexts,
             &limits,
-            &NeverCancel,
             mq_budget,
         )
         .unwrap();
-        let mut sink = Sink::new();
+        let mut output = Vec::new();
         let mut budget = ceiling_budget();
         *field(&mut budget) = MAX_BUDGET_COUNT + 1;
-        let error = match RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget)
-        {
-            Ok(_) => panic!("accepted {name} above the ceiling"),
-            Err(error) => error,
-        };
+        let error =
+            match RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel, budget) {
+                Ok(_) => panic!("accepted {name} above the ceiling"),
+                Err(error) => error,
+            };
         assert!(
             matches!(
                 error.kind,
@@ -1187,24 +652,21 @@ fn constructor_rejects_counter_budgets_above_the_ceiling() {
             "{error}"
         );
         assert_eq!((error.offset, error.row, error.x), (None, 0, 0));
-        assert!(!error.progress.poisoned);
-        assert_eq!(sink.calls, 0);
         // Rejected construction leaves MQ usable.
         mq.decode_bit(BITMAP_BASE).unwrap();
     }
 }
 
 #[test]
-fn maximal_geometry_under_ceiling_caps_is_refused_before_io() {
+fn maximal_geometry_under_ceiling_caps_is_refused_before_decoding() {
     // (2^32 - 1)^2 pixels exceed the per-bitmap pixel ceiling, which is the
-    // cap that now keeps ten context probes per pixel within u64.
+    // cap that keeps ten context probes per pixel within u64.
     let limits = Limits {
         max_output_bytes: u64::MAX,
         ..Limits::default()
     };
-    let (error, source, sink) = observe_error(
-        Source::new(&[0x80]),
-        Sink::new(),
+    let (error, output) = observe_error(
+        &[0x80],
         request(u32::MAX, u32::MAX, reference(1, 1)),
         ceiling_budget(),
         limits,
@@ -1222,8 +684,7 @@ fn maximal_geometry_under_ceiling_caps_is_refused_before_io() {
         "{error}"
     );
     assert_eq!((error.row, error.x, error.offset), (0, 0, None));
-    assert_eq!(source.calls, 0);
-    assert_eq!(sink.calls, 0);
+    assert!(output.is_empty());
     assert_eq!(error.progress.pixels_decoded, 0);
 }
 

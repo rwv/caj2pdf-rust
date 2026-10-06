@@ -84,10 +84,6 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             io_chunk_bytes: 64,
             ..Default::default()
         };
-        let mut text = Scratch::default();
-        let mut first = Scratch::default();
-        let mut second = Scratch::default();
-        let mut refined = Scratch::default();
         let report = convert_c8_native_pdf(
             &mut source,
             &mut sink,
@@ -96,13 +92,6 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
                 roles: font_roles,
             },
             Some(&table()),
-            Some(ComposeType3Workspaces {
-                table: &MqTable::standard(),
-                first: &mut first,
-                second: &mut second,
-                refined: &mut refined,
-                text: &mut text,
-            }),
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
@@ -118,9 +107,6 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
         assert!(
             source.max_request <= 64 && fonts[0].source.max_request <= 64 && sink.max_request <= 64
         );
-        for store in [&text, &first, &second, &refined] {
-            assert!(store.bytes.is_empty());
-        }
         let pdf = crate::test_support::pdf_text(&sink.bytes);
         assert_eq!(
             pdf.matches("/FontFile2 ").count(),
@@ -155,7 +141,6 @@ fn native_document_checks_resource_contract_before_output() {
                 roles: role,
             },
             None,
-            no_stores(),
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
@@ -184,7 +169,6 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
             roles: roles(),
         },
         None,
-        no_stores(),
         ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
@@ -218,7 +202,6 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
                 roles: role,
             },
             None,
-            no_stores(),
             ComposeOptions {
                 include_bookmarks,
                 ..ComposeOptions::default()
@@ -284,7 +267,6 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
                 roles: role,
             },
             None,
-            no_stores(),
             options,
             &Limits::default(),
             &NeverCancel,
@@ -325,7 +307,6 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
                 roles: roles(),
             },
             None,
-            no_stores(),
             ComposeOptions::default(),
             &Limits::default(),
             &Flag(flag),
@@ -401,7 +382,6 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
                 roles: roles(),
             },
             None,
-            no_stores(),
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,

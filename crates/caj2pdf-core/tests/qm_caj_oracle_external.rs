@@ -8,7 +8,7 @@
 
 use caj2pdf_core::jbig1::{Type0Budget, Type0Decoder, Type0Span};
 use caj2pdf_core::qm::{ArithmeticBudget, ContextBank, QmState, QmTable};
-use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource};
+use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource, read_payload};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -308,11 +308,11 @@ impl Drop for Spool {
 
 impl Write for Spool {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        Ok(self.file().write(bytes)?)
+        self.file().write(bytes)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        Ok(self.file().flush()?)
+        self.file().flush()
     }
 }
 
@@ -365,8 +365,17 @@ fn run_image(
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits)?;
     // Decode from the same open file whose encoded span was just hashed.
     let mut ranged = SeekableSource::new(source)?;
-    let mut decoder = Type0Decoder::new(
+    let mut buffer = Vec::new();
+    let payload = read_payload(
         &mut ranged,
+        image.offset,
+        image.length,
+        &mut buffer,
+        &limits,
+        &NeverCancel,
+    )?;
+    let mut decoder = Type0Decoder::new(
+        payload,
         Type0Span {
             // The pinned #22 manifest contains only catalogued type-0 rows;
             // #28's container parser must supply the actual outer type.

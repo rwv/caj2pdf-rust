@@ -6,13 +6,9 @@
 //! The normal test run reports this test as ignored, never as a compatibility
 //! pass. When explicitly requested, a missing or malformed fixture fails.
 
-use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource};
+use caj2pdf_core::{Limits, Payload};
 use sha2::{Digest, Sha256};
-use std::{
-    env,
-    fs::File,
-    io::{Cursor, Read},
-};
+use std::{env, fs::File, io::Read};
 
 const OFFICIAL_FIXTURE_SHA256: &str =
     "11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7";
@@ -153,9 +149,8 @@ fn official_1993_vector_and_register_checkpoints() {
     let table = QmTable::standard();
     let limits = Limits::default();
     let mut contexts = ContextBank::new(2, &limits).expect("context bank allocation failed");
-    let mut source = SeekableSource::new(Cursor::new(fixture.scd.clone())).unwrap();
     let mut decoder = ArithmeticDecoder::new(
-        &mut source,
+        Payload::from(&fixture.scd[..]),
         CodedSpan {
             offset: 0,
             length: fixture.scd.len() as u64,
@@ -163,7 +158,6 @@ fn official_1993_vector_and_register_checkpoints() {
         &table,
         &mut contexts,
         &limits,
-        &NeverCancel,
         ArithmeticBudget {
             max_symbols: 256,
             max_work: 100_000,

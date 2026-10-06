@@ -399,12 +399,11 @@ fn cancellation_source_and_visitor_failures_are_located() {
         } else {
             assert!(matches!(error.kind, ErrorKind::Source { .. }));
         }
-        assert!(reader.poisoned);
     }
 }
 
 #[test]
-fn current_variant_is_enforced_and_success_releases_poison() {
+fn current_variant_is_enforced() {
     for variant in [Variant::HnA, Variant::HnB, Variant::C8] {
         let limits = Limits::default();
         let cancel = Cancel::default();
@@ -425,7 +424,6 @@ fn current_variant_is_enforced_and_success_releases_poison() {
         let result = reader.visit_native_records(TextBudget::default(), &mut Visitor::default());
         if variant == Variant::C8 {
             assert_eq!(result.unwrap(), 5);
-            assert!(!reader.poisoned);
             assert_eq!(reader.next_image().unwrap(), None);
             assert_eq!(reader.next_page().unwrap(), None);
         } else {
@@ -522,7 +520,6 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
                     ..
                 }
             ));
-            assert!(reader.poisoned);
         }
     }
 }
@@ -863,10 +860,6 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
             }
         ));
         assert_eq!(visitor.events.len(), 2);
-        assert!(matches!(
-            reader.next_page().unwrap_err().kind,
-            ErrorKind::Poisoned
-        ));
     }
 }
 
@@ -1157,7 +1150,7 @@ fn image_reference_lengths_cannot_cross_the_indexed_span() {
 }
 
 #[test]
-fn image_reference_mid_payload_failure_and_cancellation_poison_the_cursor() {
+fn image_reference_mid_payload_failure_and_cancellation_are_reported() {
     struct Interrupt {
         source: Source,
         cancel: Cancel,
@@ -1197,10 +1190,6 @@ fn image_reference_mid_payload_failure_and_cancellation_poison_the_cursor() {
             ErrorKind::Cancelled | ErrorKind::Source { .. }
         ));
         assert!(visitor.events.is_empty());
-        assert!(matches!(
-            reader.next_image().unwrap_err().kind,
-            ErrorKind::Poisoned
-        ));
     }
 }
 
@@ -1372,7 +1361,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
 }
 
 #[test]
-fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
+fn hnb_truncated_record_keeps_the_next_page_unread() {
     for width in [12, 20] {
         for length in 1..4_u32 {
             let mut source = hnb_source(width, &[&[[0x8001, 4700]], &[[0x8004, 2]]]);
@@ -1391,10 +1380,6 @@ fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
                     matches!(error.kind, ErrorKind::Truncated { expected: 4, available, .. } if available == u64::from(length))
                 );
                 assert!(visitor.events.is_empty());
-                assert!(matches!(
-                    reader.next_page().unwrap_err().kind,
-                    ErrorKind::Poisoned
-                ));
             };
         }
     }
@@ -1784,10 +1769,6 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
             );
             assert_eq!(error.page, Some(1));
             assert!(visitor.events.is_empty());
-            assert!(matches!(
-                reader.next_page().unwrap_err().kind,
-                ErrorKind::Poisoned
-            ));
         };
     }
 }

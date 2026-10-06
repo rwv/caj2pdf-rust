@@ -162,8 +162,8 @@ fn trace(seed: u64, contexts: usize, length: usize) -> Vec<(usize, bool)> {
 
 #[test]
 fn encoded_mq_traces_decode_back_with_the_standard_states() {
+    use crate::Limits;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable};
-    use crate::{Limits, NeverCancel, native::SeekableSource};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -180,10 +180,9 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
         let limits = Limits::default();
         let budget = MqBudget::default();
         let mut bank = ContextBank::new(contexts, &limits).unwrap();
-        let mut source = SeekableSource::new(std::io::Cursor::new(bytes.clone())).unwrap();
         let table = MqTable::standard();
         let mut decoder = MqDecoder::new(
-            &mut source,
+            (&bytes[..]).into(),
             CodedSpan {
                 offset: 0,
                 length: bytes.len() as u64,
@@ -191,7 +190,6 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             budget,
         )
         .unwrap();
@@ -204,8 +202,8 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
 
 #[test]
 fn encoded_qm_traces_decode_back_with_the_standard_states() {
+    use crate::Limits;
     use crate::qm::{ArithmeticBudget, ArithmeticDecoder, CodedSpan, ContextBank, QmTable};
-    use crate::{Limits, NeverCancel, native::SeekableSource};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -222,10 +220,9 @@ fn encoded_qm_traces_decode_back_with_the_standard_states() {
         let bytes = encoder.finish();
         let limits = Limits::default();
         let mut bank = ContextBank::new(contexts, &limits).unwrap();
-        let mut source = SeekableSource::new(std::io::Cursor::new(bytes.clone())).unwrap();
         let table = QmTable::standard();
         let mut decoder = ArithmeticDecoder::new(
-            &mut source,
+            (&bytes[..]).into(),
             CodedSpan {
                 offset: 0,
                 length: bytes.len() as u64,
@@ -233,7 +230,6 @@ fn encoded_qm_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            &NeverCancel,
             ArithmeticBudget {
                 max_symbols: 10_000,
                 max_work: 1_000_000,
