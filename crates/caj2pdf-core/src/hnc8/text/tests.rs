@@ -2,6 +2,9 @@
 
 use super::*;
 use crate::NeverCancel;
+use crate::test_support::page_image;
+use crate::test_support::variant_of;
+use crate::test_support::{field_of, kind_name};
 use flate2::{Compression, write::ZlibEncoder};
 use std::{cell::Cell, io::Write};
 
@@ -39,9 +42,7 @@ impl RangedSource for Source {
                 Fault::Zero => return Ok(0),
                 Fault::Overreport => return Ok(destination.len() + 1),
                 Fault::Error => {
-                    return Err(Error::InvalidInput {
-                        reason: "synthetic source fault",
-                    });
+                    return Err(Error::invalid("synthetic source fault"));
                 }
                 Fault::None => {}
             }
@@ -277,8 +278,8 @@ fn both_variants_reject_unknown_compression_markers() {
             &NeverCancel,
         )
         .unwrap_err();
-        assert_eq!(error.kind.field(), "page text prefix");
-        assert_eq!(error.variant, Some(variant));
+        assert_eq!(field_of(&error), "page text prefix");
+        assert_eq!(variant_of(&error), Some(variant));
     }
 }
 
@@ -298,10 +299,10 @@ fn hn_a_outline_aligned_index_is_supported_and_hn_b_is_not() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!(error.kind.as_str(), "unsupported");
-    assert_eq!(error.kind.field(), "text framing variant");
+    assert_eq!(kind_name(&error), "unsupported");
+    assert_eq!(field_of(&error), "text framing variant");
     assert_eq!(
-        fixture.normal().unwrap_err().kind.field(),
+        field_of(&fixture.normal().unwrap_err()),
         "text framing variant"
     );
 }
@@ -354,7 +355,7 @@ fn fabricated_metadata_is_revalidated_before_reads() {
     for (change, field) in cases {
         let mut fixture = ordinary();
         change(&mut fixture);
-        assert_eq!(fixture.normal().unwrap_err().kind.field(), *field);
+        assert_eq!(field_of(&fixture.normal().unwrap_err()), *field);
         assert_eq!(fixture.source.requests, 0);
     }
     let cases: &[Change] = &[
@@ -387,12 +388,12 @@ fn fabricated_metadata_is_revalidated_before_reads() {
                 &NeverCancel,
             )
             .unwrap_err();
-        assert_eq!(error.kind.as_str(), "malformed");
+        assert_eq!(kind_name(&error), "malformed");
         assert_eq!(fixture.source.requests, 0);
     }
     let mut fixture = ordinary();
     fixture.source.size = 90;
-    assert_eq!(fixture.normal().unwrap_err().kind.field(), "page index");
+    assert_eq!(field_of(&fixture.normal().unwrap_err()), "page index");
 }
 
 #[test]
@@ -429,11 +430,7 @@ fn limits_refuse_work_before_unbounded_allocation() {
         ),
     ] {
         assert_eq!(
-            ordinary()
-                .parse(limits, &NeverCancel)
-                .unwrap_err()
-                .kind
-                .field(),
+            field_of(&ordinary().parse(limits, &NeverCancel).unwrap_err()),
             field
         );
     }
@@ -448,7 +445,7 @@ fn limits_refuse_work_before_unbounded_allocation() {
         location(f.header, f.page),
     )
     .unwrap_err();
-    assert_eq!(error.kind.field(), "text allocation bytes");
+    assert_eq!(field_of(&error), "text allocation bytes");
     let error = allocate(
         usize::MAX,
         0_u8,
@@ -459,7 +456,7 @@ fn limits_refuse_work_before_unbounded_allocation() {
         location(f.header, f.page),
     )
     .unwrap_err();
-    assert_eq!(error.kind.field(), "text allocation bytes");
+    assert_eq!(field_of(&error), "text allocation bytes");
 }
 
 #[test]
@@ -468,14 +465,14 @@ fn layout_and_declared_lengths_are_strict() {
         let mut fixture = ordinary();
         fixture.set_declared(length);
         assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
+            field_of(&fixture.normal().unwrap_err()),
             "decoded text layout"
         );
     }
     let mut too_long = Fixture::new(1, &[]);
     too_long.set_declared(12);
     assert_eq!(
-        too_long.normal().unwrap_err().kind.field(),
+        field_of(&too_long.normal().unwrap_err()),
         "decoded text length"
     );
     let mut too_short = Fixture::new(0, &[]);
@@ -483,7 +480,7 @@ fn layout_and_declared_lengths_are_strict() {
     too_short.recompress();
     too_short.set_declared(28);
     assert_eq!(
-        too_short.normal().unwrap_err().kind.field(),
+        field_of(&too_short.normal().unwrap_err()),
         "text zlib frame"
     );
 }
@@ -495,7 +492,7 @@ fn every_marker_slot_is_validated_while_opaque_bytes_are_ignored() {
         fixture.plain[8 + 16 + slot] ^= 1;
         fixture.recompress();
         assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
+            field_of(&fixture.normal().unwrap_err()),
             "decoded text marker"
         );
     }
@@ -518,44 +515,32 @@ fn malformed_checksum_dictionary_truncation_and_trailing_frames_are_rejected() {
     for length in 0..6 {
         let mut fixture = ordinary();
         fixture.set_frame(vec![0; length]);
-        assert_eq!(fixture.normal().unwrap_err().kind.as_str(), "truncated");
+        assert_eq!(kind_name(&fixture.normal().unwrap_err()), "truncated");
     }
     let mut fixture = ordinary();
     let mut frame = fixture.frame().to_vec();
     frame[0] = 0;
     fixture.set_frame(frame);
-    assert_eq!(
-        fixture.normal().unwrap_err().kind.field(),
-        "text zlib frame"
-    );
+    assert_eq!(field_of(&fixture.normal().unwrap_err()), "text zlib frame");
     let mut fixture = ordinary();
     let mut frame = fixture.frame().to_vec();
     let last = frame.len() - 1;
     frame[last] ^= 1;
     fixture.set_frame(frame);
-    assert_eq!(
-        fixture.normal().unwrap_err().kind.field(),
-        "text zlib frame"
-    );
+    assert_eq!(field_of(&fixture.normal().unwrap_err()), "text zlib frame");
     let mut fixture = ordinary();
     let mut frame = fixture.frame().to_vec();
     let base = 0x20_u16;
     frame[1] = (base + (31 - ((u16::from(frame[0]) * 256 + base) % 31)) % 31) as u8;
     frame.splice(2..2, [0, 0, 0, 1]);
     fixture.set_frame(frame);
-    assert_eq!(
-        fixture.normal().unwrap_err().kind.field(),
-        "text zlib frame"
-    );
+    assert_eq!(field_of(&fixture.normal().unwrap_err()), "text zlib frame");
     for drop in [1, 2, 4, 6] {
         let mut fixture = ordinary();
         let mut frame = fixture.frame().to_vec();
         frame.truncate(frame.len() - drop);
         fixture.set_frame(frame);
-        assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
-            "text zlib frame"
-        );
+        assert_eq!(field_of(&fixture.normal().unwrap_err()), "text zlib frame");
     }
     for concatenate in [false, true] {
         let mut fixture = ordinary();
@@ -566,36 +551,38 @@ fn malformed_checksum_dictionary_truncation_and_trailing_frames_are_rejected() {
             frame.push(0);
         }
         fixture.set_frame(frame);
-        assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
-            "text zlib frame"
-        );
+        assert_eq!(field_of(&fixture.normal().unwrap_err()), "text zlib frame");
     }
 }
 
 #[test]
 fn zero_overreported_and_error_reads_are_located() {
-    for (fault, kind) in [
-        (Fault::Zero, "truncated"),
-        (Fault::Overreport, "source"),
-        (Fault::Error, "source"),
+    // A source failure keeps its own reason; a short read names the field.
+    for (fault, kind, field) in [
+        (Fault::Zero, "truncated", "page text read"),
+        (
+            Fault::Overreport,
+            "malformed",
+            "source reported more bytes than requested",
+        ),
+        (Fault::Error, "malformed", "synthetic source fault"),
     ] {
         for offset in [512, 536] {
             let mut fixture = ordinary();
             fixture.source.fault = fault;
             fixture.source.fault_at = offset;
             let error = fixture.normal().unwrap_err();
-            assert_eq!(error.kind.as_str(), kind);
-            assert_eq!(error.kind.field(), "page text read");
-            assert_eq!(error.offset, offset);
-            assert_eq!(error.page, Some(1));
+            assert_eq!(kind_name(&error), kind);
+            assert_eq!(field_of(&error), field);
+            assert_eq!(error.offset, Some(offset));
+            assert_eq!(page_image(&error).0, Some(1));
         }
     }
     let mut fixture = ordinary();
     fixture.source.bytes.truncate(540);
     let error = fixture.normal().unwrap_err();
-    assert_eq!(error.offset, 540);
-    assert_eq!(error.kind.as_str(), "truncated");
+    assert_eq!(error.offset, Some(540));
+    assert_eq!(kind_name(&error), "truncated");
 }
 
 struct CancelAfter(Cell<u64>);
@@ -620,7 +607,7 @@ fn every_cancellation_checkpoint_returns_no_partial_coordinates() {
             &CancelAfter(Cell::new(polls)),
         );
         match result {
-            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Err(error) => assert_eq!(kind_name(&error), "cancelled"),
             Ok(report) => {
                 assert_eq!(report.coordinates.len(), 3);
                 completed = true;
@@ -652,8 +639,8 @@ fn compressed_header_requires_both_tags_and_the_complete_marker() {
         let mut fixture = ordinary();
         fixture.source.bytes[512 + relative] ^= 1;
         let error = fixture.normal().unwrap_err();
-        assert_eq!(error.kind.field(), "page text prefix");
-        assert_eq!(error.offset, 512);
+        assert_eq!(field_of(&error), "page text prefix");
+        assert_eq!(error.offset, Some(512));
     }
 }
 
@@ -721,28 +708,22 @@ fn raw_record_order_counts_and_truncation_are_checked() {
         fixture.source.bytes[512 + relative..514 + relative]
             .copy_from_slice(&0x80ff_u16.to_le_bytes());
         let error = fixture.normal().unwrap_err();
-        assert_eq!(error.kind.field(), "raw text record");
-        assert_eq!(error.offset, 512 + relative as u64);
+        assert_eq!(field_of(&error), "raw text record");
+        assert_eq!(error.offset, Some(512 + relative as u64));
     }
     for count in [0, 1, 3] {
         let mut fixture = raw_fixture();
         fixture.page.image_count = count;
-        assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
-            "raw text record"
-        );
+        assert_eq!(field_of(&fixture.normal().unwrap_err()), "raw text record");
     }
     for length in [24, 40, 76, 79] {
         let mut fixture = raw_fixture();
         fixture.page.text.length = length;
-        assert_eq!(
-            fixture.normal().unwrap_err().kind.field(),
-            "raw text records"
-        );
+        assert_eq!(field_of(&fixture.normal().unwrap_err()), "raw text records");
     }
     let mut fixture = raw_fixture();
     fixture.source.bytes.truncate(540);
-    assert_eq!(fixture.normal().unwrap_err().kind.as_str(), "truncated");
+    assert_eq!(kind_name(&fixture.normal().unwrap_err()), "truncated");
 }
 
 #[test]
@@ -765,11 +746,7 @@ fn raw_limits_and_source_failures_do_not_return_partial_coordinates() {
         ),
     ] {
         assert_eq!(
-            raw_fixture()
-                .parse(limits, &NeverCancel)
-                .unwrap_err()
-                .kind
-                .field(),
+            field_of(&raw_fixture().parse(limits, &NeverCancel).unwrap_err()),
             field
         );
     }
@@ -791,10 +768,7 @@ fn raw_limits_and_source_failures_do_not_return_partial_coordinates() {
     fixture.header.variant = Variant::C8;
     fixture.header.page_index.offset = 0x50;
     fixture.page.row_offset = 0x50;
-    assert_eq!(
-        fixture.normal().unwrap_err().kind.field(),
-        "page text prefix"
-    );
+    assert_eq!(field_of(&fixture.normal().unwrap_err()), "page text prefix");
 }
 
 #[test]
@@ -819,7 +793,7 @@ fn raw_cancellation_including_opaque_tail_returns_no_partial_coordinates() {
             },
             &CancelAfter(Cell::new(polls)),
         ) {
-            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Err(error) => assert_eq!(kind_name(&error), "cancelled"),
             Ok(report) => {
                 assert_eq!(report.coordinates.len(), 2);
                 completed = true;
@@ -926,7 +900,8 @@ fn direct_record_counts_unknown_tags_and_incomplete_records_are_refused() {
         let error = direct_fixture(bytes, 1).normal().unwrap_err();
         assert!(error.to_string().contains("unknown control tag"));
         assert_eq!(
-            error.offset, 528,
+            error.offset,
+            Some(528),
             "compressed diagnostics use a source anchor"
         );
     }
@@ -994,7 +969,7 @@ fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
             &CancelAfter(Cell::new(polls)),
         );
         match result {
-            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Err(error) => assert_eq!(kind_name(&error), "cancelled"),
             Ok(output) => {
                 assert_eq!(output.coordinates, [point(3, 7)]);
                 completed = true;
@@ -1194,7 +1169,7 @@ fn prefixed_image_only_and_cancellation_keep_the_same_bounded_contract() {
             },
             &CancelAfter(Cell::new(polls)),
         ) {
-            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Err(error) => assert_eq!(kind_name(&error), "cancelled"),
             Ok(report) => {
                 assert_eq!(report.coordinates.len(), 1);
                 completed = true;

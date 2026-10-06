@@ -29,3 +29,47 @@ pub use input::{PdfIndex, RepairObject};
 pub use outline::BookmarkView;
 pub use types::{PdfRange, PdfRef};
 pub use writer::{MAX_CLASSIC_PDF_BYTES, ObjectId, PdfWriter};
+
+impl crate::Error {
+    /// A located PDF problem of `kind`.
+    pub(crate) fn pdf(
+        kind: crate::ErrorKind,
+        offset: u64,
+        object: Option<(u32, u16)>,
+        reason: &'static str,
+    ) -> Self {
+        Self::from(kind).at(offset).because(reason).in_pdf(object)
+    }
+
+    /// Mark a located PDF problem as a damaged structure whose repair
+    /// would be ambiguous.
+    pub(crate) fn ambiguous_repair(self) -> Self {
+        match self.context {
+            crate::Context::Pdf { object, .. } => self.within(crate::Context::Pdf {
+                object,
+                repair: true,
+            }),
+            _ => self,
+        }
+    }
+
+    /// Whether this is a located PDF structure problem: malformed, encrypted,
+    /// unsupported or an ambiguous repair, not a limit, I/O failure or
+    /// cancellation.
+    pub(crate) fn is_pdf_problem(&self) -> bool {
+        matches!(self.context, crate::Context::Pdf { .. })
+            && matches!(
+                self.kind,
+                crate::ErrorKind::Malformed
+                    | crate::ErrorKind::Encrypted
+                    | crate::ErrorKind::UnsupportedFormat
+            )
+    }
+
+    /// Whether this is a located malformed PDF structure, not an ambiguous
+    /// repair.
+    pub(crate) fn is_malformed_pdf(&self) -> bool {
+        matches!(self.kind, crate::ErrorKind::Malformed)
+            && matches!(self.context, crate::Context::Pdf { repair: false, .. })
+    }
+}

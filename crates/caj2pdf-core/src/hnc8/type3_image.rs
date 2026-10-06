@@ -3,7 +3,7 @@
 //! Bounded HN/C8 type-3 image preflight, decoding and emission for the
 //! document composition pipeline.
 
-use super::{At, ComposeError, ComposeErrorKind, ComposeStage, ImageRecord};
+use super::{At, ImageRecord};
 use crate::jbig2::{
     SegmentSpan,
     dictionary::{
@@ -12,18 +12,20 @@ use crate::jbig2::{
     },
     generic::{GenericRegionDecoder, read_generic_region_header},
     iaid::IAID_BASE,
-    mq::{ArithmeticError, ArithmeticResult, ContextBank, MqTable},
+    mq::{ContextBank, MqTable},
     page_compose::{PageComposeReport, PageOrSink},
     page_info::{PageInfo, read_page_info},
     page_profile::{PageProfile, validate_observed_page_profile},
     read_embedded_directory,
     text::{TextHeaderPolicy, read_text_region_header_with_policy},
-    text_composer::{TextComposeError, TextComposeErrorKind, TextComposeReport, TextComposer},
+    text_composer::{TextComposeReport, TextComposer},
     text_instances::TextInstanceDecoder,
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
-use crate::{Cancellation, Limits, Payload, RangedSource, read_exact_at};
-use std::error;
+use crate::{
+    Cancellation, Error, Hnc8Stage, Limits, Payload, RangedSource, Result, Type3Stage,
+    read_exact_at,
+};
 use std::io::Write;
 
 const DIB_BYTES: u64 = 48;
@@ -39,89 +41,24 @@ pub(super) struct Type3Stores {
     text: Vec<u8>,
 }
 
-/// The type-3 decoding stage where a typed underlying error arose.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Type3Stage {
-    Directory,
-    PageInfo,
-    TextHeader,
-    GenericHeader,
-    Profile,
-    FirstDictionary,
-    SecondDictionary,
-    TextInstances,
-    TextCompose,
-    GenericRegion,
-    PageCompose,
-    Contexts,
-}
-
-impl Type3Stage {
-    /// Metadata stages run in the composition preflight; the others decode.
-    const fn compose_stage(self) -> ComposeStage {
-        match self {
-            Self::Directory
-            | Self::PageInfo
-            | Self::TextHeader
-            | Self::GenericHeader
-            | Self::Profile => ComposeStage::Headers,
-            _ => ComposeStage::Decode,
-        }
-    }
-}
-
 impl At {
-    fn stage<E: error::Error + Send + Sync + 'static>(
-        self,
-        stage: Type3Stage,
-        source: E,
-    ) -> ComposeError {
-        self.error((
-            stage.compose_stage(),
-            ComposeErrorKind::Type3 {
-                stage,
-                source: Box::new(source),
-            },
-        ))
+    /// Locate a failure of type-3 decoding `stage`.
+    fn stage(self, stage: Type3Stage, error: Error) -> Error {
+        self.locate(Hnc8Stage::Type3(stage), error)
     }
 
-    fn dib(self, reason: &'static str) -> ComposeError {
-        self.error((ComposeStage::Headers, ComposeErrorKind::Type3Dib(reason)))
+    /// A type-3 DIB wrapper outside the observed one-bit profile.
+    fn dib(self, reason: &'static str) -> Error {
+        self.error(Hnc8Stage::Headers, Error::invalid(reason))
     }
 
-    fn pdf(self) -> impl FnOnce(crate::Error) -> ComposeError {
-        move |error| self.error((ComposeStage::Pdf, ComposeErrorKind::Io(error)))
+    fn pdf(self) -> impl FnOnce(Error) -> Error {
+        self.locator(Hnc8Stage::Pdf)
     }
 }
 
-fn source_stage<T, E, F>(
-    result: Result<T, E>,
-    at: At,
-    stage: Type3Stage,
-    offset: F,
-) -> Result<T, ComposeError>
-where
-    E: error::Error + Send + Sync + 'static,
-    F: FnOnce(&E) -> u64,
-{
-    result.map_err(|source| at.with_offset(offset(&source)).stage(stage, source))
-}
-
-fn work_stage<T, E>(result: Result<T, E>, at: At, stage: Type3Stage) -> Result<T, ComposeError>
-where
-    E: error::Error + Send + Sync + 'static,
-{
-    result.map_err(|source| at.stage(stage, source))
-}
-
-fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, ComposeError> {
-    result.map_err(|source| {
-        let at = match &source.kind {
-            TextComposeErrorKind::Instance(instance) => at.with_offset(instance.offset),
-            _ => at,
-        };
-        at.stage(Type3Stage::TextCompose, source)
-    })
+fn work_stage<T>(result: Result<T>, at: At, stage: Type3Stage) -> Result<T> {
+    result.map_err(|error| at.stage(stage, error))
 }
 
 /// Checked source metadata from one preflight pass. Geometry is exposed
@@ -158,24 +95,24 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     policy: TextHeaderPolicy,
     limits: &Limits,
     cancellation: &C,
-) -> Result<CheckedType3, ComposeError> {
+) -> Result<CheckedType3> {
     debug_assert_eq!(image.record_type, 3);
     let at = image_at.with_offset(image.payload.offset);
     if image.payload.length <= DIB_BYTES {
-        return Err(at.dib("record has no enclosed JBIG2 segments"));
+        return Err(at.dib("type-3 DIB: record has no enclosed JBIG2 segments"));
     }
     let mut dib = [0_u8; DIB_BYTES as usize];
     read_exact_at(source, image.payload.offset, &mut dib, limits, cancellation)
-        .map_err(|source| at.error((ComposeStage::Headers, ComposeErrorKind::Io(source))))?;
+        .map_err(|source| at.error(Hnc8Stage::Headers, source))?;
     if u32::from_le_bytes(dib[0..4].try_into().expect("fixed DIB field")) != 40 {
-        return Err(at.dib("header size differs from 40 bytes"));
+        return Err(at.dib("type-3 DIB: header size differs from 40 bytes"));
     }
     let dib_width = i32::from_le_bytes(dib[4..8].try_into().expect("fixed DIB field"));
     let dib_height = i32::from_le_bytes(dib[8..12].try_into().expect("fixed DIB field"));
     if dib_width <= 0 || dib_height <= 0 {
         return Err(at
             .with_offset(image.payload.offset + 4)
-            .dib("nonpositive dimensions"));
+            .dib("type-3 DIB: nonpositive dimensions"));
     }
     if dib[12..14] != 1_u16.to_le_bytes()
         || dib[14..16] != 1_u16.to_le_bytes()
@@ -183,43 +120,31 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     {
         return Err(at
             .with_offset(image.payload.offset + 12)
-            .dib("expected one plane, one bit, and uncompressed DIB"));
+            .dib("type-3 DIB: expected one plane, one bit, and uncompressed DIB"));
     }
     if dib[40..48] != [255, 255, 255, 0, 0, 0, 0, 0] {
         return Err(at
             .with_offset(image.payload.offset + 40)
-            .dib("expected observed white/black palette"));
+            .dib("type-3 DIB: expected observed white/black palette"));
     }
     let embedded = SegmentSpan {
         offset: image.payload.offset + DIB_BYTES,
         length: image.payload.length - DIB_BYTES,
     };
-    let directory =
-        read_embedded_directory(source, embedded, limits, cancellation).map_err(|error| {
-            let offset = error.offset;
-            at.with_offset(offset).stage(Type3Stage::Directory, error)
-        })?;
+    let directory = read_embedded_directory(source, embedded, limits, cancellation)
+        .map_err(|error| at.stage(Type3Stage::Directory, error))?;
     if directory.segments.len() != 5 {
-        return Err(at.with_offset(embedded.offset).stage(
+        return Err(at.stage(
             Type3Stage::Profile,
-            crate::jbig2::page_profile::PageProfileError {
-                segment: None,
-                kind: crate::jbig2::page_profile::PageProfileErrorKind::Unsupported {
-                    feature: "segment count",
-                    value: directory.segments.len() as u64,
-                },
-            },
+            Error::unsupported(embedded.offset, "segment count").in_jbig2(None),
         ));
     }
-    let page =
-        read_page_info(source, &directory.segments[0], limits, cancellation).map_err(|error| {
-            let offset = error.offset;
-            at.with_offset(offset).stage(Type3Stage::PageInfo, error)
-        })?;
+    let page = read_page_info(source, &directory.segments[0], limits, cancellation)
+        .map_err(|error| at.stage(Type3Stage::PageInfo, error))?;
     if page.width != dib_width as u32 || page.height != dib_height as u32 {
         return Err(at
             .with_offset(image.payload.offset + 4)
-            .dib("DIB and JBIG2 page dimensions differ"));
+            .dib("type-3 DIB: DIB and JBIG2 page dimensions differ"));
     }
     let text = read_text_region_header_with_policy(
         source,
@@ -229,26 +154,23 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
         cancellation,
         policy,
     )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset).stage(Type3Stage::TextHeader, error)
-    })?;
+    .map_err(|error| at.stage(Type3Stage::TextHeader, error))?;
     let generic = read_generic_region_header(source, &directory.segments[4], limits, cancellation)
-        .map_err(|error| {
-            let offset = error.offset;
-            at.with_offset(offset)
-                .stage(Type3Stage::GenericHeader, error)
-        })?;
+        .map_err(|error| at.stage(Type3Stage::GenericHeader, error))?;
     let profile =
         validate_observed_page_profile(&directory, page, &text, generic).map_err(|error| {
-            let offset = error
-                .segment
+            // A profile error names its segment; locate it at the segment data.
+            let segment = match error.context {
+                crate::Context::Jbig2 { segment } => segment,
+                _ => None,
+            };
+            let offset = segment
                 .and_then(|number| {
                     directory
                         .segments
                         .iter()
-                        .find(|segment| segment.number == number)
-                        .map(|segment| segment.data.offset)
+                        .find(|candidate| candidate.number == number)
+                        .map(|candidate| candidate.data.offset)
                 })
                 .unwrap_or(embedded.offset);
             at.with_offset(offset).stage(Type3Stage::Profile, error)
@@ -271,7 +193,7 @@ pub(super) fn emit_type3<W: Write, C: Cancellation>(
     image_at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport), ComposeError> {
+) -> Result<(ImageObject, PageComposeReport)> {
     for store in [
         &mut stores.first,
         &mut stores.second,
@@ -301,14 +223,14 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
     image_at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<PreparedType3, ComposeError> {
+) -> Result<PreparedType3> {
     let table = &MqTable::standard();
     let policy = checked.policy;
     let image = checked.image;
     let directory = &checked.directory;
     let text = checked.profile.text_header();
     let at = image_at.with_offset(image.payload.offset);
-    let first_contexts = crate::jbig2::mq::context_bank(IAID_BASE, limits);
+    let first_contexts = ContextBank::new(IAID_BASE, limits);
     let first_at = at.with_offset(directory.segments[1].data.offset);
     let mut first_contexts = work_stage(first_contexts, first_at, Type3Stage::Contexts)?;
     // A direct dictionary has no import and never reads its own store.
@@ -327,17 +249,8 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         limits,
         cancellation,
     )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset)
-            .stage(Type3Stage::FirstDictionary, error)
-    })?;
-    let first_report = source_stage(
-        first_decoder.decode(),
-        at,
-        Type3Stage::FirstDictionary,
-        |error| error.offset,
-    )?;
+    .map_err(|error| at.stage(Type3Stage::FirstDictionary, error))?;
+    let first_report = work_stage(first_decoder.decode(), at, Type3Stage::FirstDictionary)?;
     let imported_count = u64::from(first_report.header.exported_symbols);
     let second_count = u64::from(read_second_new_symbol_count(
         directory,
@@ -367,17 +280,8 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         limits,
         cancellation,
     )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset)
-            .stage(Type3Stage::SecondDictionary, error)
-    })?;
-    let second_report = source_stage(
-        second_decoder.decode(),
-        at,
-        Type3Stage::SecondDictionary,
-        |error| error.offset,
-    )?;
+    .map_err(|error| at.stage(Type3Stage::SecondDictionary, error))?;
+    let second_report = work_stage(second_decoder.decode(), at, Type3Stage::SecondDictionary)?;
     let text_contexts = context_bank(
         symbol_code_length(second_report.catalog.exported_symbols.len() as u64),
         limits,
@@ -402,9 +306,7 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         cancellation,
         policy,
     );
-    let mut text_decoder = source_stage(text_decoder, at, Type3Stage::TextInstances, |error| {
-        error.offset
-    })?;
+    let mut text_decoder = work_stage(text_decoder, at, Type3Stage::TextInstances)?;
     let composer = TextComposer::new(
         directory.segments[3].number,
         text,
@@ -420,7 +322,7 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         cancellation,
     );
     let composer = work_stage(composer, at, Type3Stage::TextCompose)?;
-    let text_report = composed_stage(composer.compose(), at)?;
+    let text_report = work_stage(composer.compose(), at, Type3Stage::TextCompose)?;
     Ok(PreparedType3 {
         checked,
         text_report,
@@ -437,7 +339,7 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
     image_at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport), ComposeError> {
+) -> Result<(ImageObject, PageComposeReport)> {
     let PreparedType3 {
         checked,
         text_report,
@@ -471,8 +373,16 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
         limits,
         cancellation,
     )
-    .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
-    let generic_result = crate::jbig2::mq::context_bank(1024, limits);
+    .map_err(|error| {
+        at.stage(
+            Type3Stage::PageCompose,
+            Error {
+                offset: None,
+                ..error
+            },
+        )
+    })?;
+    let generic_result = ContextBank::new(1024, limits);
     let generic_at = at.with_offset(directory.segments[4].data.offset);
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
     let generic_report = decode_generic(
@@ -484,17 +394,26 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
         limits,
         cancellation,
     )
-    .map_err(|error| {
-        if let Some(failure) = page_sink.take_failure() {
-            at.stage(Type3Stage::PageCompose, failure)
-        } else {
-            at.with_offset(error.offset)
-                .stage(Type3Stage::GenericRegion, error)
-        }
+    .map_err(|error| match page_sink.take_failure() {
+        // A page OR offset is a page byte, not an input offset.
+        Some(failure) => at.stage(
+            Type3Stage::PageCompose,
+            Error {
+                offset: None,
+                ..failure
+            },
+        ),
+        None => at.stage(Type3Stage::GenericRegion, error),
     })?;
-    let page_compose = page_sink
-        .finish(&generic_report)
-        .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
+    let page_compose = page_sink.finish(&generic_report).map_err(|error| {
+        at.stage(
+            Type3Stage::PageCompose,
+            Error {
+                offset: None,
+                ..error
+            },
+        )
+    })?;
     let object = rows.finish().map_err(at.pdf())?;
     Ok((object, page_compose))
 }
@@ -508,7 +427,7 @@ fn decode_generic<W: Write, C: Cancellation>(
     profile: PageProfile,
     limits: &Limits,
     cancellation: &C,
-) -> crate::jbig2::generic::GenericResult<crate::jbig2::generic::GenericReport> {
+) -> Result<crate::jbig2::generic::GenericReport> {
     let table = MqTable::standard();
     let mut decoder = GenericRegionDecoder::new(
         payload,
@@ -552,14 +471,10 @@ impl<W: Write> Write for PaddedRows<'_, W> {
 }
 
 /// The contexts of a coding unit whose IAID width is `code_len`.
-fn context_bank(code_len: u32, limits: &Limits) -> ArithmeticResult<ContextBank> {
-    let count = coding_unit_contexts(code_len).ok_or_else(|| ArithmeticError {
-        coder: Some(crate::arith::Coder::T88),
-        offset: None,
-        context: None,
-        kind: crate::arith::ArithmeticErrorKind::InvalidContext,
-    })?;
-    crate::jbig2::mq::context_bank(count, limits)
+fn context_bank(code_len: u32, limits: &Limits) -> Result<ContextBank> {
+    let count = coding_unit_contexts(code_len)
+        .ok_or_else(|| Error::invalid(crate::arith::INVALID_CONTEXT))?;
+    ContextBank::new(count, limits)
 }
 
 fn read_second_new_symbol_count<C: Cancellation>(
@@ -568,9 +483,9 @@ fn read_second_new_symbol_count<C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     at: At,
-) -> Result<u32, ComposeError> {
+) -> Result<u32> {
     use crate::jbig2::dictionary::read_dictionary_data_header;
-    let result = source_stage(
+    let result = work_stage(
         read_dictionary_data_header(
             &mut { payload },
             &directory.segments[2],
@@ -579,7 +494,6 @@ fn read_second_new_symbol_count<C: Cancellation>(
         ),
         at,
         Type3Stage::SecondDictionary,
-        |error| error.offset,
     )?;
     Ok(result.new_symbols)
 }
@@ -587,76 +501,60 @@ fn read_second_new_symbol_count<C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Error;
     use crate::hnc8::Variant;
-    use crate::jbig2::{
-        text_composer::TextComposeProgress,
-        text_instances::{TextInstanceError, TextInstanceErrorKind, TextInstanceProgress},
-    };
     use crate::pdf::PageSpec;
+    use crate::test_support::{page_image, segment, stage_of};
     use std::error::Error as _;
 
     fn invalid_input() -> Error {
-        Error::InvalidInput {
-            reason: "invented fault",
-        }
+        Error::invalid("invented fault")
     }
 
     #[test]
-    fn located_errors_keep_source_chain_compose_stage_and_distinct_messages() {
+    fn located_errors_keep_their_stage_and_distinct_messages() {
         let at = At {
             variant: Some(Variant::HnA),
             page: Some(2),
             image: Some(3),
             offset: Some(77),
         };
+        let type3 = Hnc8Stage::Type3;
         let examples = [
             (
-                at.dib("bad palette"),
-                ComposeStage::Headers,
-                "malformed type-3 DIB: bad palette",
-                false,
+                at.dib("type-3 DIB: bad palette"),
+                Hnc8Stage::Headers,
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: type-3 DIB: bad palette",
             ),
             (
                 at.stage(Type3Stage::Directory, invalid_input()),
-                ComposeStage::Headers,
-                "type-3 Directory: ",
-                true,
+                type3(Type3Stage::Directory),
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: invented fault",
             ),
             (
                 at.stage(Type3Stage::Profile, invalid_input()),
-                ComposeStage::Headers,
-                "type-3 Profile: ",
-                true,
+                type3(Type3Stage::Profile),
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: invented fault",
             ),
             (
                 at.stage(Type3Stage::FirstDictionary, invalid_input()),
-                ComposeStage::Decode,
-                "type-3 FirstDictionary: ",
-                true,
+                type3(Type3Stage::FirstDictionary),
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: invented fault",
             ),
             (
                 at.stage(Type3Stage::PageCompose, invalid_input()),
-                ComposeStage::Decode,
-                "type-3 PageCompose: ",
-                true,
+                type3(Type3Stage::PageCompose),
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: invented fault",
             ),
             (
                 at.pdf()(invalid_input()),
-                ComposeStage::Pdf,
-                "invented",
-                true,
+                Hnc8Stage::Pdf,
+                "malformed HN/C8 HN-A at byte 77, page 2, image 3: invented fault",
             ),
         ];
-        for (error, stage, fragment, chained) in examples {
-            let message = error.to_string();
-            assert_eq!(error.stage, stage, "{message}");
-            assert!(
-                message.contains("HN-A, page 2, image 3, source byte 77"),
-                "{message}"
-            );
-            assert!(message.contains(fragment), "{message}");
-            assert_eq!(error.source().is_some(), chained);
+        for (error, stage, message) in examples {
+            assert_eq!(stage_of(&error), Some(stage), "{error}");
+            assert_eq!(error.to_string(), message);
+            assert!(error.source().is_none());
         }
         assert_eq!(symbol_code_length(0), 0);
         assert_eq!(symbol_code_length(1), 0);
@@ -665,41 +563,27 @@ mod tests {
     }
 
     #[test]
-    fn text_instance_failure_uses_its_absolute_source_offset() {
+    fn text_composition_failures_keep_their_absolute_source_offset() {
         let at = At {
             page: Some(4),
             image: Some(2),
             offset: Some(100),
             ..At::NONE
         };
-        let instance = TextInstanceError {
-            segment: 3,
-            offset: 555,
-            progress: Box::new(TextInstanceProgress::default()),
-            kind: TextInstanceErrorKind::Malformed("invented terminal"),
-        };
-        let nested = TextComposeError {
-            segment: 3,
-            offset: 7,
-            progress: Box::new(TextComposeProgress::default()),
-            kind: TextComposeErrorKind::Instance(Box::new(instance)),
-        };
-        let error = composed_stage::<()>(Err(nested), at).unwrap_err();
+        let instance = Error::invalid("invented terminal")
+            .at(555)
+            .in_jbig2(Some(3));
+        let error = work_stage::<()>(Err(instance), at, Type3Stage::TextCompose).unwrap_err();
         assert_eq!(
-            (error.page, error.image, error.offset),
-            (Some(4), Some(2), Some(555))
+            (page_image(&error), error.offset, segment(&error)),
+            ((Some(4), Some(2)), Some(555), Some(3))
         );
-        assert!(error.to_string().contains("source byte 555"));
+        assert!(error.to_string().contains("at byte 555"), "{error}");
 
-        let malformed = TextComposeError {
-            segment: 3,
-            offset: 7,
-            progress: Box::new(TextComposeProgress::default()),
-            kind: TextComposeErrorKind::Malformed("invented"),
-        };
-        let error = composed_stage::<()>(Err(malformed), at).unwrap_err();
+        let malformed = Error::invalid("invented").in_jbig2(Some(3));
+        let error = work_stage::<()>(Err(malformed), at, Type3Stage::TextCompose).unwrap_err();
         assert_eq!(error.offset, Some(100));
-        assert!(error.to_string().contains("source byte 100"));
+        assert!(error.to_string().contains("at byte 100"), "{error}");
     }
 
     use crate::test_support::mq_encoder;

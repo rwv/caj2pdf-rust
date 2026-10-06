@@ -7,11 +7,11 @@
 //! titles or image payload bytes, and they add no format interpretation.
 
 use super::{
-    ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, Variant,
+    Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Variant,
     appinfo::Trailer,
     text::{PageText, read_page_text},
 };
-use crate::{Cancellation, RangedSource};
+use crate::{Cancellation, RangedSource, Result};
 
 /// The page-text framing accepted by the existing readers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -96,7 +96,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         };
         let page = self
             .current
-            .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?
+            .ok_or_else(|| loc.malformed("no current page"))?
             .page;
         if page.text.length == 0 {
             return Ok(TextStructure {
@@ -147,7 +147,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 offset: start,
                 length: (start < size).then(|| size - start),
             })),
-            Err(error) if matches!(error.kind, ErrorKind::Malformed { .. }) => Ok(None),
+            Err(error) if super::appinfo::TRAILER_DEFECTS.contains(&error.reason) => Ok(None),
             Err(error) => Err(error),
         }
     }

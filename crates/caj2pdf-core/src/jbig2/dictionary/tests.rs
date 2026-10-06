@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::{NeverCancel, Payload};
+use crate::{Context, ErrorKind, NeverCancel, Payload};
 
 #[test]
 fn every_symbol_size_is_checked_before_bitmap_work() {
@@ -41,20 +41,21 @@ fn every_symbol_size_is_checked_before_bitmap_work() {
 
 #[test]
 fn fallible_catalog_reservation_preserves_preflight_location() {
-    let site = PreflightSite {
+    let site = Site {
         segment: 7,
         offset: 19,
-        header_fetched: 13,
     };
-    let entries = reserve_catalog::<u8>(2, site).unwrap();
+    let limits = Limits::default();
+    let entries = reserve_catalog::<u8>(2, site, &limits).unwrap();
     assert!(entries.is_empty());
     assert!(entries.capacity() >= 2);
 
-    let error = reserve_catalog::<u8>(usize::MAX, site).unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::AllocationFailed));
-    assert_eq!((error.segment, error.offset), (7, 19));
-    assert_eq!(error.progress.header_bytes_fetched, 13);
-    assert!(error.progress.mq.is_none());
+    let error = reserve_catalog::<u8>(usize::MAX, site, &limits).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::LimitExceeded { .. }));
+    assert_eq!(
+        (error.context, error.offset),
+        (Context::Jbig2 { segment: Some(7) }, Some(19))
+    );
 }
 
 #[test]
@@ -132,12 +133,8 @@ fn corrupted_internal_counters_refuse_overflow_with_located_progress() {
             },
         };
         let error = decoder.decode().unwrap_err();
-        assert!(
-            matches!(error.kind, DictionaryErrorKind::InvalidSpan(reason) if reason == field),
-            "{error}"
-        );
-        assert_eq!(error.segment, 7);
-        assert_eq!(error.progress.height_classes, height_classes);
-        assert_eq!(error.progress.export_runs, export_runs);
+        assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
+        assert_eq!(error.reason, field);
+        assert_eq!(error.context, Context::Jbig2 { segment: Some(7) });
     }
 }

@@ -11,25 +11,25 @@ mod route;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::type3_image::{CheckedType3, Type3Stage, Type3Stores, emit_type3, preflight_type3};
+use super::type3_image::{CheckedType3, Type3Stores, emit_type3, preflight_type3};
 use super::{
-    ApplicationInfoStatus, At, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegColor, JpegInfo,
-    Locate, OutlineReport, PageRecord, RawTextCoordinate, Variant, empirical_image_transform,
-    empirical_page_from_pixels, read_type2_jpeg_info,
+    ApplicationInfoStatus, At, Header, Hnc8Reader, ImageRecord, JpegColor, JpegInfo, OutlineReport,
+    PageRecord, RawTextCoordinate, Variant, empirical_image_transform, empirical_page_from_pixels,
+    read_type2_jpeg_info,
 };
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
-use crate::jbig1::{Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
+use crate::jbig1::{Type0Decoder, Type0Info, read_type0_info};
 use crate::jbig2::text::{TextHeaderAnomaly, TextHeaderPolicy};
 use crate::pdf::{
     BilevelImageSpec, BookmarkView, ImageEncoding, ImagePlacement, ImageSpec,
     MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
-use crate::qm::{ArithmeticError, ContextBank, QmTable};
+use crate::qm::{ContextBank, QmTable};
 use crate::{
-    Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    Payload, RangedSource, read_payload,
+    Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, ErrorKind,
+    Hnc8Stage, Limits, Payload, RangedSource, Result, read_payload,
 };
-use std::{error, fmt, mem::size_of};
+use std::mem::size_of;
 
 /// Memory reused between images: the arithmetic contexts of type-0 images,
 /// the payload being decoded, and the type-3 symbol stores and text region.
@@ -132,119 +132,6 @@ pub struct ComposeReport {
     pub application_info: ApplicationInfoStatus,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ComposeStage {
-    Preflight,
-    Container,
-    Text,
-    Headers,
-    Geometry,
-    Decode,
-    Pdf,
-    Visitor,
-}
-
-#[derive(Debug)]
-pub enum ComposeErrorKind {
-    InvalidOptions(&'static str),
-    Unsupported(&'static str),
-    UnsupportedImageType(u32),
-    MissingTable,
-    NoImages,
-    Container(Box<Hnc8Error>),
-    Image(Box<Type0Error>),
-    /// A type-1/type-2 JPEG marker or profile failure.
-    Jpeg(Box<Hnc8Error>),
-    /// A type-3 DIB wrapper outside the observed one-bit profile.
-    Type3Dib(&'static str),
-    /// A typed failure of one type-3 JBIG2 decoding stage.
-    Type3 {
-        stage: Type3Stage,
-        source: Box<dyn error::Error + Send + Sync>,
-    },
-    Contexts(Box<ArithmeticError>),
-    Io(Error),
-}
-
-/// One-based source identity and absolute source offset when known. Every
-/// error requires discarding the PDF.
-#[derive(Debug)]
-pub struct ComposeError {
-    pub variant: Option<Variant>,
-    pub page: Option<u32>,
-    pub image: Option<u32>,
-    pub offset: Option<u64>,
-    pub stage: ComposeStage,
-    pub kind: ComposeErrorKind,
-}
-
-impl fmt::Display for ComposeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HN/C8 page composition, {:?}", self.stage)?;
-        if let Some(variant) = self.variant {
-            write!(f, ", {}", variant.as_str())?;
-        }
-        if let Some(page) = self.page {
-            write!(f, ", page {page}")?;
-        }
-        if let Some(image) = self.image {
-            write!(f, ", image {image}")?;
-        }
-        if let Some(offset) = self.offset {
-            write!(f, ", source byte {offset}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            ComposeErrorKind::InvalidOptions(reason) => write!(f, "invalid options: {reason}"),
-            ComposeErrorKind::Unsupported(reason) => write!(f, "unsupported profile: {reason}"),
-            ComposeErrorKind::UnsupportedImageType(kind) => {
-                write!(f, "unsupported image record type {kind}")
-            }
-            ComposeErrorKind::MissingTable => {
-                f.write_str("type-0 image requires a caller QM table")
-            }
-            ComposeErrorKind::Type3Dib(reason) => write!(f, "malformed type-3 DIB: {reason}"),
-            ComposeErrorKind::Type3 { stage, source } => write!(f, "type-3 {stage:?}: {source}"),
-            ComposeErrorKind::NoImages => f.write_str("image-only output has no image to draw"),
-            ComposeErrorKind::Container(error) => write!(f, "{error}"),
-            ComposeErrorKind::Image(error) => write!(f, "{error}"),
-            ComposeErrorKind::Jpeg(error) => write!(f, "{error}"),
-            ComposeErrorKind::Contexts(error) => write!(f, "{error}"),
-            ComposeErrorKind::Io(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl error::Error for ComposeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            ComposeErrorKind::Container(error) => Some(error),
-            ComposeErrorKind::Image(error) => Some(error),
-            ComposeErrorKind::Jpeg(error) => Some(error),
-            ComposeErrorKind::Contexts(error) => Some(error),
-            ComposeErrorKind::Type3 { source, .. } => Some(source.as_ref()),
-            ComposeErrorKind::Io(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-impl Locate for (ComposeStage, ComposeErrorKind) {
-    type Error = ComposeError;
-
-    fn locate(self, at: At) -> ComposeError {
-        let (stage, kind) = self;
-        ComposeError {
-            variant: at.variant,
-            page: at.page,
-            image: at.image,
-            offset: at.offset,
-            stage,
-            kind,
-        }
-    }
-}
-
 impl At {
     fn page(header: Header, page: PageRecord) -> Self {
         Self {
@@ -261,29 +148,11 @@ impl At {
             ..self
         }
     }
-    fn io(self, stage: ComposeStage) -> impl FnOnce(Error) -> ComposeError {
-        move |error| self.error((stage, ComposeErrorKind::Io(error)))
-    }
-    fn type0(self, stage: ComposeStage) -> impl FnOnce(Type0Error) -> ComposeError {
-        move |error| {
-            self.with_offset(error.offset)
-                .error((stage, ComposeErrorKind::Image(Box::new(error))))
-        }
-    }
-    fn jpeg(self, stage: ComposeStage) -> impl FnOnce(Hnc8Error) -> ComposeError {
-        move |error| {
-            self.with_offset(error.offset)
-                .error((stage, ComposeErrorKind::Jpeg(Box::new(error))))
-        }
-    }
-    fn contexts(self) -> impl FnOnce(ArithmeticError) -> ComposeError {
-        move |error| {
-            self.error((
-                ComposeStage::Decode,
-                ComposeErrorKind::Contexts(Box::new(error)),
-            ))
-        }
-    }
+}
+
+/// An unlocated feature outside the measured profiles.
+fn unsupported(reason: &'static str) -> Error {
+    Error::from(ErrorKind::UnsupportedFormat).because(reason)
 }
 
 /// Finish the PDF with any C8 application-info `DOI` element value as the
@@ -295,10 +164,10 @@ fn finish_document<S: RangedSource, W: Write, C: Cancellation>(
     document: PdfDocument<'_, W, C>,
     report: &mut ComposeReport,
     at: At,
-) -> Result<ConversionReport, ComposeError> {
+) -> Result<ConversionReport> {
     let read = reader
         .application_info_report()
-        .map_err(|error| container(error, ComposeStage::Container))?;
+        .map_err(|error| container(error, Hnc8Stage::Container))?;
     report.application_info = read.status;
     let info = read.info.unwrap_or_default();
     document
@@ -306,30 +175,18 @@ fn finish_document<S: RangedSource, W: Write, C: Cancellation>(
             ("CNKI_DOI", info.doi.as_deref()),
             ("CNKI_URL", info.url.as_deref()),
         ])
-        .map_err(at.io(ComposeStage::Pdf))
+        .map_err(at.locator(Hnc8Stage::Pdf))
 }
 
-fn container(error: Hnc8Error, stage: ComposeStage) -> ComposeError {
-    At {
-        variant: error.variant,
-        page: error.page,
-        image: error.image,
-        offset: Some(error.offset),
-    }
-    .error((stage, ComposeErrorKind::Container(Box::new(error))))
+/// A container error keeps its own location and gains the stage.
+fn container(error: Error, stage: Hnc8Stage) -> Error {
+    At::NONE.locate(stage, error)
 }
 
-/// A decoder failure at its own offset; a refused PDF image write surfaces
-/// as a sink error and is reported at the PDF stage.
-fn type0_decode(at: At) -> impl Fn(Type0Error) -> ComposeError {
-    move |error| {
-        let stage = if matches!(error.kind, Type0ErrorKind::Sink(_)) {
-            ComposeStage::Pdf
-        } else {
-            ComposeStage::Decode
-        };
-        at.type0(stage)(error)
-    }
+/// A decoder failure at its own offset; a refused PDF image write is
+/// already reported at the PDF stage.
+fn type0_decode(at: At) -> impl Fn(Error) -> Error {
+    move |error| at.locate(Hnc8Stage::Decode, error)
 }
 
 /// Stream one preflighted type-0 record's rows to a bilevel image XObject in
@@ -346,7 +203,7 @@ fn emit_type0<W, C>(
     at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<crate::pdf::ImageObject, ComposeError>
+) -> Result<crate::pdf::ImageObject>
 where
     W: Write,
     C: Cancellation,
@@ -357,7 +214,7 @@ where
             pixel_height: info.height,
             row_stride: info.dib_stride,
         })
-        .map_err(at.io(ComposeStage::Pdf))?;
+        .map_err(at.locator(Hnc8Stage::Pdf))?;
     let span = record
         .type0_span()
         .expect("type-0 record checked by composition preflight");
@@ -373,7 +230,7 @@ where
     .map_err(type0_decode(at))?;
     while decoder.decode_next_row().map_err(type0_decode(at))? {}
     decoder.finish().map_err(type0_decode(at))?;
-    rows.finish().map_err(at.io(ComposeStage::Pdf))
+    rows.finish().map_err(at.locator(Hnc8Stage::Pdf))
 }
 
 /// Additional descriptor groups are accepted only after a complete byte
@@ -385,14 +242,14 @@ fn verify_repeated_image<S: RangedSource, C: Cancellation>(
     at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(), ComposeError> {
+) -> Result<()> {
     if original.record_type != repeated.record_type
         || original.payload.length != repeated.payload.length
     {
-        return Err(at.error((
-            ComposeStage::Headers,
-            ComposeErrorKind::Unsupported("repeated image type or length differs"),
-        )));
+        return Err(at.error(
+            Hnc8Stage::Headers,
+            unsupported("repeated image type or length differs"),
+        ));
     }
     let mut first = [0; 1024];
     let mut second = [0; 1024];
@@ -407,7 +264,7 @@ fn verify_repeated_image<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .map_err(at.io(ComposeStage::Headers))?;
+        .map_err(at.locator(Hnc8Stage::Headers))?;
         crate::read_exact_at(
             source,
             repeated.payload.offset + offset,
@@ -415,28 +272,28 @@ fn verify_repeated_image<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .map_err(at.io(ComposeStage::Headers))?;
+        .map_err(at.locator(Hnc8Stage::Headers))?;
         if first[..count] != second[..count] {
-            return Err(at.with_offset(repeated.payload.offset + offset).error((
-                ComposeStage::Headers,
-                ComposeErrorKind::Unsupported("repeated image payload differs"),
-            )));
+            return Err(at.with_offset(repeated.payload.offset + offset).error(
+                Hnc8Stage::Headers,
+                unsupported("repeated image payload differs"),
+            ));
         }
         offset += count as u64;
     }
     Ok(())
 }
 
-fn validate(limits: &Limits) -> Result<(), ComposeError> {
+fn validate(limits: &Limits) -> Result<()> {
     limits
         .validate()
-        .map_err(At::NONE.io(ComposeStage::Preflight))
+        .map_err(At::NONE.locator(Hnc8Stage::Preflight))
 }
 
 fn metadata_bytes(count: u64, element_bytes: u64) -> crate::Result<u64> {
-    count.checked_mul(element_bytes).ok_or(Error::InvalidInput {
-        reason: "page metadata byte count overflows u64",
-    })
+    count
+        .checked_mul(element_bytes)
+        .ok_or(Error::invalid("page metadata byte count overflows u64"))
 }
 
 fn capacity_bytes<T>(capacity: usize) -> u64 {
@@ -466,21 +323,21 @@ fn admit_page_images(
     element_bytes: &[usize],
     at: At,
     limits: &Limits,
-) -> Result<usize, ComposeError> {
+) -> Result<usize> {
     let count = usize_from_u32(page.image_count);
     if count > MAX_PAGE_IMAGE_PLACEMENTS {
-        return Err(at.io(ComposeStage::Preflight)(Error::LimitExceeded {
-            resource: "PDF image placements per page",
-            limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
-            attempted: u64::from(page.image_count),
-        }));
+        return Err(at.locator(Hnc8Stage::Preflight)(Error::limit(
+            "PDF image placements per page",
+            MAX_PAGE_IMAGE_PLACEMENTS as u64,
+            u64::from(page.image_count),
+        )));
     }
     for &element in element_bytes {
         let bytes = metadata_bytes(u64::from(page.image_count), len_u64(element))
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
         limits
             .check_allocation(bytes)
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
     }
     Ok(count)
 }
@@ -496,12 +353,15 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(CheckedImage, Option<CheckedType3>, u32, u32, u32), ComposeError> {
+) -> Result<(CheckedImage, Option<CheckedType3>, u32, u32, u32)> {
     let variant = image_at.variant.expect("a page location names its variant");
     Ok(match record.record_type {
         0 if variant != Variant::HnB => {
             if table.is_none() {
-                return Err(image_at.error((ComposeStage::Headers, ComposeErrorKind::MissingTable)));
+                return Err(image_at.error(
+                    Hnc8Stage::Headers,
+                    Error::invalid("type-0 image requires a caller QM table"),
+                ));
             }
             let info = read_type0_info(
                 source,
@@ -509,7 +369,7 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
                 limits,
                 cancellation,
             )
-            .map_err(image_at.type0(ComposeStage::Headers))?;
+            .map_err(image_at.locator(Hnc8Stage::Headers))?;
             let display_width = info.width;
             (
                 CheckedImage::Type0(info),
@@ -542,16 +402,13 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
         // HN-A/C8 composition profile; HN-B remains type-2 only.
         1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
             let info = read_type2_jpeg_info(source, record, limits, cancellation)
-                .map_err(image_at.jpeg(ComposeStage::Headers))?;
+                .map_err(image_at.locator(Hnc8Stage::Headers))?;
             let width = u32::from(info.width);
             let height = u32::from(info.height);
             (CheckedImage::Jpeg(info), None, width, width, height)
         }
         _ => {
-            return Err(image_at.error((
-                ComposeStage::Headers,
-                ComposeErrorKind::UnsupportedImageType(record.record_type),
-            )));
+            return Err(image_at.error(Hnc8Stage::Headers, unsupported("image record type")));
         }
     })
 }
@@ -572,7 +429,7 @@ fn emit_image<S, W, C>(
     limits: &Limits,
     cancellation: &C,
     report: &mut ComposeReport,
-) -> Result<crate::pdf::ImageObject, ComposeError>
+) -> Result<crate::pdf::ImageObject>
 where
     S: RangedSource,
     W: Write,
@@ -583,8 +440,9 @@ where
     let object = match image.checked {
         CheckedImage::Type0(info) => {
             if buffers.contexts.is_none() {
-                buffers.contexts =
-                    Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
+                buffers.contexts = Some(
+                    ContextBank::new(1024, limits).map_err(image_at.locator(Hnc8Stage::Decode))?,
+                );
             }
             let payload = read_payload(
                 source,
@@ -594,7 +452,7 @@ where
                 limits,
                 cancellation,
             )
-            .map_err(payload_at.io(ComposeStage::Decode))?;
+            .map_err(payload_at.locator(Hnc8Stage::Decode))?;
             let object = emit_type0(
                 payload,
                 document,
@@ -618,7 +476,7 @@ where
                 limits,
                 cancellation,
             )
-            .map_err(payload_at.io(ComposeStage::Decode))?;
+            .map_err(payload_at.locator(Hnc8Stage::Decode))?;
             let (object, page) = emit_type3(
                 payload,
                 document,
@@ -646,7 +504,7 @@ where
             };
             let object = document
                 .add_image(source, record.payload.offset, record.payload.length, spec)
-                .map_err(payload_at.io(ComposeStage::Pdf))?;
+                .map_err(payload_at.locator(Hnc8Stage::Pdf))?;
             report.jpeg_images += 1;
             object
         }
@@ -679,7 +537,7 @@ pub fn convert_source_pages_pdf<S, W, V, C>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError>
+) -> Result<ComposeReport>
 where
     S: RangedSource,
     W: Write,
@@ -690,15 +548,15 @@ where
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
-        .map_err(|error| container(error, ComposeStage::Container))?;
+        .map_err(|error| container(error, Hnc8Stage::Container))?;
     let header = reader.header();
     let document_at = At {
         variant: Some(header.variant),
         offset: Some(0),
         ..At::NONE
     };
-    let mut document =
-        PdfDocument::new(sink, limits, cancellation).map_err(document_at.io(ComposeStage::Pdf))?;
+    let mut document = PdfDocument::new(sink, limits, cancellation)
+        .map_err(document_at.locator(Hnc8Stage::Pdf))?;
     let mut report = ComposeReport::new(header);
     // Only HN-A outlines are verified; for C8/HN-B a request writes nothing
     // and is reported rather than failing the whole conversion.
@@ -707,12 +565,15 @@ where
     let mut buffers = ImageBuffers::default();
     while let Some(page) = reader
         .next_page()
-        .map_err(|error| container(error, ComposeStage::Container))?
+        .map_err(|error| container(error, Hnc8Stage::Container))?
     {
         let at = At::page(header, page);
         if page.image_count == 0 {
             if header.variant != Variant::HnB {
-                return Err(at.error((ComposeStage::Preflight, ComposeErrorKind::NoImages)));
+                return Err(at.error(
+                    Hnc8Stage::Preflight,
+                    unsupported("image-only output has no image to draw"),
+                ));
             }
             report.no_image_pages += 1;
             visitor
@@ -722,14 +583,14 @@ where
                     size: None,
                     images: &[],
                 })
-                .map_err(at.io(ComposeStage::Visitor))?;
+                .map_err(at.locator(Hnc8Stage::Visitor))?;
             continue;
         }
         if header.variant == Variant::HnB && page.image_count != 1 {
-            return Err(at.error((
-                ComposeStage::Preflight,
-                ComposeErrorKind::Unsupported("HN-B image-bearing rows require exactly one JPEG"),
-            )));
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                unsupported("HN-B image-bearing rows require exactly one JPEG"),
+            ));
         }
         // Both Vec sizes and their coexistence are admitted up front.
         let count = admit_page_images(
@@ -754,31 +615,29 @@ where
                 limits,
                 cancellation,
             )
-            .map_err(|error| container(error, ComposeStage::Text))?;
+            .map_err(|error| container(error, Hnc8Stage::Text))?;
             page_size = text.page_size.or(page_size);
             coordinates = text.coordinates;
         }
         if header.variant != Variant::HnB
             && (coordinates.is_empty() || !count.is_multiple_of(coordinates.len()))
         {
-            return Err(at.error((
-                ComposeStage::Text,
-                ComposeErrorKind::Unsupported(
-                    "image descriptor count is not a complete coordinate group",
-                ),
-            )));
+            return Err(at.error(
+                Hnc8Stage::Text,
+                unsupported("image descriptor count is not a complete coordinate group"),
+            ));
         }
         let mut images: Vec<ComposedImage> = page_vector(count, limits, "current-page image plans")
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
         // Checked type-3 metadata in emit order.
         let mut type3_plans: Vec<CheckedType3> = Vec::new();
         let mut geometry = page_size
             .map(source_page_geometry)
             .transpose()
-            .map_err(at.io(ComposeStage::Geometry))?;
+            .map_err(at.locator(Hnc8Stage::Geometry))?;
         while let Some(record) = reader
             .next_image()
-            .map_err(|error| container(error, ComposeStage::Container))?
+            .map_err(|error| container(error, Hnc8Stage::Container))?
         {
             let image_at = at.image(record);
             if header.variant != Variant::HnB && images.len() >= coordinates.len() {
@@ -814,7 +673,7 @@ where
                     1,
                     limits.allocation_refused("current-page type-3 plans", wanted),
                 )
-                .map_err(image_at.io(ComposeStage::Preflight))?;
+                .map_err(image_at.locator(Hnc8Stage::Preflight))?;
                 type3_plans.push(plan);
             }
             if geometry.is_none() {
@@ -822,7 +681,7 @@ where
                 // JPEG supplies page size; the codec preflight is independent.
                 geometry = Some(
                     empirical_page_from_pixels(visible_width, height, [0.0, 0.0])
-                        .map_err(image_at.io(ComposeStage::Geometry))?,
+                        .map_err(image_at.locator(Hnc8Stage::Geometry))?,
                 );
             }
             let coordinate = if header.variant == Variant::HnB {
@@ -836,7 +695,7 @@ where
             } else {
                 source_image_transform(page_geometry, coordinate)
             }
-            .map_err(image_at.io(ComposeStage::Geometry))?;
+            .map_err(image_at.locator(Hnc8Stage::Geometry))?;
             if matches!(checked, CheckedImage::Type0(_) | CheckedImage::Type3) {
                 // Top-first rows give the same placement as bottom-first rows
                 // under the reference's negative-height matrix, without a copy.
@@ -856,7 +715,7 @@ where
         }
         drop(coordinates);
         let mut placements = page_vector(count, limits, "current-page image placements")
-            .map_err(at.io(ComposeStage::Preflight))?;
+            .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mut type3_plans = type3_plans.into_iter();
         for index in 0..images.len() {
             if let Some(original) = images[index].duplicate_of {
@@ -893,7 +752,7 @@ where
         // and successful report expose one-based pages and the page count.
         report.output_pages = document
             .add_placed_page(size, &placements)
-            .map_err(at.io(ComposeStage::Pdf))?
+            .map_err(at.locator(Hnc8Stage::Pdf))?
             + 1;
         visitor
             .page(ComposePage {
@@ -902,12 +761,15 @@ where
                 size: Some(size),
                 images: &images,
             })
-            .map_err(at.io(ComposeStage::Visitor))?;
+            .map_err(at.locator(Hnc8Stage::Visitor))?;
         // All current-page coordinates, plans and placements drop here before
         // the next row; only the reusable buffers and PDF indexes persist.
     }
     if report.output_pages == 0 {
-        return Err(document_at.error((ComposeStage::Preflight, ComposeErrorKind::NoImages)));
+        return Err(document_at.error(
+            Hnc8Stage::Preflight,
+            unsupported("image-only output has no image to draw"),
+        ));
     }
     if include_bookmarks {
         // This HN-A composer emits every source row in order and rejects
@@ -920,7 +782,7 @@ where
                 |page| Some(page - 1),
                 &mut OutlineSink(&mut document),
             )
-            .map_err(|error| container(error, ComposeStage::Container))?;
+            .map_err(|error| container(error, Hnc8Stage::Container))?;
     }
     report.conversion = finish_document(&mut reader, document, &mut report, document_at)?;
     report.conversion.input_bytes_read = input_bytes_read;

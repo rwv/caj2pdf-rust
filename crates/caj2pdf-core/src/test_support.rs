@@ -2,11 +2,16 @@
 
 //! Shared helpers for in-crate unit tests.
 
-use crate::Cancellation;
+use crate::hnc8::Variant;
+use crate::{Cancellation, Context, Error, ErrorKind, Hnc8Stage};
 pub(crate) use arith_encoder::{MqEncoder, QmEncoder};
+pub(crate) use errors::{
+    field_of, kind_name, page_image, pdf_class, segment, stage_of, variant_of,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) mod arith_encoder;
+mod errors;
 
 /// An encoder for the standard T.88 MQ states.
 pub(crate) fn mq_encoder() -> MqEncoder {

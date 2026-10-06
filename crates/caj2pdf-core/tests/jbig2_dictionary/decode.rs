@@ -40,7 +40,7 @@ fn segment(
     Source::new(bytes)
 }
 
-fn decode_error(body: &[u8], new_symbols: u32, limits: Limits) -> DictionaryError {
+fn decode_error(body: &[u8], new_symbols: u32, limits: Limits) -> Error {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, new_symbols, body, &[]);
     let hdr = header(&mut source);
     let mut store = Store::default();
@@ -63,9 +63,9 @@ fn decode_error(body: &[u8], new_symbols: u32, limits: Limits) -> DictionaryErro
     decoder.decode().unwrap_err()
 }
 
-fn assert_resource(error: DictionaryError, expected: &str) {
+fn assert_resource(error: Error, expected: &str) {
     assert!(
-        matches!(&error.kind, DictionaryErrorKind::LimitExceeded { resource, .. } if resource == &expected),
+        matches!(&error, Error { kind: ErrorKind::LimitExceeded { resource, .. }, .. } if resource == &expected),
         "{error}"
     );
 }
@@ -77,7 +77,7 @@ fn constructor_error(
     new_symbols: u32,
     body: &[u8],
     limits: Limits,
-) -> DictionaryError {
+) -> Error {
     let mut source = segment(flags, at, &[], exported_symbols, new_symbols, body, &[]);
     let hdr = header(&mut source);
     let mut store = Store::default();
@@ -505,11 +505,13 @@ fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output(
     };
     // A refinement dictionary needs the report of the one it refers to.
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("expected exactly the supplied dictionary reference")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "expected exactly the supplied dictionary reference",
+            ..
+        }
     ));
-    assert_eq!(error.progress.header_bytes_fetched, 12);
-    assert!(error.progress.mq.is_none());
     assert!(store.bytes.is_empty());
 }
 
@@ -562,9 +564,9 @@ fn malformed_and_bounded_headers_never_enter_mq() {
                 .unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
         if flags == 0x8800 || flags == 0x0804 || flags == 0x1800 {
-            assert_eq!(error.offset, hdr.data.offset);
+            assert_eq!(error.offset, Some(hdr.data.offset));
         } else if at[0] == (0, 0) {
-            assert_eq!(error.offset, hdr.data.offset + 2);
+            assert_eq!(error.offset, Some(hdr.data.offset + 2));
         }
     }
     let limits = Limits {
@@ -575,32 +577,36 @@ fn malformed_and_bounded_headers_never_enter_mq() {
     let hdr = header(&mut source);
     let error =
         read_dictionary_data_header(&mut source, &hdr, &limits, &CancelAfter::Never).unwrap_err();
-    assert_eq!(error.offset, hdr.data.offset + 4);
+    assert_eq!(error.offset, Some(hdr.data.offset + 4));
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "exported symbols",
-            limit: 2,
-            attempted: 3,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "exported symbols",
+                limit: 2,
+                attempted: 3,
+            },
+            ..
         }
     ));
     let mut source = segment(0x0800, &[(2, -1)], &[], 3, 3, &[0xff, 0xac], &[]);
     let hdr = header(&mut source);
     let error =
         read_dictionary_data_header(&mut source, &hdr, &limits, &CancelAfter::Never).unwrap_err();
-    assert_eq!(error.offset, hdr.data.offset + 8);
+    assert_eq!(error.offset, Some(hdr.data.offset + 8));
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "new symbols",
-            limit: 2,
-            attempted: 3,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "new symbols",
+                limit: 2,
+                attempted: 3,
+            },
+            ..
         }
     ));
     assert!(
-        error
-            .to_string()
-            .ends_with("new symbols limit 2 exceeded by 3"),
+        error.to_string().ends_with("maximum 2, attempted 3"),
         "{error}"
     );
 }
@@ -637,9 +643,7 @@ fn terminal_failure_reports_the_invalid_marker() {
     )
     .unwrap();
     let error = decoder.decode().unwrap_err();
-    assert!(
-        matches!(error.kind, DictionaryErrorKind::Mq(ref mq) if matches!(mq.kind, ArithmeticErrorKind::InvalidMarker(0xab)))
-    );
+    assert!(error.reason == "invalid MQ marker following 0xFF");
     assert!(store.bytes.is_empty());
 }
 
@@ -692,9 +696,8 @@ fn invalid_flag_combinations_are_located_at_flags_before_mq() {
         let error =
             read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
                 .unwrap_err();
-        assert_eq!(error.offset, hdr.data.offset);
+        assert_eq!(error.offset, Some(hdr.data.offset));
         assert!(error.to_string().contains(expected), "{error}");
-        assert_eq!(error.progress.header_bytes_fetched, 2);
     }
 }
 
@@ -737,8 +740,6 @@ fn unsupported_modes_and_direct_features_refuse_before_mq_or_store() {
     for (flags, at, exported, new, expected) in cases {
         let error = constructor_error(flags, at, exported, new, &[0xff, 0xac], Limits::default());
         assert!(error.to_string().contains(expected), "{error}");
-        assert!(error.progress.header_bytes_fetched >= 10);
-        assert!(error.progress.mq.is_none());
     }
 }
 
@@ -755,11 +756,9 @@ fn preflight_resource_limits_are_typed_and_count_header_io() {
     for (limits, expected) in cases {
         let error = constructor_error(0x0800, &[(2, -1)], 0, 1, &ONE_SYMBOL, limits);
         assert!(
-            matches!(&error.kind, DictionaryErrorKind::LimitExceeded { resource, .. } if resource == &expected),
+            matches!(&error, Error { kind: ErrorKind::LimitExceeded { resource, .. }, .. } if resource == &expected),
             "{error}"
         );
-        assert_eq!(error.progress.header_bytes_fetched, 12);
-        assert!(error.progress.mq.is_none());
     }
     let error = constructor_error(
         0x0800,
@@ -773,13 +772,15 @@ fn preflight_resource_limits_are_typed_and_count_header_io() {
         },
     );
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary data bytes",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "dictionary data bytes",
+                ..
+            },
             ..
         }
     ));
-    assert_eq!(error.progress.header_bytes_fetched, 0);
 }
 
 // The following bodies were produced by the test-only MQ encoder// The following bodies were produced by the test-only MQ encoder; only the
@@ -797,23 +798,28 @@ fn decoded_width_beyond_u32_is_malformed_while_u32_max_meets_the_pixel_limit() {
     let error = decode_error(&WIDTH_2_POW_32, 1, Limits::default());
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Malformed("symbol width exceeds 32 bits")
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "symbol width exceeds 32 bits",
+                ..
+            }
         ),
         "{error}"
     );
-    assert_eq!(error.progress.completed_symbols, 0);
-    assert_eq!(error.progress.stored_bitmap_bytes, 0);
 
     // One less is a representable width, so the pixel limit decides.
     let error = decode_error(&WIDTH_U32_MAX, 1, Limits::default());
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "symbol pixels",
-                limit: 12_000_000,
-                attempted: 4_294_967_295,
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "symbol pixels",
+                    limit: 12_000_000,
+                    attempted: 4_294_967_295,
+                },
+                ..
             }
         ),
         "{error}"
@@ -832,32 +838,32 @@ fn row_scratch_allocation_limit_is_exact_and_precedes_bitmap_decisions() {
     let error = decode_error(&WIDTH_48000, 1, limits(17_999));
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "row scratch bytes",
-                limit: 17_999,
-                attempted: 18_000,
-            }
-        ),
-        "{error}"
-    );
-    assert_eq!(error.progress.mq.unwrap().symbols_decoded, 42);
-    // With exactly enough scratch the decoder goes on to pixel decisions.
-    let error = decode_error(&WIDTH_48000, 1, limits(18_000));
-    assert!(
-        !matches!(
-            error.kind,
-            DictionaryErrorKind::LimitExceeded {
-                resource: "row scratch bytes",
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "row scratch bytes",
+                    limit: 17_999,
+                    attempted: 18_000,
+                },
                 ..
             }
         ),
         "{error}"
     );
+    // With exactly enough scratch the decoder goes on to pixel decisions.
+    let error = decode_error(&WIDTH_48000, 1, limits(18_000));
     assert!(
-        error.progress.mq.unwrap().symbols_decoded > 42,
-        "{error}: {:?}",
-        error.progress
+        !matches!(
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "row scratch bytes",
+                    ..
+                },
+                ..
+            }
+        ),
+        "{error}"
     );
 }
 
@@ -886,13 +892,15 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
     let error = decoder.decode().unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Malformed("exported symbol total")
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "exported symbol total",
+                ..
+            }
         ),
         "{error}"
     );
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.export_runs, 1);
     assert_eq!(store.bytes, [0]);
 }
 
@@ -910,14 +918,17 @@ fn count_field_cut_by_the_segment_length_is_truncated_before_reading_it() {
             .unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::Truncated("new symbol count")
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                reason: "new symbol count",
+                ..
+            }
         ),
         "{error}"
     );
     // Data starts at byte 11; flags, AT, and the exported count were read.
-    assert_eq!(error.offset, 19);
-    assert_eq!(error.progress.header_bytes_fetched, 8);
+    assert_eq!(error.offset, Some(19));
     assert!(source.read_calls > reads);
 }
 
@@ -967,13 +978,15 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
             .unwrap_err();
     assert!(
         matches!(
-            error.kind,
-            DictionaryErrorKind::InvalidSpan("header offset overflow")
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
         ),
         "{error}"
     );
-    assert_eq!(error.offset, u64::MAX - 1);
-    assert_eq!(error.progress.header_bytes_fetched, 0);
+    assert_eq!(error.offset, Some(u64::MAX - 1));
 }
 
 #[test]
@@ -1011,7 +1024,13 @@ fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
             }
             Err(error) => {
                 assert!(
-                    matches!(error.kind, DictionaryErrorKind::Cancelled),
+                    matches!(
+                        error,
+                        Error {
+                            kind: ErrorKind::Cancelled,
+                            ..
+                        }
+                    ),
                     "poll {polls}: {error}"
                 );
                 assert!(store.bytes.len() <= 1);
@@ -1020,22 +1039,4 @@ fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
         }
     }
     panic!("decode never completed without cancellation");
-}
-
-#[test]
-fn allocation_failure_message_and_formatter_errors_are_reported() {
-    // Catalog and row reservation failures need a real allocator failure;
-    // the message is still part of the public error contract.
-    let error = DictionaryError {
-        segment: 4,
-        offset: 9,
-        progress: Box::default(),
-        kind: DictionaryErrorKind::AllocationFailed,
-    };
-    assert_eq!(
-        error.to_string(),
-        "JBIG2 symbol dictionary segment 4 at source byte 9: allocation failed"
-    );
-    assert!(std::error::Error::source(&error).is_none());
-    common::assert_display_propagates_fmt_error(&error);
 }

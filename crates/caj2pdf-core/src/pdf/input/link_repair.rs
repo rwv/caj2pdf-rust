@@ -9,7 +9,7 @@ use super::parser::{Syntax, destination_page, exact_name, exact_reference, parse
 use super::{FragmentObject, ObjectTail, Reader};
 use crate::fallible::reserve_exact;
 use crate::pdf::PdfRef;
-use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
+use crate::{Cancellation, Error, ErrorKind, Limits, RangedSource, Result};
 
 /// The parsed object form. A scalar destination must be linked from an actual
 /// link annotation before its null replacement can be used.
@@ -75,18 +75,18 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
     if reference.generation != 0 {
         return Ok(None);
     }
-    let end = range.end().ok_or(Error::Pdf {
-        offset: range.offset,
-        object: Some((reference.number, reference.generation)),
-        kind: PdfErrorKind::Malformed,
-        reason: "link object source range overflows",
-    })?;
+    let end = range.end().ok_or(Error::pdf(
+        ErrorKind::Malformed,
+        range.offset,
+        Some((reference.number, reference.generation)),
+        "link object source range overflows",
+    ))?;
     if end > source.size() {
-        return Err(Error::TruncatedInput {
-            offset: range.offset,
-            expected: range.length,
-            available: source.size().saturating_sub(range.offset),
-        });
+        return Err(Error::truncated(
+            range.offset,
+            range.length,
+            source.size().saturating_sub(range.offset),
+        ));
     }
     let mut reader = Reader::new(source, range, limits, cancellation)?;
     limits
@@ -117,13 +117,11 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
 
     let maximum = reader.syntax_limit();
     if range.length > maximum {
-        return Err(Error::PdfLimitExceeded {
-            offset: range.offset,
-            object: Some((reference.number, reference.generation)),
-            resource: "PDF link repair object bytes",
-            limit: maximum,
-            attempted: range.length,
-        });
+        return Err(
+            Error::limit("PDF link repair object bytes", maximum, range.length)
+                .at(range.offset)
+                .in_pdf(Some((reference.number, reference.generation))),
+        );
     }
     // `maximum` is at most the 4 MiB object syntax limit.
     let length = usize::try_from(range.length).expect("object syntax limit fits usize");
@@ -185,13 +183,13 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
         let pair_end = dictionary_start + destination.pair.end;
         debug_assert!(pair_start < pair_end && pair_end <= complete.bytes.len());
         let mut replacement = Vec::new();
-        let refused = Error::PdfLimitExceeded {
-            offset: range.offset,
-            object: Some((reference.number, reference.generation)),
-            resource: "PDF link repair allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: complete.bytes.len() as u64,
-        };
+        let refused = Error::limit(
+            "PDF link repair allocation",
+            limits.max_allocation_bytes,
+            complete.bytes.len() as u64,
+        )
+        .at(range.offset)
+        .in_pdf(Some((reference.number, reference.generation)));
         let additional = complete.bytes.len() - (pair_end - pair_start);
         reserve_exact(&mut replacement, additional, refused)?;
         replacement.extend_from_slice(&complete.bytes[..pair_start]);
@@ -223,6 +221,7 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Context;
     use crate::NeverCancel;
     use crate::pdf::PdfRange;
 
@@ -377,13 +376,22 @@ mod tests {
             b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit] /Dest [7 0 R /Fit]>>\nendobj\n";
         assert!(matches!(
             inspect(duplicate),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 ..
             })
         ));
         let wrong = b"10 0 obj\n[6 0 R /Fit]\nendobj\n";
-        assert!(matches!(inspect(wrong), Err(Error::Pdf { offset: 0, .. })));
+        assert!(matches!(
+            inspect(wrong),
+            Err(Error {
+                kind: _,
+                offset: Some(0),
+                context: Context::Pdf { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -434,8 +442,12 @@ mod tests {
         };
         assert!(matches!(
             inspect_link_destination_candidate(&mut source, fragment, &limits, &NeverCancel),
-            Err(Error::PdfLimitExceeded {
-                resource: "PDF link repair object bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF link repair object bytes",
+                    ..
+                },
+                context: Context::Pdf { .. },
                 ..
             })
         ));
@@ -465,13 +477,7 @@ mod tests {
                 .expect_err("an oversized candidate span was read");
         assert!(matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset: 0,
-                object: Some((9, 0)),
-                resource: "input bytes",
-                limit: 8,
-                attempted,
-            } if attempted == bytes.len() as u64
+            Error { kind: ErrorKind::LimitExceeded { resource: "input bytes", limit: 8, attempted }, offset: Some(0), context: Context::Pdf { object: Some((9, 0)), .. }, .. } if attempted == bytes.len() as u64
         ));
         assert_eq!(source.largest_request, 0);
     }
@@ -503,7 +509,9 @@ mod tests {
                 &Limits::default(),
                 &NeverCancel
             ),
-            Err(Error::Pdf {
+            Err(Error {
+                kind: _,
+                context: Context::Pdf { .. },
                 reason: "link repair source changed while reading",
                 ..
             })
@@ -536,11 +544,7 @@ mod tests {
         .expect_err("truncated link object was accepted");
         assert!(matches!(
             error,
-            Error::TruncatedInput {
-                offset,
-                expected,
-                available,
-            } if offset == prefix.len() as u64
+            Error { kind: ErrorKind::Truncated { expected, available }, offset: Some(offset), .. } if offset == prefix.len() as u64
                 && expected == object.len() as u64 + 3
                 && available == object.len() as u64
         ));
@@ -602,12 +606,7 @@ mod tests {
         .expect_err("object span swallowed the container tail");
         assert!(matches!(
             error,
-            Error::Pdf {
-                offset,
-                object: Some((9, 0)),
-                kind: PdfErrorKind::Malformed,
-                reason: "link repair object has trailing non-whitespace bytes",
-            } if offset == (prefix.len() + object.len() + 2) as u64
+            Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Pdf { object: Some((9, 0)), repair: false }, reason: "link repair object has trailing non-whitespace bytes", .. } if offset == (prefix.len() + object.len() + 2) as u64
         ));
     }
 
@@ -639,8 +638,9 @@ mod tests {
                 &Limits::default(),
                 &NeverCancel,
             ),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: false, .. },
                 reason: "link repair source changed while reading",
                 ..
             })
@@ -678,12 +678,7 @@ mod tests {
         .expect_err("changed trailing bytes were accepted");
         assert!(matches!(
             error,
-            Error::Pdf {
-                offset,
-                object: Some((9, 0)),
-                kind: PdfErrorKind::Malformed,
-                reason: "link repair object has trailing non-whitespace bytes",
-            } if offset == object.len() as u64
+            Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Pdf { object: Some((9, 0)), repair: false }, reason: "link repair object has trailing non-whitespace bytes", .. } if offset == object.len() as u64
         ));
     }
 
@@ -745,11 +740,15 @@ mod tests {
         .expect_err("a glued endobj keyword was accepted");
         assert!(matches!(
             error,
-            Error::Pdf {
-                offset: 512,
-                object: Some((9, 0)),
-                kind: PdfErrorKind::Malformed,
+            Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(512),
+                context: Context::Pdf {
+                    object: Some((9, 0)),
+                    repair: false
+                },
                 reason: "PDF keyword lacks a delimiter",
+                ..
             }
         ));
     }

@@ -3,13 +3,12 @@
 //! Incremental composition of the independently controlled C8 native subset.
 
 use super::{
-    C8GlyphClass, EmpiricalPageGeometry, ErrorKind, Hnc8Reader, Location, NativeRecord,
-    NativeRecordVisitor, Result, Variant, decode_native_character,
-    decode_native_character_for_mode, decode_native_image_coordinate,
-    empirical_c8_horizontal_decoration, empirical_c8_segment,
+    C8GlyphClass, EmpiricalPageGeometry, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor,
+    Variant, decode_native_character, decode_native_character_for_mode,
+    decode_native_image_coordinate, empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
-use crate::{Cancellation, Error, RangedSource};
+use crate::{Cancellation, Error, RangedSource, Result};
 use std::io::Write;
 
 /// Indices into the font handles supplied to the native page writer.
@@ -106,23 +105,12 @@ where
         image: None,
         offset: reader.current.map_or(0, |p| p.page.text.offset),
     };
-    let source_error = |source| {
-        loc.error(ErrorKind::Source {
-            field: "native page composition",
-            source,
-        })
-    };
+    let source_error = |source| loc.locate(source);
     if !matches!(header.variant, Variant::C8 | Variant::HnB) {
-        return Err(loc.error(ErrorKind::Unsupported {
-            field: "native page composition variant",
-            value: 0,
-        }));
+        return Err(loc.unsupported("native page composition variant"));
     }
     if !admits_native_mode(header) {
-        return Err(loc.error(ErrorKind::Unsupported {
-            field: "native page rendering mode",
-            value: u64::from(header.native_mode.unwrap_or(u32::MAX)),
-        }));
+        return Err(loc.unsupported("native page rendering mode"));
     }
     if header.variant == Variant::HnB && header.native_mode == Some(0) && !images.is_empty() {
         return Err(source_error(invalid(
@@ -131,7 +119,7 @@ where
     }
     let current = reader
         .current
-        .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?;
+        .ok_or_else(|| loc.malformed("no current page"))?;
     if images.len() as u64 != u64::from(current.page.image_count) || top_first.len() != images.len()
     {
         return Err(source_error(invalid(
@@ -178,7 +166,7 @@ where
 }
 
 fn invalid(reason: &'static str) -> Error {
-    Error::InvalidInput { reason }
+    Error::invalid(reason)
 }
 
 struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {

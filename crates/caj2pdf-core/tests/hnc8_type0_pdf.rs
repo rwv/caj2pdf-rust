@@ -11,17 +11,14 @@ mod common;
 
 use caj2pdf_core::hnc8::convert_source_pages_pdf as compose;
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{
-        ComposeError, ComposeErrorKind, ComposeOptions, ComposeReport, ComposeStage, ErrorKind,
-        Variant,
-    },
-    jbig1::Type0ErrorKind,
+    Cancellation, Context, Error, ErrorKind, Hnc8Stage, Limits, NeverCancel, RangedSource, Result,
+    hnc8::{ComposeOptions, ComposeReport, Variant},
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
     qm::QmTable,
 };
 use common::{
     CancelAfter,
+    errors::{page_image, stage_of},
     hnc8_document::{Image, RENDER_DPI, document},
 };
 use std::io::Write;
@@ -183,7 +180,7 @@ fn convert_with<C: Cancellation>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError> {
+) -> Result<ComposeReport> {
     compose(
         source,
         sink,
@@ -195,7 +192,7 @@ fn convert_with<C: Cancellation>(
     )
 }
 
-fn convert(bytes: Vec<u8>) -> Result<(ComposeReport, Vec<u8>), ComposeError> {
+fn convert(bytes: Vec<u8>) -> Result<(ComposeReport, Vec<u8>)> {
     let mut source = Source::new(bytes);
     let mut sink = Sink::default();
     let report = convert_with(
@@ -212,7 +209,7 @@ fn convert(bytes: Vec<u8>) -> Result<(ComposeReport, Vec<u8>), ComposeError> {
     Ok((report, sink.bytes))
 }
 
-fn convert_error(bytes: Vec<u8>, options: ComposeOptions, limits: &Limits) -> ComposeError {
+fn convert_error(bytes: Vec<u8>, options: ComposeOptions, limits: &Limits) -> Error {
     let mut source = Source::new(bytes);
     convert_with(
         &mut source,
@@ -225,16 +222,8 @@ fn convert_error(bytes: Vec<u8>, options: ComposeOptions, limits: &Limits) -> Co
 }
 
 /// Every cancellation surface of the type-0 composition path.
-fn cancelled(error: &ComposeError) -> bool {
-    match &error.kind {
-        ComposeErrorKind::Container(inner) => matches!(inner.kind, ErrorKind::Cancelled),
-        ComposeErrorKind::Image(inner) => matches!(
-            inner.kind,
-            Type0ErrorKind::Cancelled | Type0ErrorKind::Sink(Error::Cancelled)
-        ),
-        ComposeErrorKind::Io(Error::Cancelled) => true,
-        _ => false,
-    }
+fn cancelled(error: &Error) -> bool {
+    matches!(error.kind, ErrorKind::Cancelled)
 }
 
 // ---------------------------------------------------------------------------
@@ -491,22 +480,21 @@ fn container_errors_keep_their_own_location() {
     let descriptor = built.descriptors[1][0] as usize;
     built.bytes[descriptor..descriptor + 4].copy_from_slice(&9_i32.to_le_bytes());
     let error = convert_error(built.bytes, ComposeOptions::default(), &Limits::default());
-    let ComposeErrorKind::Container(inner) = &error.kind else {
-        panic!("{error}");
-    };
     assert!(matches!(
-        inner.kind,
-        ErrorKind::Unsupported {
-            field: "image type",
-            value: 9
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "image type",
+            ..
         }
     ));
-    assert_eq!(error.stage, ComposeStage::Container);
-    assert_eq!((error.page, error.image), (Some(2), Some(1)));
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Container));
+    assert_eq!(page_image(&error), (Some(2), Some(1)));
     assert_eq!(error.offset, Some(descriptor as u64));
-    assert!(error.source().is_some());
     assert!(
-        error.to_string().contains("unsupported image type: 9"),
+        error
+            .to_string()
+            .starts_with("unsupported HN/C8 C8 at byte "),
         "{error}"
     );
 
@@ -515,14 +503,8 @@ fn container_errors_keep_their_own_location() {
         ComposeOptions::default(),
         &Limits::default(),
     );
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Container(_)),
-        "{error}"
-    );
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (None, None, Some(0))
-    );
+    assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
+    assert_eq!((page_image(&error), error.offset), ((None, None), Some(0)));
 }
 
 #[test]
@@ -534,28 +516,23 @@ fn truncated_sources_fail_at_the_missing_bytes() {
     let mut short = built.bytes.clone();
     short.truncate(payload as usize + 50);
     let error = convert_error(short, ComposeOptions::default(), &Limits::default());
-    let ComposeErrorKind::Container(inner) = &error.kind else {
-        panic!("{error}");
-    };
     assert!(matches!(
-        inner.kind,
-        ErrorKind::Truncated {
-            field: "image payload",
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "image payload",
             ..
         }
     ));
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    assert_eq!(page_image(&error), (Some(1), Some(1)));
 
     // A declared DIB-only payload has no coded bytes.
     let mut built = document(Variant::HnA, &[vec![type0(&rows)]]);
     let descriptor = built.descriptors[0][0] as usize;
     built.bytes[descriptor + 8..descriptor + 12].copy_from_slice(&48_i32.to_le_bytes());
     let error = convert_error(built.bytes, ComposeOptions::default(), &Limits::default());
-    assert!(
-        matches!(&error.kind, ComposeErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Truncated(_))),
-        "{error}"
-    );
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    assert!(matches!(error.kind, ErrorKind::Truncated { .. }), "{error}");
+    assert_eq!(page_image(&error), (Some(1), Some(1)));
     assert_eq!(error.offset, Some(payload + 48));
 }
 
@@ -563,31 +540,21 @@ fn truncated_sources_fail_at_the_missing_bytes() {
 fn corrupt_wrappers_and_impossible_dimensions_are_located() {
     let rows = pattern(9, 3, 13);
     let cases: [(usize, &[u8], u64, &str); 5] = [
-        (
-            14,
-            &8_u16.to_le_bytes(),
-            14,
-            "unsupported DIB bit count (8)",
-        ),
-        (
-            4,
-            &0_i32.to_le_bytes(),
-            4,
-            "malformed nonpositive DIB dimensions",
-        ),
+        (14, &8_u16.to_le_bytes(), 14, ": DIB bit count"),
+        (4, &0_i32.to_le_bytes(), 4, ": nonpositive DIB dimensions"),
         (
             8,
             &(-3_i32).to_le_bytes(),
             4,
-            "malformed nonpositive DIB dimensions",
+            ": nonpositive DIB dimensions",
         ),
         (
             4,
             &5_000_000_i32.to_le_bytes(),
             4,
-            "image pixels limit 12000000 exceeded by 15000000",
+            ": maximum 12000000, attempted 15000000",
         ),
-        (40, &[0, 0, 0], 40, "unsupported DIB palette (0)"),
+        (40, &[0, 0, 0], 40, ": DIB palette"),
     ];
     for (field, value, relative, message) in cases {
         let mut built = document(Variant::C8, &[vec![type0(&rows)]]);
@@ -604,12 +571,11 @@ fn corrupt_wrappers_and_impossible_dimensions_are_located() {
             &NeverCancel,
         )
         .unwrap_err();
-        assert!(matches!(error.kind, ComposeErrorKind::Image(_)), "{error}");
-        assert_eq!(error.stage, ComposeStage::Headers);
-        assert_eq!((error.page, error.image), (Some(1), Some(1)));
+        assert!(matches!(error.context, Context::Hnc8 { .. }), "{error}");
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
         assert_eq!(error.offset, Some(payload + relative), "{error}");
         assert!(error.to_string().ends_with(message), "{error}");
-        assert!(error.source().is_some());
         assert!(find(&sink.bytes, b"/Subtype /Image", 0).is_none());
     }
 }
@@ -643,12 +609,11 @@ fn every_sink_failure_is_reported_and_leaves_a_prefix() {
             &NeverCancel,
         )
         .unwrap_err();
-        let io = match &error.kind {
-            ComposeErrorKind::Io(Error::Io(io)) => io,
-            other => panic!("write {fail_at}: {other:?}"),
+        let ErrorKind::Io(io) = &error.kind else {
+            panic!("write {fail_at}: {error:?}");
         };
         assert_eq!(io.to_string(), "injected sink failure");
-        assert_eq!(error.stage, ComposeStage::Pdf, "write {fail_at}");
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf), "write {fail_at}");
         assert!(error.source().is_some(), "write {fail_at}");
         assert_eq!(sink.writes, fail_at, "no write follows the failure");
         assert!(clean.bytes.starts_with(&sink.bytes));
@@ -679,7 +644,7 @@ fn cancellation_at_every_check_never_reports_success() {
             }
             Err(error) => {
                 assert!(cancelled(&error), "check {allowed}: {error}");
-                located |= error.image.is_some();
+                located |= page_image(&error).1.is_some();
                 allowed += 1;
             }
         }
@@ -703,7 +668,13 @@ fn shared_and_format_limits_fail_with_their_resource() {
         ComposeOptions::default(),
     );
     assert!(
-        matches!(&error.kind, ComposeErrorKind::Container(e) if matches!(e.kind, ErrorKind::LimitExceeded { resource: "pages", .. })),
+        matches!(
+            error.kind,
+            ErrorKind::LimitExceeded {
+                resource: "pages",
+                ..
+            }
+        ),
         "{error}"
     );
 
@@ -716,11 +687,14 @@ fn shared_and_format_limits_fail_with_their_resource() {
     );
     assert!(
         matches!(
-            &error.kind,
-            ComposeErrorKind::Io(Error::LimitExceeded {
-                resource: "output bytes",
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "output bytes",
+                    ..
+                },
                 ..
-            })
+            }
         ),
         "{error}"
     );
@@ -730,11 +704,11 @@ fn shared_and_format_limits_fail_with_their_resource() {
         ..Limits::default()
     };
     let error = run(small, ComposeOptions::default());
-    assert_eq!(error.stage, ComposeStage::Headers);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
     assert!(
-        error
-            .to_string()
-            .ends_with("image pixels limit 100 exceeded by 132"),
+        error.to_string().ends_with(
+            "image pixels limit exceeded at byte 202, page 1, image 1: maximum 100, attempted 132"
+        ),
         "{error}"
     );
 }
@@ -801,7 +775,12 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
                 "bilevel input byte count overflows",
             ),
         ] {
-            let Err(Error::InvalidInput { reason }) = document.begin_bilevel_image(spec) else {
+            let Err(Error {
+                kind: ErrorKind::Malformed,
+                reason,
+                ..
+            }) = document.begin_bilevel_image(spec)
+            else {
                 panic!("{spec:?} was accepted");
             };
             assert_eq!(reason, message);
@@ -811,27 +790,42 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
             (bilevel(1, u32::MAX, 1), "PDF image height"),
             (bilevel(1 << 30, 1 << 5, 1 << 27), "PDF image stream bytes"),
         ] {
-            let Err(Error::LimitExceeded { resource: got, .. }) =
-                document.begin_bilevel_image(spec)
+            let Err(Error {
+                kind: ErrorKind::LimitExceeded { resource: got, .. },
+                ..
+            }) = document.begin_bilevel_image(spec)
             else {
                 panic!("{spec:?} was accepted");
             };
             assert_eq!(got, resource);
         }
-        let Err(Error::InvalidInput { reason }) = document.add_page(page, &[]) else {
+        let Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) = document.add_page(page, &[])
+        else {
             panic!("an empty page was accepted");
         };
         assert_eq!(reason, "PDF page requires at least one image");
 
         let mut image = document.begin_bilevel_image(bilevel(8, 2, 1))?;
         image.write_all(&[1])?;
-        let Err(Error::InvalidInput { reason }) =
-            image.write(&[2, 3]).map(drop).map_err(Error::from)
+        let Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) = image.write(&[2, 3]).map(drop).map_err(Error::from)
         else {
             panic!("an extra row was accepted");
         };
         assert_eq!(reason, "bilevel image rows exceed the declared height");
-        let Err(Error::InvalidInput { reason }) = image.finish() else {
+        let Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) = image.finish()
+        else {
             panic!("a short image was accepted");
         };
         assert_eq!(reason, "bilevel image ended before its declared height");
@@ -856,7 +850,16 @@ fn bilevel_padding_writes_still_observe_cancellation() {
             Ok::<_, Error>(image.write(&[0, 0, 0]).map_err(Error::from))
         })();
         if let Ok(padding) = result {
-            assert!(matches!(padding, Err(Error::Cancelled)), "{padding:?}");
+            assert!(
+                matches!(
+                    padding,
+                    Err(Error {
+                        kind: ErrorKind::Cancelled,
+                        ..
+                    })
+                ),
+                "{padding:?}"
+            );
             break;
         }
     }

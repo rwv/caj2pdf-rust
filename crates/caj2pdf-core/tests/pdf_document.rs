@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Bookmark, Error, Limits, NeverCancel, RangedSource, Result,
+    Bookmark, Error, ErrorKind, Limits, NeverCancel, RangedSource, Result,
     native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
 };
@@ -169,12 +169,24 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
                     gray(1),
                 )
                 .unwrap_err();
-            assert!(matches!(error, Error::InvalidInput { .. }));
+            assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            ));
         }
         let error = document
             .add_image_page(&mut source, 0, 3, page(), gray(4))
             .unwrap_err();
-        assert!(matches!(error, Error::InvalidInput { .. }));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         let error = document
             .add_image_page(
                 &mut source,
@@ -190,8 +202,11 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "PDF image width",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF image width",
+                    ..
+                },
                 ..
             }
         ));
@@ -210,8 +225,11 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "PDF image height",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF image height",
+                    ..
+                },
                 ..
             }
         ));
@@ -243,7 +261,13 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
             let error = document
                 .add_image_page(&mut source, 0, 1, page(), image)
                 .unwrap_err();
-            assert!(matches!(error, Error::InvalidInput { .. }));
+            assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            ));
         }
         let empty_jpeg = document
             .add_image_page(
@@ -258,15 +282,33 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
                 },
             )
             .unwrap_err();
-        assert!(matches!(empty_jpeg, Error::InvalidInput { .. }));
+        assert!(matches!(
+            empty_jpeg,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         let beyond_source = document
             .add_image_page(&mut source, 2, 1, page(), gray(1))
             .unwrap_err();
-        assert!(matches!(beyond_source, Error::InvalidInput { .. }));
+        assert!(matches!(
+            beyond_source,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         let short_range = document
             .add_image_page(&mut source, 0, 2, page(), gray(2))
             .unwrap_err();
-        assert!(matches!(short_range, Error::TruncatedInput { .. }));
+        assert!(matches!(
+            short_range,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                ..
+            }
+        ));
         // The PDF integer ceiling is checked before the source range.
         let too_long = document
             .add_image_page(
@@ -283,10 +325,14 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
             .unwrap_err();
         assert!(matches!(
             too_long,
-            Error::LimitExceeded {
-                resource: "PDF image stream bytes",
-                limit: 2_147_483_647,
-                attempted: 2_147_483_648,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF image stream bytes",
+                    limit: 2_147_483_647,
+                    attempted: 2_147_483_648,
+                    ..
+                },
+                ..
             }
         ));
         Ok::<_, Error>(())
@@ -300,7 +346,13 @@ fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
     let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let error = (|| PdfDocument::new(&mut output, &limits, &NeverCancel)?.finish())().unwrap_err();
-    assert!(matches!(error, Error::InvalidInput { .. }));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
 
     let mut source = one_byte_source();
     let mut output = Vec::<u8>::new();
@@ -314,7 +366,13 @@ fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
                 page_index: 1,
             })
             .unwrap_err();
-        assert!(matches!(missing_page, Error::InvalidInput { .. }));
+        assert!(matches!(
+            missing_page,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         let missing_parent = document
             .add_bookmark(Bookmark {
                 depth: 1,
@@ -322,7 +380,13 @@ fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
                 page_index: 0,
             })
             .unwrap_err();
-        assert!(matches!(missing_parent, Error::InvalidInput { .. }));
+        assert!(matches!(
+            missing_parent,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
         document.finish()
     })()?;
     Ok(())
@@ -345,8 +409,11 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             second,
-            Error::LimitExceeded {
-                resource: "pages",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "pages",
+                    ..
+                },
                 ..
             }
         ));
@@ -364,8 +431,11 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             second,
-            Error::LimitExceeded {
-                resource: "bookmarks",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "bookmarks",
+                    ..
+                },
                 ..
             }
         ));
@@ -383,8 +453,11 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         .unwrap();
     assert!(matches!(
         error,
-        Error::LimitExceeded {
-            resource: "allocation bytes",
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                ..
+            },
             ..
         }
     ));
@@ -425,8 +498,11 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
             .unwrap_err();
         assert!(matches!(
             error,
-            Error::LimitExceeded {
-                resource: "allocation bytes",
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    ..
+                },
                 ..
             }
         ));
@@ -454,7 +530,13 @@ fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
         document.add_image_page(&mut short, 0, 4, page(), gray(4))
     })()
     .unwrap_err();
-    assert!(matches!(error, Error::TruncatedInput { .. }));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        }
+    ));
     assert_eq!(short.calls, 2);
 
     let mut failing_source = FailingSource { calls: 0 };
@@ -464,7 +546,13 @@ fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
         document.add_image_page(&mut failing_source, 0, 4, page(), gray(4))
     })()
     .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Io(_),
+            ..
+        }
+    ));
     assert_eq!(failing_source.calls, 2);
 
     let mut source = one_byte_source();
@@ -474,7 +562,13 @@ fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
         document.add_image_page(&mut source, 0, 1, page(), gray(1))
     })()
     .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Io(_),
+            ..
+        }
+    ));
     Ok(())
 }
 
@@ -573,7 +667,9 @@ impl RangedSource for FailingSource {
             destination[0] = 1;
             Ok(1)
         } else {
-            Err(Error::Io(io::Error::other("injected source failure")))
+            Err(Error::from(ErrorKind::Io(io::Error::other(
+                "injected source failure",
+            ))))
         }
     }
 }

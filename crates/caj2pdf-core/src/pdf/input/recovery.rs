@@ -14,7 +14,7 @@ use super::{ObjectTail, Reader, exact_name, exact_reference, exact_unsigned, med
 use crate::caj::{CajMetadata, CajPageRow};
 use crate::fallible::{checked_read_count, reserve};
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
-use crate::{Cancellation, Error, Limits, OmittedPage, PdfErrorKind, RangedSource, Result};
+use crate::{Cancellation, Context, Error, ErrorKind, Limits, OmittedPage, RangedSource, Result};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The latest start, after an interrupted stream, of its complete replay.
@@ -57,10 +57,13 @@ pub(super) fn try_recover<S: RangedSource, C: Cancellation>(
         return error.map_or(Ok(None), Err);
     };
     let reported = error.as_ref().unwrap_or(failure.error());
-    let Error::Pdf {
-        offset,
-        object,
-        kind: PdfErrorKind::Malformed,
+    let Error {
+        kind: ErrorKind::Malformed,
+        offset: Some(offset),
+        context: Context::Pdf {
+            object,
+            repair: false,
+        },
         ..
     } = *reported
     else {
@@ -141,12 +144,7 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     let (corrected, end) =
         match repair_stream_length(reader, data_at + length, data_at, stream.reference) {
             Ok(repair) => repair,
-            Err(
-                error @ Error::Pdf {
-                    kind: PdfErrorKind::Malformed,
-                    ..
-                },
-            ) => {
+            Err(error) if error.is_malformed_pdf() => {
                 if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
                     return Ok(Some(Recovery::Resume(end)));
                 }
@@ -159,7 +157,7 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
         return Err(reader.problem(
             data_at + length,
             Some(stream.reference),
-            PdfErrorKind::UnsupportedFeature,
+            ErrorKind::UnsupportedFormat,
             "stream Length repair changes PDF object width",
         ));
     }
@@ -351,21 +349,20 @@ fn repair_stream_length<S: RangedSource, C: Cancellation>(
         let tail = reader.check_stream_tail(after, Some(reference));
         if matches!(
             tail,
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            })
+            Err(ref error) if error.is_malformed_pdf()
         ) {
             continue;
         }
         let end = tail?;
         if found.is_some() {
-            return Err(reader.problem(
-                marker,
-                Some(reference),
-                PdfErrorKind::AmbiguousRepair,
-                "multiple nearby stream terminators match an understated Length",
-            ));
+            return Err(reader
+                .problem(
+                    marker,
+                    Some(reference),
+                    ErrorKind::Malformed,
+                    "multiple nearby stream terminators match an understated Length",
+                )
+                .ambiguous_repair());
         }
         found = Some((after - data_at, end));
     }
@@ -431,19 +428,15 @@ pub(super) fn damaged_stream_end<S: RangedSource, C: Cancellation>(
         };
         match reader.check_stream_tail(end, Some(head.reference)) {
             Ok(end) => Ok(Some(end)),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            }) => repair_stream_length(reader, end, start + data_start as u64, head.reference)
-                .map(|(_, end)| Some(end)),
+            Err(error) if error.is_malformed_pdf() => {
+                repair_stream_length(reader, end, start + data_start as u64, head.reference)
+                    .map(|(_, end)| Some(end))
+            }
             Err(error) => Err(error),
         }
     })();
     match attempt {
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
-            ..
-        }) => Ok(None),
+        Err(error) if error.is_malformed_pdf() => Ok(None),
         result => result,
     }
 }
@@ -473,10 +466,7 @@ pub(super) fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
         };
         let head = match reader.load_head(relative + index as u64, Some(expected)) {
             Ok(head) => head,
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            }) => continue,
+            Err(error) if error.is_malformed_pdf() => continue,
             Err(error) => return Err(error),
         };
         if matches!(head.tail, ObjectTail::EndObject { .. })
@@ -506,8 +496,9 @@ pub(super) fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     start: u64,
     error: &Error,
 ) -> Result<Option<(u64, FragmentObject)>> {
-    let Error::Pdf {
-        offset,
+    let Error {
+        offset: Some(offset),
+        context: Context::Pdf { .. },
         reason:
             reason @ ("expected PDF name"
             | "invalid PDF value token"
@@ -621,10 +612,7 @@ pub(super) fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
                     },
                 )));
             }
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            }) => {}
+            Err(error) if error.is_malformed_pdf() => {}
             Err(error) => return Err(error),
         }
         boundary = prefix
@@ -708,10 +696,7 @@ pub(super) fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
             candidate.used = true;
             Ok(Some(start + boundary as u64))
         }
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
-            ..
-        }) => Ok(None),
+        Err(error) if error.is_malformed_pdf() => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -735,8 +720,9 @@ fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     error: &Error,
     objects: &[ScannedObject],
 ) -> Result<Option<u64>> {
-    let Error::Pdf {
-        offset,
+    let Error {
+        offset: Some(offset),
+        context: Context::Pdf { .. },
         reason: "unexpected PDF keyword",
         ..
     } = error
@@ -760,10 +746,7 @@ fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     }
     let head = match reader.load_head(end, None) {
         Ok(head) => head,
-        Err(Error::Pdf {
-            kind: PdfErrorKind::Malformed,
-            ..
-        }) => return Ok(None),
+        Err(error) if error.is_malformed_pdf() => return Ok(None),
         Err(error) => return Err(error),
     };
     if number == Some(u64::from(head.reference.number))
@@ -793,8 +776,9 @@ fn known_prefix_end<S: RangedSource, C: Cancellation>(
     error: &Error,
     objects: &[ScannedObject],
 ) -> Result<Option<u64>> {
-    let Error::Pdf {
-        offset,
+    let Error {
+        offset: Some(offset),
+        context: Context::Pdf { .. },
         reason:
             "expected PDF name" | "invalid PDF value token" | "PDF object lacks endobj or stream",
         ..
@@ -1017,12 +1001,12 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
                 if destination[target_start..target_start + length]
                     != patch.original[source_start..source_start + length]
                 {
-                    return Err(Error::Pdf {
-                        offset: first,
-                        object: None,
-                        kind: PdfErrorKind::Malformed,
-                        reason: "source changed after stream Length validation",
-                    });
+                    return Err(Error::pdf(
+                        ErrorKind::Malformed,
+                        first,
+                        None,
+                        "source changed after stream Length validation",
+                    ));
                 }
                 destination[target_start..target_start + length]
                     .copy_from_slice(&patch.replacement[source_start..source_start + length]);
@@ -1130,14 +1114,15 @@ pub(crate) fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
     let mut dependents = BTreeMap::<PdfRef, Vec<PdfRef>>::new();
     for index in 0..scan.objects.len() {
         if cancellation.is_cancelled() {
-            return Err(Error::Cancelled);
+            return Err(crate::ErrorKind::Cancelled.into());
         }
         let object = scan.objects[index].object;
         let inspection = match &scan.objects[index].inspection {
             Ok(inspection) => inspection,
-            Err(Error::Pdf {
-                offset,
-                kind: PdfErrorKind::Malformed,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                offset: Some(offset),
+                context: Context::Pdf { repair: false, .. },
                 ..
             }) => {
                 failed.insert(object.reference, *offset);
@@ -1191,7 +1176,7 @@ pub(crate) fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
         .collect();
     while let Some((reference, offset)) = queue.pop_front() {
         if cancellation.is_cancelled() {
-            return Err(Error::Cancelled);
+            return Err(crate::ErrorKind::Cancelled.into());
         }
         // A blank page still satisfies incoming bookmark/link references.
         if pages.contains(&reference) {
@@ -1219,11 +1204,10 @@ pub(crate) fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
             .objects
             .iter_mut()
             .find(|scanned| scanned.object.reference == reference)
-            .ok_or(Error::Caj {
-                offset: row.offset,
-                record: Some(index as u32 + 1),
-                reason: "damaged page has no validated geometry",
-            })?;
+            .ok_or(
+                Error::malformed(row.offset, "damaged page has no validated geometry")
+                    .in_caj(Some(index as u32 + 1)),
+            )?;
         let Some(&offset) = failed.get(&reference) else {
             continue;
         };

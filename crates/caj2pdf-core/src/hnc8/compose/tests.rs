@@ -313,7 +313,9 @@ fn fault(fault: Fault, requested: usize) -> crate::Result<usize> {
     match fault {
         Fault::Zero => Ok(0),
         Fault::Overreport => Ok(requested + 1),
-        Fault::Io => Err(Error::Io(io::Error::other("original synthetic fault"))),
+        Fault::Io => Err(Error::from(ErrorKind::Io(io::Error::other(
+            "original synthetic fault",
+        )))),
     }
 }
 
@@ -428,7 +430,9 @@ impl ComposeVisitor for Visitor {
             flag.set(true);
         }
         if self.fail {
-            Err(Error::Io(io::Error::other("synthetic visitor failure")))
+            Err(Error::from(ErrorKind::Io(io::Error::other(
+                "synthetic visitor failure",
+            ))))
         } else {
             Ok(())
         }
@@ -442,7 +446,7 @@ fn convert(
     visitor: &mut Visitor,
     options: ComposeOptions,
     limits: &Limits,
-) -> Result<ComposeReport, ComposeError> {
+) -> Result<ComposeReport> {
     convert_source_pages_pdf(source, sink, table, visitor, options, limits, &NeverCancel)
 }
 
@@ -478,7 +482,7 @@ impl Harness {
         table: Option<&QmTable>,
         options: ComposeOptions,
         limits: &Limits,
-    ) -> Result<ComposeReport, ComposeError> {
+    ) -> Result<ComposeReport> {
         convert(
             &mut self.source,
             &mut self.sink,
@@ -489,7 +493,7 @@ impl Harness {
         )
     }
 
-    fn cancelled(&mut self, flag: Rc<Cell<bool>>) -> Result<ComposeReport, ComposeError> {
+    fn cancelled(&mut self, flag: Rc<Cell<bool>>) -> Result<ComposeReport> {
         convert_source_pages_pdf(
             &mut self.source,
             &mut self.sink,
@@ -502,10 +506,20 @@ impl Harness {
     }
 }
 
-fn located(error: &ComposeError, variant: Variant, page: Option<u32>, image: Option<u32>) {
-    assert_eq!(error.variant, Some(variant));
-    assert_eq!(error.page, page);
-    assert_eq!(error.image, image);
+fn located(error: &Error, variant: Variant, page: Option<u32>, image: Option<u32>) {
+    let Context::Hnc8 {
+        variant: found,
+        page: found_page,
+        image: found_image,
+        ..
+    } = error.context
+    else {
+        panic!("not an HN/C8 error: {error:?}");
+    };
+    assert_eq!(
+        (found, found_page, found_image),
+        (Some(variant), page, image)
+    );
     assert!(error.offset.is_some());
 }
 
@@ -716,8 +730,8 @@ fn invalid_text_marker_is_rejected_without_emitting_images() {
         )
         .unwrap_err();
         located(&error, variant, Some(1), None);
-        assert_eq!(error.stage, ComposeStage::Text);
-        assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Text));
+        assert!(matches!(error.context, Context::Hnc8 { .. }));
         assert!(case.visitor.mappings.is_empty());
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     }
@@ -730,8 +744,8 @@ fn pure_text_refusals_are_explicit_and_hnb_no_image_rows_are_observed() {
         let error = case
             .run(None, ComposeOptions::default(), &Limits::default())
             .unwrap_err();
-        assert_eq!(error.stage, ComposeStage::Preflight);
-        assert!(matches!(error.kind, ComposeErrorKind::NoImages));
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Preflight));
+        assert_eq!(error.reason, "image-only output has no image to draw");
         if variant == Variant::HnB {
             located(&error, variant, None, None);
             assert_eq!(case.visitor.mappings, [(1, None), (2, None)]);
@@ -750,7 +764,13 @@ fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
         .run(None, ComposeOptions::default(), &Limits::default())
         .unwrap_err();
     located(&error, Variant::HnB, Some(1), None);
-    assert!(matches!(error.kind, ComposeErrorKind::Unsupported(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        }
+    ));
     assert!(!contains(&many.sink.bytes, b"/Subtype /Image"));
     for kind in [0, 1, 3] {
         let mut record = Record::jpeg(8, 8, 100, 0, 0);
@@ -764,10 +784,9 @@ fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
             )
             .unwrap_err();
         located(&error, Variant::HnB, Some(1), Some(1));
-        assert_eq!(error.stage, ComposeStage::Headers);
-        assert!(
-            matches!(error.kind, ComposeErrorKind::UnsupportedImageType(actual) if actual == kind as u32)
-        );
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
+        assert!(matches!(error.kind, ErrorKind::UnsupportedFormat));
+        assert_eq!(error.reason, "image record type");
         assert_eq!(error.offset, Some(case.fixture.descriptors[0][0]));
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     }
@@ -787,11 +806,11 @@ fn late_invalid_type1_or_type3_header_refuses_page_before_output() {
             .run(None, ComposeOptions::default(), &Limits::default())
             .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(2));
-        assert_eq!(error.stage, ComposeStage::Headers);
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
         if kind == 3 {
-            assert!(matches!(error.kind, ComposeErrorKind::Type3Dib(_)));
+            assert!(error.reason.starts_with("type-3 DIB: "));
         } else {
-            assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
+            assert!(matches!(error.context, Context::Hnc8 { .. }));
             assert_eq!(error.offset, Some(case.fixture.payloads[0][1]));
         }
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
@@ -805,9 +824,9 @@ fn missing_table_and_text_working_allocation_failures_remain_located() {
         .run(None, ComposeOptions::default(), &Limits::default())
         .unwrap_err();
     located(&error, Variant::C8, Some(1), Some(1));
-    assert_eq!(error.stage, ComposeStage::Headers);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
     assert_eq!(error.offset, Some(missing.fixture.descriptors[0][0]));
-    assert!(matches!(error.kind, ComposeErrorKind::MissingTable));
+    assert_eq!(error.reason, "type-0 image requires a caller QM table");
     let mut bounded = Harness::type0();
     let limits = Limits {
         io_chunk_bytes: 7,
@@ -818,12 +837,15 @@ fn missing_table_and_text_working_allocation_failures_remain_located() {
         .run(Some(&table()), ComposeOptions::default(), &limits)
         .unwrap_err();
     located(&error, Variant::C8, Some(1), None);
-    assert_eq!(error.stage, ComposeStage::Text);
-    assert!(matches!(error.kind, ComposeErrorKind::Container(ref inner)
-    if matches!(inner.kind, super::super::ErrorKind::LimitExceeded {
-        resource: "text decoder allocation reservation", limit: 512,
-        attempted: crate::hnc8::TEXT_DECODER_RESERVATION_BYTES,
-    })));
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Text));
+    assert!(matches!(
+        error.kind,
+        ErrorKind::LimitExceeded {
+            resource: "text decoder allocation reservation",
+            limit: 512,
+            attempted: crate::hnc8::TEXT_DECODER_RESERVATION_BYTES,
+        }
+    ));
 }
 
 #[test]
@@ -838,13 +860,16 @@ fn allocation_and_count_ceilings_precede_text_or_payload_output() {
     let error = case
         .run(None, ComposeOptions::default(), &limits)
         .unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Preflight);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Preflight));
     assert!(matches!(
-        error.kind,
-        ComposeErrorKind::Io(Error::LimitExceeded {
-            resource: "allocation bytes",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                ..
+            },
             ..
-        })
+        }
     ));
     let mut case = Harness::new(Variant::C8, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
     let row = case.fixture.index;
@@ -852,14 +877,14 @@ fn allocation_and_count_ceilings_precede_text_or_payload_output() {
     let error = case
         .run(None, ComposeOptions::default(), &Limits::default())
         .unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Preflight);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Preflight));
     assert!(matches!(
         error.kind,
-        ComposeErrorKind::Io(Error::LimitExceeded {
+        ErrorKind::LimitExceeded {
             resource: "PDF image placements per page",
             limit: 8192,
             attempted: 8193
-        })
+        }
     ));
 }
 
@@ -885,14 +910,14 @@ fn malformed_counts_spans_and_text_declared_length_are_not_partial_passes() {
             Some(1),
             if corruption == 1 { Some(1) } else { None },
         );
-        assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+        assert!(matches!(error.context, Context::Hnc8 { .. }));
         assert_eq!(
-            error.stage,
-            if corruption >= 2 {
-                ComposeStage::Text
+            stage_of(&error),
+            Some(if corruption >= 2 {
+                Hnc8Stage::Text
             } else {
-                ComposeStage::Container
-            }
+                Hnc8Stage::Container
+            })
         );
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
         assert!(case.visitor.mappings.is_empty());
@@ -912,7 +937,7 @@ fn source_and_pdf_sink_failures_are_located_and_never_emit_success_events() {
             )
             .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(1));
-        assert_eq!(error.stage, ComposeStage::Headers);
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
         assert!(case.visitor.mappings.is_empty());
     }
     let mut case = Harness::type0();
@@ -925,7 +950,7 @@ fn source_and_pdf_sink_failures_are_located_and_never_emit_success_events() {
         )
         .unwrap_err();
     located(&error, Variant::C8, Some(1), Some(1));
-    assert_eq!(error.stage, ComposeStage::Pdf);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
     assert!(case.visitor.mappings.is_empty());
 }
 
@@ -941,14 +966,14 @@ fn visitor_failure_and_inter_page_cancellation_invalidate_the_whole_conversion()
         )
         .unwrap_err();
     located(&error, Variant::C8, Some(1), None);
-    assert_eq!(error.stage, ComposeStage::Visitor);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Visitor));
     assert_eq!(case.visitor.mappings, [(1, Some(1))]);
     let mut case = Harness::new(Variant::C8, &vec![vec![Record::type0(&rows(9), 0, 0)]; 2]);
     let flag = Rc::new(Cell::new(false));
     case.visitor.cancel = Some(flag.clone());
     let error = case.cancelled(flag).unwrap_err();
     located(&error, Variant::C8, Some(2), None);
-    assert_eq!(error.stage, ComposeStage::Container);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Container));
     assert_eq!(case.visitor.mappings, [(1, Some(1))]);
 }
 
@@ -963,8 +988,11 @@ fn invalid_configuration_is_refused_before_source_or_sink_access() {
         .run(None, ComposeOptions::default(), &limits)
         .unwrap_err();
     assert!(matches!(
-        error.kind,
-        ComposeErrorKind::Io(Error::InvalidInput { .. })
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
     assert!(case.sink.bytes.is_empty());
 }
@@ -987,11 +1015,7 @@ fn resource_arithmetic_and_noop_visitor_are_checked_at_boundaries() {
     assert!(small.capacity() >= 3);
     assert!(matches!(
         page_vector::<u8>(usize::MAX, &unlimited, "test current-page reserve"),
-        Err(Error::LimitExceeded {
-            resource: "test current-page reserve",
-            attempted,
-            ..
-        }) if attempted == usize::MAX as u64
+        Err(Error { kind: ErrorKind::LimitExceeded { resource: "test current-page reserve", attempted, .. }, .. }) if attempted == usize::MAX as u64
     ));
     let restricted = Limits {
         max_allocation_bytes: 2,
@@ -999,10 +1023,14 @@ fn resource_arithmetic_and_noop_visitor_are_checked_at_boundaries() {
     };
     assert!(matches!(
         page_vector::<u8>(3, &restricted, "test metadata allocation"),
-        Err(Error::LimitExceeded {
-            resource: "allocation bytes",
-            limit: 2,
-            attempted: 3,
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                limit: 2,
+                attempted: 3,
+                ..
+            },
+            ..
         })
     ));
     let page = PageRecord {
@@ -1046,8 +1074,8 @@ fn malformed_jpeg_headers_are_located() {
         .run(None, ComposeOptions::default(), &Limits::default())
         .unwrap_err();
     located(&error, Variant::HnB, Some(1), Some(1));
-    assert_eq!(error.stage, ComposeStage::Headers);
-    assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
+    assert!(matches!(error.context, Context::Hnc8 { .. }));
 }
 
 #[test]
@@ -1063,107 +1091,95 @@ fn initial_pdf_and_final_flush_failures_keep_known_variant_and_source_anchor() {
             .run(None, ComposeOptions::default(), &Limits::default())
             .unwrap_err();
         located(&error, Variant::HnB, None, None);
-        assert_eq!(error.stage, ComposeStage::Pdf);
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Pdf));
         assert_eq!(error.offset, Some(0));
-        assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))));
+        assert!(matches!(error.kind, ErrorKind::Io(_)));
         assert_eq!(case.visitor.mappings.len(), usize::from(!initial));
     }
 }
 
-fn example_container_error() -> Hnc8Error {
-    Hnc8Error {
+fn example_container_error() -> Error {
+    Error::malformed(99, "invented field: original error example").within(Context::Hnc8 {
         variant: Some(Variant::C8),
-        offset: 99,
         page: Some(2),
         image: Some(3),
-        kind: super::super::ErrorKind::Malformed {
-            field: "invented field",
-            reason: "original error example",
-        },
-    }
+        segment: None,
+        stage: None,
+    })
 }
 
-fn example_arithmetic_error() -> ArithmeticError {
-    ArithmeticError {
-        coder: Some(crate::arith::Coder::T82),
-        offset: Some(99),
-        context: Some(7),
-        kind: crate::qm::ArithmeticErrorKind::InvalidContext,
-    }
-}
-
-fn example_image_error(kind: crate::jbig1::Type0ErrorKind) -> Type0Error {
-    Type0Error {
-        offset: 99,
-        rows_written: 1,
-        output_bytes_written: 4,
-        kind,
-    }
-}
-
-fn assert_error_description(error: &ComposeError, nested: bool) {
-    use std::{error::Error as _, fmt};
+fn assert_error_description(error: &Error) {
+    use std::fmt;
     struct Refuse;
     impl fmt::Write for Refuse {
         fn write_str(&mut self, _: &str) -> fmt::Result {
             Err(fmt::Error)
         }
     }
-    assert!(error.to_string().contains("HN/C8 page composition"));
-    assert_eq!(error.source().is_some(), nested);
+    assert!(error.to_string().contains("HN/C8"), "{error}");
     assert!(fmt::write(&mut Refuse, format_args!("{error}")).is_err());
 }
 
 #[test]
-fn nested_type0_error_mapping_preserves_identity_stage_and_error_sources() {
-    use crate::jbig1::Type0ErrorKind;
+fn nested_errors_keep_their_location_and_gain_the_stage() {
     let at = At {
         variant: Some(Variant::C8),
         page: Some(2),
         image: Some(3),
         offset: Some(41),
     };
+    let pdf_sink = Context::Hnc8 {
+        variant: None,
+        page: None,
+        image: None,
+        segment: None,
+        stage: Some(Hnc8Stage::Pdf),
+    };
     let cases = [
         (
-            Type0ErrorKind::Malformed("original error"),
-            ComposeStage::Decode,
+            Error::malformed(99, "original error").within(Context::HNC8),
+            Hnc8Stage::Decode,
         ),
-        (Type0ErrorKind::Sink(Error::Cancelled), ComposeStage::Pdf),
+        (Error::cancelled().at(99).within(pdf_sink), Hnc8Stage::Pdf),
     ];
-    for (kind, stage) in cases {
-        let error = type0_decode(at)(example_image_error(kind));
+    for (error, expected) in cases {
+        let error = type0_decode(at)(error);
         located(&error, Variant::C8, Some(2), Some(3));
         assert_eq!(error.offset, Some(99));
-        assert_eq!(error.stage, stage);
-        assert!(matches!(error.kind, ComposeErrorKind::Image(_)));
-        assert_error_description(&error, true);
+        assert_eq!(stage_of(&error), Some(expected));
+        assert_error_description(&error);
     }
-    let error = at.jpeg(ComposeStage::Headers)(example_container_error());
+    let error = at.locator(Hnc8Stage::Headers)(example_container_error());
     located(&error, Variant::C8, Some(2), Some(3));
-    assert_eq!(error.offset, Some(99));
-    assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
-    assert_error_description(&error, true);
-    let error = at.contexts()(example_arithmetic_error());
+    assert_eq!(
+        (error.offset, stage_of(&error)),
+        (Some(99), Some(Hnc8Stage::Headers))
+    );
+    assert_error_description(&error);
+    // An unlocated arithmetic error takes the image location.
+    let error = at.locator(Hnc8Stage::Decode)(Error::invalid(crate::arith::INVALID_CONTEXT));
     located(&error, Variant::C8, Some(2), Some(3));
-    assert_eq!(error.offset, Some(41));
-    assert_eq!(error.stage, ComposeStage::Decode);
-    assert!(matches!(error.kind, ComposeErrorKind::Contexts(ref inner)
-        if inner.context == Some(7)
-            && matches!(inner.kind, crate::qm::ArithmeticErrorKind::InvalidContext)));
-    assert_error_description(&error, true);
+    assert_eq!(
+        (error.offset, stage_of(&error)),
+        (Some(41), Some(Hnc8Stage::Decode))
+    );
+    assert_eq!(error.reason, crate::arith::INVALID_CONTEXT);
+    assert_error_description(&error);
 }
 
 #[test]
-fn plain_error_kinds_have_descriptions_without_a_source() {
-    for kind in [
-        ComposeErrorKind::MissingTable,
-        ComposeErrorKind::UnsupportedImageType(1),
-        ComposeErrorKind::InvalidOptions("example"),
-        ComposeErrorKind::Unsupported("example"),
-        ComposeErrorKind::NoImages,
-        ComposeErrorKind::Type3Dib("example"),
+fn plain_errors_have_descriptions_without_a_source() {
+    for error in [
+        Error::invalid("type-0 image requires a caller QM table"),
+        unsupported("image record type"),
+        Error::invalid("example"),
+        unsupported("example"),
+        unsupported("image-only output has no image to draw"),
+        Error::invalid("type-3 DIB: example"),
     ] {
-        assert_error_description(&At::NONE.error((ComposeStage::Preflight, kind)), false);
+        let error = At::NONE.error(Hnc8Stage::Preflight, error);
+        assert!(std::error::Error::source(&error).is_none());
+        assert_error_description(&error);
     }
 }
 
@@ -1345,7 +1361,7 @@ fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
         },
     )
     .unwrap_err();
-    assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+    assert!(matches!(error.context, Context::Hnc8 { .. }));
     // A destination outside the one-page source skips only that bookmark:
     // the PDF is byte-identical to one written without bookmarks.
     fixture.bytes[at + 280] = b'2';
@@ -1431,7 +1447,9 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
     assert_eq!(sink.bytes, compressed.sink.bytes);
 }
 
+use crate::Context;
 use crate::test_support::{mq_encoder, qm_encoder};
+use crate::test_support::{page_image, stage_of};
 
 mod type3_fixture {
     include!("../../../tests/common/type3_fixture.rs");
@@ -1541,13 +1559,18 @@ fn type3_dib_sink_and_cancellation_failures_keep_location() {
         if mode == 0 {
             located(&error, Variant::C8, Some(1), Some(1));
             assert!(
-                matches!(error.kind, ComposeErrorKind::Type3Dib(_))
-                    && error.stage == ComposeStage::Headers,
+                (error.reason.starts_with("type-3 DIB: "))
+                    && stage_of(&error) == Some(Hnc8Stage::Headers),
                 "{error}"
+            );
+        } else if mode == 1 {
+            assert!(
+                std::error::Error::source(&error).is_some(),
+                "mode {mode}: {error}"
             );
         } else {
             assert!(
-                std::error::Error::source(&error).is_some(),
+                matches!(error.kind, ErrorKind::Cancelled),
                 "mode {mode}: {error}"
             );
         }
@@ -1769,9 +1792,9 @@ fn repeated_groups_reject_conflicts_partial_groups_and_read_failures_before_draw
             &Limits::default(),
         )
         .unwrap_err();
-        assert_eq!(error.page, Some(1));
+        assert_eq!(page_image(&error).0, Some(1));
         if mode != 3 && mode != 7 {
-            assert_eq!(error.image, Some(3));
+            assert_eq!(page_image(&error).1, Some(3));
         }
         if mode == 2 {
             assert!(error.to_string().contains("payload differs"));
@@ -1834,7 +1857,7 @@ fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
                 completed = true;
                 break;
             }
-            Err(error) => assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Cancelled))),
+            Err(error) => assert!(matches!(error.kind, ErrorKind::Cancelled)),
         }
     }
     assert!(completed);
@@ -1842,7 +1865,7 @@ fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
     source.fault_at = Some((0, Fault::Io));
     let error =
         verify_repeated_image(&mut source, first, second, at, &limits, &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))));
+    assert!(matches!(error.kind, ErrorKind::Io(_)));
 }
 
 #[test]
@@ -1925,7 +1948,7 @@ fn missing_page_or_image_extent_fails_before_emitting_image_data() {
             &Limits::default(),
         )
         .unwrap_err();
-        assert_eq!(error.stage, ComposeStage::Geometry);
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Geometry));
         assert!(visitor.images.is_empty());
         assert!(!contains(&sink.bytes, b"/Subtype /Image"));
     }
@@ -2232,8 +2255,8 @@ fn hna_zero_page_prefix_dimensions_fail_before_emitting_images() {
             &Limits::default(),
         )
         .unwrap_err();
-        assert_eq!(error.page, Some(1));
-        assert_eq!(error.stage, ComposeStage::Geometry);
+        assert_eq!(page_image(&error).0, Some(1));
+        assert_eq!(stage_of(&error), Some(Hnc8Stage::Geometry));
         assert!(!contains(&sink.bytes, b"/Subtype /Image"));
     }
 }

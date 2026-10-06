@@ -10,6 +10,22 @@ use caj2pdf_core::{
     qm::QmTable,
 };
 
+/// Locate an unlocated failure of an HN/C8 conversion or inspection in
+/// HN/C8, so that it keeps the `HNC8` code.
+fn in_hnc8(error: Error) -> Error {
+    if error.context == Context::None {
+        error.within(Context::Hnc8 {
+            variant: None,
+            page: None,
+            image: None,
+            segment: None,
+            stage: None,
+        })
+    } else {
+        error
+    }
+}
+
 /// Explicitly registered font resources and their roles.
 #[derive(Default)]
 pub(super) struct Fonts {
@@ -107,9 +123,8 @@ struct CompletePages;
 impl ComposeVisitor for CompletePages {
     fn page(&mut self, page: ComposePage<'_>) -> Result<()> {
         if page.output_page.is_none() {
-            return Err(Error::InvalidInput {
-                reason: "HN/C8 conversion cannot omit source pages without image content",
-            });
+            return Err(Error::from(ErrorKind::UnsupportedFormat)
+                .because("HN/C8 conversion cannot omit source pages without image content"));
         }
         Ok(())
     }
@@ -132,9 +147,11 @@ pub(super) fn convert<'h, H: Host>(
     };
     let roles = match fonts.count {
         0 => None,
-        _ => Some(fonts.roles.ok_or(Error::InvalidInput {
-            reason: "C8 font resources require explicit roles",
-        })?),
+        _ => Some(
+            fonts
+                .roles
+                .ok_or(Error::invalid("C8 font resources require explicit roles"))?,
+        ),
     };
     for &size in &fonts.sizes[..fonts.count] {
         limits.check_input_size(size)?;
@@ -158,7 +175,7 @@ pub(super) fn convert<'h, H: Host>(
         cancellation,
     )
     .map(|report| (report.conversion, report.outline))
-    .map_err(|error| Error::Hnc8(Box::new(error)))
+    .map_err(in_hnc8)
 }
 
 struct IgnoreBookmarks;
@@ -185,7 +202,7 @@ fn read_metadata<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
-) -> caj2pdf_core::hnc8::Result<Inspected> {
+) -> Result<Inspected> {
     use caj2pdf_core::hnc8::Hnc8Reader;
     let mut reader = Hnc8Reader::open(source, limits, cancellation)?;
     let pages = reader.header().page_count;
@@ -210,6 +227,5 @@ pub(super) fn inspect<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Inspected> {
-    read_metadata(source, limits, cancellation)
-        .map_err(|error| Error::Hnc8Metadata(Box::new(error)))
+    read_metadata(source, limits, cancellation).map_err(in_hnc8)
 }

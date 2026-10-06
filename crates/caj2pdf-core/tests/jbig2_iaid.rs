@@ -7,9 +7,12 @@ use caj2pdf_core::{
     Limits, Payload,
     jbig2::{
         dictionary::coding_unit_contexts,
-        iaid::{IAID_BASE, SymbolIdError, checked_symbol_index, decode_iaid},
+        iaid::{
+            EMPTY_SYMBOL_SET, IAID_BASE, SYMBOL_ARRAY_LENGTH, SYMBOL_OUT_OF_RANGE,
+            TOO_MANY_SYMBOLS, checked_symbol_index, decode_iaid,
+        },
         integer::{BITMAP_BASE, IntegerProcedure, decode_integer},
-        mq::{ArithmeticErrorKind, CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
+        mq::{CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
     },
 };
 
@@ -26,7 +29,7 @@ fn span_of(bytes: &[u8]) -> CodedSpan {
 
 /// The contexts of a coding unit whose IAID width is `code_len`.
 fn coding_unit(code_len: u32, limits: &Limits) -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
+    ContextBank::new(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
 }
 
 #[test]
@@ -44,62 +47,27 @@ fn zero_length_id_and_symbol_array_boundary() {
     assert_eq!(decoder.snapshot(), before);
     decoder.finish(0).unwrap();
 
-    assert_eq!(checked_symbol_index(0, 1, 1), Ok(0));
-    assert_eq!(checked_symbol_index(2, 3, 3), Ok(2));
+    let reason = |result: caj2pdf_core::Result<usize>| result.map_err(|error| error.reason);
+    assert_eq!(reason(checked_symbol_index(0, 1, 1)), Ok(0));
+    assert_eq!(reason(checked_symbol_index(2, 3, 3)), Ok(2));
+    assert_eq!(reason(checked_symbol_index(0, 0, 0)), Err(EMPTY_SYMBOL_SET));
     assert_eq!(
-        checked_symbol_index(0, 0, 0),
-        Err(SymbolIdError::EmptySymbolSet)
+        reason(checked_symbol_index(3, 3, 3)),
+        Err(SYMBOL_OUT_OF_RANGE)
     );
     assert_eq!(
-        checked_symbol_index(3, 3, 3),
-        Err(SymbolIdError::OutOfRange { id: 3, count: 3 })
+        reason(checked_symbol_index(2, 3, 2)),
+        Err(SYMBOL_ARRAY_LENGTH)
     );
     assert_eq!(
-        checked_symbol_index(2, 3, 2),
-        Err(SymbolIdError::SymbolArrayLength {
-            declared: 3,
-            actual: 2
-        })
-    );
-    assert_eq!(
-        checked_symbol_index(0, 1, 2),
-        Err(SymbolIdError::SymbolArrayLength {
-            declared: 1,
-            actual: 2
-        })
+        reason(checked_symbol_index(0, 1, 2)),
+        Err(SYMBOL_ARRAY_LENGTH)
     );
     if usize::BITS < 64 {
         assert_eq!(
-            checked_symbol_index(0, u64::MAX, 0),
-            Err(SymbolIdError::TooManySymbols { count: u64::MAX })
+            reason(checked_symbol_index(0, u64::MAX, 0)),
+            Err(TOO_MANY_SYMBOLS)
         );
-    }
-}
-
-#[test]
-fn symbol_index_errors_name_the_rejected_values() {
-    let messages = [
-        (
-            checked_symbol_index(0, 0, 0).unwrap_err(),
-            "symbol count must be nonzero",
-        ),
-        (
-            checked_symbol_index(2, 3, 2).unwrap_err(),
-            "declared 3 symbols, but the array has 2",
-        ),
-        (
-            checked_symbol_index(3, 3, 3).unwrap_err(),
-            "symbol ID 3 is outside 0..3",
-        ),
-        // Only a narrower address space can produce this from real input.
-        (
-            SymbolIdError::TooManySymbols { count: u64::MAX },
-            "symbol count 18446744073709551615 exceeds the address space",
-        ),
-    ];
-    for (error, message) in messages {
-        assert_eq!(error.to_string(), message);
-        assert!(std::error::Error::source(&error).is_none());
     }
 }
 
@@ -141,7 +109,7 @@ fn the_full_iaid_range_is_checked_before_a_decision() {
     for code_len in [2, 63, 64, u32::MAX] {
         let before = decoder.snapshot();
         let error = decode_iaid(&mut decoder, code_len).unwrap_err();
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
+        assert_eq!(error.reason, "invalid arithmetic context index or count");
         assert_eq!(decoder.snapshot(), before);
     }
     decoder.finish(0).unwrap();
@@ -165,12 +133,9 @@ fn marker_and_terminator_errors_are_located() {
             MqDecoder::new(Payload::from(source), span, &table, &mut contexts, &limits).unwrap();
         let error = decode_iaid(&mut decoder, 2).unwrap_err();
         if invalid_marker {
-            assert!(matches!(
-                error.kind,
-                ArithmeticErrorKind::InvalidMarker(0x90)
-            ));
+            assert_eq!(error.reason, "invalid MQ marker following 0xFF");
         } else {
-            assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
+            assert_eq!(error.reason, "MQ coding unit lacks its terminal marker");
         }
         assert_eq!(error.offset, Some(2));
     }
@@ -182,10 +147,7 @@ fn marker_and_terminator_errors_are_located() {
         MqDecoder::new(Payload::from(source), span, &table, &mut contexts, &limits).unwrap();
     assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);
     let error = decoder.finish(0).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        ArithmeticErrorKind::InvalidMarker(0x90)
-    ));
+    assert_eq!(error.reason, "invalid MQ marker following 0xFF");
 }
 
 #[test]

@@ -30,11 +30,11 @@ fn source(body: &[u8], new_symbols: u32, page: u8, at: (i8, i8), references: &[u
 }
 
 struct Observation {
-    result: Result<DictionaryReport, DictionaryError>,
+    result: Result<DictionaryReport, Error>,
     store: Store,
 }
 
-fn assert_nested_error(error: &DictionaryError, label: &str) {
+fn assert_nested_error(error: &Error, label: &str) {
     assert!(error.to_string().contains(label), "{error}");
     assert!(std::error::Error::source(error).is_some());
 }
@@ -51,8 +51,7 @@ fn observe_custom(
     context_count: usize,
 ) -> Observation {
     let table = table();
-    let mut contexts =
-        caj2pdf_core::jbig2::mq::context_bank(context_count, &Limits::default()).unwrap();
+    let mut contexts = ContextBank::new(context_count, &Limits::default()).unwrap();
     let unread = Unread::default();
     let result = SymbolDictionaryDecoder::new(
         source.payload(),
@@ -82,12 +81,14 @@ fn truncated_payloads_are_refused_before_mq() {
         let error = observation.result.unwrap_err();
         assert!(
             matches!(
-                error.kind,
-                DictionaryErrorKind::InvalidSpan("data outside source")
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
             ),
             "{error}"
         );
-        assert!(error.progress.mq.is_none());
         assert!(observation.store.bytes.is_empty());
     }
 }
@@ -100,16 +101,15 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::InvalidSpan("data outside source")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
-    assert!(
-        error
-            .to_string()
-            .contains("invalid span: data outside source")
-    );
+    assert!(error.to_string().contains(": data outside source"));
     assert!(std::error::Error::source(&error).is_none());
-    assert_eq!(error.offset, segment.data.offset);
+    assert_eq!(error.offset, Some(segment.data.offset));
 
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let mut segment = header(&mut input);
@@ -117,10 +117,13 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::InvalidSpan("data end overflow")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
-    assert_eq!(error.offset, segment.data.offset);
+    assert_eq!(error.offset, Some(segment.data.offset));
 }
 
 #[test]
@@ -135,11 +138,22 @@ fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
         &CancelAfter::new(0),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(error.to_string().contains("cancelled"));
     assert!(std::error::Error::source(&error).is_none());
-    assert_eq!((error.segment, error.offset), (1, segment.data.offset));
-    assert_eq!(error.progress.header_bytes_fetched, 0);
+    assert_eq!(
+        (error.context, error.offset),
+        (
+            Context::Jbig2 { segment: Some(1) },
+            Some(segment.data.offset)
+        )
+    );
     assert_eq!(input.read_calls, 0);
 }
 
@@ -157,9 +171,14 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
         &CancelAfter::While(cancelled),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
-    assert_eq!(error.offset, segment.data.offset + 1);
-    assert_eq!(error.progress.header_bytes_fetched, 1);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
+    assert_eq!(error.offset, Some(segment.data.offset + 1));
     assert_eq!(input.max_offset, segment.data.offset);
 }
 
@@ -179,14 +198,24 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
         .unwrap_err();
         match fault {
             Fault::Io => {
-                assert!(matches!(error.kind, DictionaryErrorKind::Source(_)));
-                assert_nested_error(&error, "source:");
+                assert!(matches!(error.kind, ErrorKind::Io(_)));
+                assert_nested_error(&error, "injected I/O failure");
             }
-            Fault::Cancelled => assert!(matches!(error.kind, DictionaryErrorKind::Cancelled)),
+            Fault::Cancelled => assert!(matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }
+            )),
         }
-        assert_eq!(error.segment, 1);
-        assert_eq!(error.offset, segment.data.offset + 4);
-        assert_eq!(error.progress.header_bytes_fetched, 4);
+        assert_eq!(
+            (error.context, error.offset),
+            (
+                Context::Jbig2 { segment: Some(1) },
+                Some(segment.data.offset + 4)
+            )
+        );
     }
 }
 
@@ -203,8 +232,12 @@ fn context_bank_count_is_checked_before_arithmetic_or_output() {
     );
     let error = observation.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("expected exactly 7680 integer and bitmap MQ contexts")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "expected exactly 7680 integer and bitmap MQ contexts",
+            ..
+        }
     ));
     assert!(observation.store.bytes.is_empty());
 }
@@ -251,10 +284,11 @@ fn page_reference_and_at_constraints_fail_before_mq() {
     let segment = header(&mut input);
     let observation = defaults(input, &segment);
     assert!(matches!(
-        observation.result.unwrap_err().kind,
-        DictionaryErrorKind::Unsupported {
-            feature: "segment type",
-            value: 4
+        observation.result.unwrap_err(),
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "segment type",
+            ..
         }
     ));
     assert!(observation.store.bytes.is_empty());
@@ -279,7 +313,7 @@ fn malformed_geometry_and_limits_fail_before_output() {
                 max_image_pixels: 8,
                 ..Limits::default()
             },
-            "symbol pixels limit 8 exceeded by 9",
+            "maximum 8, attempted 9",
         ),
     ];
     for (body, limits, expected) in cases {
@@ -299,11 +333,13 @@ fn extra_width_before_oob_fails_after_one_committed_symbol() {
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
     assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("symbol-count overrun before width OOB")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "symbol-count overrun before width OOB",
+            ..
+        }
     ));
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.stored_bitmap_bytes, 1);
     assert_eq!(observation.store.bytes.len(), 1);
 }
 
@@ -339,19 +375,10 @@ fn input_mutations_terminate_with_bounded_io_and_state() {
                     "case {case}"
                 );
             }
-            Err(error) => {
-                assert!(
-                    error.progress.header_bytes_fetched <= 12,
-                    "case {case}: {error}"
-                );
-                assert!(
-                    error
-                        .progress
-                        .mq
-                        .is_none_or(|mq| mq.symbols_decoded <= 1024),
-                    "case {case}"
-                );
-            }
+            Err(error) => assert!(
+                error.context == Context::Jbig2 { segment: Some(1) },
+                "case {case}: {error}"
+            ),
         }
     }
 }
@@ -375,14 +402,14 @@ fn integer_oob_and_export_overshoot_keep_the_partial_store() {
             3,
         ),
     ];
-    for (body, expected, stored, export_runs) in cases {
+    for (body, expected, stored, _) in cases {
         let mut input = source(body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();
-        assert!(matches!(error.kind, DictionaryErrorKind::Malformed(reason) if reason == expected));
-        assert_eq!(error.progress.stored_bitmap_bytes, stored);
-        assert_eq!(error.progress.export_runs, export_runs);
+        assert!(
+            matches!(error, Error { kind: ErrorKind::Malformed, reason, .. } if reason == expected)
+        );
         assert_eq!(observation.store.bytes.len(), stored as usize);
     }
 }
@@ -412,21 +439,20 @@ fn zero_dimension_negative_export_and_exported_total_are_typed() {
             2,
         ),
     ];
-    for (body, expected, stored, export_runs) in cases {
+    for (body, expected, stored, _) in cases {
         let mut input = source(body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
         let observation = defaults(input, &segment);
         let error = observation.result.unwrap_err();
         if expected == "zero-dimension symbol bitmap" {
             assert!(
-                matches!(error.kind, DictionaryErrorKind::Unsupported { feature, value: 0 } if feature == expected)
+                matches!(error, Error { kind: ErrorKind::UnsupportedFormat, reason, .. } if reason == expected)
             );
         } else {
             assert!(
-                matches!(error.kind, DictionaryErrorKind::Malformed(reason) if reason == expected)
+                matches!(error, Error { kind: ErrorKind::Malformed, reason, .. } if reason == expected)
             );
         }
-        assert_eq!(error.progress.export_runs, export_runs);
         assert_eq!(observation.store.bytes, stored);
     }
 }

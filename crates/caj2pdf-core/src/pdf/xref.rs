@@ -51,9 +51,9 @@ where
         for number in 0..trailer.size {
             let row = match used.peek() {
                 Some((reference, _)) if number != 0 && u64::from(reference.number) == number => {
-                    let (reference, offset) = used.next().ok_or(Error::InvalidInput {
-                        reason: "PDF xref entry disappeared",
-                    })?;
+                    let (reference, offset) = used
+                        .next()
+                        .ok_or(Error::invalid("PDF xref entry disappeared"))?;
                     in_use_row(offset, reference.generation)?
                 }
                 _ => {
@@ -71,9 +71,9 @@ where
             let count = run_length(entries.clone());
             out.write(format!("{} {count}\n", first.number).as_bytes())?;
             for _ in 0..count {
-                let (reference, offset) = entries.next().ok_or(Error::InvalidInput {
-                    reason: "PDF xref entry disappeared",
-                })?;
+                let (reference, offset) = entries
+                    .next()
+                    .ok_or(Error::invalid("PDF xref entry disappeared"))?;
                 rows.push(out, &in_use_row(offset, reference.generation)?)?;
             }
             rows.flush(out)?;
@@ -177,11 +177,11 @@ fn next_free<I: Iterator<Item = (PdfRef, u64)>>(
 /// An in-use row, whose offset must fit the ten-digit field.
 fn in_use_row(offset: u64, generation: u16) -> Result<[u8; 20]> {
     if offset > MAX_CLASSIC_PDF_BYTES {
-        return Err(Error::LimitExceeded {
-            resource: "classic PDF object offset",
-            limit: MAX_CLASSIC_PDF_BYTES,
-            attempted: offset,
-        });
+        return Err(Error::limit(
+            "classic PDF object offset",
+            MAX_CLASSIC_PDF_BYTES,
+            offset,
+        ));
     }
     Ok(row(offset, generation, b'n'))
 }
@@ -244,6 +244,7 @@ impl Rows {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ErrorKind;
     use crate::Limits;
     use crate::test_support::NEVER;
 
@@ -272,8 +273,11 @@ mod tests {
         );
         assert!(matches!(
             in_use_row(MAX_CLASSIC_PDF_BYTES + 1, 0),
-            Err(Error::LimitExceeded {
-                resource: "classic PDF object offset",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "classic PDF object offset",
+                    ..
+                },
                 ..
             })
         ));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
 use crate::pdf::{MAX_CLASSIC_PDF_BYTES, PdfIndex, PdfRange};
 use crate::test_support::{CancelAfter, NEVER};
 use std::io;
@@ -124,8 +125,10 @@ fn info_dictionary_holds_only_present_values_as_utf16_text() {
         let (error, pdf) = write(&[(key, Some("x"))]);
         assert!(matches!(
             error,
-            Err(Error::InvalidInput {
-                reason: "PDF Info key must be a plain ASCII name"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF Info key must be a plain ASCII name",
+                ..
             })
         ));
         assert!(!String::from_utf8_lossy(&pdf).contains("trailer"));
@@ -172,7 +175,13 @@ fn decimal_matrices_reject_nonfinite_and_out_of_profile_components() {
         for index in [0, 5] {
             let mut values = [1.0; 6];
             values[index] = bad;
-            assert!(matches!(decimals(&values), Err(Error::InvalidInput { .. })));
+            assert!(matches!(
+                decimals(&values),
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                })
+            ));
         }
     }
     // Singular matrices are deliberately allowed, with no rounding or epsilon
@@ -206,15 +215,22 @@ fn affine_preflight_at_leaf_rollover_preserves_existing_pages_and_object_ids() {
         invalid.transform[5] = f64::INFINITY;
         assert!(matches!(
             document.add_placed_page(page(), &[placement, invalid]),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         assert_eq!(document.writer.position(), before);
         assert!(matches!(
             document.add_placed_page(page(), &[placement]),
-            Err(Error::LimitExceeded {
-                resource: "allocation bytes",
-                limit: 6216,
-                attempted: 6224,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    limit: 6216,
+                    attempted: 6224,
+                    ..
+                },
+                ..
             })
         ));
         assert_eq!(document.writer.position(), before);
@@ -258,8 +274,10 @@ fn image_source_that_over_reports_is_rejected() {
     .unwrap_err();
     assert!(matches!(
         error,
-        Error::InvalidInput {
-            reason: "image source reported more bytes than requested"
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "image source reported more bytes than requested",
+            ..
         }
     ));
 }
@@ -287,11 +305,7 @@ fn jpeg_stream_longer_than_a_pdf_integer_is_rejected_before_reading() {
     .unwrap();
     assert!(matches!(
         error,
-        Error::LimitExceeded {
-            resource: "PDF image stream bytes",
-            limit: MAX_PDF_INTEGER,
-            attempted,
-        } if attempted == length
+        Error { kind: ErrorKind::LimitExceeded { resource: "PDF image stream bytes", limit: MAX_PDF_INTEGER, attempted, .. }, .. } if attempted == length
     ));
     assert_eq!(sink.bytes.len() as u64, header_bytes);
 }
@@ -312,11 +326,7 @@ fn page_tree_capacity_is_checked_before_any_page_output() {
     .unwrap_err();
     assert!(matches!(
         error,
-        Error::LimitExceeded {
-            resource: "PDF page-tree capacity",
-            limit: MAX_TREE_PAGES,
-            attempted,
-        } if attempted == MAX_TREE_PAGES + 1
+        Error { kind: ErrorKind::LimitExceeded { resource: "PDF page-tree capacity", limit: MAX_TREE_PAGES, attempted, .. }, .. } if attempted == MAX_TREE_PAGES + 1
     ));
 }
 
@@ -439,8 +449,11 @@ fn page_nodes_lost_to_failed_writes_make_finish_fail() -> Result<()> {
     for failure in [leaf_failure.map(|_| ()), middle_failure.map(|_| ())] {
         assert!(matches!(
             failure,
-            Err(Error::LimitExceeded {
-                resource: "classic PDF file bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "classic PDF file bytes",
+                    ..
+                },
                 ..
             })
         ));
@@ -448,8 +461,10 @@ fn page_nodes_lost_to_failed_writes_make_finish_fail() -> Result<()> {
     // Neither lost node is written, so no PDF with dangling kids completes.
     assert!(matches!(
         finish,
-        Err(Error::InvalidInput {
-            reason: "a reserved PDF object has not been written"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "a reserved PDF object has not been written",
+            ..
         })
     ));
     Ok(())
@@ -491,7 +506,7 @@ fn every_sink_failure_point_returns_the_io_error() {
         };
         let result = write_sample(&mut sink, &limits, &NEVER);
         assert!(
-            matches!(&result, Err(Error::Io(error)) if error.to_string() == "injected sink failure"),
+            matches!(&result, Err(Error { kind: ErrorKind::Io(error), .. }) if error.to_string() == "injected sink failure"),
             "write {fail_at}: {result:?}"
         );
         assert_eq!(sink.writes, fail_at);
@@ -507,7 +522,10 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
         let mut sink = VecSink::default();
         let cancellation = CancelAfter::new(allowed);
         let report = match write_sample(&mut sink, &limits, &cancellation) {
-            Err(Error::Cancelled) => {
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }) => {
                 allowed += 1;
                 continue;
             }
@@ -533,20 +551,28 @@ fn reserve_bounded_enforces_item_and_byte_ceilings() {
     }
     assert!(matches!(
         reserve_bounded(&mut values, 3, &limits, "test items"),
-        Err(Error::LimitExceeded {
-            resource: "test items",
-            limit: 3,
-            attempted: 4,
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "test items",
+                limit: 3,
+                attempted: 4,
+                ..
+            },
+            ..
         })
     ));
 
     let mut wide: Vec<[u8; 40]> = vec![[0; 40]];
     assert!(matches!(
         reserve_bounded(&mut wide, 10, &limits, "wide items"),
-        Err(Error::LimitExceeded {
-            resource: "allocation bytes",
-            limit: 64,
-            attempted: 80,
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                limit: 64,
+                attempted: 80,
+                ..
+            },
+            ..
         })
     ));
     assert_eq!(wide.len(), 1);
@@ -612,16 +638,21 @@ fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
     })()?;
     assert!(matches!(
         failed,
-        Err(Error::LimitExceeded {
-            resource: "classic PDF file bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "classic PDF file bytes",
+                ..
+            },
             ..
         })
     ));
     for result in [retry, finish.map(|_| ())] {
         assert!(matches!(
             result,
-            Err(Error::InvalidInput {
-                reason: "PDF outline cannot continue after a failed bookmark operation"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF outline cannot continue after a failed bookmark operation",
+                ..
             })
         ));
     }
@@ -647,9 +678,12 @@ fn bilevel_compressor_reservation_is_checked_before_opening_an_image() {
         });
         assert!(matches!(
             result,
-            Err(Error::LimitExceeded {
-                resource: "allocation bytes",
-                attempted: DEFLATE_RESERVATION_BYTES,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "allocation bytes",
+                    attempted: DEFLATE_RESERVATION_BYTES,
+                    ..
+                },
                 ..
             })
         ));
@@ -744,12 +778,16 @@ fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
             } else {
                 "zlib compression failed"
             };
-            assert!(matches!(error, Error::InvalidInput { reason } if reason == expected));
+            assert!(
+                matches!(error, Error { kind: ErrorKind::Malformed, reason, .. } if reason == expected)
+            );
             assert!(image.failed);
             assert!(matches!(
                 image.write(&[0x80]).map_err(Error::from),
-                Err(Error::InvalidInput {
-                    reason: "bilevel image cannot continue after compression or output failure"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "bilevel image cannot continue after compression or output failure",
+                    ..
                 })
             ));
             assert!(image.finish().is_err());
@@ -782,8 +820,11 @@ fn bilevel_finish_observes_output_limits() {
             .set_position_for_test(limits.max_output_bytes);
         assert!(matches!(
             image.finish(),
-            Err(Error::LimitExceeded {
-                resource: "output bytes",
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "output bytes",
+                    ..
+                },
                 ..
             })
         ));
@@ -811,8 +852,14 @@ fn bilevel_finish_observes_cancellation_while_draining() {
             Ok::<_, Error>(image.finish())
         })();
         match result {
-            Ok(Err(Error::Cancelled)) => return,
-            Err(Error::Cancelled) => {}
+            Ok(Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })) => return,
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }) => {}
             other => panic!("expected a cancellation checkpoint during finish: {other:?}"),
         }
     }

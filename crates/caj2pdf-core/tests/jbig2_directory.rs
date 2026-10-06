@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+mod common;
+
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    jbig2::{
-        DirectoryError, DirectoryErrorKind, HeaderErrorKind, SegmentDirectory, SegmentSpan,
-        read_embedded_directory, read_segment_header,
-    },
+    Cancellation, Error, ErrorKind, Limits, NeverCancel, RangedSource,
+    jbig2::{SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header},
 };
+use common::errors::segment as segment_of;
 use std::{cell::Cell, rc::Rc};
 
 struct SpySource {
@@ -51,7 +51,7 @@ impl RangedSource for SpySource {
     }
 }
 
-fn parse(bytes: &[u8]) -> Result<SegmentDirectory, caj2pdf_core::jbig2::DirectoryError> {
+fn parse(bytes: &[u8]) -> Result<SegmentDirectory, Error> {
     let mut source = SpySource::new(bytes);
     read_embedded_directory(
         &mut source,
@@ -230,40 +230,26 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
     let mut short = observed_shape();
     short.pop();
     let error = parse(&short).unwrap_err();
-    assert_eq!(error.offset, 60);
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-            kind: HeaderErrorKind::Truncated(_),
-            ..
-        })
-    ));
+    assert_eq!(error.offset, Some(60));
+    assert!(matches!(error.kind, ErrorKind::Truncated { .. }), "{error}");
 
     let mut extra = observed_shape();
     extra.push(0xee);
     let error = parse(&extra).unwrap_err();
-    assert_eq!(error.offset, 62);
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-            kind: HeaderErrorKind::Truncated(_),
-            ..
-        })
-    ));
+    assert_eq!(error.offset, Some(62));
+    assert!(matches!(error.kind, ErrorKind::Truncated { .. }), "{error}");
 
     let mut unknown = observed_shape();
     unknown[57..61].fill(0xff);
     let error = parse(&unknown).unwrap_err();
-    assert_eq!(error.segment, Some(4));
+    assert_eq!(segment_of(&error), Some(4));
     assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-            kind: HeaderErrorKind::Unsupported {
-                feature: "unknown segment data length",
-                ..
-            },
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "unknown segment data length",
             ..
-        })
+        }
     ));
 
     let mut source = SpySource::new(PAGE);
@@ -277,7 +263,13 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     let mut source = SpySource::new(&[PAGE, &[0xee]].concat());
     let error = read_segment_header(
         &mut source,
@@ -290,8 +282,12 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::Malformed("bytes follow declared segment data")
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "bytes follow declared segment data",
+            ..
+        }
     ));
 
     // The enclosing span is checked against the input limit before any read.
@@ -309,14 +305,17 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!((error.offset, error.segment), (0, None));
+    assert_eq!((error.offset, segment_of(&error)), (Some(0), None));
     assert!(source.ranges.is_empty());
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::Source(Error::LimitExceeded {
-            resource: "input bytes",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "input bytes",
+                ..
+            },
             ..
-        })
+        }
     ));
 }
 
@@ -327,25 +326,23 @@ fn rejects_duplicate_missing_self_forward_and_repeated_references() {
         segment(1, 0, 0, &[], true, &[]),
     ]);
     let error = parse(&duplicate).unwrap_err();
-    assert_eq!(error.offset, 11);
-    assert!(matches!(error.kind, DirectoryErrorKind::DuplicateNumber(1)));
+    assert_eq!(error.offset, Some(11));
+    assert_eq!(error.reason, "duplicate segment number");
 
     let missing = segment(1, 0, 0, &[0], true, &[]);
     let error = parse(&missing).unwrap_err();
-    assert_eq!(error.segment, Some(1));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::MissingReference(0)
-    ));
+    assert_eq!(segment_of(&error), Some(1));
+    assert_eq!(error.reason, "reference to a missing segment");
 
     for reference in [1, 2] {
         let error = parse(&segment(1, 0, 0, &[reference], true, &[])).unwrap_err();
         assert!(matches!(
-            error.kind,
-            DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-                kind: HeaderErrorKind::Malformed("reference is not lower than segment number"),
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "reference is not lower than segment number",
                 ..
-            })
+            }
         ));
     }
 
@@ -354,11 +351,8 @@ fn rejects_duplicate_missing_self_forward_and_repeated_references() {
         segment(1, 0, 0, &[0, 0], true, &[]),
     ]);
     let error = parse(&repeated).unwrap_err();
-    assert_eq!(error.segment, Some(1));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::DuplicateReference(0)
-    ));
+    assert_eq!(segment_of(&error), Some(1));
+    assert_eq!(error.reason, "duplicate reference to a segment");
 }
 
 #[test]
@@ -369,14 +363,8 @@ fn rejects_cross_page_and_global_to_paged_references() {
             segment(1, 0, source_page, &[0], true, &[]),
         ]);
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.segment, Some(1));
-        assert!(matches!(
-            error.kind,
-            DirectoryErrorKind::PageMismatch {
-                reference: 0,
-                referenced_page: 2
-            }
-        ));
+        assert_eq!(segment_of(&error), Some(1));
+        assert_eq!(error.reason, "reference to a segment on a disallowed page");
     }
     let global = join(&[
         segment(0, 0, 0, &[], true, &[]),
@@ -393,11 +381,8 @@ fn checks_target_types_table_caps_and_intermediate_use() {
             segment(1, source_type, page, &[0], true, &[]),
         ]);
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.segment, Some(1));
-        assert!(matches!(
-            error.kind,
-            DirectoryErrorKind::ReferenceType { .. }
-        ));
+        assert_eq!(segment_of(&error), Some(1));
+        assert_eq!(error.reason, "reference to a segment of a disallowed type");
     }
 
     let mut tables = Vec::new();
@@ -412,7 +397,8 @@ fn checks_target_types_table_caps_and_intermediate_use() {
     let error = parse(&join(&tables)).unwrap_err();
     assert!(matches!(
         error.kind,
-        DirectoryErrorKind::TooManyTables {
+        ErrorKind::LimitExceeded {
+            resource: "JBIG2 table references",
             limit: 4,
             attempted: 5
         }
@@ -424,11 +410,11 @@ fn checks_target_types_table_caps_and_intermediate_use() {
         segment(2, 42, 1, &[0], true, &[]),
     ]);
     let error = parse(&reused).unwrap_err();
-    assert_eq!(error.segment, Some(2));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::IntermediateReused(0)
-    ));
+    assert_eq!(segment_of(&error), Some(2));
+    assert_eq!(
+        error.reason,
+        "intermediate segment has multiple non-extension users"
+    );
 
     let extension_then_region = join(&[
         segment(0, 36, 1, &[], true, &[]),
@@ -464,11 +450,14 @@ fn duplicate_reference_scratch_obeys_the_allocation_limit() {
         );
         match result {
             Err(error)
-                if error.segment == Some(2)
+                if segment_of(&error) == Some(2)
                     && matches!(
-                        error.kind,
-                        DirectoryErrorKind::LimitExceeded {
-                            resource: "JBIG2 directory metadata bytes",
+                        error,
+                        Error {
+                            kind: ErrorKind::LimitExceeded {
+                                resource: "JBIG2 directory metadata bytes",
+                                ..
+                            },
                             ..
                         }
                     ) =>
@@ -487,10 +476,10 @@ fn checks_retention_across_number_order() {
         segment(0, 0, 0, &[], false, &[]),
         segment(1, 0, 0, &[0], true, &[]),
     ]);
-    assert!(matches!(
-        parse(&never_retained).unwrap_err().kind,
-        DirectoryErrorKind::RetentionViolation(0)
-    ));
+    assert!(
+        (parse(&never_retained).unwrap_err().reason
+            == "segment was referenced after non-retention")
+    );
 
     let mut last_use = segment(1, 0, 0, &[0], true, &[]);
     last_use[5] = 0x21; // the reference retain bit is clear
@@ -500,11 +489,8 @@ fn checks_retention_across_number_order() {
         last_use,
     ]);
     let error = parse(&expired).unwrap_err();
-    assert_eq!(error.segment, Some(2));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::RetentionViolation(0)
-    ));
+    assert_eq!(segment_of(&error), Some(2));
+    assert_eq!(error.reason, "segment was referenced after non-retention");
 }
 
 #[test]
@@ -527,9 +513,12 @@ fn preflights_the_metadata_allocation_limit() {
     .unwrap_err();
     assert!(source.ranges.is_empty());
     assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::LimitExceeded {
-            resource: "JBIG2 directory metadata bytes",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "JBIG2 directory metadata bytes",
+                ..
+            },
             ..
         }
     ));
@@ -548,11 +537,12 @@ fn preflights_the_metadata_allocation_limit() {
     .unwrap_err();
     assert!(source.ranges.is_empty());
     assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-            kind: HeaderErrorKind::InvalidSpan(_),
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "segment span end overflows 64 bits",
             ..
-        })
+        }
     ));
 }
 
@@ -614,83 +604,13 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
     .unwrap_err();
     assert_eq!(source.ranges.len(), baseline.ranges.len());
     assert!(cancellation.checks_after_reads.get() >= 5);
-    assert!(matches!(error.kind, DirectoryErrorKind::Cancelled));
-}
-
-#[test]
-fn public_directory_errors_keep_location_and_underlying_header_cause() {
-    let cases = [
-        (DirectoryErrorKind::InvalidSpan("end"), "invalid span: end"),
-        (
-            DirectoryErrorKind::LimitExceeded {
-                resource: "segments",
-                limit: 2,
-                attempted: 3,
-            },
-            "segments limit 2 exceeded by 3",
-        ),
-        (
-            DirectoryErrorKind::AllocationFailed,
-            "directory allocation failed",
-        ),
-        (DirectoryErrorKind::Cancelled, "cancelled"),
-        (
-            DirectoryErrorKind::DuplicateNumber(8),
-            "duplicate segment number 8",
-        ),
-        (
-            DirectoryErrorKind::DuplicateReference(2),
-            "duplicate reference to segment 2",
-        ),
-        (
-            DirectoryErrorKind::MissingReference(2),
-            "missing reference to segment 2",
-        ),
-        (
-            DirectoryErrorKind::PageMismatch {
-                reference: 2,
-                referenced_page: 3,
-            },
-            "reference to segment 2 on disallowed page 3",
-        ),
-        (
-            DirectoryErrorKind::ReferenceType {
-                reference: 2,
-                referenced_type: 38,
-            },
-            "reference to segment 2 has disallowed type 38",
-        ),
-        (
-            DirectoryErrorKind::TooManyTables {
-                limit: 4,
-                attempted: 5,
-            },
-            "tables reference limit 4 exceeded by 5",
-        ),
-        (
-            DirectoryErrorKind::IntermediateReused(2),
-            "intermediate segment 2 has multiple non-extension users",
-        ),
-        (
-            DirectoryErrorKind::RetentionViolation(2),
-            "segment 2 was referenced after non-retention",
-        ),
-    ];
-    for (kind, detail) in cases {
-        let error = DirectoryError {
-            offset: 17,
-            segment: Some(8),
-            kind,
-        };
-        assert_eq!(
-            error.to_string(),
-            format!("JBIG2 directory at source byte 17, segment 8: {detail}")
-        );
-        assert!(std::error::Error::source(&error).is_none());
-    }
-    let header_error = parse(&[0]).unwrap_err();
-    assert!(header_error.to_string().contains("JBIG2 segment header"));
-    assert!(std::error::Error::source(&header_error).is_some());
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -714,10 +634,10 @@ fn directory_wide_errors_render_without_a_segment_number() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!((error.offset, error.segment), (0, None));
+    assert_eq!((error.offset, segment_of(&error)), (Some(0), None));
     assert!(
         error.to_string().starts_with(
-            "JBIG2 directory at source byte 0: JBIG2 directory metadata bytes limit 1 exceeded by "
+            "JBIG2 JBIG2 directory metadata bytes limit exceeded at byte 0: maximum 1, attempted "
         ),
         "{error}"
     );
@@ -750,9 +670,6 @@ fn reference_scratch_is_reused_and_cleared_between_segments() {
         segment(3, 6, 1, &[1, 1], true, &[]),
     ]);
     let error = parse(&repeated).unwrap_err();
-    assert_eq!(error.segment, Some(3));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::DuplicateReference(1)
-    ));
+    assert_eq!(segment_of(&error), Some(3));
+    assert_eq!(error.reason, "duplicate reference to a segment");
 }

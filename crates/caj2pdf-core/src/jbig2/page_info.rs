@@ -8,10 +8,10 @@
 //! profile. It is not a general JBIG2 page-information decoder.
 
 use super::{SegmentHeader, SegmentSpan};
-use crate::{Cancellation, Error, Limits, RangedSource};
-use std::{error, fmt};
+use crate::{Cancellation, Context, Error, ErrorKind, Limits, RangedSource, Result};
 
 const PAGE_INFORMATION_BYTES: u64 = 19;
+const BODY: &str = "page information body";
 
 /// Validated page geometry and the retained original page flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,71 +30,14 @@ pub struct PageInfo {
     pub packed_bytes: u64,
 }
 
-/// A located page-information error.
-#[derive(Debug)]
-pub struct PageInfoError {
-    pub offset: u64,
-    pub segment: u32,
-    pub kind: PageInfoErrorKind,
-}
-#[derive(Debug)]
-pub enum PageInfoErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    Cancelled,
-    Source(Error),
-}
-
-pub type PageInfoResult<T> = Result<T, PageInfoError>;
-
-impl fmt::Display for PageInfoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 page information segment {} at source byte {}: {}",
-            self.segment, self.offset, self.kind
-        )
-    }
-}
-
-impl fmt::Display for PageInfoErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            Self::Truncated(field) => write!(f, "truncated {field}"),
-            Self::Malformed(reason) => write!(f, "malformed {reason}"),
-            Self::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            Self::Cancelled => f.write_str("cancelled"),
-            Self::Source(error) => write!(f, "source: {error}"),
-        }
-    }
-}
-
-impl error::Error for PageInfoError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            PageInfoErrorKind::Source(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-fn at(header: &SegmentHeader, offset: u64, kind: PageInfoErrorKind) -> PageInfoError {
-    PageInfoError {
+/// Locate an error at `offset` in the page-information segment.
+fn at(header: &SegmentHeader, offset: u64, error: Error) -> Error {
+    error.or_at(
         offset,
-        segment: header.number,
-        kind,
-    }
+        Context::Jbig2 {
+            segment: Some(header.number),
+        },
+    )
 }
 
 fn limit(
@@ -103,16 +46,8 @@ fn limit(
     resource: &'static str,
     maximum: u64,
     attempted: u64,
-) -> PageInfoError {
-    at(
-        header,
-        offset,
-        PageInfoErrorKind::LimitExceeded {
-            resource,
-            limit: maximum,
-            attempted,
-        },
-    )
+) -> Error {
+    at(header, offset, Error::limit(resource, maximum, attempted))
 }
 
 fn validate_span(
@@ -120,23 +55,23 @@ fn validate_span(
     source_size: u64,
     limits: &Limits,
     cancellation: &dyn Cancellation,
-) -> PageInfoResult<()> {
+) -> Result<()> {
     let offset = header.data.offset;
     if cancellation.is_cancelled() {
-        return Err(at(header, offset, PageInfoErrorKind::Cancelled));
+        return Err(at(header, offset, Error::cancelled()));
     }
     if header.data.length < PAGE_INFORMATION_BYTES {
         return Err(at(
             header,
             offset,
-            PageInfoErrorKind::Truncated("page information body"),
+            Error::truncated(offset, PAGE_INFORMATION_BYTES, header.data.length).because(BODY),
         ));
     }
     if header.data.length > PAGE_INFORMATION_BYTES {
         return Err(at(
             header,
             offset,
-            PageInfoErrorKind::Malformed("extra page information bytes"),
+            Error::invalid("extra page information bytes"),
         ));
     }
     if PAGE_INFORMATION_BYTES > limits.max_input_bytes {
@@ -152,14 +87,19 @@ fn validate_span(
         at(
             header,
             offset,
-            PageInfoErrorKind::InvalidSpan("page information end overflows"),
+            Error::invalid("page information end overflows"),
         )
     })?;
     if end > source_size {
         return Err(at(
             header,
             offset,
-            PageInfoErrorKind::Truncated("page information source span"),
+            Error::truncated(
+                offset,
+                PAGE_INFORMATION_BYTES,
+                source_size.saturating_sub(offset),
+            )
+            .because("page information source span"),
         ));
     }
     Ok(())
@@ -169,7 +109,7 @@ fn checked_info(
     header: &SegmentHeader,
     bytes: [u8; PAGE_INFORMATION_BYTES as usize],
     limits: &Limits,
-) -> PageInfoResult<PageInfo> {
+) -> Result<PageInfo> {
     let offset = header.data.offset;
     let width = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     let height = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
@@ -234,50 +174,40 @@ pub fn read_page_info<S: RangedSource, C: Cancellation>(
     header: &SegmentHeader,
     limits: &Limits,
     cancellation: &C,
-) -> PageInfoResult<PageInfo> {
+) -> Result<PageInfo> {
     validate_span(header, source.size(), limits, cancellation)?;
     let mut bytes = [0_u8; PAGE_INFORMATION_BYTES as usize];
     let mut done = 0_usize;
     let request_bound = limits.io_chunk_bytes.max(1);
     while done < bytes.len() {
         let offset = header.data.offset + done as u64;
-        let failed = |kind| PageInfoError {
-            offset,
-            segment: header.number,
-            kind,
-        };
+        let failed = |error| at(header, offset, error);
         if cancellation.is_cancelled() {
-            return Err(failed(PageInfoErrorKind::Cancelled));
+            return Err(failed(Error::cancelled()));
         }
         let request = (bytes.len() - done).min(request_bound);
         let count = source
             .read_at(offset, &mut bytes[done..done + request])
-            .map_err(|error| {
-                failed(match error {
-                    Error::Cancelled => PageInfoErrorKind::Cancelled,
-                    Error::TruncatedInput { .. } => {
-                        PageInfoErrorKind::Truncated("page information body")
-                    }
-                    other => PageInfoErrorKind::Source(other),
-                })
+            .map_err(|error| match error.kind {
+                ErrorKind::Truncated { .. } => failed(error.because(BODY)),
+                _ => failed(error),
             })?;
         if count > request {
-            return Err(failed(PageInfoErrorKind::Malformed(
+            return Err(failed(Error::invalid(
                 "source reported more bytes than requested",
             )));
         }
         done += count;
         if cancellation.is_cancelled() {
-            return Err(PageInfoError {
-                offset: header.data.offset + done as u64,
-                segment: header.number,
-                kind: PageInfoErrorKind::Cancelled,
-            });
+            return Err(at(
+                header,
+                header.data.offset + done as u64,
+                Error::cancelled(),
+            ));
         }
         if count == 0 {
-            return Err(failed(PageInfoErrorKind::Truncated(
-                "page information body",
-            )));
+            let remaining = (bytes.len() - done) as u64;
+            return Err(failed(Error::truncated(offset, remaining, 0).because(BODY)));
         }
     }
     checked_info(header, bytes, limits)

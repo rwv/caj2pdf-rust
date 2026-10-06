@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, Payload, RangedSource,
+    Cancellation, Error, ErrorKind, Limits, NeverCancel, Payload, RangedSource,
     jbig2::{
         SegmentHeader, SegmentSpan,
         generic::{
-            GenericError, GenericErrorKind, GenericProgress, GenericRegionDecoder,
-            GenericRegionHeader, GenericRegionInfo, GenericReport,
+            GenericProgress, GenericRegionDecoder, GenericRegionHeader, GenericRegionInfo,
+            GenericReport,
         },
         mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqTable},
-        page_compose::{PageComposeError, PageComposeErrorKind, PageOrSink},
+        page_compose::PageOrSink,
         page_info::read_page_info,
         page_profile::{PageProfile, validate_observed_page_profile},
         read_embedded_directory,
@@ -105,7 +105,7 @@ fn try_arm_from_source_with_header<C: Cancellation>(
     bytes: Vec<u8>,
     expected: GenericRegionHeader,
     change_header: impl FnOnce(&mut SegmentHeader),
-) -> Result<(), GenericError> {
+) -> Result<(), Error> {
     let mut source = BytesSource(bytes);
     let mut directory = directory(&mut source);
     change_header(&mut directory.segments[4]);
@@ -128,7 +128,7 @@ fn try_arm_from_source<C: Cancellation>(
     sink: &mut PageOrSink<'_, Output, C>,
     bytes: Vec<u8>,
     expected: GenericRegionHeader,
-) -> Result<(), GenericError> {
+) -> Result<(), Error> {
     try_arm_from_source_with_header(sink, bytes, expected, |_| {})
 }
 
@@ -291,13 +291,10 @@ impl Write for Output {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.write_calls += 1;
         if self.cancel_write {
-            return Err(Error::Cancelled.into());
+            return Err(Error::cancelled().into());
         }
         if self.fail_write {
-            return Err(Error::InvalidInput {
-                reason: "injected output error",
-            }
-            .into());
+            return Err(Error::invalid("injected output error").into());
         }
         if self.zero_write {
             return Ok(0);
@@ -313,16 +310,13 @@ impl Write for Output {
     fn flush(&mut self) -> std::io::Result<()> {
         self.flush_calls += 1;
         if self.cancel_flush {
-            return Err(Error::Cancelled.into());
+            return Err(Error::cancelled().into());
         }
         if let Some(flag) = &self.cancel_on_flush {
             flag.set(true);
         }
         if self.fail_flush {
-            return Err(Error::InvalidInput {
-                reason: "injected output flush error",
-            }
-            .into());
+            return Err(Error::invalid("injected output flush error").into());
         }
         Ok(())
     }
@@ -345,7 +339,7 @@ fn feed_all(sink: &mut impl Write, mut bytes: &[u8]) -> caj2pdf_core::Result<()>
     Ok(())
 }
 
-fn constructor_error(limits: Limits) -> PageComposeError {
+fn constructor_error(limits: Limits) -> Error {
     let profile = profile(9, 2);
     let scratch = vec![0; 4];
     let mut output = Output::new();
@@ -368,9 +362,12 @@ fn constructor_rejects_the_output_limit_before_output() {
         ..Limits::default()
     });
     assert!(matches!(
-        error.kind,
-        PageComposeErrorKind::LimitExceeded {
-            resource: "page output bytes",
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "page output bytes",
+                ..
+            },
             ..
         }
     ));
@@ -392,62 +389,14 @@ fn cancellation_rejects_before_output() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(output.bytes.is_empty());
-}
-
-#[test]
-fn public_error_diagnostics_and_sources_are_stable() {
-    let variants = [
-        (
-            PageComposeErrorKind::Malformed("bad flags"),
-            "malformed bad flags",
-            false,
-        ),
-        (
-            PageComposeErrorKind::InvalidSpan("bitmap size"),
-            "invalid span: bitmap size",
-            false,
-        ),
-        (
-            PageComposeErrorKind::LimitExceeded {
-                resource: "pixels",
-                limit: 2,
-                attempted: 3,
-            },
-            "pixels limit 2 exceeded by 3",
-            false,
-        ),
-        (
-            PageComposeErrorKind::AllocationFailed,
-            "chunk allocation failed",
-            false,
-        ),
-        (PageComposeErrorKind::Cancelled, "cancelled", false),
-        (
-            PageComposeErrorKind::Output(Error::InvalidInput {
-                reason: "bad write",
-            }),
-            "output: ",
-            true,
-        ),
-        (
-            PageComposeErrorKind::Incomplete,
-            "page rows are incomplete",
-            false,
-        ),
-    ];
-    for (kind, expected, has_source) in variants {
-        let error = PageComposeError {
-            offset: 7,
-            progress: Box::default(),
-            kind,
-        };
-        let message = error.to_string();
-        assert!(message.starts_with("JBIG2 page OR at byte 7: "));
-        assert!(message.contains(expected));
-        assert_eq!(std::error::Error::source(&error).is_some(), has_source);
-    }
 }
 
 #[test]
@@ -560,13 +509,21 @@ fn a_late_or_mismatched_arming_is_refused() {
         };
         if case == 0 {
             assert!(matches!(
-                error.kind,
-                GenericErrorKind::Malformed("page output armed after the first row")
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "page output armed after the first row",
+                    ..
+                }
             ));
         } else {
             assert!(matches!(
-                error.kind,
-                GenericErrorKind::Malformed("generic header differs from page preflight")
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "generic header differs from page preflight",
+                    ..
+                }
             ));
         }
         drop(decoder);
@@ -595,7 +552,13 @@ fn generic_header_mismatch_is_rejected_before_first_output_byte() {
     actual.pixels = 7;
     assert!(try_arm_from_source(&mut sink, observed_bytes(7, 1), actual).is_err());
     let error = sink.take_failure().unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     assert!(sink.write(&[0]).is_err());
     drop(sink);
     assert!(output.bytes.is_empty());
@@ -624,7 +587,13 @@ fn wrong_generic_page_association_with_same_data_is_rejected_before_output() {
         .is_err()
     );
     let failure = sink.take_failure().unwrap();
-    assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
+    assert!(matches!(
+        failure,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     drop(sink);
     assert_eq!(output.write_calls, 0);
     assert!(output.bytes.is_empty());
@@ -656,10 +625,7 @@ fn no_generic_write_or_flush_is_allowed_before_checked_header_arming() {
             }
             _ => sink.finish(&generic_report(profile)).unwrap_err().kind,
         };
-        assert!(matches!(
-            kind,
-            PageComposeErrorKind::Malformed(_) | PageComposeErrorKind::Incomplete
-        ));
+        assert!(matches!(kind, ErrorKind::Malformed));
         assert!(output.bytes.is_empty());
         assert_eq!(output.flush_calls, 0);
     }
@@ -701,11 +667,9 @@ fn exact_header_span_geometry_and_pixel_count_are_bound_before_output() {
         };
         assert!(try_arm_from_source(&mut sink, bytes, actual).is_err());
         let failure = sink.take_failure().unwrap();
-        if field == 0 {
-            assert!(matches!(failure.kind, PageComposeErrorKind::InvalidSpan(_)));
-        } else {
-            assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
-        }
+        assert!(matches!(failure.kind, ErrorKind::Malformed), "{failure}");
+        // Only the first case is a span mismatch.
+        assert_eq!(failure.reason.contains(" span "), field == 0, "{failure}");
         drop(sink);
         assert!(output.bytes.is_empty());
         assert_eq!(output.write_calls, 0);
@@ -731,8 +695,12 @@ fn a_checked_header_cannot_rearm_the_same_sink() {
         try_arm_from_source(&mut sink, observed_bytes(8, 1), profile.generic_header(),).is_err()
     );
     assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Malformed("page output is already armed")
+        sink.take_failure().unwrap(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "page output is already armed",
+            ..
+        }
     ));
     drop(sink);
     assert!(output.bytes.is_empty());
@@ -754,15 +722,14 @@ fn incomplete_flush_and_extra_generic_bytes_are_rejected() {
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
     assert!(sink.flush().is_err());
-    assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Incomplete
-    ));
+    assert_eq!(
+        sink.take_failure().unwrap().reason,
+        "page rows are incomplete"
+    );
     assert!(sink.flush().is_err());
-    assert!(matches!(
-        sink.finish(&generic_report(profile)).unwrap_err().kind,
-        PageComposeErrorKind::Incomplete
-    ));
+    assert!(
+        (sink.finish(&generic_report(profile)).unwrap_err().reason == "page rows are incomplete")
+    );
 
     let mut sink = PageOrSink::new(
         profile,
@@ -778,10 +745,14 @@ fn incomplete_flush_and_extra_generic_bytes_are_rejected() {
     assert!(sink.write(&[0]).is_err());
     let failure = sink.take_failure().unwrap();
     assert!(matches!(
-        failure.kind,
-        PageComposeErrorKind::Malformed("extra generic bytes")
+        failure,
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "extra generic bytes",
+            ..
+        }
     ));
-    assert_eq!(failure.offset, 1);
+    assert_eq!(failure.offset, Some(1));
 }
 
 #[test]
@@ -802,8 +773,11 @@ fn a_cancelled_output_write_is_reported_as_cancellation() {
     arm_from_real_decoder(&mut sink, profile);
     assert!(sink.write(&[0]).is_err());
     assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Cancelled
+        sink.take_failure().unwrap(),
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
     ));
 }
 
@@ -834,7 +808,13 @@ fn cancellation_before_and_after_final_flush_prevents_completion() {
             flag.set(true);
         }
         let error = sink.finish(&generic_report(profile)).unwrap_err();
-        assert!(matches!(error.kind, PageComposeErrorKind::Cancelled));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }
+        ));
         assert_eq!(output.flush_calls, usize::from(cancel_during_flush));
     }
 }
@@ -944,7 +924,7 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Incomplete));
+    assert_eq!(error.reason, "page rows are incomplete");
     let mut wrong = text_report(profile);
     wrong.width = 8;
     let error = PageOrSink::new(
@@ -957,7 +937,13 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     for field in 0..7 {
         let mut wrong = text_report(profile);
         match field {
@@ -980,7 +966,13 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         )
         .err()
         .unwrap();
-        assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
     }
     let wrong_size = vec![0; 5];
     let error = PageOrSink::new(
@@ -993,7 +985,13 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, PageComposeErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     assert!(output.bytes.is_empty());
 }
 
@@ -1016,10 +1014,14 @@ fn rejects_generic_and_text_padding_without_output() {
         assert!(sink.write(&generic).is_err());
         let failure = sink.take_failure().unwrap();
         assert!(matches!(
-            failure.kind,
-            PageComposeErrorKind::Malformed("nonzero row padding")
+            failure,
+            Error {
+                kind: ErrorKind::Malformed,
+                reason: "nonzero row padding",
+                ..
+            }
         ));
-        assert_eq!(failure.offset, 1);
+        assert_eq!(failure.offset, Some(1));
         drop(sink);
         assert!(output.bytes.is_empty());
     }
@@ -1043,7 +1045,7 @@ fn output_faults_are_typed() {
     arm_from_real_decoder(&mut sink, profile);
     assert!(sink.write(&[0]).is_err());
     let failure = sink.take_failure().unwrap();
-    assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
+    assert!(matches!(failure.kind, ErrorKind::Io(_)), "{failure}");
 }
 
 #[test]
@@ -1073,11 +1075,9 @@ fn final_report_must_belong_to_preflighted_generic_segment() {
             report.progress.info.x = 1;
         }
         let failure = sink.finish(&report).unwrap_err();
-        if field < 2 {
-            assert!(matches!(failure.kind, PageComposeErrorKind::InvalidSpan(_)));
-        } else {
-            assert!(matches!(failure.kind, PageComposeErrorKind::Malformed(_)));
-        }
+        assert!(matches!(failure.kind, ErrorKind::Malformed), "{failure}");
+        // The first two cases are span mismatches.
+        assert_eq!(failure.reason.contains(" span "), field < 2, "{failure}");
         assert_eq!(output.flush_calls, 0);
     }
 }
@@ -1099,10 +1099,7 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
     assert!(sink.write(&[0x80]).is_err());
-    assert!(matches!(
-        sink.take_failure().unwrap().kind,
-        PageComposeErrorKind::Output(_)
-    ));
+    assert_eq!(sink.take_failure().unwrap().reason, "injected output error");
     drop(sink);
     assert!(output.bytes.is_empty());
 
@@ -1124,8 +1121,13 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
     feed_all(&mut sink, &[0x80]).unwrap();
     assert!(sink.flush().is_err());
     let failure = sink.take_failure().unwrap();
-    assert!(matches!(failure.kind, PageComposeErrorKind::Cancelled));
-    assert_eq!(failure.progress.output_bytes_written, 1);
+    assert!(matches!(
+        failure,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     drop(sink);
 }
 
@@ -1149,7 +1151,7 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
     let mut wrong = generic_report(profile);
     wrong.progress.mq.symbols_decoded -= 1;
     let failure = sink.finish(&wrong).unwrap_err();
-    assert!(matches!(failure.kind, PageComposeErrorKind::Incomplete));
+    assert_eq!(failure.reason, "page rows are incomplete");
     assert_eq!(output.flush_calls, 0);
 
     output.fail_flush = true;
@@ -1166,6 +1168,6 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
     feed_all(&mut sink, &[0]).unwrap();
     sink.flush().unwrap();
     let failure = sink.finish(&generic_report(profile)).unwrap_err();
-    assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
+    assert_eq!(failure.reason, "injected output flush error");
     assert_eq!(output.flush_calls, 1);
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
 use crate::native::SeekableSource;
 use crate::pdf::font::tests::{
     CALLSUBR, CffOptions as Options, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, build, charstrings,
@@ -175,8 +176,15 @@ fn cid_keyed_fonts_keep_used_font_dicts_and_matrices() {
 
 fn reason(result: Result<Vec<u8>>) -> &'static str {
     match result {
-        Err(Error::InvalidInput { reason }) => reason,
-        Err(Error::LimitExceeded { resource, .. }) => resource,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) => reason,
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { resource, .. },
+            ..
+        }) => resource,
         Err(other) => panic!("unexpected {other:?}"),
         Ok(_) => "ok",
     }
@@ -298,8 +306,11 @@ fn each_subroutine_is_read_once_per_subset() {
     };
     assert!(matches!(
         plan_within(&font, &['A', '中'], &limits),
-        Err(Error::LimitExceeded {
-            resource: "allocation bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                ..
+            },
             ..
         })
     ));
@@ -316,8 +327,15 @@ fn malformed_structures_fail_when_the_font_is_read() {
     let read = |font: Vec<u8>| -> &'static str {
         let mut source = SeekableSource::new(Cursor::new(font)).unwrap();
         match OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER) {
-            Err(Error::InvalidInput { reason }) => reason,
-            Err(Error::LimitExceeded { resource, .. }) => resource,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason,
+                ..
+            }) => reason,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { resource, .. },
+                ..
+            }) => resource,
             Err(other) => panic!("unexpected {other:?}"),
             Ok(_) => "ok",
         }
@@ -449,8 +467,10 @@ fn dict_parsing_handles_every_operand_form() {
     assert_eq!(entries[1].op, OP_CHARSTRINGS);
     assert!(matches!(
         dict(&[30, 0x11]),
-        Err(Error::InvalidInput {
-            reason: "CFF real number is truncated"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "CFF real number is truncated",
+            ..
         })
     ));
     for bad in [&[28, 0][..], &[29][..], &[247][..], &[12][..], &[139][..]] {

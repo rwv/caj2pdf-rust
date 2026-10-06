@@ -20,7 +20,7 @@ use super::xref::{Trailer, write_xref};
 use super::{PdfRange, PdfRef};
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
-    Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
+    Bookmark, Cancellation, ConversionReport, CountingSource, Error, ErrorKind, Limits,
     RangedSource, Result, read_exact_at,
 };
 use std::io::Write;
@@ -63,12 +63,8 @@ pub(crate) fn append_replacement(
 ) -> Result<PdfRange> {
     let offset = base
         .checked_add(len_u64(suffix.len()))
-        .ok_or(Error::InvalidInput {
-            reason: "PDF replacement object offset overflows",
-        })?;
-    let refused = Error::InvalidInput {
-        reason: "PDF replacement object allocation was refused",
-    };
+        .ok_or(Error::invalid("PDF replacement object offset overflows"))?;
+    let refused = Error::invalid("PDF replacement object allocation was refused");
     reserve(suffix, bytes.len(), refused)?;
     suffix.extend_from_slice(bytes);
     Ok(PdfRange {
@@ -124,19 +120,19 @@ impl Record {
 fn pdf_error(
     reference: Option<PdfRef>,
     offset: u64,
-    kind: PdfErrorKind,
+    kind: ErrorKind,
     reason: &'static str,
 ) -> Error {
-    Error::Pdf {
-        offset,
-        object: reference.map(|r| (r.number, r.generation)),
+    Error::pdf(
         kind,
+        offset,
+        reference.map(|r| (r.number, r.generation)),
         reason,
-    }
+    )
 }
 
 fn malformed(reference: Option<PdfRef>, offset: u64, reason: &'static str) -> Error {
-    pdf_error(reference, offset, PdfErrorKind::Malformed, reason)
+    pdf_error(reference, offset, ErrorKind::Malformed, reason)
 }
 
 fn pdf_limit(
@@ -146,19 +142,14 @@ fn pdf_limit(
     limit: u64,
     attempted: u64,
 ) -> Error {
-    Error::PdfLimitExceeded {
-        offset,
-        object: reference.map(|r| (r.number, r.generation)),
-        resource,
-        limit,
-        attempted,
-    }
+    Error::limit(resource, limit, attempted)
+        .at(offset)
+        .in_pdf(reference.map(|r| (r.number, r.generation)))
 }
 
 fn checked_add(left: u64, right: u64) -> Result<u64> {
-    left.checked_add(right).ok_or(Error::InvalidInput {
-        reason: "PDF arithmetic overflows 64 bits",
-    })
+    left.checked_add(right)
+        .ok_or(Error::invalid("PDF arithmetic overflows 64 bits"))
 }
 
 /// Reserve room for `count` entries of an index whose length a count limit
@@ -189,12 +180,10 @@ fn requested_objects(
     };
     let requested = outline_objects
         .and_then(|outline| object_count.checked_add(2)?.checked_add(outline))
-        .ok_or(Error::InvalidInput {
-            reason: "PDF object count overflows address space",
-        })?;
+        .ok_or(Error::invalid("PDF object count overflows address space"))?;
     let offset = first.map_or(0, |object| object.range.offset);
     let reference = first.map(|object| (object.reference.number, object.reference.generation));
-    checked_object_number(requested).map_err(|error| error.locate_pdf_limit(offset, reference))?;
+    checked_object_number(requested).map_err(|error| error.at(offset).in_pdf(reference))?;
     Ok(requested)
 }
 
@@ -219,7 +208,7 @@ fn checked_reference(reference: PdfRef, offset: u64) -> Result<()> {
         return Err(pdf_error(
             Some(reference),
             offset,
-            PdfErrorKind::UnsupportedFeature,
+            ErrorKind::UnsupportedFormat,
             "fragment reconstruction supports generation-zero objects only",
         ));
     }
@@ -306,9 +295,7 @@ fn build_outline_nodes(
                 .checked_sub(root.number)
                 .and_then(|difference| difference.checked_sub(1))
                 .and_then(|difference| usize::try_from(difference).ok())
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF outline sibling index overflows",
-                })?;
+                .ok_or(Error::invalid("PDF outline sibling index overflows"))?;
             nodes[previous_position].item.next = Some(reference);
         }
         if let Some(parent_index) = parent_index {
@@ -324,32 +311,22 @@ fn build_outline_nodes(
     }
     for index in (0..nodes.len()).rev() {
         if let Some(parent) = nodes[index].parent_index {
-            let subtree =
-                nodes[index]
-                    .item
-                    .descendants
-                    .checked_add(1)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF outline descendant count overflows",
-                    })?;
+            let subtree = nodes[index]
+                .item
+                .descendants
+                .checked_add(1)
+                .ok_or(Error::invalid("PDF outline descendant count overflows"))?;
             let parent = &mut nodes[parent].item;
-            parent.descendants =
-                parent
-                    .descendants
-                    .checked_add(subtree)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF outline descendant count overflows",
-                    })?;
+            parent.descendants = parent
+                .descendants
+                .checked_add(subtree)
+                .ok_or(Error::invalid("PDF outline descendant count overflows"))?;
         }
     }
-    let first_root = first_root.ok_or(Error::InvalidInput {
-        reason: "PDF outline root has no first item",
-    })?;
-    let last_root = nodes[last_root.ok_or(Error::InvalidInput {
-        reason: "PDF outline root has no last item",
-    })?]
-    .item
-    .reference;
+    let first_root = first_root.ok_or(Error::invalid("PDF outline root has no first item"))?;
+    let last_root = nodes[last_root.ok_or(Error::invalid("PDF outline root has no last item"))?]
+        .item
+        .reference;
     Ok((nodes, first_root, last_root))
 }
 
@@ -364,9 +341,8 @@ impl<W: Write, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_, '_, W, C
     type Ref = PdfRef;
 
     fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
-        let index = object_index(self.records, reference).ok_or(Error::InvalidInput {
-            reason: "synthetic PDF object was not indexed",
-        })?;
+        let index = object_index(self.records, reference)
+            .ok_or(Error::invalid("synthetic PDF object was not indexed"))?;
         self.records[index].output_offset = self.out.position;
         self.out
             .write(format!("{} {} obj\n", reference.number, reference.generation).as_bytes())
@@ -505,7 +481,7 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     }
     checked_reference(plan.pages_root, 0)?;
     if cancellation.is_cancelled() {
-        return Err(Error::Cancelled);
+        return Err(crate::ErrorKind::Cancelled.into());
     }
 
     let requested = requested_objects(plan.objects.len(), bookmarks.len(), plan.objects.first())?;
@@ -531,9 +507,10 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
             return Err(pdf_error(
                 Some(pair[1]),
                 0,
-                PdfErrorKind::AmbiguousRepair,
+                ErrorKind::Malformed,
                 "ordered page object is repeated",
-            ));
+            )
+            .ambiguous_repair());
         }
     }
 
@@ -570,9 +547,9 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     let outline = if bookmarks.is_empty() {
         None
     } else {
-        let largest = records.last().ok_or(Error::InvalidInput {
-            reason: "fragment has no PDF objects",
-        })?;
+        let largest = records
+            .last()
+            .ok_or(Error::invalid("fragment has no PDF objects"))?;
         // Every record passed `checked_reference`, so the successor fits.
         let root = PdfRef {
             number: largest.reference.number + 1,
@@ -623,9 +600,8 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
         out.write(b"\n")?;
     }
     if let Some(prefix) = pages_prefix {
-        let index = object_index(&records, plan.pages_root).ok_or(Error::InvalidInput {
-            reason: "synthetic page tree root was not indexed",
-        })?;
+        let index = object_index(&records, plan.pages_root)
+            .ok_or(Error::invalid("synthetic page tree root was not indexed"))?;
         records[index].output_offset = out.position;
         out.write(prefix.as_bytes())?;
         buffer.clear();
@@ -647,9 +623,8 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
         out.write(&buffer)?;
         out.write(pages_suffix)?;
     }
-    let index = object_index(&records, catalog).ok_or(Error::InvalidInput {
-        reason: "synthetic catalog was not indexed",
-    })?;
+    let index = object_index(&records, catalog)
+        .ok_or(Error::invalid("synthetic catalog was not indexed"))?;
     records[index].output_offset = out.position;
     out.write(catalog_text.as_bytes())?;
     if let Some((root, nodes, first, last)) = &outline {
@@ -664,9 +639,7 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     }
     let largest = records
         .last()
-        .ok_or(Error::InvalidInput {
-            reason: "fragment has no PDF objects",
-        })?
+        .ok_or(Error::invalid("fragment has no PDF objects"))?
         .reference
         .number;
     let trailer = Trailer {
@@ -724,11 +697,11 @@ fn index_spans(
         );
         let end = fragment.range.end().ok_or(failure)?;
         if end > source_size {
-            return Err(Error::TruncatedInput {
-                offset: fragment.range.offset,
-                expected: fragment.range.length,
-                available: source_size.saturating_sub(fragment.range.offset),
-            });
+            return Err(Error::truncated(
+                fragment.range.offset,
+                fragment.range.length,
+                source_size.saturating_sub(fragment.range.offset),
+            ));
         }
         fragment_bytes = fragment_bytes
             .checked_add(fragment.range.length)
@@ -765,9 +738,10 @@ fn index_spans(
             return Err(pdf_error(
                 Some(pair[1].reference),
                 pair[1].range.offset,
-                PdfErrorKind::AmbiguousRepair,
+                ErrorKind::Malformed,
                 "indirect object spans overlap",
-            ));
+            )
+            .ambiguous_repair());
         }
     }
     records.sort_unstable_by_key(|record| record.reference.number);
@@ -776,9 +750,10 @@ fn index_spans(
             return Err(pdf_error(
                 Some(pair[1].reference),
                 pair[1].range.offset,
-                PdfErrorKind::AmbiguousRepair,
+                ErrorKind::Malformed,
                 "duplicate indirect object number",
-            ));
+            )
+            .ambiguous_repair());
         }
     }
     Ok(records)
@@ -897,9 +872,9 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             (_, None) => None,
             (Some(given), Some(index)) => given[index].take(),
             (None, Some(_)) => {
-                let item = planned[position].take().ok_or(Error::InvalidInput {
-                    reason: "planned PDF object was not parsed",
-                })?;
+                let item = planned[position]
+                    .take()
+                    .ok_or(Error::invalid("planned PDF object was not parsed"))?;
                 let resolve = |reference| {
                     object_index(records, reference).and_then(|index| {
                         (records[index].reference == reference)
@@ -929,7 +904,7 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             return Err(pdf_error(
                 Some(record.reference),
                 record.range.offset,
-                PdfErrorKind::UnsupportedFeature,
+                ErrorKind::UnsupportedFormat,
                 "indirect reference exceeds the supported PDF profile",
             ));
         }
@@ -993,9 +968,10 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                 return Err(pdf_error(
                     Some(records[index].reference),
                     records[index].range.offset,
-                    PdfErrorKind::AmbiguousRepair,
+                    ErrorKind::Malformed,
                     "unselected catalog object is present",
-                ));
+                )
+                .ambiguous_repair());
             }
             _ => {}
         }
@@ -1004,9 +980,10 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         return Err(pdf_error(
             None,
             0,
-            PdfErrorKind::AmbiguousRepair,
+            ErrorKind::Malformed,
             "supplied page objects do not match explicit page order",
-        ));
+        )
+        .ambiguous_repair());
     }
     let failure = malformed(
         Some(plan.pages_root),
@@ -1025,9 +1002,10 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                         return Err(pdf_error(
                             Some(records[index].reference),
                             records[index].range.offset,
-                            PdfErrorKind::AmbiguousRepair,
+                            ErrorKind::Malformed,
                             "page parent differs from the missing root",
-                        ));
+                        )
+                        .ambiguous_repair());
                     }
                     if !has_media_box {
                         return Err(malformed(
@@ -1041,9 +1019,10 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                     return Err(pdf_error(
                         Some(records[index].reference),
                         records[index].range.offset,
-                        PdfErrorKind::AmbiguousRepair,
+                        ErrorKind::Malformed,
                         "missing page root cannot be synthesized around nested Pages nodes",
-                    ));
+                    )
+                    .ambiguous_repair());
                 }
                 _ => {}
             }
@@ -1075,9 +1054,9 @@ fn validate_fragment_contents(
         let ContentEvidenceKind::Page { direct_array } = item.kind else {
             continue;
         };
-        let page_index = object_index(records, item.reference).ok_or(Error::InvalidInput {
-            reason: "validated Page content evidence is absent from the object index",
-        })?;
+        let page_index = object_index(records, item.reference).ok_or(Error::invalid(
+            "validated Page content evidence is absent from the object index",
+        ))?;
         let page_offset = records[page_index].range.offset;
         if direct_array {
             for reference in &item.references {
@@ -1169,9 +1148,9 @@ fn validate_existing_page_tree(
         .len()
         .checked_mul(2)
         .and_then(|n| n.checked_add(1))
-        .ok_or(Error::InvalidInput {
-            reason: "PDF page-tree traversal allocation overflows address space",
-        })?;
+        .ok_or(Error::invalid(
+            "PDF page-tree traversal allocation overflows address space",
+        ))?;
     let mut stack = Vec::new();
     reserve_index(
         &mut stack,
@@ -1187,9 +1166,10 @@ fn validate_existing_page_tree(
                 return Err(pdf_error(
                     Some(reference),
                     offset,
-                    PdfErrorKind::AmbiguousRepair,
+                    ErrorKind::Malformed,
                     "page tree has more child links than indexed objects",
-                ));
+                )
+                .ambiguous_repair());
             }
             stack.push(step);
             Ok(())
@@ -1240,9 +1220,10 @@ fn validate_existing_page_tree(
                     return Err(pdf_error(
                         Some(reference),
                         offset,
-                        PdfErrorKind::AmbiguousRepair,
+                        ErrorKind::Malformed,
                         "page-tree order differs from explicit page order",
-                    ));
+                    )
+                    .ambiguous_repair());
                 }
                 leaves += 1;
             }
@@ -1288,9 +1269,10 @@ fn validate_existing_page_tree(
         return Err(pdf_error(
             Some(plan.pages_root),
             0,
-            PdfErrorKind::AmbiguousRepair,
+            ErrorKind::Malformed,
             "page tree omits an explicitly ordered page",
-        ));
+        )
+        .ambiguous_repair());
     }
     Ok(())
 }

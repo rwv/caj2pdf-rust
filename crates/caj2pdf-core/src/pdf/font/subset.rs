@@ -570,11 +570,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
 pub(super) fn too_long(length: u64, max_length: u64) -> Result<()> {
     let limit = max_length.min(u64::from(u32::MAX));
     if length > limit {
-        return Err(Error::LimitExceeded {
-            resource: "font subset program bytes",
-            limit,
-            attempted: length,
-        });
+        return Err(Error::limit("font subset program bytes", limit, length));
     }
     Ok(())
 }

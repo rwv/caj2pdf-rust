@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::NeverCancel;
+use crate::{ErrorKind, NeverCancel};
 
 struct Source {
     bytes: Vec<u8>,
@@ -219,7 +219,10 @@ fn budget_and_cancellation_precede_payload_reads() {
     let mut source = fixture();
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &Limits::default(), &Cancel),
-        Err(Error::Cancelled)
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
     ));
     assert_eq!(source.requested, 0);
     let limits = Limits {
@@ -228,8 +231,11 @@ fn budget_and_cancellation_precede_payload_reads() {
     };
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel),
-        Err(Error::LimitExceeded {
-            resource: "input bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "input bytes",
+                ..
+            },
             ..
         })
     ));
@@ -240,15 +246,21 @@ fn budget_and_cancellation_precede_payload_reads() {
     };
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel),
-        Err(Error::LimitExceeded {
-            resource: "allocation bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "allocation bytes",
+                ..
+            },
             ..
         })
     ));
     source.bytes.truncate(11);
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
-        Err(Error::TruncatedInput { .. })
+        Err(Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        })
     ));
 }
 
@@ -266,8 +278,11 @@ fn oversized_metadata_is_rejected_without_reading_or_allocating_it() {
     );
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
-        Err(Error::LimitExceeded {
-            resource: "font metadata bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "font metadata bytes",
+                ..
+            },
             ..
         })
     ));
@@ -296,10 +311,14 @@ fn many_character_maps_cannot_multiply_mapping_work_without_a_bound() {
     source.outline += table.len() as u64;
     assert!(matches!(
         OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
-        Err(Error::LimitExceeded {
-            resource: "font character maps",
-            limit: 16,
-            attempted: 17
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "font character maps",
+                limit: 16,
+                attempted: 17,
+                ..
+            },
+            ..
         })
     ));
 }
@@ -358,7 +377,11 @@ fn collection_faces_are_selected_by_index() {
 #[test]
 fn collection_headers_and_face_indices_fail_closed() {
     let reason = |bytes: Vec<u8>, face| match read_face(bytes, face) {
-        Err(Error::InvalidInput { reason }) => reason,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) => reason,
         other => panic!("unexpected {other:?}"),
     };
     assert_eq!(
@@ -427,7 +450,11 @@ fn face_counts_read_only_the_header() {
     let mut version = collection_font();
     put16(&mut version, 4, 3);
     let reason = |bytes| match count(bytes) {
-        Err(Error::InvalidInput { reason }) => reason,
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason,
+            ..
+        }) => reason,
         other => panic!("unexpected {other:?}"),
     };
     assert_eq!(reason(version), "unsupported TrueType collection version");
@@ -443,6 +470,9 @@ fn face_counts_read_only_the_header() {
     };
     assert!(matches!(
         OpenTypeFont::face_count(&mut source, &limits, &NeverCancel),
-        Err(Error::LimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
     ));
 }

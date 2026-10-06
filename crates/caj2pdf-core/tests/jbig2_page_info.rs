@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    jbig2::{
-        SegmentHeader, SegmentSpan,
-        page_info::{PageInfoErrorKind, read_page_info},
-        read_segment_header,
-    },
+    Cancellation, Error, ErrorKind, Limits, NeverCancel, RangedSource,
+    jbig2::{SegmentHeader, SegmentSpan, page_info::read_page_info, read_segment_header},
 };
 use std::{cell::Cell, io, rc::Rc};
 
@@ -53,13 +49,11 @@ impl RangedSource for Source {
             && failed_offset == offset
         {
             return Err(match failure {
-                SourceFailure::Io => Error::Io(io::Error::other("synthetic I/O failure")),
-                SourceFailure::Cancelled => Error::Cancelled,
-                SourceFailure::Truncated => Error::TruncatedInput {
-                    offset,
-                    expected: destination.len() as u64,
-                    available: 0,
-                },
+                SourceFailure::Io => {
+                    Error::from(ErrorKind::Io(io::Error::other("synthetic I/O failure")))
+                }
+                SourceFailure::Cancelled => Error::cancelled(),
+                SourceFailure::Truncated => Error::truncated(offset, destination.len() as u64, 0),
             });
         }
         if self.overreport {
@@ -192,12 +186,14 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Truncated(_)));
-    assert!(
-        error
-            .to_string()
-            .contains("truncated page information body")
-    );
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        }
+    ));
+    assert!(error.to_string().contains(": page information body"));
     assert!(short_source.reads.is_empty());
 
     let mut extra = body(2, 2, 0, 0).to_vec();
@@ -210,12 +206,14 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
-    assert!(
-        error
-            .to_string()
-            .contains("malformed extra page information bytes")
-    );
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
+    assert!(error.to_string().contains(": extra page information bytes"));
     assert!(extra_source.reads.is_empty());
 }
 
@@ -241,7 +239,7 @@ fn rejects_geometry_over_the_pixel_and_allocation_limits() {
     ] {
         let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
         assert!(
-            matches!(error.kind, PageInfoErrorKind::LimitExceeded { resource: actual, .. } if actual == resource),
+            matches!(error, Error { kind: ErrorKind::LimitExceeded { resource: actual, .. }, .. } if actual == resource),
             "{error}"
         );
     }
@@ -253,8 +251,14 @@ fn rejects_a_body_span_beyond_the_address_space() {
     header.data.offset = u64::MAX - 10;
     source.size = u64::MAX;
     let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::InvalidSpan(_)));
-    assert!(error.to_string().contains("invalid span"));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
+    assert!(error.to_string().contains("page information end overflows"));
     assert!(source.reads.is_empty());
 }
 
@@ -263,29 +267,50 @@ fn rejects_physical_truncation_zero_progress_overreport_and_source_failure() {
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.size -= 1;
     let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Truncated(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        }
+    ));
     assert!(source.reads.is_empty());
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.max_read = 0;
     let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Truncated(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            ..
+        }
+    ));
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.overreport = true;
     let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.fail_at = Some((header.data.offset, SourceFailure::Io));
     let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Source(_)));
-    assert!(error.to_string().contains("source: I/O error"));
+    assert!(matches!(error.kind, ErrorKind::Io(_)));
+    assert!(
+        error.to_string().contains("synthetic I/O failure"),
+        "{error}"
+    );
     assert!(std::error::Error::source(&error).is_some());
 
     for (failure, expected) in [
         (SourceFailure::Cancelled, "cancelled"),
-        (SourceFailure::Truncated, "truncated page information body"),
+        (SourceFailure::Truncated, ": page information body"),
     ] {
         let (mut source, header) = prepared(&body(2, 2, 0, 0));
         source.fail_at = Some((header.data.offset, failure));
@@ -306,7 +331,13 @@ fn cancellation_before_and_after_a_body_read_is_located() {
         &Flag(state.clone()),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(error.to_string().contains("cancelled"));
     assert!(std::error::Error::source(&error).is_none());
     assert!(source.reads.is_empty());
@@ -321,7 +352,13 @@ fn cancellation_before_and_after_a_body_read_is_located() {
         &Flag(state.clone()),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     let cancellation = CancelOnCheck {
@@ -330,7 +367,13 @@ fn cancellation_before_and_after_a_body_read_is_located() {
     };
     let error =
         read_page_info(&mut source, &header, &Limits::default(), &cancellation).unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert_eq!(cancellation.checks.get(), 2);
     assert!(source.reads.is_empty());
 }
@@ -344,10 +387,13 @@ fn input_and_output_limits_stop_work() {
     };
     let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
     assert!(matches!(
-        error.kind,
-        PageInfoErrorKind::LimitExceeded { .. }
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
     ));
-    assert!(error.to_string().contains("limit 18 exceeded by 19"));
+    assert!(error.to_string().contains("maximum 18, attempted 19"));
 
     let limits = Limits {
         max_output_bytes: 3,
@@ -355,7 +401,10 @@ fn input_and_output_limits_stop_work() {
     };
     let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
     assert!(matches!(
-        error.kind,
-        PageInfoErrorKind::LimitExceeded { .. }
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
     ));
 }

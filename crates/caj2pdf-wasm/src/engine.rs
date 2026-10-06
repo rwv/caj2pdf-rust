@@ -11,8 +11,8 @@
 mod hnc8;
 
 use caj2pdf_core::{
-    Cancellation, ConversionOptions, ConversionReport, CountingSource, Detection, DocumentInfo,
-    Error, InputFormat, Limits, PdfErrorKind, RangedSource, Result,
+    Cancellation, Context, ConversionOptions, ConversionReport, CountingSource, Detection,
+    DocumentInfo, Error, ErrorKind, InputFormat, Limits, RangedSource, Result,
     caj::{convert_caj, parse_metadata},
     detect_source,
     hnc8::OutlineReport,
@@ -99,27 +99,29 @@ pub fn format_from_code(code: u32) -> Option<Option<InputFormat>> {
     })
 }
 
-/// Stable numeric error category shared with JavaScript (1..=16).
+/// Stable numeric error category shared with JavaScript (1..=16), from the
+/// error's kind and the structure it was located in. An I/O failure or a
+/// cancellation has its own code wherever it happened; any other HN/C8 or
+/// JBIG2 failure is `16`; a truncation is `3` and a resource limit outside
+/// a CAJ or PDF structure is `4`.
 pub fn error_code(error: &Error) -> u32 {
-    match error {
-        Error::UnsupportedFormat => 1,
-        Error::InvalidInput { .. } => 2,
-        Error::TruncatedInput { .. } => 3,
-        Error::LimitExceeded { .. } => 4,
-        Error::Io(_) => 5,
-        Error::Cancelled => 6,
+    match (&error.kind, error.context) {
+        (ErrorKind::Io(_), _) => 5,
+        (ErrorKind::Cancelled, _) => 6,
         // 7 is reserved: JavaScript reports `RANDOM_ACCESS_REQUIRED` itself.
-        Error::Pdf { kind, .. } => match kind {
-            PdfErrorKind::Malformed => 8,
-            PdfErrorKind::Encrypted => 9,
-            PdfErrorKind::UnsupportedFeature => 10,
-            PdfErrorKind::AmbiguousRepair => 11,
-        },
-        Error::PdfLimitExceeded { .. } => 12,
-        Error::Caj { .. } => 13,
-        Error::CajLimitExceeded { .. } => 14,
-        Error::Kdh { .. } => 15,
-        Error::Hnc8(_) | Error::Hnc8Metadata(_) => 16,
+        (_, Context::Hnc8 { .. } | Context::Jbig2 { .. }) => 16,
+        (ErrorKind::Truncated { .. }, _) => 3,
+        (ErrorKind::LimitExceeded { .. }, Context::Pdf { .. }) => 12,
+        (ErrorKind::LimitExceeded { .. }, Context::Caj { .. }) => 14,
+        (ErrorKind::LimitExceeded { .. }, _) => 4,
+        (ErrorKind::Malformed, Context::Pdf { repair: true, .. }) => 11,
+        (ErrorKind::Malformed, Context::Pdf { .. }) => 8,
+        (ErrorKind::Encrypted, Context::Pdf { .. }) => 9,
+        (ErrorKind::UnsupportedFormat, Context::Pdf { .. }) => 10,
+        (_, Context::Caj { .. }) => 13,
+        (_, Context::Kdh) => 15,
+        (ErrorKind::UnsupportedFormat, _) => 1,
+        (ErrorKind::Malformed | ErrorKind::Encrypted, Context::None) => 2,
     }
 }
 
@@ -127,11 +129,11 @@ pub fn error_code(error: &Error) -> u32 {
 pub fn validate_limits(limits: &Limits) -> Result<()> {
     limits.validate()?;
     if limits.max_allocation_bytes > MAX_ALLOCATION_LIMIT {
-        return Err(Error::LimitExceeded {
-            resource: "WASM allocation limit",
-            limit: MAX_ALLOCATION_LIMIT,
-            attempted: limits.max_allocation_bytes,
-        });
+        return Err(Error::limit(
+            "WASM allocation limit",
+            MAX_ALLOCATION_LIMIT,
+            limits.max_allocation_bytes,
+        ));
     }
     Ok(())
 }
@@ -197,9 +199,7 @@ impl<H: Host> RangedSource for HostSource<'_, H> {
         // `RangedSource` contract allows a read that runs past the end. Clamp
         // such a read here so it becomes a short read, as on native sources.
         let Some(remaining) = self.size.checked_sub(offset) else {
-            return Err(Error::InvalidInput {
-                reason: "read starts beyond source size",
-            });
+            return Err(Error::invalid("read starts beyond source size"));
         };
         let wanted = usize::try_from(remaining).map_or(destination.len(), |remaining| {
             remaining.min(destination.len())
@@ -212,9 +212,9 @@ impl<H: Host> RangedSource for HostSource<'_, H> {
                 .borrow_mut()
                 .read(self.resource, offset, &mut destination[..wanted])?;
         if count > wanted {
-            return Err(Error::InvalidInput {
-                reason: "host read returned more bytes than requested",
-            });
+            return Err(Error::invalid(
+                "host read returned more bytes than requested",
+            ));
         }
         self.report_progress(offset + count as u64);
         Ok(count)
@@ -385,9 +385,9 @@ fn run<'h, H: Host>(
         && !(matches!(operation, Operation::Convert { .. })
             && matches!(format, InputFormat::C8 | InputFormat::Hn))
     {
-        return Err(Error::InvalidInput {
-            reason: "explicit native font resources require converting a C8 or HN-B document",
-        });
+        return Err(Error::invalid(
+            "explicit native font resources require converting a C8 or HN-B document",
+        ));
     }
     let mut outcome = match operation {
         Operation::Convert { options, .. } => {
@@ -416,7 +416,7 @@ fn run<'h, H: Host>(
                     &limits,
                     &cancellation,
                 )?,
-                _ => return Err(Error::UnsupportedFormat),
+                _ => return Err(ErrorKind::UnsupportedFormat.into()),
             };
             Outcome {
                 report,
@@ -452,7 +452,7 @@ fn resolve_format<S: RangedSource, C: Cancellation>(
             bytes_read: 0,
         });
     }
-    detect_source(source, limits, cancellation)?.ok_or(Error::UnsupportedFormat)
+    detect_source(source, limits, cancellation)?.ok_or_else(|| ErrorKind::UnsupportedFormat.into())
 }
 
 /// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
@@ -508,7 +508,7 @@ fn inspect<S: RangedSource, C: Cancellation>(
                 inspected.outline_warnings,
             )
         }
-        _ => return Err(Error::UnsupportedFormat),
+        _ => return Err(ErrorKind::UnsupportedFormat.into()),
     };
     Ok(Outcome {
         report: ConversionReport {

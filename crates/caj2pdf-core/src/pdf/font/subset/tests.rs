@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
 use crate::native::SeekableSource;
 use crate::pdf::drawing_font;
 use crate::pdf::font::tests::{Tables, build, get32, table, tables};
@@ -343,7 +344,7 @@ fn malformed_locations_and_components_fail_closed() {
     for (index, (reason, edit)) in cases.into_iter().enumerate() {
         let result = subset(malformed(edit), &['C', 'D'], 64);
         assert!(
-            matches!(result, Err(Error::InvalidInput { reason: actual }) if actual == reason),
+            matches!(result, Err(Error { kind: ErrorKind::Malformed, reason: actual, .. }) if actual == reason),
             "case {index}: {result:?}"
         );
     }
@@ -355,8 +356,10 @@ fn unmapped_used_characters_report_a_changed_source() {
         let result = subset(composite_font(false, false), &[character], 64);
         assert!(matches!(
             result,
-            Err(Error::InvalidInput {
-                reason: "font source changed after its metadata was read"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "font source changed after its metadata was read",
+                ..
             })
         ));
     }
@@ -374,7 +377,10 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     // Six glyphs need 6 * (2 + 12) bytes of glyph tables.
     assert!(matches!(
         font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER),
-        Err(Error::LimitExceeded { attempted: 84, .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { attempted: 84, .. },
+            ..
+        })
     ));
     let limits = Limits {
         max_allocation_bytes: 96,
@@ -383,7 +389,10 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     // Glyph 4 with its instructions is 10 + 14 + 2 + 100 bytes.
     assert!(matches!(
         font.plan_subset(&used(&['C']), u64::MAX, &limits, &NEVER),
-        Err(Error::LimitExceeded { attempted: 126, .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { attempted: 126, .. },
+            ..
+        })
     ));
     font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)
         .unwrap();
@@ -444,8 +453,10 @@ fn components_changed_between_reads_are_rejected() {
     let result = subset_with(&mut source, &['C'], &limits);
     assert!(matches!(
         result,
-        Err(Error::InvalidInput {
-            reason: "font source changed after its metadata was read"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "font source changed after its metadata was read",
+            ..
         })
     ));
 }
@@ -467,11 +478,17 @@ fn projected_program_length_is_bounded_before_measuring() {
         let error = font.plan_subset(&used, length - 1, &limits, &NEVER);
         assert!(matches!(
             error,
-            Err(Error::LimitExceeded { limit, attempted, .. })
+            Err(Error { kind: ErrorKind::LimitExceeded { limit, attempted, .. }, .. })
                 if limit == length - 1 && attempted == length
         ));
         // The glyph data bound applies while components are still found.
         let error = font.plan_subset(&used, 40, &limits, &NEVER);
-        assert!(matches!(error, Err(Error::LimitExceeded { limit: 40, .. })));
+        assert!(matches!(
+            error,
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { limit: 40, .. },
+                ..
+            })
+        ));
     };
 }

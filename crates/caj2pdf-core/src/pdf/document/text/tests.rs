@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
 use crate::{
     native::SeekableSource,
     pdf::font::tests::drawing_font,
@@ -60,8 +61,10 @@ fn fonts_must_be_embedded_before_finishing() {
         content.finish().unwrap();
         assert!(matches!(
             document.finish(),
-            Err(Error::InvalidInput {
-                reason: "PDF font was added but its subset was not embedded"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF font was added but its subset was not embedded",
+                ..
             })
         ));
     };
@@ -122,8 +125,10 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
         document.embed_font(&handle, &mut font).unwrap();
         assert!(matches!(
             document.embed_font(&handle, &mut font),
-            Err(Error::InvalidInput {
-                reason: "PDF font subset is already embedded"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF font subset is already embedded",
+                ..
             })
         ));
         document.finish().unwrap()
@@ -374,8 +379,10 @@ fn foreign_resources_and_page_preflight_do_not_poison() {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
         assert!(matches!(
             document.embed_font(&foreign, &mut font),
-            Err(Error::InvalidInput {
-                reason: "PDF font was not added to this document"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF font was not added to this document",
+                ..
             })
         ));
         assert!(
@@ -551,8 +558,10 @@ fn changed_font_sources_are_rejected_when_embedding() {
             let result = document.embed_font(&handle, &mut font);
             assert!(matches!(
                 result,
-                Err(Error::InvalidInput {
-                    reason: "font source changed after its metadata was read"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "font source changed after its metadata was read",
+                    ..
                 })
             ));
             // Changes are detected before output; the document survives.
@@ -595,8 +604,10 @@ fn subset_reads_count_toward_the_input_limit() {
         document.embed_font(&handle, &mut font).unwrap();
         assert!(matches!(
             document.begin_content_page(page(), &fonts, &[]),
-            Err(Error::InvalidInput {
-                reason: "PDF font subset is already embedded"
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                reason: "PDF font subset is already embedded",
+                ..
             })
         ));
         document.finish().unwrap().input_bytes_read
@@ -628,8 +639,11 @@ fn subset_reads_count_toward_the_input_limit() {
             content.finish().unwrap();
             assert!(matches!(
                 document.embed_font(&handle, &mut font),
-                Err(Error::LimitExceeded {
-                    resource: "input bytes",
+                Err(Error {
+                    kind: ErrorKind::LimitExceeded {
+                        resource: "input bytes",
+                        ..
+                    },
                     ..
                 })
             ));
@@ -703,7 +717,13 @@ fn cancelled_draws_cannot_publish_a_partial_page() {
             2 => page.glyph_with_gray(0, 'A', matrix(10.0), 68),
             _ => page.glyph(0, 'A', matrix(10.0)),
         };
-        assert!(matches!(draw, Err(Error::Cancelled)));
+        assert!(matches!(
+            draw,
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            })
+        ));
         cancelled.set(false);
         assert!(page.finish().is_err());
         assert!(document.finish().is_err());

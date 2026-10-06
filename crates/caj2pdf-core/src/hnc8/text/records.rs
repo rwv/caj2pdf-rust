@@ -173,7 +173,7 @@ impl Records {
                         continue;
                     }
                     Ok(Next::End) => self.ended = true,
-                    Err((field, reason)) => return Err(at.malformed(field, reason)),
+                    Err(reason) => return Err(at.malformed(reason)),
                 }
             }
             self.filled = 0;
@@ -183,10 +183,7 @@ impl Records {
     }
 
     /// Classify the completed four-byte record against the grammar.
-    fn next(
-        &mut self,
-        descriptors: usize,
-    ) -> std::result::Result<Next, (&'static str, &'static str)> {
+    fn next(&mut self, descriptors: usize) -> std::result::Result<Next, &'static str> {
         let tag = u16::from_le_bytes([self.bytes[0], self.bytes[1]]);
         let images_left = self.images < descriptors;
         match &mut self.grammar {
@@ -202,7 +199,7 @@ impl Records {
                     (Stage::Start | Stage::Glyphs | Stage::End, 0x8004) if !images_left => {
                         return Ok(Next::End);
                     }
-                    _ => return Err(("raw text record", "unexpected tag or record order")),
+                    _ => return Err("raw text record: unexpected tag or record order"),
                 };
                 Ok(Next::Record)
             }
@@ -212,15 +209,12 @@ impl Records {
                 // No glyph semantics are assigned to the control.
                 0x80ce if page_prefix && self.bytes[2..4] == [0, 0] => Ok(Next::Record),
                 0x800a if images_left => Ok(Next::Image),
-                0x800a => Err((
-                    "decoded image records",
-                    "more image records than source descriptors",
-                )),
+                0x800a => Err("decoded image records: more image records than source descriptors"),
                 0x8004 => Ok(Next::End),
                 0..=0x7fff | 0x8001 | 0x801c | 0x801d | 0x80ff | 0x8070 | 0x8071 => {
                     Ok(Next::Record)
                 }
-                _ => Err(("decoded text record", "unknown control tag")),
+                _ => Err("decoded text record: unknown control tag"),
             },
             Grammar::Fixed { .. } => unreachable!("the fixed layout is positional"),
         }
@@ -249,7 +243,7 @@ impl Records {
                 };
                 if expected.is_some_and(|expected| expected != byte) {
                     return Err(
-                        loc.malformed("decoded text marker", "differs from observed record marker")
+                        loc.malformed("decoded text marker: differs from observed record marker")
                     );
                 }
             } else if at >= tail_start - 4 {
@@ -288,10 +282,10 @@ impl Records {
             Grammar::Ordered(_) if !self.ended => {
                 return Err(loc
                     .at(self.end)
-                    .malformed("raw text records", "missing image records or end marker"));
+                    .malformed("raw text records: missing image records or end marker"));
             }
             Grammar::Tagged { .. } if !self.ended => {
-                return Err(loc.malformed("decoded text records", "missing complete terminator"));
+                return Err(loc.malformed("decoded text records: missing complete terminator"));
             }
             _ => (),
         }

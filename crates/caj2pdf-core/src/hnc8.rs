@@ -26,9 +26,8 @@ pub use appinfo::{
     MAX_APPLICATION_INFO_BYTES, MAX_APPLICATION_INFO_FIELD_BYTES,
 };
 pub use compose::{
-    C8FontSource, C8FontSources, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage,
-    ComposeReport, ComposeStage, ComposeVisitor, ComposedImage, convert_document_pdf,
-    convert_source_pages_pdf, uses_native_text,
+    C8FontSource, C8FontSources, ComposeOptions, ComposePage, ComposeReport, ComposeVisitor,
+    ComposedImage, convert_document_pdf, convert_source_pages_pdf, uses_native_text,
 };
 pub use jpeg::{JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{
@@ -46,11 +45,11 @@ pub(crate) use placement::{
 pub use structure::{ApplicationInfoTail, TextFraming, TextStructure};
 pub use text::RawTextCoordinate;
 pub(crate) use text::TEXT_DECODER_RESERVATION_BYTES;
-pub use type3_image::Type3Stage;
 
 use crate::jbig1::Type0Span;
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
-use std::{error, fmt};
+use crate::{
+    Cancellation, Context, Error, ErrorKind, Hnc8Stage, Limits, RangedSource, Result, read_exact_at,
+};
 
 const PAGE_ROW_BYTES: u64 = 20;
 const IMAGE_RECORD_BYTES: u64 = 12;
@@ -84,12 +83,6 @@ struct At {
     offset: Option<u64>,
 }
 
-/// An error kind that an [`At`] locates as its converter's error.
-trait Locate {
-    type Error;
-    fn locate(self, at: At) -> Self::Error;
-}
-
 impl At {
     const NONE: Self = Self {
         variant: None,
@@ -105,8 +98,55 @@ impl At {
         }
     }
 
-    fn error<K: Locate>(self, kind: K) -> K::Error {
-        kind.locate(self)
+    /// Locate `error` at the conversion `stage`. An unlocated error takes
+    /// this location; an HN/C8 or JBIG2 error keeps its own offset, numbers
+    /// and stage and gains the ones it lacks.
+    fn locate(self, stage: Hnc8Stage, error: Error) -> Error {
+        let context = match error.context {
+            Context::None => Context::Hnc8 {
+                variant: self.variant,
+                page: self.page,
+                image: self.image,
+                segment: None,
+                stage: Some(stage),
+            },
+            Context::Jbig2 { segment } => Context::Hnc8 {
+                variant: self.variant,
+                page: self.page,
+                image: self.image,
+                segment,
+                stage: Some(stage),
+            },
+            Context::Hnc8 {
+                variant,
+                page,
+                image,
+                segment,
+                stage: own,
+            } => Context::Hnc8 {
+                variant: variant.or(self.variant),
+                page: page.or(self.page),
+                image: image.or(self.image),
+                segment,
+                stage: own.or(Some(stage)),
+            },
+            _ => return error,
+        };
+        Error {
+            offset: error.offset.or(self.offset),
+            context,
+            ..error
+        }
+    }
+
+    /// An unlocated error at `stage`.
+    fn error(self, stage: Hnc8Stage, error: Error) -> Error {
+        self.locate(stage, error)
+    }
+
+    /// A mapper that locates an error at `stage`.
+    fn locator(self, stage: Hnc8Stage) -> impl FnOnce(Error) -> Error {
+        move |error| self.locate(stage, error)
     }
 }
 
@@ -174,127 +214,6 @@ impl ImageRecord {
     }
 }
 
-#[derive(Debug)]
-pub enum ErrorKind {
-    Malformed {
-        field: &'static str,
-        reason: &'static str,
-    },
-    Unsupported {
-        field: &'static str,
-        value: u64,
-    },
-    Truncated {
-        field: &'static str,
-        expected: u64,
-        available: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    Source {
-        field: &'static str,
-        source: Error,
-    },
-    Cancelled,
-    IncompletePage,
-    NoCurrentPage,
-}
-
-impl ErrorKind {
-    /// Stable field label for diagnostics and external metadata checks.
-    pub const fn field(&self) -> &'static str {
-        match self {
-            Self::Malformed { field, .. }
-            | Self::Unsupported { field, .. }
-            | Self::Truncated { field, .. }
-            | Self::Source { field, .. } => field,
-            Self::LimitExceeded { resource, .. } => resource,
-            Self::Cancelled => "cancellation",
-            Self::IncompletePage => "image count",
-            Self::NoCurrentPage => "page cursor",
-        }
-    }
-
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Malformed { .. } => "malformed",
-            Self::Unsupported { .. } => "unsupported",
-            Self::Truncated { .. } => "truncated",
-            Self::LimitExceeded { .. } => "limit",
-            Self::Source { .. } => "source",
-            Self::Cancelled => "cancelled",
-            Self::IncompletePage => "incomplete_page",
-            Self::NoCurrentPage => "no_current_page",
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Hnc8Error {
-    pub variant: Option<Variant>,
-    pub offset: u64,
-    pub page: Option<u32>,
-    pub image: Option<u32>,
-    pub kind: ErrorKind,
-}
-
-pub type Result<T> = std::result::Result<T, Hnc8Error>;
-
-impl fmt::Display for Hnc8Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HN/C8")?;
-        if let Some(variant) = self.variant {
-            write!(f, " {}", variant.as_str())?;
-        }
-        write!(f, " at byte {}", self.offset)?;
-        if let Some(page) = self.page {
-            write!(f, ", page {page}")?;
-        }
-        if let Some(image) = self.image {
-            write!(f, ", image {image}")?;
-        }
-        write!(f, ": {}", self.kind)
-    }
-}
-
-impl fmt::Display for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Malformed { field, reason } => write!(f, "malformed {field}: {reason}"),
-            Self::Unsupported { field, value } => write!(f, "unsupported {field}: {value}"),
-            Self::Truncated {
-                field,
-                expected,
-                available,
-            } => write!(
-                f,
-                "truncated {field}: expected {expected} bytes, available {available}"
-            ),
-            Self::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            Self::Source { field, source } => write!(f, "{field} source error: {source}"),
-            Self::Cancelled => f.write_str("cancelled"),
-            Self::IncompletePage => f.write_str("page has unread image records"),
-            Self::NoCurrentPage => f.write_str("no current page"),
-        }
-    }
-}
-
-impl error::Error for Hnc8Error {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            ErrorKind::Source { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Location {
     variant: Option<Variant>,
@@ -307,24 +226,40 @@ impl Location {
     fn at(self, offset: u64) -> Self {
         Self { offset, ..self }
     }
-    fn error(self, kind: ErrorKind) -> Hnc8Error {
-        Hnc8Error {
+
+    fn context(self) -> Context {
+        Context::Hnc8 {
             variant: self.variant,
-            offset: self.offset,
             page: self.page,
             image: self.image,
-            kind,
+            segment: None,
+            stage: None,
         }
     }
-    fn malformed(self, field: &'static str, reason: &'static str) -> Hnc8Error {
-        self.error(ErrorKind::Malformed { field, reason })
+
+    /// Locate an unlocated error here.
+    fn locate(self, error: Error) -> Error {
+        error.or_at(self.offset, self.context())
     }
-    fn limit(self, resource: &'static str, limit: u64, attempted: u64) -> Hnc8Error {
-        self.error(ErrorKind::LimitExceeded {
-            resource,
-            limit,
-            attempted,
-        })
+
+    fn malformed(self, reason: &'static str) -> Error {
+        self.locate(Error::invalid(reason))
+    }
+
+    fn unsupported(self, reason: &'static str) -> Error {
+        self.locate(Error::unsupported(self.offset, reason))
+    }
+
+    fn truncated(self, field: &'static str, expected: u64, available: u64) -> Error {
+        self.locate(Error::truncated(self.offset, expected, available).because(field))
+    }
+
+    fn limit(self, resource: &'static str, limit: u64, attempted: u64) -> Error {
+        self.locate(Error::limit(resource, limit, attempted))
+    }
+
+    fn cancelled(self) -> Error {
+        self.locate(Error::cancelled())
     }
 }
 
@@ -343,11 +278,7 @@ fn checked_span(
     debug_assert!(offset < 1 << 42 && length < 1 << 42);
     let end = offset + length;
     if offset > source_size || end > source_size {
-        return Err(loc.error(ErrorKind::Truncated {
-            field,
-            expected: length,
-            available: source_size.saturating_sub(offset),
-        }));
+        return Err(loc.truncated(field, length, source_size.saturating_sub(offset)));
     }
     Ok(Span { offset, length })
 }
@@ -360,8 +291,9 @@ fn signed16(bytes: &[u8]) -> i16 {
     i16::from_le_bytes(bytes.try_into().expect("fixed field width"))
 }
 
-fn nonnegative32(value: i32, loc: Location, field: &'static str) -> Result<u64> {
-    u64::try_from(value).map_err(|_| loc.malformed(field, "negative signed value"))
+/// `reason` names the field and that it is negative.
+fn nonnegative32(value: i32, loc: Location, reason: &'static str) -> Result<u64> {
+    u64::try_from(value).map_err(|_| loc.malformed(reason))
 }
 
 fn read_fixed<S: RangedSource, C: Cancellation>(
@@ -385,19 +317,9 @@ fn read_fixed<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .map_err(|error| match error {
-            Error::Cancelled => loc.at(current).error(ErrorKind::Cancelled),
-            Error::TruncatedInput { available, .. } => {
-                loc.at(current).error(ErrorKind::Truncated {
-                    field,
-                    expected: count as u64,
-                    available,
-                })
-            }
-            other => loc.at(current).error(ErrorKind::Source {
-                field,
-                source: other,
-            }),
+        .map_err(|error| match error.kind {
+            ErrorKind::Truncated { .. } => loc.at(current).locate(error.because(field)),
+            _ => loc.at(current).locate(error),
         })?;
         done += count;
     }
@@ -460,14 +382,9 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             page: None,
             image: None,
         };
-        limits.validate().map_err(|source| {
-            base.error(ErrorKind::Source {
-                field: "limits",
-                source,
-            })
-        })?;
+        limits.validate().map_err(|source| base.locate(source))?;
         if cancellation.is_cancelled() {
-            return Err(base.error(ErrorKind::Cancelled));
+            return Err(base.cancelled());
         }
         if source.size() > limits.max_input_bytes {
             return Err(base.limit("source bytes", limits.max_input_bytes, source.size()));
@@ -499,18 +416,12 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                     [0x90, 0x01, 0, 0] => (Variant::HnA, 0x90, 0x15c),
                     [0xc8, 0, 0, 0] => (Variant::HnB, 0x90, 0xd8),
                     _ => {
-                        return Err(base.at(4).error(ErrorKind::Unsupported {
-                            field: "HN marker",
-                            value: u64::from(u32::from_le_bytes(marker)),
-                        }));
+                        return Err(base.at(4).unsupported("HN marker"));
                     }
                 }
             }
             _ => {
-                return Err(base.error(ErrorKind::Unsupported {
-                    field: "signature",
-                    value: u64::from(u32::from_le_bytes(magic)),
-                }));
+                return Err(base.unsupported("signature"));
             }
         };
         let loc = Location {
@@ -531,7 +442,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         if signed_count <= 0 {
             return Err(loc
                 .at(count_offset)
-                .malformed("page count", "must be positive"));
+                .malformed("page count: must be positive"));
         }
         let page_count = signed_count as u32;
         if page_count > limits.max_pages {
@@ -604,7 +515,11 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 loc.at(0x158),
                 "outline count",
             )?;
-            let outline_count = nonnegative32(signed32(&outline), loc.at(0x158), "outline count")?;
+            let outline_count = nonnegative32(
+                signed32(&outline),
+                loc.at(0x158),
+                "outline count: negative signed value",
+            )?;
             // The count is below 2^31, so the index starts below 2^42.
             let outline_bytes = outline_count * OUTLINE_RECORD_BYTES;
             index_start + outline_bytes
@@ -625,11 +540,8 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             match u32::from_le_bytes(marker) {
                 0 => 12,
                 0xc8 => PAGE_ROW_BYTES,
-                value => {
-                    return Err(loc.at(0x88).error(ErrorKind::Unsupported {
-                        field: "HN-B page-index layout",
-                        value: u64::from(value),
-                    }));
+                _ => {
+                    return Err(loc.at(0x88).unsupported("HN-B page-index layout"));
                 }
             }
         } else {
@@ -646,7 +558,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         if start_page == 0 || start_page > page_count {
             return Err(loc
                 .at(index_start)
-                .malformed("page number", "outside declared page index"));
+                .malformed("page number: outside declared page index"));
         }
         Ok(Self {
             source,
@@ -691,13 +603,13 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 offset: current.next_descriptor,
                 ..loc
             }
-            .error(ErrorKind::IncompletePage));
+            .malformed("page has unread image records"));
         }
         if self.next_page > self.header.page_count {
             return Ok(None);
         }
         if self.cancellation.is_cancelled() {
-            return Err(loc.error(ErrorKind::Cancelled));
+            return Err(loc.cancelled());
         }
         let page_number = self.next_page;
         let row_offset =
@@ -713,9 +625,16 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             loc,
             "page row",
         )?;
-        let text_offset = nonnegative32(signed32(&row[..4]), loc, "text offset")?;
-        let text_length =
-            nonnegative32(signed32(&row[4..8]), loc.at(row_offset + 4), "text length")?;
+        let text_offset = nonnegative32(
+            signed32(&row[..4]),
+            loc,
+            "text offset: negative signed value",
+        )?;
+        let text_length = nonnegative32(
+            signed32(&row[4..8]),
+            loc.at(row_offset + 4),
+            "text length: negative signed value",
+        )?;
         let text = checked_span(
             self.source.size(),
             text_offset,
@@ -725,21 +644,20 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         )?;
         if self.page_row_bytes == 12 {
             if text.offset < self.header.page_index.checked_end().expect("checked index") {
-                return Err(loc.malformed("text span", "overlaps protected container index"));
+                return Err(loc.malformed("text span: overlaps protected container index"));
             }
             let value = u32::from_le_bytes(row[8..12].try_into().expect("four bytes"));
             if value != 0 {
-                return Err(loc.at(row_offset + 8).error(ErrorKind::Unsupported {
-                    field: "compact HN-B third word",
-                    value: u64::from(value),
-                }));
+                return Err(loc
+                    .at(row_offset + 8)
+                    .unsupported("compact HN-B third word"));
             }
         }
         let signed_images = signed16(&row[8..10]);
         if signed_images < 0 {
             return Err(loc
                 .at(row_offset + 8)
-                .malformed("image count", "negative signed value"));
+                .malformed("image count: negative signed value"));
         }
         let image_count = signed_images as u32;
         let mut unknown = [0; 10];
@@ -769,12 +687,12 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         };
         let current = self
             .current
-            .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?;
+            .ok_or_else(|| loc.malformed("no current page"))?;
         if current.next_image > current.page.image_count {
             return Ok(None);
         }
         if self.cancellation.is_cancelled() {
-            return Err(loc.error(ErrorKind::Cancelled));
+            return Err(loc.cancelled());
         }
         let descriptor_offset = current.next_descriptor;
         let loc = loc.at(descriptor_offset);
@@ -792,7 +710,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 .checked_end()
                 .expect("checked page index"),
         ) {
-            return Err(loc.malformed("image descriptor", "overlaps header or page index"));
+            return Err(loc.malformed("image descriptor: overlaps header or page index"));
         }
         let mut bytes = [0; IMAGE_RECORD_BYTES as usize];
         read_fixed(
@@ -806,28 +724,25 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         )?;
         let signed_type = signed32(&bytes[..4]);
         if signed_type < 0 {
-            return Err(loc.malformed("image type", "negative signed value"));
+            return Err(loc.malformed("image type: negative signed value"));
         }
         if signed_type > 3 {
-            return Err(loc.error(ErrorKind::Unsupported {
-                field: "image type",
-                value: signed_type as u64,
-            }));
+            return Err(loc.unsupported("image type"));
         }
         let payload_offset = nonnegative32(
             signed32(&bytes[4..8]),
             loc.at(descriptor_offset + 4),
-            "image offset",
+            "image offset: negative signed value",
         )?;
         let payload_length = nonnegative32(
             signed32(&bytes[8..12]),
             loc.at(descriptor_offset + 8),
-            "image length",
+            "image length: negative signed value",
         )?;
         if payload_length == 0 {
             return Err(loc
                 .at(descriptor_offset + 8)
-                .malformed("image length", "zero-length payload"));
+                .malformed("image length: zero-length payload"));
         }
         let payload = checked_span(
             self.source.size(),
@@ -844,10 +759,9 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             ));
         }
         if payload.offset < descriptor.checked_end().expect("checked descriptor span") {
-            return Err(loc.at(descriptor_offset + 4).malformed(
-                "image offset",
-                "payload overlaps descriptor or chain regresses",
-            ));
+            return Err(loc
+                .at(descriptor_offset + 4)
+                .malformed("image offset: payload overlaps descriptor or chain regresses"));
         }
         // The payload starts at or after the descriptor's end, and the
         // descriptor was checked to start after the protected header and

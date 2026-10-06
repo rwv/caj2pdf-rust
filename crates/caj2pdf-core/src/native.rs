@@ -35,22 +35,18 @@ impl<R: Read + Seek> RangedSource for SeekableSource<R> {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if destination.len() > MAX_IO_CHUNK {
-            return Err(Error::LimitExceeded {
-                resource: "I/O request bytes",
-                limit: MAX_IO_CHUNK as u64,
-                attempted: destination.len() as u64,
-            });
+            return Err(Error::limit(
+                "I/O request bytes",
+                MAX_IO_CHUNK as u64,
+                destination.len() as u64,
+            ));
         }
         if offset > self.size {
-            return Err(Error::InvalidInput {
-                reason: "read starts beyond source size",
-            });
+            return Err(Error::invalid("read starts beyond source size"));
         }
         offset
             .checked_add(destination.len() as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "read end overflows 64-bit offset",
-            })?;
+            .ok_or(Error::invalid("read end overflows 64-bit offset"))?;
         self.inner.seek(SeekFrom::Start(offset))?;
         Ok(self.inner.read(destination)?)
     }

@@ -23,7 +23,7 @@ fn table() -> MqTable {
 /// A coding unit's contexts with the bitmap range at
 /// [`BITMAP_BASE`]; refinement needs no IAID contexts.
 fn contexts(limits: &Limits) -> ContextBank {
-    caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1024, limits).unwrap()
+    ContextBank::new(BITMAP_BASE + 1024, limits).unwrap()
 }
 
 /// An MQ stream coding each `(context, pixel)` decision in order.

@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **Breaking:** one located error type (#357). Every failure is
+  `Error { kind, offset, context, reason }` with one `ErrorKind` and one
+  `Context` (plus the `Hnc8Stage` and `Type3Stage` stage enums). Output
+  bytes and CLI exit codes are unchanged.
+  - **Removed types.** The `Error` enum variants and `PdfErrorKind`;
+    `hnc8::{Hnc8Error, ErrorKind, Result, ComposeError, ComposeErrorKind,
+    ComposeStage}` (`hnc8::Type3Stage` moves to the crate root);
+    `jbig1::{Type0Error, Type0ErrorKind, Type0Result}`;
+    `jbig2::mq::{ArithmeticError, ArithmeticErrorKind, ArithmeticResult,
+    Coder, context_bank}` (use `ContextBank::new`); `jbig2::{HeaderError,
+    HeaderErrorKind, HeaderResult, DirectoryError, DirectoryErrorKind}`;
+    `jbig2::page_info::{PageInfoError, PageInfoErrorKind, PageInfoResult}`;
+    `jbig2::generic::{GenericError, GenericErrorKind, GenericResult}`;
+    `jbig2::refinement::{RefinementError, RefinementErrorKind,
+    RefinementResult}`; `jbig2::dictionary::{DictionaryError,
+    DictionaryErrorKind, DictionaryResult}`; `jbig2::text::{TextRegionError,
+    TextRegionErrorKind, TextRegionResult}`;
+    `jbig2::text_instances::{TextInstanceError, TextInstanceErrorKind,
+    TextInstanceResult}`; `jbig2::text_composer::{TextComposeError,
+    TextComposeErrorKind, TextComposeResult}`;
+    `jbig2::page_compose::{PageComposeError, PageComposeErrorKind,
+    PageComposeResult}`; `jbig2::page_profile::{PageProfileError,
+    PageProfileErrorKind, PageProfileResult}`; and `jbig2::iaid::SymbolIdError`
+    (its reasons are the `EMPTY_SYMBOL_SET`, `TOO_MANY_SYMBOLS`,
+    `SYMBOL_ARRAY_LENGTH` and `SYMBOL_OUT_OF_RANGE` constants). Every decoder
+    returns `caj2pdf_core::Result`.
+  - **Dropped payloads.** Errors no longer carry decoder progress (bytes
+    fetched, rows, pixels, symbols, bitmap row and column), MQ context
+    indexes, rejected raw values or nested source errors; `source()` is the
+    `io::Error` of an I/O failure and nothing else. Progress stays on the
+    success reports.
+  - **Messages.** CAJ, KDH and PDF messages are unchanged. Other messages
+    put the kind first, for example `truncated HN/C8 HN-A at byte 408, page
+    4: text span: expected 4 bytes, available 0` (was `HN/C8 HN-A at byte
+    408, page 4: truncated text span: ...`), `malformed JBIG2 at byte 29,
+    segment 3: SBRTEMPLATE without SBREFINE`, and `truncated input at byte
+    0: expected 254 bytes, available 3` (was `truncated input at offset 0:
+    needed 254 bytes, got 3`). HN/C8 conversion stages no longer appear in
+    messages, and a source failure inside HN/C8 reports its own reason.
+  - **Codes.** No WASM or JavaScript error code is removed. An I/O failure or
+    cancellation during HN/C8 conversion or inspection now reports `IO` or
+    `CANCELLED` instead of `HNC8`.
+
 - **Breaking:** the budget structs are collapsed into `Limits` (#356). Output
   bytes are unchanged.
   - **Removed types.** `MAX_BUDGET_COUNT`, `hnc8::{Budget, ComposeBudget,

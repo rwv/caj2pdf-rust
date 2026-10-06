@@ -100,30 +100,24 @@ fn check_append_range(index: &PdfIndex, limits: &Limits, source_size: u64) -> Re
     limits.validate()?;
     let range = index.range();
     if range.length > limits.max_input_bytes {
-        return Err(Error::PdfLimitExceeded {
-            offset: range.offset,
-            object: Some((index.catalog().number, index.catalog().generation)),
-            resource: "input bytes",
-            limit: limits.max_input_bytes,
-            attempted: range.length,
-        });
+        return Err(
+            Error::limit("input bytes", limits.max_input_bytes, range.length)
+                .at(range.offset)
+                .in_pdf(Some((index.catalog().number, index.catalog().generation))),
+        );
     }
-    let range_end = range.end().ok_or(Error::InvalidInput {
-        reason: "PDF source range end overflows",
-    })?;
+    let range_end = range
+        .end()
+        .ok_or(Error::invalid("PDF source range end overflows"))?;
     if range_end > source_size || index.logical_end() > range.length {
-        return Err(Error::InvalidInput {
-            reason: "PDF index range exceeds source",
-        });
+        return Err(Error::invalid("PDF index range exceeds source"));
     }
     if index.logical_end() > limits.max_output_bytes {
-        return Err(Error::PdfLimitExceeded {
-            offset: range.offset.saturating_add(index.xref_offset()),
-            object: Some((index.catalog().number, index.catalog().generation)),
-            resource: "output bytes",
-            limit: limits.max_output_bytes,
-            attempted: index.logical_end(),
-        });
+        return Err(
+            Error::limit("output bytes", limits.max_output_bytes, index.logical_end())
+                .at(range.offset.saturating_add(index.xref_offset()))
+                .in_pdf(Some((index.catalog().number, index.catalog().generation))),
+        );
     }
     Ok(())
 }
@@ -177,31 +171,24 @@ impl<'a, W: Write, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             .outline
             .written()
             .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF bookmark count overflows",
-            })?;
+            .ok_or(Error::invalid("PDF bookmark count overflows"))?;
         self.limits.check_bookmarks(next_count)?;
-        let page =
-            *self
-                .index
-                .pages()
-                .get(bookmark.page_index as usize)
-                .ok_or(Error::InvalidInput {
-                    reason: "bookmark page is outside the PDF page tree",
-                })?;
+        let page = *self
+            .index
+            .pages()
+            .get(bookmark.page_index as usize)
+            .ok_or(Error::invalid("bookmark page is outside the PDF page tree"))?;
         let depth = usize_from_u32(bookmark.depth);
         if depth >= MAX_OUTLINE_DEPTH {
-            return Err(Error::LimitExceeded {
-                resource: "PDF outline depth",
-                limit: MAX_OUTLINE_DEPTH as u64,
-                attempted: depth as u64 + 1,
-            });
+            return Err(Error::limit(
+                "PDF outline depth",
+                MAX_OUTLINE_DEPTH as u64,
+                depth as u64 + 1,
+            ));
         }
         self.outline.check_depth(depth)?;
         if bookmark.title.is_empty() {
-            return Err(Error::InvalidInput {
-                reason: "bookmark title is empty",
-            });
+            return Err(Error::invalid("bookmark title is empty"));
         }
         self.outline.add(
             &mut self.writer,
@@ -286,15 +273,15 @@ fn copy_prefix<R: RangedSource, W: Write, C: Cancellation>(
     let mut done = 0;
     while done < length {
         let count = (length - done).min(chunk as u64) as usize;
-        let at = offset.checked_add(done).ok_or(Error::InvalidInput {
-            reason: "PDF copy offset overflows",
-        })?;
+        let at = offset
+            .checked_add(done)
+            .ok_or(Error::invalid("PDF copy offset overflows"))?;
         read_exact_at(source, at, &mut buffer[..count], limits, cancellation)?;
         patches.apply(&mut buffer[..count], done)?;
         writer.out.write_unbounded(&buffer[..count])?;
-        done = done.checked_add(count as u64).ok_or(Error::InvalidInput {
-            reason: "PDF copied-byte count overflows",
-        })?;
+        done = done
+            .checked_add(count as u64)
+            .ok_or(Error::invalid("PDF copied-byte count overflows"))?;
     }
     patches.check_consumed()
 }
@@ -326,24 +313,22 @@ impl<'a> CopyPatches<'a> {
                 break;
             }
             // `patch_at < end`, so the patch lies inside this chunk.
-            let within = patch_at.checked_sub(done).ok_or(Error::InvalidInput {
-                reason: "PDF stream separator patches are not sorted",
-            })? as usize;
+            let within = patch_at.checked_sub(done).ok_or(Error::invalid(
+                "PDF stream separator patches are not sorted",
+            ))? as usize;
             if buffer[within] != b'\r' {
-                return Err(Error::InvalidInput {
-                    reason: "PDF stream separator changed after inspection",
-                });
+                return Err(Error::invalid(
+                    "PDF stream separator changed after inspection",
+                ));
             }
             buffer[within] = b'\n';
             self.next_separator += 1;
         }
         while let Some(gap) = self.gaps.get(self.next_gap) {
-            let gap_end =
-                gap.offset
-                    .checked_add(gap.original.len() as u64)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF orphan gap patch overflows",
-                    })?;
+            let gap_end = gap
+                .offset
+                .checked_add(gap.original.len() as u64)
+                .ok_or(Error::invalid("PDF orphan gap patch overflows"))?;
             if gap.offset >= end {
                 break;
             }
@@ -355,9 +340,7 @@ impl<'a> CopyPatches<'a> {
                 let original_start = (overlap_start - gap.offset) as usize;
                 let original_end = (overlap_end - gap.offset) as usize;
                 if buffer[source_start..source_end] != gap.original[original_start..original_end] {
-                    return Err(Error::InvalidInput {
-                        reason: "PDF orphan gap changed after inspection",
-                    });
+                    return Err(Error::invalid("PDF orphan gap changed after inspection"));
                 }
                 buffer[source_start..source_end].fill(b' ');
             }
@@ -371,14 +354,12 @@ impl<'a> CopyPatches<'a> {
 
     fn check_consumed(&self) -> Result<()> {
         if self.next_separator != self.separators.len() {
-            return Err(Error::InvalidInput {
-                reason: "PDF stream separator patch exceeds copied prefix",
-            });
+            return Err(Error::invalid(
+                "PDF stream separator patch exceeds copied prefix",
+            ));
         }
         if self.next_gap != self.gaps.len() {
-            return Err(Error::InvalidInput {
-                reason: "PDF orphan gap patch exceeds copied prefix",
-            });
+            return Err(Error::invalid("PDF orphan gap patch exceeds copied prefix"));
         }
         Ok(())
     }
@@ -409,16 +390,12 @@ impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
             .entries
             .len()
             .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF append xref entry count overflows",
-            })?;
+            .ok_or(Error::invalid("PDF append xref entry count overflows"))?;
         if next > self.entries.capacity() {
             let cap = self.entries.capacity().max(4).saturating_mul(2).max(next);
             let bytes = (cap as u64)
                 .checked_mul(size_of::<XrefEntry>() as u64)
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF append xref allocation overflows",
-                })?;
+                .ok_or(Error::invalid("PDF append xref allocation overflows"))?;
             let limits = self.out.limits;
             limits.check_allocation(bytes)?;
             let refused = limits.allocation_refused("PDF append xref allocation", bytes);
@@ -431,9 +408,7 @@ impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
     fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.open || reference.number == 0 {
-            return Err(Error::InvalidInput {
-                reason: "invalid PDF append object state or number",
-            });
+            return Err(Error::invalid("invalid PDF append object state or number"));
         }
         self.reserve_entry()?;
         self.out.write(b"\n")?;
@@ -447,9 +422,7 @@ impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
 
     fn end_object(&mut self) -> Result<()> {
         if !self.open {
-            return Err(Error::InvalidInput {
-                reason: "no PDF append object is open",
-            });
+            return Err(Error::invalid("no PDF append object is open"));
         }
         self.out.write(b"\nendobj\n")?;
         self.open = false;
@@ -458,9 +431,7 @@ impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
 
     fn ensure_closed(&self) -> Result<()> {
         if self.open {
-            return Err(Error::InvalidInput {
-                reason: "PDF append object remains open",
-            });
+            return Err(Error::invalid("PDF append object remains open"));
         }
         Ok(())
     }
@@ -477,25 +448,21 @@ impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
             .sort_unstable_by_key(|entry| entry.reference.number);
         for pair in self.entries.windows(2) {
             if pair[0].reference.number == pair[1].reference.number {
-                return Err(Error::InvalidInput {
-                    reason: "PDF update defines an object twice",
-                });
+                return Err(Error::invalid("PDF update defines an object twice"));
             }
         }
         let highest = self
             .entries
             .last()
-            .ok_or(Error::InvalidInput {
-                reason: "PDF update has no xref entries",
-            })?
+            .ok_or(Error::invalid("PDF update has no xref entries"))?
             .reference
             .number;
         let index = self.index;
-        let size = index
-            .trailer_size()
-            .max(highest.checked_add(1).ok_or(Error::InvalidInput {
-                reason: "PDF trailer Size overflows",
-            })?);
+        let size = index.trailer_size().max(
+            highest
+                .checked_add(1)
+                .ok_or(Error::invalid("PDF trailer Size overflows"))?,
+        );
         let id = index.trailer_first_id().map(|first| {
             let second = update_id(
                 index.trailer_id().unwrap_or_default(),
@@ -544,15 +511,17 @@ impl<W: Write, C: Cancellation> ObjectAllocator for AppendWriter<'_, W, C> {
             None => self.index.next_free_object_number()?,
         };
         if number == 0 || number > MAX_PDF_OBJECTS {
-            return Err(Error::LimitExceeded {
-                resource: "PDF object number",
-                limit: u64::from(MAX_PDF_OBJECTS),
-                attempted: u64::from(number),
-            });
+            return Err(Error::limit(
+                "PDF object number",
+                u64::from(MAX_PDF_OBJECTS),
+                u64::from(number),
+            ));
         }
-        self.next_number = Some(number.checked_add(1).ok_or(Error::InvalidInput {
-            reason: "PDF object number overflows",
-        })?);
+        self.next_number = Some(
+            number
+                .checked_add(1)
+                .ok_or(Error::invalid("PDF object number overflows"))?,
+        );
         Ok(PdfRef {
             number,
             generation: 0,

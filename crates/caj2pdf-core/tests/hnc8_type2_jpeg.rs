@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+mod common;
+
 use caj2pdf_core::{
-    Cancellation, Limits, RangedSource,
-    hnc8::{
-        ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, JpegColor, JpegInfo, Span, Variant,
-        read_type2_jpeg_info,
-    },
+    Cancellation, Error, ErrorKind, Limits, RangedSource,
+    hnc8::{Hnc8Reader, ImageRecord, JpegColor, JpegInfo, Span, Variant, read_type2_jpeg_info},
 };
+use common::errors::{field_of, kind_name, page_image};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Source {
@@ -146,11 +146,11 @@ fn parse_with(
     record: ImageRecord,
     limits: Limits,
     cancel: &Flag,
-) -> Result<JpegInfo, Hnc8Error> {
+) -> Result<JpegInfo, Error> {
     read_type2_jpeg_info(source, record, &limits, cancel)
 }
 
-fn parse(payload: &[u8]) -> Result<JpegInfo, Hnc8Error> {
+fn parse(payload: &[u8]) -> Result<JpegInfo, Error> {
     let (mut source, record) = record_for(payload);
     parse_with(&mut source, record, Limits::default(), &NEVER)
 }
@@ -239,10 +239,11 @@ fn restart_markers_are_recognized_and_app14_is_unsupported() {
     bytes.splice(20..20, segment(0xee, b"test"));
     let error = parse(&bytes).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "JPEG APP14 marker",
-            value: 0xee
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "JPEG APP14 marker",
+            ..
         }
     ));
 }
@@ -306,9 +307,13 @@ fn malformed_and_unsupported_markers_have_absolute_offsets() {
 
     for (index, (bytes, offset, expected)) in cases.into_iter().enumerate() {
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.offset, offset as u64 + 32, "case {index}: {error}");
-        assert_eq!(error.kind.as_str(), expected, "case {index}: {error}");
-        assert_eq!((error.page, error.image), (Some(1), Some(1)));
+        assert_eq!(
+            error.offset,
+            Some(offset as u64 + 32),
+            "case {index}: {error}"
+        );
+        assert_eq!(kind_name(&error), expected, "case {index}: {error}");
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
     }
 }
 
@@ -362,8 +367,12 @@ fn frame_and_scan_fields_reject_unsupported_or_conflicting_profiles() {
 
     for (index, (bytes, offset, kind)) in cases.into_iter().enumerate() {
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.kind.as_str(), kind, "case {index}: {error}");
-        assert_eq!(error.offset, offset as u64 + 32, "case {index}: {error}");
+        assert_eq!(kind_name(&error), kind, "case {index}: {error}");
+        assert_eq!(
+            error.offset,
+            Some(offset as u64 + 32),
+            "case {index}: {error}"
+        );
     }
 }
 
@@ -375,31 +384,35 @@ fn color_ambiguity_and_duplicate_application_markers_are_explicit() {
     unknown.drain(app0..app0 + 18);
     let error = parse(&unknown).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "JPEG color transform",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "JPEG color transform",
             ..
         }
     ));
     let mut duplicate = original.clone();
     duplicate.splice(2..2, segment(0xe0, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
     let error = parse(&duplicate).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::Malformed {
-            field: "JFIF APP0",
-            ..
-        }
-    ));
+    assert!(
+        (matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ) && field_of(&error) == "JFIF APP0")
+    );
     let mut misplaced = unknown.clone();
     let jfif = segment(0xe0, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0");
     misplaced.splice(2..2, segment(0xfe, b"first"));
     misplaced.splice(11..11, jfif);
     let error = parse(&misplaced).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "JFIF APP0 placement",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "JFIF APP0 placement",
             ..
         }
     ));
@@ -407,9 +420,10 @@ fn color_ambiguity_and_duplicate_application_markers_are_explicit() {
     app14.splice(20..20, segment(0xee, b"test"));
     let error = parse(&app14).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Unsupported {
-            field: "JPEG APP14 marker",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "JPEG APP14 marker",
             ..
         }
     ));
@@ -422,66 +436,47 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
     let mut bad = record;
     bad.page_number = 0;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image identity"
     );
     bad = record;
     bad.image_number = 0;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image identity"
     );
     bad = record;
     bad.record_type = 0;
     assert!(matches!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind,
-        ErrorKind::Unsupported {
-            field: "image type",
+        parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err(),
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "image type",
             ..
         }
     ));
     bad = record;
     bad.descriptor_offset = u64::MAX;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image descriptor"
     );
     bad = record;
     bad.payload.offset = 11;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image payload"
     );
     bad = record;
     bad.payload.length = 0;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image payload"
     );
     bad = record;
     bad.payload.length = u64::MAX;
     assert_eq!(
-        parse_with(&mut source, bad, Limits::default(), &NEVER)
-            .unwrap_err()
-            .kind
-            .field(),
+        field_of(&parse_with(&mut source, bad, Limits::default(), &NEVER).unwrap_err()),
         "image payload"
     );
     bad = record;
@@ -529,7 +524,7 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
     ));
     source.zero_at = Some(36);
     let error = parse_with(&mut source, record, Limits::default(), &NEVER).unwrap_err();
-    assert_eq!(error.offset, 36);
+    assert_eq!(error.offset, Some(36));
     assert!(matches!(error.kind, ErrorKind::Truncated { .. }));
     source.zero_at = None;
     source.overreport = true;
@@ -537,7 +532,7 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
         parse_with(&mut source, record, Limits::default(), &NEVER)
             .unwrap_err()
             .kind,
-        ErrorKind::Source { .. }
+        ErrorKind::Malformed
     ));
     source.overreport = false;
     assert!(matches!(
@@ -601,7 +596,7 @@ fn application_fields_and_repeated_legal_markers_are_checked() {
     invalid_cases.push((bad, "JFIF APP0 fields"));
     for (index, (bytes, field)) in invalid_cases.into_iter().enumerate() {
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.kind.field(), field, "case {index}: {error}");
+        assert_eq!(field_of(&error), field, "case {index}: {error}");
     }
 }
 
@@ -691,7 +686,7 @@ fn table_segments_frame_order_and_entropy_failures_are_located() {
 
     for (index, (bytes, field)) in cases.into_iter().enumerate() {
         let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.kind.field(), field, "case {index}: {error}");
+        assert_eq!(field_of(&error), field, "case {index}: {error}");
     }
 
     let mut truncated_segment = original.clone();

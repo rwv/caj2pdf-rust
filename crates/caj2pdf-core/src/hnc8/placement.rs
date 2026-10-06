@@ -40,32 +40,30 @@ impl EmpiricalPageGeometry {
             height_points,
         } = self.size;
         if !left.is_finite() || !bottom.is_finite() {
-            return Err(Error::InvalidInput {
-                reason: "empirical PDF origin must be finite",
-            });
+            return Err(Error::invalid("empirical PDF origin must be finite"));
         }
         if !width_points.is_finite()
             || !height_points.is_finite()
             || width_points <= 0.0
             || height_points <= 0.0
         {
-            return Err(Error::InvalidInput {
-                reason: "empirical page dimensions must be finite and positive",
-            });
+            return Err(Error::invalid(
+                "empirical page dimensions must be finite and positive",
+            ));
         }
         let right = left + width_points;
         let top = bottom + height_points;
         if !right.is_finite() || !top.is_finite() || right <= left || top <= bottom {
-            return Err(Error::InvalidInput {
-                reason: "empirical page rectangle overflows or collapses at the supplied origin",
-            });
+            return Err(Error::invalid(
+                "empirical page rectangle overflows or collapses at the supplied origin",
+            ));
         }
         if ((right - left) - width_points).abs() > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
             || ((top - bottom) - height_points).abs() > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
         {
-            return Err(Error::InvalidInput {
-                reason: "empirical PDF origin cannot preserve the page dimension precision",
-            });
+            return Err(Error::invalid(
+                "empirical PDF origin cannot preserve the page dimension precision",
+            ));
         }
         Ok([left, bottom, right, top])
     }
@@ -139,9 +137,9 @@ pub(super) fn source_image_transform(
 
 fn source_size([width, height]: [u16; 2]) -> Result<PageSpec> {
     if width == 0 || height == 0 {
-        return Err(Error::InvalidInput {
-            reason: "declared source dimensions must be positive",
-        });
+        return Err(Error::invalid(
+            "declared source dimensions must be positive",
+        ));
     }
     Ok(PageSpec {
         width_points: f64::from(width) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
@@ -168,9 +166,9 @@ fn image_transform(
         || ((y - bottom) - (page.size.height_points - y_offset)).abs()
             > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
     {
-        return Err(Error::InvalidInput {
-            reason: "empirical PDF origin cannot preserve the selected coordinate precision",
-        });
+        return Err(Error::invalid(
+            "empirical PDF origin cannot preserve the selected coordinate precision",
+        ));
     }
     Ok([size.width_points, 0.0, 0.0, -size.height_points, x, y])
 }
@@ -219,9 +217,7 @@ pub(super) fn native_glyph_transform(
                 if height == 28 { 9.0 } else { 6.0 },
             ),
             _ => {
-                return Err(Error::InvalidInput {
-                    reason: "unverified native explicit glyph axes",
-                });
+                return Err(Error::invalid("unverified native explicit glyph axes"));
             }
         };
         (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
@@ -252,9 +248,7 @@ pub(super) fn native_glyph_transform(
                 0x04e7 | 0x14e7 | 0x0484 | 0x1484 | 0x9c84 | 0x04c6 | 0x14c6 | 0x14a5
             )
         {
-            return Err(Error::InvalidInput {
-                reason: "unverified C8 glyph style flags",
-            });
+            return Err(Error::invalid("unverified C8 glyph style flags"));
         }
         c8_style_metrics((style & 0x03ff) | 0x1000)?
     };
@@ -302,9 +296,7 @@ pub(super) fn mode_zero_glyph_transform(
         0 | 0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4 | 0x10a5 | 0x04e7 | 0x0ce7
     ) && !(class == C8GlyphClass::Cjk && style == 0x154a)
     {
-        return Err(Error::InvalidInput {
-            reason: "unverified HN-B mode-0 glyph style",
-        });
+        return Err(Error::invalid("unverified HN-B mode-0 glyph style"));
     }
     let mut transform = native_glyph_transform(
         page,
@@ -339,9 +331,7 @@ pub(super) fn mode_zero_digit_transform(
         (0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4, [None, None]) => (22.0, 18.0),
         (0x10a5, [None, None]) => (22.0, 20.0),
         _ => {
-            return Err(Error::InvalidInput {
-                reason: "unverified HN-B mode-0 digit geometry",
-            });
+            return Err(Error::invalid("unverified HN-B mode-0 digit geometry"));
         }
     };
     let mut transform = mode_zero_glyph_transform(
@@ -389,9 +379,9 @@ pub fn empirical_c8_horizontal_decoration(
     let (width, height, _) = c8_style_metrics(style)?;
     let [[x1, y1], [x2, y2]] = points;
     if x2 <= x1 || y1 != y2 {
-        return Err(Error::InvalidInput {
-            reason: "unverified C8 decoration direction or empty span",
-        });
+        return Err(Error::invalid(
+            "unverified C8 decoration direction or empty span",
+        ));
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let x = left + (f64::from(x1) - f64::from(source_origin[0])) * unit;
@@ -425,9 +415,7 @@ pub fn empirical_c8_segment(
 ) -> Result<[[f64; 2]; 2]> {
     let [left, _, _, top] = page.media_box()?;
     if !matches!(style, 0xa381 | 0xa383 | 0xa385 | 0xa38b) {
-        return Err(Error::InvalidInput {
-            reason: "unverified C8 segment style",
-        });
+        return Err(Error::invalid("unverified C8 segment style"));
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let mut points = points;
@@ -444,9 +432,7 @@ pub fn empirical_c8_segment(
 
 fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
     if style & 0xfc00 != 0x1000 {
-        return Err(Error::InvalidInput {
-            reason: "unverified C8 glyph style flags",
-        });
+        return Err(Error::invalid("unverified C8 glyph style flags"));
     }
     let metrics = |field| -> Result<(f64, f64)> {
         let (step, latin_offset) = match field {
@@ -458,9 +444,7 @@ fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
             7 => (56, 3),
             8 => (63, 1),
             _ => {
-                return Err(Error::InvalidInput {
-                    reason: "unverified C8 glyph size field",
-                });
+                return Err(Error::invalid("unverified C8 glyph size field"));
             }
         };
         Ok((f64::from(step) * 75.0 / 301.0, f64::from(latin_offset)))
@@ -472,9 +456,9 @@ fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
 
 fn pixel_size(pixel_width: u32, pixel_height: u32) -> Result<PageSpec> {
     if pixel_width == 0 || pixel_height == 0 {
-        return Err(Error::InvalidInput {
-            reason: "empirical image dimensions must be positive",
-        });
+        return Err(Error::invalid(
+            "empirical image dimensions must be positive",
+        ));
     }
     Ok(PageSpec {
         // Multiplication by an already rounded binary 0.24 can move the

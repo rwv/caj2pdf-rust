@@ -6,15 +6,18 @@
 use super::{
     SegmentHeader, SegmentSpan,
     mq::{
-        ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT,
-        MqDecoder, MqTable,
+        ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT, MqDecoder,
+        MqTable,
     },
     page_compose::PageOrSink,
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Error, Limits, Payload, RangedSource, read_exact_at, write_counted};
+use crate::{
+    Cancellation, Context, Error, ErrorKind, Limits, Payload, RangedSource, Result, read_exact_at,
+    write_counted,
+};
 use std::io::Write;
-use std::{error, fmt, mem};
+use std::mem;
 
 const HEADER_BYTES: u64 = 20;
 const CONTEXT_COUNT: usize = 1024;
@@ -62,128 +65,37 @@ pub struct GenericReport {
     pub progress: GenericProgress,
 }
 
-#[derive(Debug)]
-pub struct GenericError {
-    pub offset: u64,
-    pub segment: u32,
-    pub rows_written: u32,
-    pub pixels_decoded: u64,
-    pub output_bytes_written: u64,
-    pub kind: GenericErrorKind,
-}
-
-#[derive(Debug)]
-pub enum GenericErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    UnsupportedAt {
-        x: i8,
-        y: i8,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Source(Error),
-    Sink(Error),
-    Mq(Box<ArithmeticError>),
-    Incomplete,
-}
-
-pub type GenericResult<T> = Result<T, GenericError>;
-
-impl fmt::Display for GenericError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 generic region segment {} at source byte {}: ",
-            self.segment, self.offset
-        )?;
-        match &self.kind {
-            GenericErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            GenericErrorKind::Truncated(field) => write!(f, "truncated {field}"),
-            GenericErrorKind::Malformed(field) => write!(f, "malformed {field}"),
-            GenericErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            GenericErrorKind::UnsupportedAt { x, y } => {
-                write!(f, "unsupported adaptive pixel ({x}, {y})")
-            }
-            GenericErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            GenericErrorKind::AllocationFailed => f.write_str("row allocation failed"),
-            GenericErrorKind::Cancelled => f.write_str("cancelled"),
-            GenericErrorKind::Source(source) => write!(f, "source: {source}"),
-            GenericErrorKind::Sink(source) => write!(f, "sink: {source}"),
-            GenericErrorKind::Mq(source) => write!(f, "MQ: {source}"),
-            GenericErrorKind::Incomplete => f.write_str("not all rows were decoded"),
-        }
-    }
-}
-
-impl error::Error for GenericError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            GenericErrorKind::Source(error) | GenericErrorKind::Sink(error) => Some(error),
-            GenericErrorKind::Mq(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-fn malformed(segment: u32, offset: u64, reason: &'static str) -> GenericError {
-    at(segment, offset, GenericErrorKind::Malformed(reason))
-}
-
-fn invalid_span(segment: u32, offset: u64, reason: &'static str) -> GenericError {
-    at(segment, offset, GenericErrorKind::InvalidSpan(reason))
-}
-
-fn at(segment: u32, offset: u64, kind: GenericErrorKind) -> GenericError {
-    GenericError {
+/// Locate an unlocated error at `offset` in `segment`.
+fn at(segment: u32, offset: u64, error: Error) -> Error {
+    error.or_at(
         offset,
-        segment,
-        rows_written: 0,
-        pixels_decoded: 0,
-        output_bytes_written: 0,
-        kind,
-    }
-}
-
-fn limit(
-    segment: u32,
-    offset: u64,
-    resource: &'static str,
-    maximum: u64,
-    attempted: u64,
-) -> GenericError {
-    at(
-        segment,
-        offset,
-        GenericErrorKind::LimitExceeded {
-            resource,
-            limit: maximum,
-            attempted,
+        Context::Jbig2 {
+            segment: Some(segment),
         },
     )
 }
 
-fn checked_row(stride: usize, segment: u32, offset: u64) -> GenericResult<Vec<u8>> {
+fn malformed(segment: u32, offset: u64, reason: &'static str) -> Error {
+    at(segment, offset, Error::invalid(reason))
+}
+
+fn unsupported(segment: u32, offset: u64, reason: &'static str) -> Error {
+    at(segment, offset, Error::unsupported(offset, reason))
+}
+
+fn limit(segment: u32, offset: u64, resource: &'static str, maximum: u64, attempted: u64) -> Error {
+    at(segment, offset, Error::limit(resource, maximum, attempted))
+}
+
+fn checked_row(stride: usize, segment: u32, offset: u64, limits: &Limits) -> Result<Vec<u8>> {
     // checked_layout already caps all three rows plus table and contexts
     // before this first reserve.
     let mut row = Vec::new();
-    let failed = at(segment, offset, GenericErrorKind::AllocationFailed);
+    let failed = at(
+        segment,
+        offset,
+        limits.allocation_refused("generic row bytes", stride as u64),
+    );
     reserve_exact(&mut row, stride, failed)?;
     row.resize(stride, 0);
     Ok(row)
@@ -226,7 +138,7 @@ fn read_field<S: RangedSource, C: Cancellation>(
     segment: u32,
     limits: &Limits,
     cancellation: &C,
-) -> GenericResult<()> {
+) -> Result<()> {
     let mut done = 0;
     while done < field.len() {
         let count = (field.len() - done).min(limits.io_chunk_bytes);
@@ -238,16 +150,9 @@ fn read_field<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .map_err(|error| {
-            let kind = match error {
-                Error::Cancelled => GenericErrorKind::Cancelled,
-                Error::TruncatedInput { .. } => GenericErrorKind::Truncated(name),
-                Error::InvalidInput {
-                    reason: "source reported more bytes than requested",
-                } => GenericErrorKind::Malformed("source read length"),
-                other => GenericErrorKind::Source(other),
-            };
-            at(segment, current, kind)
+        .map_err(|error| match error.kind {
+            ErrorKind::Truncated { .. } => at(segment, current, error.because(name)),
+            _ => at(segment, current, error),
         })?;
         done += count;
     }
@@ -259,7 +164,7 @@ fn checked_layout(
     source_size: u64,
     limits: &Limits,
     bytes: [u8; 20],
-) -> GenericResult<(GenericRegionInfo, CodedSpan, u64)> {
+) -> Result<(GenericRegionInfo, CodedSpan, u64)> {
     let offset = header.data.offset;
     let segment = header.number;
     let width = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -296,11 +201,7 @@ fn checked_layout(
         ));
     }
     if (ax, ay) != (2, -1) {
-        return Err(at(
-            segment,
-            offset + 18,
-            GenericErrorKind::UnsupportedAt { x: ax, y: ay },
-        ));
+        return Err(unsupported(segment, offset + 18, "adaptive pixel"));
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
@@ -348,7 +249,7 @@ fn checked_layout(
             rows_alloc,
         ));
     }
-    let failure = invalid_span(segment, offset, "MQ start overflows");
+    let failure = malformed(segment, offset, "MQ start overflows");
     let payload_offset = offset.checked_add(HEADER_BYTES).ok_or(failure)?;
     let mq_span = CodedSpan {
         offset: payload_offset,
@@ -358,14 +259,14 @@ fn checked_layout(
         return Err(at(
             segment,
             payload_offset,
-            GenericErrorKind::Truncated("MQ terminal pair"),
+            Error::truncated(payload_offset, 2, mq_span.length).because("MQ terminal pair"),
         ));
     }
     if payload_offset.checked_add(mq_span.length)
         != header.data.offset.checked_add(header.data.length)
         || payload_offset + mq_span.length > source_size
     {
-        return Err(invalid_span(segment, offset, "MQ span outside source"));
+        return Err(malformed(segment, offset, "MQ span outside source"));
     }
     Ok((
         GenericRegionInfo {
@@ -390,26 +291,19 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
     header: &SegmentHeader,
     limits: &Limits,
     cancellation: &C,
-) -> GenericResult<GenericRegionHeader> {
+) -> Result<GenericRegionHeader> {
     let segment = header.number;
     let offset = header.data.offset;
     if cancellation.is_cancelled() {
-        return Err(at(segment, offset, GenericErrorKind::Cancelled));
+        return Err(at(segment, offset, Error::cancelled()));
     }
     if header.segment_type != 38 {
-        return Err(at(
-            segment,
-            offset,
-            GenericErrorKind::Unsupported {
-                feature: "segment type",
-                value: u64::from(header.segment_type),
-            },
-        ));
+        return Err(unsupported(segment, offset, "segment type"));
     }
-    let failure = invalid_span(segment, offset, "segment end overflows");
+    let failure = malformed(segment, offset, "segment end overflows");
     let end = offset.checked_add(header.data.length).ok_or(failure)?;
     if end > source.size() {
-        return Err(invalid_span(segment, offset, "segment data outside source"));
+        return Err(malformed(segment, offset, "segment data outside source"));
     }
     if header.data.length > limits.max_input_bytes {
         return Err(limit(
@@ -424,7 +318,7 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
         return Err(at(
             segment,
             end,
-            GenericErrorKind::Truncated("generic flags"),
+            Error::truncated(end, 18, header.data.length).because("generic flags"),
         ));
     }
     let mut bytes = [0; 20];
@@ -442,40 +336,20 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
         return Err(malformed(segment, offset + 17, "generic reserved flags"));
     }
     if flags & 1 != 0 {
-        return Err(at(
-            segment,
-            offset + 17,
-            GenericErrorKind::Unsupported {
-                feature: "MMR generic coding",
-                value: 1,
-            },
-        ));
+        return Err(unsupported(segment, offset + 17, "MMR generic coding"));
     }
     if (flags >> 1) & 3 != 2 {
-        return Err(at(
-            segment,
-            offset + 17,
-            GenericErrorKind::Unsupported {
-                feature: "generic template",
-                value: u64::from((flags >> 1) & 3),
-            },
-        ));
+        return Err(unsupported(segment, offset + 17, "generic template"));
     }
     if flags & 8 != 0 {
-        return Err(at(
-            segment,
-            offset + 17,
-            GenericErrorKind::Unsupported {
-                feature: "typical prediction",
-                value: 1,
-            },
-        ));
+        return Err(unsupported(segment, offset + 17, "typical prediction"));
     }
     if header.data.length < HEADER_BYTES {
         return Err(at(
             segment,
             end,
-            GenericErrorKind::Truncated("template-2 adaptive pixel"),
+            Error::truncated(end, HEADER_BYTES, header.data.length)
+                .because("template-2 adaptive pixel"),
         ));
     }
     read_field(
@@ -531,7 +405,7 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
-    ) -> GenericResult<Self> {
+    ) -> Result<Self> {
         let segment = header.number;
         let offset = header.data.offset;
         let checked = read_generic_region_header(&mut { input }, header, limits, cancellation)?;
@@ -545,17 +419,12 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
                 "expected 1024 generic MQ contexts",
             ));
         }
-        let previous_two = checked_row(info.row_stride, segment, offset)?;
-        let previous_one = checked_row(info.row_stride, segment, offset)?;
-        let current = checked_row(info.row_stride, segment, offset)?;
+        let previous_two = checked_row(info.row_stride, segment, offset, limits)?;
+        let previous_one = checked_row(info.row_stride, segment, offset, limits)?;
+        let current = checked_row(info.row_stride, segment, offset, limits)?;
         contexts.reset();
-        let mq = MqDecoder::new(input, mq_span, table, contexts, limits).map_err(|e| {
-            at(
-                segment,
-                e.offset.unwrap_or(mq_span.offset),
-                GenericErrorKind::Mq(Box::new(e)),
-            )
-        })?;
+        let mq = MqDecoder::new(input, mq_span, table, contexts, limits)
+            .map_err(|error| at(segment, mq_span.offset, error))?;
         Ok(Self {
             mq,
             sink,
@@ -600,25 +469,18 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
         }
     }
 
-    fn error(&self, kind: GenericErrorKind) -> GenericError {
-        let mq = self.mq.snapshot();
-        GenericError {
-            offset: mq.input_offset,
-            segment: self.segment,
-            rows_written: self.rows_written,
-            pixels_decoded: mq.symbols_decoded,
-            output_bytes_written: self.output_bytes_written,
-            kind,
-        }
+    /// Locate an unlocated error at the next MQ byte.
+    fn error(&self, error: Error) -> Error {
+        at(self.segment, self.mq.snapshot().input_offset, error)
     }
 
     /// Emits one packed row. Returns `false` after the final row.
-    pub fn decode_next_row(&mut self) -> GenericResult<bool> {
+    pub fn decode_next_row(&mut self) -> Result<bool> {
         if self.rows_written == self.info.height {
             return Ok(false);
         }
         if self.cancellation.is_cancelled() {
-            return Err(self.error(GenericErrorKind::Cancelled));
+            return Err(self.error(Error::cancelled()));
         }
         for x in 0..self.info.width {
             let context = template2_context(
@@ -628,14 +490,10 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
                 self.info.width,
                 x,
             );
-            let bit = self.mq.decode_bit(context).map_err(|e| {
-                let offset = e.offset;
-                let mut error = self.error(GenericErrorKind::Mq(Box::new(e)));
-                if let Some(offset) = offset {
-                    error.offset = offset;
-                }
-                error
-            })?;
+            let bit = self
+                .mq
+                .decode_bit(context)
+                .map_err(|error| self.error(error))?;
             if bit {
                 self.current[x as usize / 8] |= 0x80 >> (x % 8);
             }
@@ -647,12 +505,7 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
             self.limits,
             self.cancellation,
         )
-        .map_err(|e| {
-            self.error(match e {
-                Error::Cancelled => GenericErrorKind::Cancelled,
-                other => GenericErrorKind::Sink(other),
-            })
-        })?;
+        .map_err(|error| self.error(error))?;
         mem::swap(&mut self.previous_two, &mut self.previous_one);
         mem::swap(&mut self.previous_one, &mut self.current);
         self.current.fill(0);
@@ -662,42 +515,26 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
 
     /// Verify exactly width × height MQ decisions and the delimited FF AC tail,
     /// then flush. The semantic MQ byte need not be the terminal byte.
-    pub fn finish(mut self) -> GenericResult<GenericReport> {
+    pub fn finish(mut self) -> Result<GenericReport> {
         if self.rows_written != self.info.height {
-            return Err(self.error(GenericErrorKind::Incomplete));
+            return Err(self.error(Error::invalid("not all generic rows were decoded")));
         }
         let progress = self.progress();
         let segment = self.segment;
         let mq_span = self.mq_span;
-        let failed = |offset, kind| GenericError {
-            offset,
-            segment,
-            rows_written: progress.rows_written,
-            pixels_decoded: progress.pixels_decoded,
-            output_bytes_written: progress.output_bytes_written,
-            kind,
-        };
-        let mq = self.mq.finish(self.pixels).map_err(|e| {
-            failed(
-                e.offset.unwrap_or(mq_span.offset),
-                GenericErrorKind::Mq(Box::new(e)),
-            )
-        })?;
+        let mq = self
+            .mq
+            .finish(self.pixels)
+            .map_err(|error| at(segment, mq_span.offset, error))?;
         if self.cancellation.is_cancelled() {
-            return Err(failed(mq.input_offset, GenericErrorKind::Cancelled));
+            return Err(at(segment, mq.input_offset, Error::cancelled()));
         }
-        self.sink.flush().map_err(|e| {
-            failed(
-                mq.input_offset,
-                match crate::Error::from(e) {
-                    crate::Error::Cancelled => GenericErrorKind::Cancelled,
-                    other => GenericErrorKind::Sink(other),
-                },
-            )
-        })?;
+        self.sink
+            .flush()
+            .map_err(|error| at(segment, mq.input_offset, Error::from(error)))?;
         // A flush can take long enough for the caller to give up.
         if self.cancellation.is_cancelled() {
-            return Err(failed(mq.input_offset, GenericErrorKind::Cancelled));
+            return Err(at(segment, mq.input_offset, Error::cancelled()));
         }
         Ok(GenericReport {
             data: self.data,
@@ -715,21 +552,17 @@ where
 {
     /// Bind a pre-inspected header to the page sink, which rejects all
     /// writes until armed with the header this decoder parsed itself.
-    pub fn arm_page_output(&mut self, expected: GenericRegionHeader) -> GenericResult<()> {
+    pub fn arm_page_output(&mut self, expected: GenericRegionHeader) -> Result<()> {
         if self.rows_written != 0 {
-            return Err(self.error(GenericErrorKind::Malformed(
-                "page output armed after the first row",
-            )));
+            return Err(self.error(Error::invalid("page output armed after the first row")));
         }
         let checked = self.checked_header();
         if checked != expected {
-            return Err(self.error(GenericErrorKind::Malformed(
-                "generic header differs from page preflight",
-            )));
+            return Err(self.error(Error::invalid("generic header differs from page preflight")));
         }
         self.sink
             .arm_checked_header(checked)
-            .map_err(|error| self.error(GenericErrorKind::Sink(error)))
+            .map_err(|error| self.error(error))
     }
 }
 

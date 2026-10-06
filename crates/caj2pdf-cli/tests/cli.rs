@@ -469,7 +469,7 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         ("c8.c8", "image-only output has no image to draw"),
         ("hn.hn", "cannot omit source pages without image content"),
         // A malformed container is reported as such, not as unsupported.
-        ("short.hn", "HN/C8 at byte 0: truncated"),
+        ("short.hn", "truncated HN/C8 at byte 0: signature"),
         (
             "teb.teb",
             "TEB input is a DRM-encrypted CNKI container; its document content is encrypted",
@@ -683,7 +683,7 @@ fn inspect_reports_every_recognized_format() {
         ("bad.kdh", "cannot inspect 'bad.kdh': "),
         ("broken.kdh", "cannot inspect 'broken.kdh': "),
         ("empty", "cannot inspect 'empty': input is empty"),
-        ("bad.hn", "truncated signature"),
+        ("bad.hn", "truncated HN/C8 at byte 0: signature"),
         ("bad.caj", "malformed CAJ"),
         ("bad.pdf", "cannot inspect 'bad.pdf': "),
         ("missing", "cannot read 'missing'"),
@@ -1797,11 +1797,11 @@ fn inspect_pages_reports_each_malformed_page_and_continues() {
              Page index: 348+80 (20-byte rows)\nNative mode: unknown\nNative origin: unknown\n\
              Page size: 100 200\nApplication info: none\n\
              Page 1: text 428+32, images [type 0 at 472+49], framing raw (2 records)\n\
-             Page 2: text 521+40, images [type 0 at 573+49], text error: HN/C8 HN-A at byte \
-             521, page 2: malformed decoded text record: unknown control tag\n\
-             Page 3: text 622+32, images [], error: HN/C8 HN-A at byte 658, page 3, image 1: \
-             truncated image payload: expected 1073741824 bytes, available 49\n\
-             Page 4: error: HN/C8 HN-A at byte 408, page 4: truncated text span: \
+             Page 2: text 521+40, images [type 0 at 573+49], text error: malformed HN/C8 HN-A \
+             at byte 521, page 2: decoded text record: unknown control tag\n\
+             Page 3: text 622+32, images [], error: truncated HN/C8 HN-A at byte 658, page 3, \
+             image 1: image payload: expected 1073741824 bytes, available 49\n\
+             Page 4: error: truncated HN/C8 HN-A at byte 408, page 4: text span: \
              expected 4 bytes, available 0\n"
         )
     );
@@ -1813,15 +1813,15 @@ fn inspect_pages_reports_each_malformed_page_and_continues() {
         r#""text_decoded_length":null,"text_error":null,"error":null},"#,
         r#"{"page":2,"text_offset":521,"text_length":40,"image_count":1,"#,
         r#""images":[{"type":0,"offset":573,"length":49}],"text_framing":null,"text_records":null,"#,
-        r#""text_decoded_length":null,"text_error":"HN/C8 HN-A at byte 521, page 2: "#,
-        r#"malformed decoded text record: unknown control tag","error":null},"#,
+        r#""text_decoded_length":null,"text_error":"malformed HN/C8 HN-A at byte 521, page 2: "#,
+        r#"decoded text record: unknown control tag","error":null},"#,
         r#"{"page":3,"text_offset":622,"text_length":32,"image_count":1,"images":[],"#,
         r#""text_framing":null,"text_records":null,"text_decoded_length":null,"text_error":null,"#,
-        r#""error":"HN/C8 HN-A at byte 658, page 3, image 1: truncated image payload: "#,
+        r#""error":"truncated HN/C8 HN-A at byte 658, page 3, image 1: image payload: "#,
         r#"expected 1073741824 bytes, available 49"},"#,
         r#"{"page":4,"text_offset":null,"text_length":null,"image_count":null,"images":[],"#,
         r#""text_framing":null,"text_records":null,"text_decoded_length":null,"text_error":null,"#,
-        r#""error":"HN/C8 HN-A at byte 408, page 4: truncated text span: "#,
+        r#""error":"truncated HN/C8 HN-A at byte 408, page 4: text span: "#,
         r#"expected 4 bytes, available 0"}]}"#,
         "\n"
     );

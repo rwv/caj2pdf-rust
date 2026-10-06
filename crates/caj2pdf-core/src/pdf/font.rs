@@ -165,11 +165,11 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
             return Err(invalid("font needs either glyf and loca or CFF outlines"));
         }
         if metadata_bytes > MAX_FONT_METADATA_BYTES {
-            return Err(Error::LimitExceeded {
-                resource: "font metadata bytes",
-                limit: MAX_FONT_METADATA_BYTES,
-                attempted: metadata_bytes,
-            });
+            return Err(Error::limit(
+                "font metadata bytes",
+                MAX_FONT_METADATA_BYTES,
+                metadata_bytes,
+            ));
         }
         limits.check_allocation(metadata_bytes)?;
         let mut tables: [Vec<u8>; 8] = Default::default();
@@ -208,11 +208,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
             .as_ref()
             .map_or(0, |cmap| cmap.subtables.len());
         if maps > 16 {
-            return Err(Error::LimitExceeded {
-                resource: "font character maps",
-                limit: 16,
-                attempted: u64::from(maps),
-            });
+            return Err(Error::limit("font character maps", 16, u64::from(maps)));
         }
         // `version` and `fsType` of the required OS/2 table.
         let field = |at: usize| {
@@ -386,7 +382,7 @@ fn span(entry: &[u8; 16]) -> (u64, u64) {
 }
 
 fn invalid(reason: &'static str) -> Error {
-    Error::InvalidInput { reason }
+    Error::invalid(reason)
 }
 
 fn read<S: RangedSource, C: Cancellation>(

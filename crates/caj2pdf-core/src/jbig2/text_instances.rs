@@ -7,25 +7,23 @@
 //! or compose a region bitmap. It contains no normative MQ probability states.
 
 use super::{
-    PreflightKind, PreflightSite, SegmentHeader,
+    SegmentHeader, Site,
     dictionary::{
         DictionaryMode, DictionaryReport, StoredSymbol, SymbolDescriptor, SymbolStore,
         coding_unit_contexts, symbol_code_length,
     },
     iaid::{checked_symbol_index, decode_iaid},
     integer::{IntegerProcedure, IntegerValue, decode_integer},
-    mq::{ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
+    mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
     refinement::{
-        ReferenceStore, RefinementDecoder, RefinementError, RefinementProgress,
-        RefinementReference, RefinementRequest,
+        ReferenceStore, RefinementDecoder, RefinementProgress, RefinementReference,
+        RefinementRequest,
     },
     text::{
-        ReferenceCorner, TextHeaderPolicy, TextRegionError, TextRegionHeader,
-        read_text_region_header_with_policy,
+        ReferenceCorner, TextHeaderPolicy, TextRegionHeader, read_text_region_header_with_policy,
     },
 };
-use crate::{Cancellation, Limits, Payload};
-use std::{error, fmt};
+use crate::{Cancellation, Context, Error, Limits, Payload, Result};
 
 /// A bitmap handle retains the store identity. A refined instance is not a
 /// dictionary symbol and can never be used as an IAID reference.
@@ -86,105 +84,14 @@ pub struct TextInstanceProgress {
     pub mq: Option<ArithmeticSnapshot>,
 }
 
-#[derive(Debug)]
-pub struct TextInstanceError {
-    pub segment: u32,
-    pub offset: u64,
-    pub progress: Box<TextInstanceProgress>,
-    pub kind: TextInstanceErrorKind,
-}
-
-#[derive(Debug)]
-pub enum TextInstanceErrorKind {
-    InvalidSpan(&'static str),
-    Malformed(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    Cancelled,
-    Header(Box<TextRegionError>),
-    Mq(Box<ArithmeticError>),
-    Refinement(Box<RefinementError>),
-}
-
-pub type TextInstanceResult<T> = Result<T, TextInstanceError>;
-
-impl fmt::Display for TextInstanceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "JBIG2 text instance segment {} at source byte {} (instance {}, {:?}): ",
-            self.segment, self.offset, self.progress.completed_instances, self.progress.decision
-        )?;
-        match &self.kind {
-            TextInstanceErrorKind::InvalidSpan(value) => write!(f, "invalid span: {value}"),
-            TextInstanceErrorKind::Malformed(value) => write!(f, "malformed {value}"),
-            TextInstanceErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            TextInstanceErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            TextInstanceErrorKind::Cancelled => f.write_str("cancelled"),
-            TextInstanceErrorKind::Header(value) => write!(f, "header: {value}"),
-            TextInstanceErrorKind::Mq(value) => write!(f, "MQ: {value}"),
-            TextInstanceErrorKind::Refinement(value) => write!(f, "refinement: {value}"),
-        }
-    }
-}
-
-impl error::Error for TextInstanceError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            TextInstanceErrorKind::Header(value) => Some(value),
-            TextInstanceErrorKind::Mq(value) => Some(value),
-            TextInstanceErrorKind::Refinement(value) => Some(value),
-            _ => None,
-        }
-    }
-}
-
-fn preflight_error(
-    segment: u32,
-    offset: u64,
-    fetched: u64,
-    kind: TextInstanceErrorKind,
-) -> TextInstanceError {
-    TextInstanceError {
-        segment,
-        offset,
-        progress: Box::new(TextInstanceProgress {
-            header_bytes_fetched: fetched,
-            ..TextInstanceProgress::default()
-        }),
-        kind,
-    }
-}
-
-impl PreflightKind for TextInstanceErrorKind {
-    type Error = TextInstanceError;
-
-    fn locate(self, site: PreflightSite) -> TextInstanceError {
-        preflight_error(site.segment, site.offset, site.header_fetched, self)
-    }
-}
-
 fn validate_descriptor(
-    site: PreflightSite,
+    site: Site,
     stored: StoredSymbol,
     expected_store: SymbolStore,
     expected_base: u64,
     source_size: u64,
-) -> TextInstanceResult<()> {
-    let bad = |reason| site.error(TextInstanceErrorKind::Malformed(reason));
+) -> Result<()> {
+    let bad = |reason| site.malformed(reason);
     if stored.store != expected_store || stored.store_base != expected_base {
         return Err(bad("dictionary store identity or base"));
     }
@@ -211,9 +118,9 @@ fn validate_descriptor(
 }
 
 /// A coordinate within the T.88 signed 32-bit range.
-fn cap_coordinate(value: i64) -> Result<i64, TextInstanceErrorKind> {
+fn cap_coordinate(value: i64) -> Result<i64> {
     if i32::try_from(value).is_err() {
-        Err(TextInstanceErrorKind::Malformed(
+        Err(Error::invalid(
             "text coordinate outside T.88 signed 32-bit range",
         ))
     } else {
@@ -221,8 +128,8 @@ fn cap_coordinate(value: i64) -> Result<i64, TextInstanceErrorKind> {
     }
 }
 
-fn checked_coordinate(value: Option<i64>) -> Result<i64, TextInstanceErrorKind> {
-    cap_coordinate(value.ok_or(TextInstanceErrorKind::Malformed("coordinate overflow"))?)
+fn checked_coordinate(value: Option<i64>) -> Result<i64> {
+    cap_coordinate(value.ok_or(Error::invalid("coordinate overflow"))?)
 }
 
 fn geometry(
@@ -232,7 +139,7 @@ fn geometry(
     height: u32,
     corner: ReferenceCorner,
     transposed: bool,
-) -> Result<(i64, i64, i64), TextInstanceErrorKind> {
+) -> Result<(i64, i64, i64)> {
     let right = matches!(
         corner,
         ReferenceCorner::TopRight | ReferenceCorner::BottomRight
@@ -270,33 +177,27 @@ fn refined_geometry(
     rdh: i64,
     rdx: i64,
     rdy: i64,
-) -> Result<(u32, u32, i32, i32), TextInstanceErrorKind> {
+) -> Result<(u32, u32, i32, i32)> {
     let width = i64::from(reference.width)
         .checked_add(rdw)
-        .ok_or(TextInstanceErrorKind::Malformed("refined width overflow"))?;
+        .ok_or(Error::invalid("refined width overflow"))?;
     let height = i64::from(reference.height)
         .checked_add(rdh)
-        .ok_or(TextInstanceErrorKind::Malformed("refined height overflow"))?;
+        .ok_or(Error::invalid("refined height overflow"))?;
     if width <= 0 || height <= 0 || width > i64::from(u32::MAX) || height > i64::from(u32::MAX) {
-        return Err(TextInstanceErrorKind::Malformed(
-            "nonpositive or oversized refined geometry",
-        ));
+        return Err(Error::invalid("nonpositive or oversized refined geometry"));
     }
     // T.88 Table 12 uses mathematical floor, including negative odd deltas.
     let dx = rdw
         .div_euclid(2)
         .checked_add(rdx)
         .and_then(|value| i32::try_from(value).ok())
-        .ok_or(TextInstanceErrorKind::Malformed(
-            "refinement X offset overflow",
-        ))?;
+        .ok_or(Error::invalid("refinement X offset overflow"))?;
     let dy = rdh
         .div_euclid(2)
         .checked_add(rdy)
         .and_then(|value| i32::try_from(value).ok())
-        .ok_or(TextInstanceErrorKind::Malformed(
-            "refinement Y offset overflow",
-        ))?;
+        .ok_or(Error::invalid("refinement Y offset overflow"))?;
     Ok((width as u32, height as u32, dx, dy))
 }
 
@@ -346,7 +247,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
-    ) -> TextInstanceResult<Self> {
+    ) -> Result<Self> {
         Self::new_with_header_policy(
             input,
             segment,
@@ -387,7 +288,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         limits: &'a Limits,
         cancellation: &'a C,
         policy: TextHeaderPolicy,
-    ) -> TextInstanceResult<Self> {
+    ) -> Result<Self> {
         let checked = read_text_region_header_with_policy(
             &mut { input },
             segment,
@@ -395,43 +296,23 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             limits,
             cancellation,
             policy,
-        )
-        .map_err(|error| {
-            let offset = error.offset;
-            let fetched = error.bytes_fetched;
-            preflight_error(
-                segment.number,
-                offset,
-                fetched,
-                TextInstanceErrorKind::Header(Box::new(error)),
-            )
-        })?;
+        )?;
         let at = checked.body.offset;
-        let fetched = checked.header_bytes;
-        let site = PreflightSite {
+        let site = Site {
             segment: segment.number,
             offset: at,
-            header_fetched: fetched,
         };
-        let bad = |kind| site.error(kind);
+        let bad = |reason| site.malformed(reason);
         if checked != parsed {
-            return Err(bad(TextInstanceErrorKind::Malformed(
-                "supplied text header differs from source",
-            )));
+            return Err(bad("supplied text header differs from source"));
         }
         if parsed.flags.huffman || parsed.huffman_flags.is_some() {
-            return Err(bad(TextInstanceErrorKind::Unsupported {
-                feature: "Huffman text region",
-                value: u64::from(parsed.flags.raw),
-            }));
+            return Err(site.unsupported("Huffman text region"));
         }
         if parsed.flags.refine
             && (parsed.flags.refinement_template != 1 || parsed.refinement_at.is_some())
         {
-            return Err(bad(TextInstanceErrorKind::Unsupported {
-                feature: "refinement template 0",
-                value: u64::from(parsed.flags.raw),
-            }));
+            return Err(site.unsupported("refinement template 0"));
         }
         // `read_text_region_header` has just rechecked the exact segment
         // type, reference, order, and page relation against these arguments.
@@ -440,29 +321,17 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             .data
             .offset
             .checked_add(dictionary_segment.data.length)
-            .ok_or_else(|| {
-                bad(TextInstanceErrorKind::InvalidSpan(
-                    "dictionary segment end overflow",
-                ))
-            })?;
+            .ok_or_else(|| bad("dictionary segment end overflow"))?;
         let body_end = dictionary_header
             .body
             .offset
             .checked_add(dictionary_header.body.length)
-            .ok_or_else(|| {
-                bad(TextInstanceErrorKind::InvalidSpan(
-                    "dictionary body end overflow",
-                ))
-            })?;
+            .ok_or_else(|| bad("dictionary body end overflow"))?;
         let expected_body = dictionary_segment
             .data
             .offset
             .checked_add(dictionary_header.header_bytes)
-            .ok_or_else(|| {
-                bad(TextInstanceErrorKind::InvalidSpan(
-                    "dictionary body start overflow",
-                ))
-            })?;
+            .ok_or_else(|| bad("dictionary body start overflow"))?;
         if dictionary_header.mode != DictionaryMode::ArithmeticRefinementAggregate
             || dictionary_header.flags != 0x1802
             || dictionary_header.body.offset != expected_body
@@ -473,31 +342,21 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             || dictionary.progress.completed_symbols != dictionary_header.new_symbols
             || dictionary.progress.mq.is_none()
         {
-            return Err(bad(TextInstanceErrorKind::Malformed(
-                "dictionary is not a complete ordered report",
-            )));
+            return Err(bad("dictionary is not a complete ordered report"));
         }
         if parsed.instances != 0 && dictionary.catalog.exported_symbols.is_empty() {
-            return Err(bad(TextInstanceErrorKind::Malformed(
-                "nonempty text region with no symbols",
-            )));
+            return Err(bad("nonempty text region with no symbols"));
         }
         if refined.len() as u64 != refined_base {
-            return Err(bad(TextInstanceErrorKind::InvalidSpan(
-                "refined store base differs from the store length",
-            )));
+            return Err(bad("refined store base differs from the store length"));
         }
         if imported_store_base > imported.len() as u64 || new_store_base > new.len() as u64 {
-            return Err(bad(TextInstanceErrorKind::InvalidSpan(
-                "dictionary store base outside its store",
-            )));
+            return Err(bad("dictionary store base outside its store"));
         }
         let mut last_catalog_end = 0u64;
         for descriptor in &dictionary.catalog.new_symbols {
             if descriptor.relative_store_offset < last_catalog_end {
-                return Err(bad(TextInstanceErrorKind::Malformed(
-                    "unordered or overlapping new symbols",
-                )));
+                return Err(bad("unordered or overlapping new symbols"));
             }
             validate_descriptor(
                 site,
@@ -519,9 +378,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             let (source_size, expected_base) = match stored.store {
                 SymbolStore::Imported => {
                     if seen_new {
-                        return Err(bad(TextInstanceErrorKind::Malformed(
-                            "imported export follows new export",
-                        )));
+                        return Err(bad("imported export follows new export"));
                     }
                     (imported.len() as u64, imported_store_base)
                 }
@@ -537,9 +394,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 SymbolStore::New => &mut new_end,
             };
             if stored.symbol.relative_store_offset < *prior_end {
-                return Err(bad(TextInstanceErrorKind::Malformed(
-                    "unordered or overlapping exported symbols",
-                )));
+                return Err(bad("unordered or overlapping exported symbols"));
             }
             *prior_end = end;
             if stored.store == SymbolStore::New {
@@ -549,23 +404,15 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                     .binary_search_by_key(&stored.symbol.relative_store_offset, |descriptor| {
                         descriptor.relative_store_offset
                     })
-                    .map_err(|_| {
-                        bad(TextInstanceErrorKind::Malformed(
-                            "new export absent from new catalog",
-                        ))
-                    })?;
+                    .map_err(|_| bad("new export absent from new catalog"))?;
                 if dictionary.catalog.new_symbols[index] != stored.symbol {
-                    return Err(bad(TextInstanceErrorKind::Malformed(
-                        "new export order differs from catalog",
-                    )));
+                    return Err(bad("new export order differs from catalog"));
                 }
             }
         }
         let code_len = symbol_code_length(dictionary.catalog.exported_symbols.len() as u64);
         if coding_unit_contexts(code_len) != Some(contexts.len()) {
-            return Err(bad(TextInstanceErrorKind::Malformed(
-                "IAID width or GR context layout mismatch",
-            )));
+            return Err(bad("IAID width or GR context layout mismatch"));
         }
         // A fresh text region resets every arithmetic statistic.
         contexts.reset();
@@ -579,15 +426,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             contexts,
             limits,
         )
-        .map_err(|error| {
-            let offset = error.offset.unwrap_or(at);
-            preflight_error(
-                segment.number,
-                offset,
-                fetched,
-                TextInstanceErrorKind::Mq(Box::new(error)),
-            )
-        })?;
+        .map_err(|error| site.locate(error))?;
         Ok(Self {
             mq,
             imported,
@@ -601,7 +440,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             limits,
             cancellation,
             progress: TextInstanceProgress {
-                header_bytes_fetched: fetched,
+                header_bytes_fetched: checked.header_bytes,
                 ..TextInstanceProgress::default()
             },
             strip_t: 0,
@@ -634,51 +473,44 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         self.segment
     }
 
-    fn error(&self, kind: TextInstanceErrorKind) -> TextInstanceError {
-        TextInstanceError {
-            segment: self.segment,
-            offset: self.mq.snapshot().input_offset,
-            progress: Box::new(self.progress()),
-            kind,
-        }
+    /// Locate an unlocated error at the next MQ byte.
+    fn error(&self, error: Error) -> Error {
+        error.or_at(
+            self.mq.snapshot().input_offset,
+            Context::Jbig2 {
+                segment: Some(self.segment),
+            },
+        )
     }
 
-    fn cap(&self, resource: &'static str, limit: u64, attempted: u64) -> TextInstanceResult<()> {
+    fn cap(&self, resource: &'static str, limit: u64, attempted: u64) -> Result<()> {
         if attempted > limit {
-            Err(self.error(TextInstanceErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            }))
+            Err(self.error(Error::limit(resource, limit, attempted)))
         } else {
             Ok(())
         }
     }
 
-    fn coordinate(&self, value: Option<i64>) -> TextInstanceResult<i64> {
-        checked_coordinate(value).map_err(|kind| self.error(kind))
+    fn coordinate(&self, value: Option<i64>) -> Result<i64> {
+        checked_coordinate(value).map_err(|error| self.error(error))
     }
 
-    fn check_cancelled(&self) -> TextInstanceResult<()> {
+    fn check_cancelled(&self) -> Result<()> {
         if self.cancellation.is_cancelled() {
-            Err(self.error(TextInstanceErrorKind::Cancelled))
+            Err(self.error(Error::cancelled()))
         } else {
             Ok(())
         }
     }
 
-    fn signed(
-        &mut self,
-        procedure: IntegerProcedure,
-        decision: TextDecision,
-    ) -> TextInstanceResult<i64> {
+    fn signed(&mut self, procedure: IntegerProcedure, decision: TextDecision) -> Result<i64> {
         self.progress.decision = decision;
         match decode_integer(&mut self.mq, procedure) {
             Ok(IntegerValue::Signed(value)) => Ok(value),
-            Ok(IntegerValue::OutOfBand) => Err(self.error(TextInstanceErrorKind::Malformed(
-                "unexpected arithmetic OOB",
-            ))),
-            Err(error) => Err(self.error(TextInstanceErrorKind::Mq(Box::new(error)))),
+            Ok(IntegerValue::OutOfBand) => {
+                Err(self.error(Error::invalid("unexpected arithmetic OOB")))
+            }
+            Err(error) => Err(self.error(error)),
         }
     }
 
@@ -686,7 +518,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         &mut self,
         reference: StoredSymbol,
         request: RefinementRequest,
-    ) -> Result<SymbolDescriptor, RefinementError> {
+    ) -> Result<SymbolDescriptor> {
         let store = match reference.store {
             SymbolStore::Imported => self.imported,
             SymbolStore::New => self.new,
@@ -705,14 +537,14 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
 
     /// Decode one placement. `None` means the declared count and exact MQ
     /// terminal were checked; subsequent calls return `None`.
-    pub fn next_instance(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    pub fn next_instance(&mut self) -> Result<Option<TextInstance>> {
         if self.complete {
             return Ok(None);
         }
         self.decode_instance()
     }
 
-    fn decode_instance(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    fn decode_instance(&mut self) -> Result<Option<TextInstance>> {
         self.check_cancelled()?;
         if !self.initialized {
             let initial = self.signed(IntegerProcedure::Iadt, TextDecision::InitialStripT)?;
@@ -726,7 +558,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 let snapshot = self
                     .mq
                     .finish(expected)
-                    .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
+                    .map_err(|error| self.error(error))?;
                 self.progress.mq = Some(snapshot);
                 self.check_cancelled()?;
                 self.complete = true;
@@ -763,7 +595,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                             }))?;
                     }
                     Err(error) => {
-                        return Err(self.error(TextInstanceErrorKind::Mq(Box::new(error))));
+                        return Err(self.error(error));
                     }
                 }
             }
@@ -772,21 +604,17 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             } else {
                 let value = self.signed(IntegerProcedure::Iait, TextDecision::WithinStripT)?;
                 if value < 0 || value >= i64::from(self.header.flags.strips()) {
-                    return Err(self.error(TextInstanceErrorKind::Malformed("IAIT outside strip")));
+                    return Err(self.error(Error::invalid("IAIT outside strip")));
                 }
                 value
             };
             let t = self.coordinate(self.strip_t.checked_add(within))?;
             self.progress.decision = TextDecision::SymbolId;
-            let raw_id = decode_iaid(&mut self.mq, self.code_len)
-                .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
+            let raw_id =
+                decode_iaid(&mut self.mq, self.code_len).map_err(|error| self.error(error))?;
             let id =
                 checked_symbol_index(raw_id, self.dictionary.len() as u64, self.dictionary.len())
-                    .map_err(|_| {
-                    self.error(TextInstanceErrorKind::Malformed(
-                        "IAID outside exported catalog",
-                    ))
-                })?;
+                    .map_err(|_| self.error(Error::invalid("IAID outside exported catalog")))?;
             let reference = self.dictionary[id];
             let mut bitmap = TextBitmap::Stored(reference);
             let mut width = reference.symbol.width;
@@ -798,7 +626,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 0
             };
             if ri != 0 && ri != 1 {
-                return Err(self.error(TextInstanceErrorKind::Malformed("IARI is not a bit")));
+                return Err(self.error(Error::invalid("IARI is not a bit")));
             }
             if ri == 1 {
                 let rdw = self.signed(IntegerProcedure::Iardw, TextDecision::DeltaWidth)?;
@@ -807,7 +635,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 let rdy = self.signed(IntegerProcedure::Iardy, TextDecision::DeltaY)?;
                 let (target_width, target_height, reference_dx, reference_dy) =
                     refined_geometry(reference.symbol, rdw, rdh, rdx, rdy)
-                        .map_err(|kind| self.error(kind))?;
+                        .map_err(|error| self.error(error))?;
                 width = target_width;
                 height = target_height;
                 refinement_request = Some(RefinementRequest {
@@ -834,12 +662,12 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 self.header.flags.reference_corner,
                 self.header.flags.transposed,
             )
-            .map_err(|kind| self.error(kind))?;
+            .map_err(|error| self.error(error))?;
             if let Some(request) = refinement_request {
                 self.progress.decision = TextDecision::RefinementBitmap;
-                let descriptor = self.decode_refined(reference, request).map_err(|error| {
-                    self.error(TextInstanceErrorKind::Refinement(Box::new(error)))
-                })?;
+                let descriptor = self
+                    .decode_refined(reference, request)
+                    .map_err(|error| self.error(error))?;
                 bitmap = TextBitmap::Refined {
                     store_base: self.refined_base,
                     symbol: descriptor,

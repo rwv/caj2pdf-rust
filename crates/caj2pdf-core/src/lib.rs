@@ -27,7 +27,7 @@ pub mod qm;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use error::{Error, PdfErrorKind, Result};
+pub use error::{Context, Error, ErrorKind, Hnc8Stage, Result, Type3Stage};
 pub(crate) use io::write_counted;
 pub use io::{
     Cancellation, CountingSource, NeverCancel, Payload, RangedSource, read_exact_at, read_payload,

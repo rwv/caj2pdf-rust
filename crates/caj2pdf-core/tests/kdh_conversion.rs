@@ -3,7 +3,7 @@
 //! Synthetic KDH wrappers around repository-owned PDF test input.
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
+    Cancellation, Context, Error, ErrorKind, Limits, NeverCancel, RangedSource,
     kdh::{KdhPdfSource, convert_kdh},
 };
 use std::io::Write;
@@ -102,10 +102,14 @@ fn a_later_zero_read_reports_the_absolute_kdh_offset() {
     .unwrap_err();
     assert!(matches!(
         error,
-        Error::TruncatedInput {
-            offset: 254,
-            expected: 8,
-            available: 0,
+        Error {
+            kind: ErrorKind::Truncated {
+                expected: 8,
+                available: 0,
+                ..
+            },
+            offset: Some(254),
+            ..
         }
     ));
     assert!(output.is_empty());
@@ -178,7 +182,9 @@ fn a_second_plausible_xref_end_is_rejected_as_ambiguous() {
         .unwrap();
     assert!(matches!(
         error,
-        Error::Kdh {
+        Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Kdh,
             reason: "ambiguous PDF end in KDH trailer",
             ..
         }
@@ -196,8 +202,11 @@ fn full_kdh_input_size_limit_includes_trailing_bytes() {
     };
     assert!(matches!(
         KdhPdfSource::open(&mut source, &limits, &NeverCancel),
-        Err(Error::LimitExceeded {
-            resource: "input bytes",
+        Err(Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "input bytes",
+                ..
+            },
             ..
         })
     ));
@@ -253,7 +262,13 @@ fn kdh_scan_observes_cancellation_before_writing_output() {
     };
     let mut output = Vec::new();
     let result = convert_kdh(&mut source, &mut &mut output, &limits, &cancellation);
-    assert!(matches!(result, Err(Error::Cancelled)));
+    assert!(matches!(
+        result,
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
     assert!(output.is_empty());
     assert!(source.max_request <= limits.io_chunk_bytes);
 }
@@ -273,7 +288,13 @@ fn kdh_conversion_propagates_sink_failure() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Io(_),
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -283,10 +304,14 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
     let mut truncated = MeasuredSource::new(vec![0; 40]);
     assert!(matches!(
         KdhPdfSource::open(&mut truncated, &limits, &NeverCancel),
-        Err(Error::TruncatedInput {
-            offset: 0,
-            expected: 254,
-            available: 40
+        Err(Error {
+            kind: ErrorKind::Truncated {
+                expected: 254,
+                available: 40,
+                ..
+            },
+            offset: Some(0),
+            ..
         })
     ));
 
@@ -298,9 +323,12 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
             &limits,
             &NeverCancel
         ),
-        Err(Error::Kdh {
-            offset: 0,
-            reason: "KDH signature is invalid"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            offset: Some(0),
+            context: Context::Kdh,
+            reason: "KDH signature is invalid",
+            ..
         })
     ));
 
@@ -311,10 +339,14 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
             &limits,
             &NeverCancel
         ),
-        Err(Error::TruncatedInput {
-            offset: 254,
-            expected: 8,
-            available: 7
+        Err(Error {
+            kind: ErrorKind::Truncated {
+                expected: 8,
+                available: 7,
+                ..
+            },
+            offset: Some(254),
+            ..
         })
     ));
 
@@ -322,7 +354,12 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
     bad_version[0x28] = 1;
     assert!(matches!(
         KdhPdfSource::open(&mut MeasuredSource::new(bad_version), &limits, &NeverCancel),
-        Err(Error::Kdh { offset: 0x28, .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            offset: Some(0x28),
+            context: Context::Kdh,
+            ..
+        })
     ));
 
     let mut bad_payload = pdf.clone();
@@ -333,7 +370,12 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
             &limits,
             &NeverCancel
         ),
-        Err(Error::Kdh { offset: 254, .. })
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            offset: Some(254),
+            context: Context::Kdh,
+            ..
+        })
     ));
 
     let mut missing_eof = pdf;
@@ -348,7 +390,9 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
             &limits,
             &NeverCancel
         ),
-        Err(Error::Kdh {
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            context: Context::Kdh,
             reason: "decoded PDF startxref and EOF were not found",
             ..
         })
@@ -372,7 +416,9 @@ fn corrupt_pdf_object_is_reported_at_kdh_absolute_offset() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error, Error::Pdf { offset, .. } if offset >= PDF_START as u64));
+    assert!(
+        matches!(error, Error { kind: _, offset: Some(offset), context: Context::Pdf { .. }, .. } if offset >= PDF_START as u64)
+    );
 }
 
 #[test]
@@ -386,7 +432,7 @@ fn pdf_output_limit_preserves_kdh_absolute_error_location() {
     };
     let error = convert_kdh(&mut source, &mut &mut output, &limits, &NeverCancel).unwrap_err();
     assert!(
-        matches!(error, Error::PdfLimitExceeded { offset, resource: "output bytes", .. } if offset >= PDF_START as u64),
+        matches!(error, Error { kind: ErrorKind::LimitExceeded { resource: "output bytes", .. }, offset: Some(offset), context: Context::Pdf { .. }, .. } if offset >= PDF_START as u64),
         "{error}"
     );
     assert!(output.is_empty());
@@ -458,10 +504,7 @@ fn a_trailing_object_target_is_a_plausible_second_end() {
     let marker = bytes.len() as u64 - 6;
     assert!(matches!(
         open_lengths(bytes),
-        Err(Error::Kdh {
-            offset,
-            reason: "ambiguous PDF end in KDH trailer",
-        }) if offset == marker
+        Err(Error { kind: ErrorKind::Malformed, offset: Some(offset), context: Context::Kdh, reason: "ambiguous PDF end in KDH trailer", .. }) if offset == marker
     ));
 }
 
@@ -480,16 +523,20 @@ fn decoded_reads_are_bounded_by_the_pdf_end_and_the_source_contract() {
     assert_eq!(decoded.read_at(end, &mut buffer).unwrap(), 0);
     assert!(matches!(
         decoded.read_at(end + 1, &mut buffer),
-        Err(Error::InvalidInput {
-            reason: "KDH PDF read starts beyond payload end"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "KDH PDF read starts beyond payload end",
+            ..
         })
     ));
 
     overreport.set(true);
     assert!(matches!(
         decoded.read_at(0, &mut buffer),
-        Err(Error::InvalidInput {
-            reason: "KDH source reported more bytes than requested"
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            reason: "KDH source reported more bytes than requested",
+            ..
         })
     ));
 }

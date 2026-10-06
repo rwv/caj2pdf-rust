@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
-    jbig2::{
-        DirectoryError, DirectoryErrorKind, HeaderError, HeaderErrorKind, SegmentDirectory,
-        SegmentSpan, read_embedded_directory, read_segment_header,
-    },
+    Cancellation, Context, Error, ErrorKind, Limits, NeverCancel, RangedSource,
+    jbig2::{SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header},
 };
 use std::{cell::Cell, io, rc::Rc};
 
@@ -43,10 +40,12 @@ impl RangedSource for TestSource {
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
         if self.source_cancel_at == Some(offset) {
-            return Err(Error::Cancelled);
+            return Err(Error::cancelled());
         }
         if self.fail_at == Some(offset) {
-            return Err(Error::Io(io::Error::other("test I/O failure")));
+            return Err(Error::from(ErrorKind::Io(io::Error::other(
+                "test I/O failure",
+            ))));
         }
         if self.overreport {
             return Ok(destination.len() + 1);
@@ -78,9 +77,7 @@ impl Cancellation for Flag {
     }
 }
 
-fn parse(
-    bytes: &[u8],
-) -> Result<caj2pdf_core::jbig2::SegmentHeader, caj2pdf_core::jbig2::HeaderError> {
+fn parse(bytes: &[u8]) -> Result<caj2pdf_core::jbig2::SegmentHeader, Error> {
     let mut source = TestSource::new(bytes);
     read_segment_header(
         &mut source,
@@ -280,10 +277,16 @@ fn truncated_fields_never_read_beyond_declared_span() {
         )
         .unwrap_err();
         assert!(
-            matches!(error.kind, HeaderErrorKind::Truncated(_)),
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Truncated { .. },
+                    ..
+                }
+            ),
             "{length}: {error}"
         );
-        assert_eq!(error.offset, length as u64);
+        assert_eq!(error.offset, Some(length as u64));
         assert!(
             source
                 .reads
@@ -304,10 +307,14 @@ fn truncated_fields_never_read_beyond_declared_span() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::Truncated("reference number")
+        error,
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "reference number",
+            ..
+        }
     ));
-    assert_eq!(error.offset, 12);
+    assert_eq!(error.offset, Some(12));
 }
 
 #[test]
@@ -315,13 +322,14 @@ fn malformed_and_unsupported_forms_are_located() {
     let mut reserved_type = GLOBAL_EMPTY.to_vec();
     reserved_type[4] = 63;
     let error = parse(&reserved_type).unwrap_err();
-    assert_eq!(error.offset, 5);
-    assert_eq!(error.segment, Some(0));
+    assert_eq!(error.offset, Some(5));
+    assert_eq!(error.context, Context::Jbig2 { segment: Some(0) });
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::Unsupported {
-            feature: "reserved segment type",
-            value: 63
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "reserved segment type",
+            ..
         }
     ));
 
@@ -330,9 +338,10 @@ fn malformed_and_unsupported_forms_are_located() {
         bytes[5] = tag << 5;
         let error = parse(&bytes).unwrap_err();
         assert!(matches!(
-            error.kind,
-            HeaderErrorKind::Unsupported {
-                feature: "reserved reference-count form",
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "reserved reference-count form",
                 ..
             }
         ));
@@ -340,21 +349,33 @@ fn malformed_and_unsupported_forms_are_located() {
     let mut noncanonical = LONG_FIVE.to_vec();
     noncanonical[8] = 4;
     assert!(matches!(
-        parse(&noncanonical).unwrap_err().kind,
-        HeaderErrorKind::Malformed("noncanonical long reference count")
+        parse(&noncanonical).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "noncanonical long reference count",
+            ..
+        }
     ));
 
     let mut unused_short = GLOBAL_EMPTY.to_vec();
     unused_short[5] = 0b0001_0001;
     assert!(matches!(
-        parse(&unused_short).unwrap_err().kind,
-        HeaderErrorKind::Malformed("unused short retention bits")
+        parse(&unused_short).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "unused short retention bits",
+            ..
+        }
     ));
     let mut unused_long = LONG_FIVE.to_vec();
     unused_long[9] = 0b1100_0000;
     assert!(matches!(
-        parse(&unused_long).unwrap_err().kind,
-        HeaderErrorKind::Malformed("unused long retention bits")
+        parse(&unused_long).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "unused long retention bits",
+            ..
+        }
     ));
 
     // Unknown data length is allowed by T.88 only for an immediate generic
@@ -362,11 +383,12 @@ fn malformed_and_unsupported_forms_are_located() {
     let mut unknown = vec![0, 0, 0, 2, 38, 1, 1];
     unknown.extend(u32::MAX.to_be_bytes());
     let error = parse(&unknown).unwrap_err();
-    assert_eq!(error.offset, 11);
+    assert_eq!(error.offset, Some(11));
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::Unsupported {
-            feature: "unknown segment data length",
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            reason: "unknown segment data length",
             ..
         }
     ));
@@ -377,46 +399,74 @@ fn single_header_reference_and_page_rules() {
     let mut self_reference = vec![0, 0, 0, 5, 0, 0x22, 5, 0];
     self_reference.extend([0, 0, 0, 0]);
     assert!(matches!(
-        parse(&self_reference).unwrap_err().kind,
-        HeaderErrorKind::Malformed("reference is not lower than segment number")
+        parse(&self_reference).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference is not lower than segment number",
+            ..
+        }
     ));
     self_reference[6] = 6;
     assert!(matches!(
-        parse(&self_reference).unwrap_err().kind,
-        HeaderErrorKind::Malformed("reference is not lower than segment number")
+        parse(&self_reference).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference is not lower than segment number",
+            ..
+        }
     ));
 
     let mut pattern_with_reference = self_reference.clone();
     pattern_with_reference[4] = 16;
     assert!(matches!(
-        parse(&pattern_with_reference).unwrap_err().kind,
-        HeaderErrorKind::Malformed("reference count for segment type")
+        parse(&pattern_with_reference).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference count for segment type",
+            ..
+        }
     ));
     let mut halftone_without_reference = GLOBAL_EMPTY.to_vec();
     halftone_without_reference[4] = 22;
     assert!(matches!(
-        parse(&halftone_without_reference).unwrap_err().kind,
-        HeaderErrorKind::Malformed("reference count for segment type")
+        parse(&halftone_without_reference).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference count for segment type",
+            ..
+        }
     ));
     let mut refinement_with_two = vec![0, 0, 0, 4, 42, 0x40, 0, 1, 0];
     refinement_with_two.extend([0, 0, 0, 0]);
     assert!(matches!(
-        parse(&refinement_with_two).unwrap_err().kind,
-        HeaderErrorKind::Malformed("reference count for segment type")
+        parse(&refinement_with_two).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "reference count for segment type",
+            ..
+        }
     ));
 
     let mut global_region = GLOBAL_EMPTY.to_vec();
     global_region[4] = 38;
     assert!(matches!(
-        parse(&global_region).unwrap_err().kind,
-        HeaderErrorKind::Malformed("page association for segment type")
+        parse(&global_region).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "page association for segment type",
+            ..
+        }
     ));
     let mut paged_eof = GLOBAL_EMPTY.to_vec();
     paged_eof[4] = 51;
     paged_eof[6] = 1;
     assert!(matches!(
-        parse(&paged_eof).unwrap_err().kind,
-        HeaderErrorKind::Malformed("page association for segment type")
+        parse(&paged_eof).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "page association for segment type",
+            ..
+        }
     ));
     let mut valid_region = global_region;
     valid_region[6] = 1;
@@ -437,20 +487,34 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     assert!(source.reads.is_empty());
 
     let mut short_data = SHORT_FOUR.to_vec();
     short_data.pop();
     assert!(matches!(
-        parse(&short_data).unwrap_err().kind,
-        HeaderErrorKind::Truncated("segment data")
+        parse(&short_data).unwrap_err(),
+        Error {
+            kind: ErrorKind::Truncated { .. },
+            reason: "segment data",
+            ..
+        }
     ));
     let mut extra_data = SHORT_FOUR.to_vec();
     extra_data.push(0);
     assert!(matches!(
-        parse(&extra_data).unwrap_err().kind,
-        HeaderErrorKind::Malformed("bytes follow declared segment data")
+        parse(&extra_data).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "bytes follow declared segment data",
+            ..
+        }
     ));
 
     let mut huge = GLOBAL_EMPTY.to_vec();
@@ -469,7 +533,14 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
     .unwrap_err();
     // The references the count declares cannot fit the span.
     assert!(
-        matches!(error.kind, HeaderErrorKind::Truncated("segment header")),
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::Truncated { .. },
+                reason: "segment header",
+                ..
+            }
+        ),
         "{error}"
     );
     assert_eq!(source.reads.len(), 4);
@@ -491,10 +562,13 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 header metadata bytes",
-            attempted: 21,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                resource: "JBIG2 header metadata bytes",
+                attempted: 21,
+                ..
+            },
             ..
         }
     ));
@@ -514,7 +588,13 @@ fn cancellation_and_source_failures_keep_locations() {
         &Flag(active),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
     assert!(source.reads.is_empty());
 
     let active = Rc::new(Cell::new(false));
@@ -531,8 +611,14 @@ fn cancellation_and_source_failures_keep_locations() {
         &Flag(active),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
-    assert_eq!(error.offset, 4);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
+    assert_eq!(error.offset, Some(4));
     assert_eq!(source.reads.len(), 4);
 
     let active = Rc::new(Cell::new(false));
@@ -549,9 +635,15 @@ fn cancellation_and_source_failures_keep_locations() {
         &Flag(active),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
-    assert_eq!(error.segment, Some(257));
-    assert_eq!(error.offset, 14);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
+    assert_eq!(error.context, Context::Jbig2 { segment: Some(257) });
+    assert_eq!(error.offset, Some(14));
     assert_eq!(source.reads.len(), 14);
 
     let active = Rc::new(Cell::new(false));
@@ -569,8 +661,14 @@ fn cancellation_and_source_failures_keep_locations() {
         &Flag(active),
     )
     .unwrap_err();
-    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
-    assert_eq!(error.offset, 5);
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
+    assert_eq!(error.offset, Some(5));
     assert_eq!(source.reads.len(), 6);
 
     let mut source = TestSource::new(GLOBAL_EMPTY);
@@ -585,8 +683,14 @@ fn cancellation_and_source_failures_keep_locations() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!(error.offset, 5);
-    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
+    assert_eq!(error.offset, Some(5));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        }
+    ));
 
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.fail_at = Some(5);
@@ -600,8 +704,8 @@ fn cancellation_and_source_failures_keep_locations() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!(error.offset, 5);
-    assert!(matches!(error.kind, HeaderErrorKind::Source(Error::Io(_))));
+    assert_eq!(error.offset, Some(5));
+    assert!(matches!(error.kind, ErrorKind::Io(_)));
 
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.overreport = true;
@@ -615,70 +719,18 @@ fn cancellation_and_source_failures_keep_locations() {
             &Limits::default(),
             &NeverCancel,
         )
-        .unwrap_err()
-        .kind,
-        HeaderErrorKind::Malformed("source returned more bytes than requested")
+        .unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "source returned more bytes than requested",
+            ..
+        }
     ));
-}
-
-#[test]
-fn public_errors_preserve_readable_locations_and_source_causes() {
-    let cases = [
-        (HeaderErrorKind::InvalidSpan("end"), "invalid span: end"),
-        (HeaderErrorKind::Truncated("number"), "truncated number"),
-        (
-            HeaderErrorKind::Malformed("reference"),
-            "malformed reference",
-        ),
-        (
-            HeaderErrorKind::Unsupported {
-                feature: "count form",
-                value: 6,
-            },
-            "unsupported count form (6)",
-        ),
-        (
-            HeaderErrorKind::LimitExceeded {
-                resource: "header bytes",
-                limit: 2,
-                attempted: 3,
-            },
-            "header bytes limit 2 exceeded by 3",
-        ),
-        (
-            HeaderErrorKind::AllocationFailed,
-            "header allocation failed",
-        ),
-        (HeaderErrorKind::Cancelled, "cancelled"),
-    ];
-    for (kind, detail) in cases {
-        let error = HeaderError {
-            offset: 17,
-            segment: Some(42),
-            kind,
-        };
-        assert_eq!(
-            error.to_string(),
-            format!("JBIG2 segment header at source byte 17, segment 42: {detail}")
-        );
-        assert!(std::error::Error::source(&error).is_none());
-    }
-
-    let source_error = HeaderError {
-        offset: 5,
-        segment: None,
-        kind: HeaderErrorKind::Source(Error::Io(io::Error::other("test I/O failure"))),
-    };
-    assert_eq!(
-        source_error.to_string(),
-        "JBIG2 segment header at source byte 5: source: I/O error: test I/O failure"
-    );
-    assert!(std::error::Error::source(&source_error).is_some());
 }
 
 /// Parses `bytes` as an embedded directory with this file's source type, so
 /// directory header parsing shares the header tests' instantiation.
-fn parse_directory(bytes: &[u8], limits: Limits) -> Result<SegmentDirectory, DirectoryError> {
+fn parse_directory(bytes: &[u8], limits: Limits) -> Result<SegmentDirectory, Error> {
     let mut source = TestSource::new(bytes);
     read_embedded_directory(
         &mut source,
@@ -717,8 +769,8 @@ fn directory_metadata_is_bounded_by_the_allocation_limit() {
         };
         matches!(
             parse_directory(&bytes, limits),
-            Err(DirectoryError {
-                kind: DirectoryErrorKind::LimitExceeded {
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
                     resource: "JBIG2 directory metadata bytes",
                     limit,
                     ..

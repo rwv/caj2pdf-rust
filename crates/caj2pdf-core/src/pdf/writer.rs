@@ -71,9 +71,9 @@ impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
 
     pub(super) fn ensure_healthy(&self) -> Result<()> {
         if self.failed {
-            Err(Error::InvalidInput {
-                reason: "PDF writer cannot continue after a sink failure",
-            })
+            Err(Error::invalid(
+                "PDF writer cannot continue after a sink failure",
+            ))
         } else {
             Ok(())
         }
@@ -82,12 +82,10 @@ impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
     /// Write `bytes`, which must end within [`MAX_CLASSIC_PDF_BYTES`].
     pub(super) fn write(&mut self, bytes: &[u8]) -> Result<()> {
         self.ensure_healthy()?;
-        let attempted =
-            self.position
-                .checked_add(len_u64(bytes.len()))
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF output byte count overflows 64 bits",
-                })?;
+        let attempted = self
+            .position
+            .checked_add(len_u64(bytes.len()))
+            .ok_or(Error::invalid("PDF output byte count overflows 64 bits"))?;
         check_classic_pdf_bytes(attempted)?;
         self.write_unbounded(bytes)
     }
@@ -114,13 +112,13 @@ impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
     pub(super) fn flush(&mut self) -> Result<()> {
         self.ensure_healthy()?;
         if self.cancellation.is_cancelled() {
-            return Err(Error::Cancelled);
+            return Err(crate::ErrorKind::Cancelled.into());
         }
         self.sink.flush().inspect_err(|_| {
             self.failed = true;
         })?;
         if self.cancellation.is_cancelled() {
-            return Err(Error::Cancelled);
+            return Err(crate::ErrorKind::Cancelled.into());
         }
         Ok(())
     }
@@ -192,13 +190,11 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     pub(crate) fn prepare_objects(&mut self, additional_objects: usize) -> Result<()> {
         self.out.ensure_healthy()?;
         let limits = self.out.limits;
-        let next_count =
-            self.offsets
-                .len()
-                .checked_add(additional_objects)
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF object count overflows address space",
-                })?;
+        let next_count = self
+            .offsets
+            .len()
+            .checked_add(additional_objects)
+            .ok_or(Error::invalid("PDF object count overflows address space"))?;
         checked_object_number(next_count)?;
         let max_slots =
             (limits.max_allocation_bytes / size_of::<u64>() as u64).min(u64::from(MAX_PDF_OBJECTS));
@@ -214,9 +210,9 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
         };
         let bytes = next_capacity
             .checked_mul(size_of::<u64>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF object index size overflows address space",
-            })?;
+            .ok_or(Error::invalid(
+                "PDF object index size overflows address space",
+            ))?;
         let bytes = len_u64(bytes);
         limits.check_allocation(bytes)?;
         if next_count > self.offsets.capacity() {
@@ -245,9 +241,7 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.state != State::Object {
-            return Err(Error::InvalidInput {
-                reason: "PDF bytes require an open ordinary object",
-            });
+            return Err(Error::invalid("PDF bytes require an open ordinary object"));
         }
         self.out.write(bytes)
     }
@@ -256,9 +250,7 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     pub fn end_object(&mut self) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.state != State::Object {
-            return Err(Error::InvalidInput {
-                reason: "no ordinary PDF object is open",
-            });
+            return Err(Error::invalid("no ordinary PDF object is open"));
         }
         self.out.write(b"\nendobj\n")?;
         self.state = State::Idle;
@@ -284,9 +276,9 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     ) -> Result<()> {
         self.ensure_idle()?;
         if stream_id == length_id {
-            return Err(Error::InvalidInput {
-                reason: "PDF stream and length objects must be distinct",
-            });
+            return Err(Error::invalid(
+                "PDF stream and length objects must be distinct",
+            ));
         }
         self.unwritten_index(length_id)?;
         self.begin_object(stream_id)?;
@@ -310,29 +302,23 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     pub fn write_stream_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.out.ensure_healthy()?;
         let State::Stream { data_start, .. } = self.state else {
-            return Err(Error::InvalidInput {
-                reason: "no PDF stream is open",
-            });
+            return Err(Error::invalid("no PDF stream is open"));
         };
-        let current_length =
-            self.out
-                .position
-                .checked_sub(data_start)
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF stream position moved backwards",
-                })?;
+        let current_length = self
+            .out
+            .position
+            .checked_sub(data_start)
+            .ok_or(Error::invalid("PDF stream position moved backwards"))?;
         let chunk_length = len_u64(bytes.len());
         let attempted = current_length
             .checked_add(chunk_length)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF stream length overflows 64 bits",
-            })?;
+            .ok_or(Error::invalid("PDF stream length overflows 64 bits"))?;
         if attempted > MAX_PDF_INTEGER {
-            return Err(Error::LimitExceeded {
-                resource: "PDF stream length",
-                limit: MAX_PDF_INTEGER,
+            return Err(Error::limit(
+                "PDF stream length",
+                MAX_PDF_INTEGER,
                 attempted,
-            });
+            ));
         }
         self.out.write(bytes)
     }
@@ -346,17 +332,13 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
             data_start,
         } = self.state
         else {
-            return Err(Error::InvalidInput {
-                reason: "no PDF stream is open",
-            });
+            return Err(Error::invalid("no PDF stream is open"));
         };
         let length = self
             .out
             .position
             .checked_sub(data_start)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF stream position moved backwards",
-            })?;
+            .ok_or(Error::invalid("PDF stream position moved backwards"))?;
         self.out.write(b"\nendstream\nendobj\n")?;
         self.state = State::Idle;
         self.write_object(length_id, length.to_string().as_bytes())
@@ -378,14 +360,10 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
             self.index(id)?;
         }
         if self.offsets[root_index] == 0 {
-            return Err(Error::InvalidInput {
-                reason: "PDF catalog object has not been written",
-            });
+            return Err(Error::invalid("PDF catalog object has not been written"));
         }
         if self.offsets.contains(&0) {
-            return Err(Error::InvalidInput {
-                reason: "a reserved PDF object has not been written",
-            });
+            return Err(Error::invalid("a reserved PDF object has not been written"));
         }
         // Object numbers are checked when reserved, so each index fits `u32`.
         let entries = self
@@ -404,17 +382,15 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
         let start = self.out.position;
         let final_size = dense_xref_len(&trailer, start)
             .and_then(|tail| start.checked_add(tail))
-            .ok_or(Error::InvalidInput {
-                reason: "PDF output byte count overflows 64 bits",
-            })?;
+            .ok_or(Error::invalid("PDF output byte count overflows 64 bits"))?;
         check_classic_pdf_bytes(final_size)?;
         let limits = self.out.limits;
         if final_size > limits.max_output_bytes {
-            return Err(Error::LimitExceeded {
-                resource: "output bytes",
-                limit: limits.max_output_bytes,
-                attempted: final_size,
-            });
+            return Err(Error::limit(
+                "output bytes",
+                limits.max_output_bytes,
+                final_size,
+            ));
         }
         write_xref(&mut self.out, entries, true, &trailer)?;
         self.out.flush()?;
@@ -424,24 +400,18 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     pub(crate) fn ensure_idle(&self) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.state != State::Idle {
-            return Err(Error::InvalidInput {
-                reason: "another PDF object is already open",
-            });
+            return Err(Error::invalid("another PDF object is already open"));
         }
         Ok(())
     }
 
     fn index(&self, id: ObjectId) -> Result<usize> {
         let Some(index) = id.number().checked_sub(1) else {
-            return Err(Error::InvalidInput {
-                reason: "PDF object number zero is reserved",
-            });
+            return Err(Error::invalid("PDF object number zero is reserved"));
         };
         let index = index as usize;
         if index >= self.offsets.len() {
-            return Err(Error::InvalidInput {
-                reason: "PDF object number was not reserved",
-            });
+            return Err(Error::invalid("PDF object number was not reserved"));
         }
         Ok(index)
     }
@@ -449,9 +419,7 @@ impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     fn unwritten_index(&self, id: ObjectId) -> Result<usize> {
         let index = self.index(id)?;
         if self.offsets[index] != 0 {
-            return Err(Error::InvalidInput {
-                reason: "PDF object has already been written",
-            });
+            return Err(Error::invalid("PDF object has already been written"));
         }
         Ok(index)
     }
@@ -482,11 +450,11 @@ impl<W: Write, C: Cancellation> ObjectAllocator for PdfWriter<'_, W, C> {
 /// Reject output that would end past the classic xref's ten-digit offsets.
 pub(crate) fn check_classic_pdf_bytes(attempted: u64) -> Result<()> {
     if attempted > MAX_CLASSIC_PDF_BYTES {
-        return Err(Error::LimitExceeded {
-            resource: "classic PDF file bytes",
-            limit: MAX_CLASSIC_PDF_BYTES,
+        return Err(Error::limit(
+            "classic PDF file bytes",
+            MAX_CLASSIC_PDF_BYTES,
             attempted,
-        });
+        ));
     }
     Ok(())
 }
@@ -494,11 +462,11 @@ pub(crate) fn check_classic_pdf_bytes(attempted: u64) -> Result<()> {
 pub(crate) fn checked_object_number(count: usize) -> Result<u32> {
     let attempted = len_u64(count);
     if attempted > u64::from(MAX_PDF_OBJECTS) {
-        return Err(Error::LimitExceeded {
-            resource: "PDF object count",
-            limit: u64::from(MAX_PDF_OBJECTS),
+        return Err(Error::limit(
+            "PDF object count",
+            u64::from(MAX_PDF_OBJECTS),
             attempted,
-        });
+        ));
     }
     Ok(count as u32)
 }
@@ -506,6 +474,7 @@ pub(crate) fn checked_object_number(count: usize) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ErrorKind;
     use crate::NeverCancel;
 
     /// Every test uses this one sink type, so their paths share one
@@ -526,7 +495,10 @@ mod tests {
         assert_eq!(writer.reserve_object().unwrap().number(), 1);
         assert!(matches!(
             writer.prepare_objects(usize::MAX),
-            Err(Error::InvalidInput { .. })
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
         ));
         assert_eq!(writer.offsets.len(), 1);
         assert_eq!(writer.position(), before);
@@ -538,11 +510,7 @@ mod tests {
         assert!(check_classic_pdf_bytes(MAX_CLASSIC_PDF_BYTES).is_ok());
         assert!(matches!(
             check_classic_pdf_bytes(MAX_CLASSIC_PDF_BYTES + 1),
-            Err(Error::LimitExceeded {
-                resource: "classic PDF file bytes",
-                limit: MAX_CLASSIC_PDF_BYTES,
-                attempted,
-            }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
+            Err(Error { kind: ErrorKind::LimitExceeded { resource: "classic PDF file bytes", limit: MAX_CLASSIC_PDF_BYTES, attempted }, .. }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
         ));
     }
 
@@ -554,10 +522,13 @@ mod tests {
         );
         assert!(matches!(
             checked_object_number(MAX_PDF_OBJECTS as usize + 1),
-            Err(Error::LimitExceeded {
-                resource: "PDF object count",
-                limit: 8_388_607,
-                attempted: 8_388_608
+            Err(Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF object count",
+                    limit: 8_388_607,
+                    attempted: 8_388_608
+                },
+                ..
             })
         ));
     }
@@ -573,8 +544,11 @@ mod tests {
             pdf.set_position_for_test(MAX_CLASSIC_PDF_BYTES);
             assert!(matches!(
                 pdf.write_bytes(b"x"),
-                Err(Error::LimitExceeded {
-                    resource: "classic PDF file bytes",
+                Err(Error {
+                    kind: ErrorKind::LimitExceeded {
+                        resource: "classic PDF file bytes",
+                        ..
+                    },
                     ..
                 })
             ));
@@ -601,8 +575,11 @@ mod tests {
             }
             assert!(matches!(
                 pdf.write_stream_bytes(b"x"),
-                Err(Error::LimitExceeded {
-                    resource: "PDF stream length",
+                Err(Error {
+                    kind: ErrorKind::LimitExceeded {
+                        resource: "PDF stream length",
+                        ..
+                    },
                     ..
                 })
             ));
@@ -619,8 +596,10 @@ mod tests {
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             assert!(matches!(
                 pdf.write_stream_bytes(b"x"),
-                Err(Error::InvalidInput {
-                    reason: "no PDF stream is open"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "no PDF stream is open",
+                    ..
                 })
             ));
             let stream = pdf.reserve_object()?;
@@ -671,8 +650,10 @@ mod tests {
             let catalog = pdf.reserve_object()?;
             assert!(matches!(
                 pdf.finish(catalog),
-                Err(Error::InvalidInput {
-                    reason: "PDF catalog object has not been written"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "PDF catalog object has not been written",
+                    ..
                 })
             ));
             Ok::<(), Error>(())
@@ -691,8 +672,10 @@ mod tests {
             pdf.write_object(catalog, b"<< >>")?;
             assert!(matches!(
                 pdf.finish(catalog),
-                Err(Error::InvalidInput {
-                    reason: "a reserved PDF object has not been written"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "a reserved PDF object has not been written",
+                    ..
                 })
             ));
             Ok::<(), Error>(())
@@ -711,11 +694,7 @@ mod tests {
             let written = pdf.position();
             assert!(matches!(
                 pdf.finish(catalog),
-                Err(Error::LimitExceeded {
-                    resource: "output bytes",
-                    limit: 100,
-                    attempted,
-                }) if attempted > 100
+                Err(Error { kind: ErrorKind::LimitExceeded { resource: "output bytes", limit: 100, attempted }, .. }) if attempted > 100
             ));
             Ok::<u64, Error>(written)
         })()
@@ -757,8 +736,10 @@ mod tests {
             pdf.write_object(catalog, b"<< /Type /Catalog >>")?;
             assert!(matches!(
                 pdf.finish_with_info(catalog, Some(ObjectId(catalog.number() + 1))),
-                Err(Error::InvalidInput {
-                    reason: "PDF object number was not reserved"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "PDF object number was not reserved",
+                    ..
                 })
             ));
             Ok::<(), Error>(())
@@ -776,8 +757,10 @@ mod tests {
             let before = pdf.position();
             assert!(matches!(
                 pdf.begin_object(ObjectId(reserved.number() + 1)),
-                Err(Error::InvalidInput {
-                    reason: "PDF object number was not reserved"
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    reason: "PDF object number was not reserved",
+                    ..
                 })
             ));
             assert_eq!(pdf.position(), before);
@@ -800,11 +783,7 @@ mod tests {
             pdf.set_position_for_test(MAX_CLASSIC_PDF_BYTES - 20);
             assert!(matches!(
                 pdf.finish(catalog),
-                Err(Error::LimitExceeded {
-                    resource: "classic PDF file bytes",
-                    limit: MAX_CLASSIC_PDF_BYTES,
-                    attempted,
-                }) if attempted > MAX_CLASSIC_PDF_BYTES
+                Err(Error { kind: ErrorKind::LimitExceeded { resource: "classic PDF file bytes", limit: MAX_CLASSIC_PDF_BYTES, attempted }, .. }) if attempted > MAX_CLASSIC_PDF_BYTES
             ));
             Ok::<(), Error>(())
         })()
@@ -819,7 +798,10 @@ mod tests {
             let pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             assert!(matches!(
                 pdf.index(ObjectId(0)),
-                Err(Error::InvalidInput { .. })
+                Err(Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                })
             ));
             Ok::<(), Error>(())
         })()

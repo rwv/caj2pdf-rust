@@ -2,6 +2,7 @@
 
 use super::native_document::{hnb_fixture, native_text, roles};
 use super::*;
+use crate::test_support::page_image;
 
 // A parser that repeatedly reads without advancing must fail the test itself,
 // rather than returning an I/O error that could masquerade as a valid rejection.
@@ -112,7 +113,7 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
             } else {
                 let error = result.unwrap_err();
                 assert_eq!(
-                    error.page,
+                    page_image(&error).0,
                     Some(2),
                     "profile {profile}, mutation {mutation}: {error}"
                 );

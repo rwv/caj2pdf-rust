@@ -53,16 +53,14 @@ impl Limits {
     /// Reject invalid configurations before any I/O or allocation occurs.
     pub fn validate(&self) -> Result<()> {
         if self.io_chunk_bytes == 0 {
-            return Err(Error::InvalidInput {
-                reason: "I/O chunk size must be nonzero",
-            });
+            return Err(Error::invalid("I/O chunk size must be nonzero"));
         }
         if self.io_chunk_bytes > MAX_IO_CHUNK {
-            return Err(Error::LimitExceeded {
-                resource: "I/O chunk bytes",
-                limit: MAX_IO_CHUNK as u64,
-                attempted: self.io_chunk_bytes as u64,
-            });
+            return Err(Error::limit(
+                "I/O chunk bytes",
+                MAX_IO_CHUNK as u64,
+                self.io_chunk_bytes as u64,
+            ));
         }
         self.check_allocation(self.io_chunk_bytes as u64)
     }
@@ -70,11 +68,11 @@ impl Limits {
     /// Check the size of a requested single allocation.
     pub fn check_allocation(&self, bytes: u64) -> Result<()> {
         if bytes > self.max_allocation_bytes {
-            return Err(Error::LimitExceeded {
-                resource: "allocation bytes",
-                limit: self.max_allocation_bytes,
-                attempted: bytes,
-            });
+            return Err(Error::limit(
+                "allocation bytes",
+                self.max_allocation_bytes,
+                bytes,
+            ));
         }
         Ok(())
     }
@@ -82,21 +80,13 @@ impl Limits {
     /// The unlocated error for an allocation of `attempted` bytes that passed
     /// [`Self::check_allocation`] but was refused by the allocator.
     pub(crate) fn allocation_refused(&self, resource: &'static str, attempted: u64) -> Error {
-        Error::LimitExceeded {
-            resource,
-            limit: self.max_allocation_bytes,
-            attempted,
-        }
+        Error::limit(resource, self.max_allocation_bytes, attempted)
     }
 
     /// Check the selected input byte count for one operation.
     pub fn check_input_size(&self, bytes: u64) -> Result<()> {
         if bytes > self.max_input_bytes {
-            return Err(Error::LimitExceeded {
-                resource: "input bytes",
-                limit: self.max_input_bytes,
-                attempted: bytes,
-            });
+            return Err(Error::limit("input bytes", self.max_input_bytes, bytes));
         }
         Ok(())
     }
@@ -104,11 +94,11 @@ impl Limits {
     /// Check a page count before indexing or allocating pages.
     pub fn check_pages(&self, count: u32) -> Result<()> {
         if count > self.max_pages {
-            return Err(Error::LimitExceeded {
-                resource: "pages",
-                limit: u64::from(self.max_pages),
-                attempted: u64::from(count),
-            });
+            return Err(Error::limit(
+                "pages",
+                u64::from(self.max_pages),
+                u64::from(count),
+            ));
         }
         Ok(())
     }
@@ -116,11 +106,7 @@ impl Limits {
     /// Check the pixel count of one image, page, region or symbol bitmap.
     pub fn check_image_pixels(&self, pixels: u64) -> Result<()> {
         if pixels > self.max_image_pixels {
-            return Err(Error::LimitExceeded {
-                resource: "image pixels",
-                limit: self.max_image_pixels,
-                attempted: pixels,
-            });
+            return Err(Error::limit("image pixels", self.max_image_pixels, pixels));
         }
         Ok(())
     }
@@ -128,11 +114,11 @@ impl Limits {
     /// Check the symbol count of one JBIG2 symbol dictionary.
     pub fn check_symbols(&self, symbols: u64) -> Result<()> {
         if symbols > u64::from(self.max_symbols) {
-            return Err(Error::LimitExceeded {
-                resource: "symbols",
-                limit: u64::from(self.max_symbols),
-                attempted: symbols,
-            });
+            return Err(Error::limit(
+                "symbols",
+                u64::from(self.max_symbols),
+                symbols,
+            ));
         }
         Ok(())
     }
@@ -140,11 +126,11 @@ impl Limits {
     /// Check a bookmark count before indexing or allocating bookmarks.
     pub fn check_bookmarks(&self, count: u32) -> Result<()> {
         if count > self.max_bookmarks {
-            return Err(Error::LimitExceeded {
-                resource: "bookmarks",
-                limit: u64::from(self.max_bookmarks),
-                attempted: u64::from(count),
-            });
+            return Err(Error::limit(
+                "bookmarks",
+                u64::from(self.max_bookmarks),
+                u64::from(count),
+            ));
         }
         Ok(())
     }

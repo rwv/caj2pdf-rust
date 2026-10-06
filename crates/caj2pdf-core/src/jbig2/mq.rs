@@ -5,19 +5,19 @@
 //! The decoder uses the 47 standard probability states in
 //! [`STANDARD_STATES`]. No Annex H vector, JBIG2 image model, or container
 //! parser is included. The interval arithmetic is independent of the T.82
-//! decoder; the context bank, errors, snapshot and counters are shared with
-//! it in [`crate::arith`].
+//! decoder; the context bank, snapshot and counters are shared with it in
+//! [`crate::arith`].
 
 mod standard;
 pub use standard::STANDARD_STATES;
 
-pub use crate::arith::{
-    ArithmeticError, ArithmeticErrorKind, ArithmeticResult, ArithmeticSnapshot, CodedSpan, Coder,
-    ContextBank, ContextState,
-};
+pub use crate::arith::{ArithmeticSnapshot, CodedSpan, ContextBank, ContextState};
 
-use crate::arith::{Counters, check_span};
-use crate::{Limits, Payload};
+use crate::arith::{Counters, INVALID_CONTEXT, SYMBOL_COUNT, check_span};
+use crate::{Error, Limits, Payload, Result};
+
+const MISSING_TERMINATOR: &str = "MQ coding unit lacks its terminal marker";
+const INVALID_MARKER: &str = "invalid MQ marker following 0xFF";
 
 pub const MQ_STATE_COUNT: usize = 47;
 
@@ -44,15 +44,6 @@ impl MqTable {
     }
 }
 
-/// Allocate a bank of `count` MQ contexts within `limits`, before any
-/// decoder uses it.
-pub fn context_bank(count: usize, limits: &Limits) -> ArithmeticResult<ContextBank> {
-    ContextBank::new(count, limits).map_err(|error| ArithmeticError {
-        coder: Some(Coder::T88),
-        ..error
-    })
-}
-
 /// Decoder of one MQ arithmetic substream; no JBIG2 image pixels are produced.
 pub struct MqDecoder<'a> {
     data: &'a [u8],
@@ -77,19 +68,11 @@ impl<'a> MqDecoder<'a> {
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-    ) -> ArithmeticResult<Self> {
-        let at_start = |kind| ArithmeticError {
-            coder: Some(Coder::T88),
-            offset: Some(span.offset),
-            context: None,
-            kind,
-        };
+    ) -> Result<Self> {
         if span.length < 2 {
-            return Err(at_start(ArithmeticErrorKind::InvalidSpan(
-                "requires at least two terminal bytes",
-            )));
+            return Err(Error::invalid("MQ coded span lacks two terminal bytes").at(span.offset));
         }
-        let data = check_span(Coder::T88, span, input, limits)?;
+        let data = check_span(span, input, limits)?;
         let mut decoder = Self {
             data,
             span,
@@ -102,9 +85,9 @@ impl<'a> MqDecoder<'a> {
             code: 0,
             bit_counter: 0,
         };
-        decoder.current_byte = decoder.read_byte(0, None)?;
+        decoder.current_byte = decoder.read_byte(0)?;
         decoder.code = u32::from(decoder.current_byte) << 16;
-        decoder.byte_in(None)?;
+        decoder.byte_in()?;
         decoder.code <<= 7;
         decoder.bit_counter -= 7;
         Ok(decoder)
@@ -112,9 +95,9 @@ impl<'a> MqDecoder<'a> {
 
     /// Decode one decision. After an error the coding unit's registers are
     /// undefined; the caller must abandon it.
-    pub fn decode_bit(&mut self, context: usize) -> ArithmeticResult<bool> {
+    pub fn decode_bit(&mut self, context: usize) -> Result<bool> {
         if self.contexts.get(context).is_none() {
-            return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
+            return Err(self.at(INVALID_CONTEXT));
         }
         let bit = self.decode_bit_inner(context)?;
         self.counters.symbols_decoded += 1;
@@ -141,77 +124,51 @@ impl<'a> MqDecoder<'a> {
 
     /// Verify the caller's symbol count and the exact terminal pair, and
     /// return the final snapshot. The decoder makes no further decisions.
-    pub fn finish(&mut self, expected_symbols: u64) -> ArithmeticResult<ArithmeticSnapshot> {
+    pub fn finish(&mut self, expected_symbols: u64) -> Result<ArithmeticSnapshot> {
         if self.counters.symbols_decoded != expected_symbols {
-            return Err(self.at(
-                None,
-                ArithmeticErrorKind::SymbolCount {
-                    expected: expected_symbols,
-                    decoded: self.counters.symbols_decoded,
-                },
-            ));
+            return Err(self.at(SYMBOL_COUNT));
         }
         let tail = self.span.length - 2;
-        let first = self.read_byte(tail, None)?;
-        let second = self.read_byte(tail + 1, None)?;
+        let first = self.read_byte(tail)?;
+        let second = self.read_byte(tail + 1)?;
         if first != 0xFF {
-            return Err(self.located(
+            return Err(Error::malformed(
                 self.span.offset + tail,
-                None,
-                ArithmeticErrorKind::MissingTerminator,
+                MISSING_TERMINATOR,
             ));
         }
         if second != 0xAC {
-            return Err(self.located(
+            return Err(Error::malformed(
                 self.span.offset + tail + 1,
-                None,
-                ArithmeticErrorKind::InvalidMarker(second),
+                INVALID_MARKER,
             ));
         }
         Ok(self.snapshot())
     }
 
-    fn located(
-        &self,
-        offset: u64,
-        context: Option<usize>,
-        kind: ArithmeticErrorKind,
-    ) -> ArithmeticError {
-        ArithmeticError {
-            coder: Some(Coder::T88),
-            offset: Some(offset),
-            context,
-            kind,
-        }
+    /// An invalid-input error at the next coded byte.
+    pub(crate) fn at(&self, reason: &'static str) -> Error {
+        Error::invalid(reason).at(self.span.offset + self.bp)
     }
 
-    fn at(&self, context: Option<usize>, kind: ArithmeticErrorKind) -> ArithmeticError {
-        self.located(self.span.offset + self.bp, context, kind)
-    }
-
-    fn read_byte(&self, relative: u64, context: Option<usize>) -> ArithmeticResult<u8> {
+    fn read_byte(&self, relative: u64) -> Result<u8> {
         if relative >= self.span.length {
-            return Err(self.located(
+            return Err(Error::malformed(
                 self.span.offset + self.span.length,
-                context,
-                ArithmeticErrorKind::MissingTerminator,
+                MISSING_TERMINATOR,
             ));
         }
         // `check_span` proved that the span's bytes are all in `data`.
         Ok(self.data[relative as usize])
     }
 
-    fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
+    fn byte_in(&mut self) -> Result<()> {
         let next = self.bp + 1;
-        let next_byte = self.read_byte(next, context)?;
+        let next_byte = self.read_byte(next)?;
         if self.current_byte == 0xFF {
             if next_byte > 0x8F {
                 if next_byte != 0xAC || self.bp != self.span.length - 2 {
-                    return Err(self.located(
-                        self.span.offset + next,
-                        context,
-                        ArithmeticErrorKind::InvalidMarker(next_byte),
-                    ));
+                    return Err(Error::malformed(self.span.offset + next, INVALID_MARKER));
                 }
                 self.counters.synthesized_inputs += 1;
                 self.code = self.code.wrapping_add(0xFF00);
@@ -231,10 +188,10 @@ impl<'a> MqDecoder<'a> {
         Ok(())
     }
 
-    fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
+    fn renormalize(&mut self) -> Result<()> {
         while self.interval < 0x8000 {
             if self.bit_counter == 0 {
-                self.byte_in(Some(context))?;
+                self.byte_in()?;
             }
             self.interval <<= 1;
             self.code <<= 1;
@@ -243,7 +200,7 @@ impl<'a> MqDecoder<'a> {
         Ok(())
     }
 
-    fn decode_bit_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
+    fn decode_bit_inner(&mut self, context: usize) -> Result<bool> {
         let current = self.contexts.state(context);
         let state = self.table.state(current.state_index);
         let qe = u32::from(state.qe);
@@ -296,7 +253,7 @@ impl<'a> MqDecoder<'a> {
                 )
             }
         };
-        self.renormalize(context)?;
+        self.renormalize()?;
         self.contexts.update(context, updated);
         Ok(bit)
     }
@@ -308,7 +265,7 @@ mod tests {
 
     /// Runs `test` on the result of initializing a decoder over `bytes` with
     /// one context.
-    fn with_init<R>(bytes: &[u8], test: impl FnOnce(ArithmeticResult<MqDecoder<'_>>) -> R) -> R {
+    fn with_init<R>(bytes: &[u8], test: impl FnOnce(Result<MqDecoder<'_>>) -> R) -> R {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
@@ -327,10 +284,8 @@ mod tests {
     #[test]
     fn initialization_checks_markers_on_its_first_byte() {
         with_init(&[0xff, 0x90], |decoder| {
-            assert!(matches!(
-                decoder.err().expect("MQ initialization must fail").kind,
-                ArithmeticErrorKind::InvalidMarker(0x90)
-            ));
+            let error = decoder.err().expect("MQ initialization must fail");
+            assert_eq!((error.offset, error.reason), (Some(1), INVALID_MARKER));
         });
         // The terminal marker at initialization synthesizes one bits.
         with_init(&[0xff, 0xac], |decoder| {
@@ -347,25 +302,7 @@ mod tests {
     fn decisions_reject_unknown_contexts() {
         with_init(&[0, 0xff, 0xac], |decoder| {
             let mut decoder = decoder.unwrap();
-            assert!(matches!(
-                decoder.decode_bit(1).unwrap_err().kind,
-                ArithmeticErrorKind::InvalidContext
-            ));
+            assert_eq!(decoder.decode_bit(1).unwrap_err().reason, INVALID_CONTEXT);
         });
-    }
-
-    #[test]
-    fn context_banks_name_the_mq_decoder() {
-        let tiny = Limits {
-            io_chunk_bytes: 1,
-            max_allocation_bytes: 1,
-            ..Limits::default()
-        };
-        let error = context_bank(1, &tiny).unwrap_err();
-        assert_eq!(error.coder, Some(Coder::T88));
-        assert!(matches!(
-            error.kind,
-            ArithmeticErrorKind::Source(crate::Error::LimitExceeded { .. })
-        ));
     }
 }

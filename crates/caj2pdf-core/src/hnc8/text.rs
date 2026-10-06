@@ -5,9 +5,9 @@
 //! or physical units here, and this reader does not enable composition.
 
 use super::inflate::{ExactInflate, InflateFault, InflateFaultKind};
-use super::{ErrorKind, Header, Hnc8Error, Location, PageRecord, Result, Span, Variant};
+use super::{Header, Location, PageRecord, Span, Variant};
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
+use crate::{Cancellation, Error, ErrorKind, Limits, RangedSource, Result, read_exact_at};
 
 mod raw;
 mod records;
@@ -66,7 +66,7 @@ pub(super) enum PageText {
     /// A span shorter than the compressed header, or one starting with
     /// neither `COMPRESSTEXT` header nor raw HN-A records. C8 native text is
     /// framed like this; the error reports it to readers that need records.
-    Unframed(Hnc8Error),
+    Unframed(Error),
 }
 
 /// Validate either compressed HN-A/C8 text layout or uncompressed HN-A records
@@ -105,19 +105,16 @@ pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
     cancellation: &C,
 ) -> Result<PageText> {
     if header.variant == Variant::HnB {
-        return Err(location(header, page).error(ErrorKind::Unsupported {
-            field: "text framing variant",
-            value: 2,
-        }));
+        return Err(location(header, page).unsupported("text framing variant"));
     }
     let loc = location(header, page);
     validate_metadata(header, page, source.size(), limits, loc)?;
     if page.text.length < HEADER_BYTES as u64 {
-        return Ok(PageText::Unframed(loc.error(ErrorKind::Truncated {
-            field: "page text header",
-            expected: HEADER_BYTES as u64,
-            available: page.text.length,
-        })));
+        return Ok(PageText::Unframed(loc.truncated(
+            "page text header",
+            HEADER_BYTES as u64,
+            page.text.length,
+        )));
     }
     let mut prefix = [0; 4];
     read_chunks(
@@ -185,16 +182,23 @@ fn location(header: Header, page: PageRecord) -> Location {
     }
 }
 
-fn checked_end(span: Span, size: u64, loc: Location, field: &'static str) -> Result<u64> {
+/// `overflow` names the field and that its end overflows.
+fn checked_end(
+    span: Span,
+    size: u64,
+    loc: Location,
+    field: &'static str,
+    overflow: &'static str,
+) -> Result<u64> {
     let end = span
         .checked_end()
-        .ok_or_else(|| loc.at(span.offset).malformed(field, "end overflows u64"))?;
+        .ok_or_else(|| loc.at(span.offset).malformed(overflow))?;
     if end > size {
-        return Err(loc.at(span.offset).error(ErrorKind::Truncated {
+        return Err(loc.at(span.offset).truncated(
             field,
-            expected: span.length,
-            available: size.saturating_sub(span.offset),
-        }));
+            span.length,
+            size.saturating_sub(span.offset),
+        ));
     }
     Ok(end)
 }
@@ -210,7 +214,7 @@ fn validate_metadata(
         return Err(loc.limit("source bytes", limits.max_input_bytes, size));
     }
     if header.page_count == 0 || header.page_count > i32::MAX as u32 {
-        return Err(loc.malformed("page count", "outside positive signed 32-bit range"));
+        return Err(loc.malformed("page count: outside positive signed 32-bit range"));
     }
     if header.page_count > limits.max_pages {
         return Err(loc.limit(
@@ -220,12 +224,18 @@ fn validate_metadata(
         ));
     }
     if page.page_number == 0 || page.page_number > header.page_count {
-        return Err(loc.malformed("page number", "outside declared page index"));
+        return Err(loc.malformed("page number: outside declared page index"));
     }
     if header.page_index.length != u64::from(header.page_count) * super::PAGE_ROW_BYTES {
-        return Err(loc.malformed("page index", "length differs from declared row count"));
+        return Err(loc.malformed("page index: length differs from declared row count"));
     }
-    let index_end = checked_end(header.page_index, size, loc, "page index")?;
+    let index_end = checked_end(
+        header.page_index,
+        size,
+        loc,
+        "page index",
+        "page index: end overflows u64",
+    )?;
     let index_start_valid = if header.variant == Variant::C8 {
         header.page_index.offset == 0x50
     } else {
@@ -235,21 +245,27 @@ fn validate_metadata(
             && (header.page_index.offset - 0x15c) / super::OUTLINE_RECORD_BYTES <= i32::MAX as u64
     };
     if !index_start_valid {
-        return Err(loc.malformed("page index", "start differs from observed variant layout"));
+        return Err(loc.malformed("page index: start differs from observed variant layout"));
     }
     // The index end was checked and page_number is within page_count.
     let row = header.page_index.offset + u64::from(page.page_number - 1) * super::PAGE_ROW_BYTES;
     if page.row_offset != row {
         return Err(loc
             .at(page.row_offset)
-            .malformed("page row", "offset differs from declared index"));
+            .malformed("page row: offset differs from declared index"));
     }
-    checked_end(page.text, size, loc, "page text span")?;
+    checked_end(
+        page.text,
+        size,
+        loc,
+        "page text span",
+        "page text span: end overflows u64",
+    )?;
     if page.text.offset < index_end {
-        return Err(loc.malformed("page text span", "overlaps protected container index"));
+        return Err(loc.malformed("page text span: overlaps protected container index"));
     }
     if page.text.offset > i32::MAX as u64 || page.text.length > i32::MAX as u64 {
-        return Err(loc.malformed("page text span", "outside nonnegative signed 32-bit range"));
+        return Err(loc.malformed("page text span: outside nonnegative signed 32-bit range"));
     }
     Ok(())
 }
@@ -266,22 +282,14 @@ fn read_chunks<S: RangedSource, C: Cancellation>(
     let mut current = offset;
     for chunk in bytes.chunks_mut(limits.io_chunk_bytes.min(CHUNK_BYTES)) {
         *max_request = (*max_request).max(chunk.len());
-        read_exact_at(source, current, chunk, limits, cancellation).map_err(
-            |error| match error {
-                Error::Cancelled => loc.at(current).error(ErrorKind::Cancelled),
-                Error::TruncatedInput { available, .. } => loc
-                    .at(current.saturating_add(available))
-                    .error(ErrorKind::Truncated {
-                        field: "page text read",
-                        expected: len_u64(chunk.len()),
-                        available,
-                    }),
-                source => loc.at(current).error(ErrorKind::Source {
-                    field: "page text read",
-                    source,
-                }),
-            },
-        )?;
+        read_exact_at(source, current, chunk, limits, cancellation).map_err(|error| match error
+            .kind
+        {
+            ErrorKind::Truncated { available, .. } => loc
+                .at(current.saturating_add(available))
+                .truncated("page text read", len_u64(chunk.len()), available),
+            _ => loc.at(current).locate(error),
+        })?;
         // All callers validated the containing span, so this addition fits.
         current += len_u64(chunk.len());
     }
@@ -332,8 +340,7 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         HEADER_BYTES
     } else {
         return Ok(PageText::Unframed(loc.malformed(
-            "page text prefix",
-            "unsupported compressed text header",
+            "page text prefix: unsupported compressed text header",
         )));
     };
     let decoded_length = u32::from_le_bytes(
@@ -352,13 +359,10 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let tail_bytes = u64::from(page.image_count) * 28;
     let (glyph_bytes, record_count) = if header_bytes == HEADER_BYTES {
         let glyph_bytes = decoded_bytes.checked_sub(12 + tail_bytes).ok_or_else(|| {
-            loc.malformed(
-                "decoded text layout",
-                "too short for declared image records",
-            )
+            loc.malformed("decoded text layout: too short for declared image records")
         })?;
         if glyph_bytes % 16 != 0 {
-            return Err(loc.malformed("decoded text layout", "record area is not a multiple of 16"));
+            return Err(loc.malformed("decoded text layout: record area is not a multiple of 16"));
         }
         // At most u32::MAX / 16 records.
         let record_count = (glyph_bytes / 16) as u32;
@@ -371,11 +375,9 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         length: page.text.length - header_bytes as u64,
     };
     if zlib_frame.length < 6 {
-        return Err(loc.at(zlib_frame.offset).error(ErrorKind::Truncated {
-            field: "text zlib frame",
-            expected: 6,
-            available: zlib_frame.length,
-        }));
+        return Err(loc
+            .at(zlib_frame.offset)
+            .truncated("text zlib frame", 6, zlib_frame.length));
     }
     let chunk = limits.io_chunk_bytes.min(CHUNK_BYTES);
     let input_count = zlib_frame.length.min(len_u64(chunk)) as usize;
@@ -409,26 +411,22 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         );
     let mut inflate = ExactInflate::new(zlib_frame.offset, zlib_frame.length, decoded_bytes);
     let fault = |fault: InflateFault| {
-        let (field, reason) = match fault.kind {
-            InflateFaultKind::Invalid => {
-                ("text zlib frame", "invalid stream, dictionary or checksum")
+        let reason = match fault.kind {
+            InflateFaultKind::Invalid => "text zlib frame: invalid stream, dictionary or checksum",
+            InflateFaultKind::Excess => "decoded text length: output exceeds declared length",
+            InflateFaultKind::EndMismatch => {
+                "text zlib frame: end differs from declared compressed/decoded span"
             }
-            InflateFaultKind::Excess => ("decoded text length", "output exceeds declared length"),
-            InflateFaultKind::EndMismatch => (
-                "text zlib frame",
-                "end differs from declared compressed/decoded span",
-            ),
-            InflateFaultKind::Stalled => (
-                "text zlib frame",
-                "truncated stream or decoder made no progress",
-            ),
+            InflateFaultKind::Stalled => {
+                "text zlib frame: truncated stream or decoder made no progress"
+            }
         };
-        loc.at(fault.offset).malformed(field, reason)
+        loc.at(fault.offset).malformed(reason)
     };
     let mut max_decoder_output_chunk_bytes = 0;
     loop {
         if cancellation.is_cancelled() {
-            return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
+            return Err(loc.at(inflate.position()).cancelled());
         }
         if let Some((at, length)) = inflate.next_read(input.len()) {
             read_chunks(
@@ -446,7 +444,7 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
             .step(&input, &mut output[..writable])
             .map_err(fault)?;
         if cancellation.is_cancelled() {
-            return Err(loc.at(inflate.position()).error(ErrorKind::Cancelled));
+            return Err(loc.at(inflate.position()).cancelled());
         }
         inflate.check_length(&step).map_err(fault)?;
         max_decoder_output_chunk_bytes = max_decoder_output_chunk_bytes.max(step.produced);

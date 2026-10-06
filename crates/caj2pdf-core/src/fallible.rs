@@ -33,7 +33,7 @@ pub(crate) fn try_convert<T: TryFrom<U>, U, E>(value: U, error: E) -> Result<T, 
 }
 
 /// Accept a source's reported read count, rejecting one larger than the
-/// `requested` destination length with `InvalidInput { reason }`.
+/// `requested` destination length as malformed with `reason`.
 #[inline]
 pub(crate) fn checked_read_count(
     read: usize,
@@ -41,7 +41,7 @@ pub(crate) fn checked_read_count(
     reason: &'static str,
 ) -> crate::Result<usize> {
     if read > requested {
-        return Err(crate::Error::InvalidInput { reason });
+        return Err(crate::Error::invalid(reason));
     }
     Ok(read)
 }
@@ -69,24 +69,17 @@ pub(crate) fn push_bounded<T>(
     max_bytes: u64,
     resource: &'static str,
 ) -> crate::Result<()> {
-    let next = items
-        .len()
-        .checked_add(1)
-        .ok_or(crate::Error::InvalidInput {
-            reason: "PDF index length overflows address space",
-        })?;
+    let next = items.len().checked_add(1).ok_or(crate::Error::invalid(
+        "PDF index length overflows address space",
+    ))?;
     if next > items.capacity() {
         let target = items.capacity().saturating_mul(2).max(4).max(next);
         let attempted = target
             .checked_mul(size_of::<T>())
-            .ok_or(crate::Error::InvalidInput {
-                reason: "PDF index allocation overflows address space",
-            })?;
-        let limit = crate::Error::LimitExceeded {
-            resource,
-            limit: max_bytes,
-            attempted: len_u64(attempted),
-        };
+            .ok_or(crate::Error::invalid(
+                "PDF index allocation overflows address space",
+            ))?;
+        let limit = crate::Error::limit(resource, max_bytes, len_u64(attempted));
         if len_u64(attempted) > max_bytes {
             return Err(limit);
         }

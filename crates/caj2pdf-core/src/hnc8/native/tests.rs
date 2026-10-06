@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::ErrorKind;
+use crate::test_support::variant_of;
+use crate::test_support::{field_of, page_image};
 use crate::{Error, Limits};
 use std::{cell::Cell, rc::Rc};
 
@@ -28,9 +31,7 @@ impl RangedSource for Source {
         self.reads.set(self.reads.get() + 1);
         self.max_request = self.max_request.max(out.len());
         if self.fault {
-            return Err(Error::InvalidInput {
-                reason: "synthetic source failure",
-            });
+            return Err(Error::invalid("synthetic source failure"));
         }
         let at = offset as usize;
         let n = self
@@ -78,9 +79,7 @@ impl NativeRecordVisitor for Visitor {
             cancel.0.set(true);
         }
         if self.fail {
-            return Err(Error::InvalidInput {
-                reason: "synthetic visitor failure",
-            });
+            return Err(Error::invalid("synthetic visitor failure"));
         }
         Ok(())
     }
@@ -223,9 +222,15 @@ fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
         );
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
-        assert_eq!(error.offset, 108);
-        assert_eq!(error.page, Some(1));
-        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!(error.offset, Some(108));
+        assert_eq!(page_image(&error).0, Some(1));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
+        ));
         assert_eq!(visitor.events.len(), 2);
     }
 }
@@ -241,17 +246,24 @@ fn context_end_and_image_counts_are_checked() {
         vec![[0x8004, 0], [0x8004, 0]],
     ] {
         let error = parse(&mut fixture(&words, 0), &mut Visitor::default()).unwrap_err();
-        assert!(matches!(error.kind, ErrorKind::Malformed { .. }));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
     }
     let mut image = vec![[0x800a, 0xd300]];
     image.extend([[7, 11]; 6]);
     image.push([0x8004, 0]);
     for (words, count) in [(&image[..], 0), (&[[0x8004, 0]][..], 1)] {
         assert!(matches!(
-            parse(&mut fixture(words, count), &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Malformed { .. }
+            parse(&mut fixture(words, count), &mut Visitor::default()).unwrap_err(),
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
         ));
     }
 }
@@ -295,10 +307,11 @@ fn protected_index_fails_before_emitting_records() {
     let mut source = fixture(&[[0x8004, 0]], 0);
     source.bytes[80..84].copy_from_slice(&96_u32.to_le_bytes());
     assert!(matches!(
-        parse(&mut source, &mut Visitor::default())
-            .unwrap_err()
-            .kind,
-        ErrorKind::Malformed { .. }
+        parse(&mut source, &mut Visitor::default()).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
     ));
 }
 
@@ -310,8 +323,12 @@ fn native_records_require_a_current_page() {
     let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
     let mut visitor = Visitor::default();
     assert!(matches!(
-        reader.visit_native_records(&mut visitor).unwrap_err().kind,
-        ErrorKind::NoCurrentPage
+        reader.visit_native_records(&mut visitor).unwrap_err(),
+        Error {
+            kind: ErrorKind::Malformed,
+            reason: "no current page",
+            ..
+        }
     ));
 }
 
@@ -332,11 +349,11 @@ fn cancellation_source_and_visitor_failures_are_located() {
             _ => visitor.fail = true,
         }
         let error = reader.visit_native_records(&mut visitor).unwrap_err();
-        assert_eq!(error.offset, 100);
+        assert_eq!(error.offset, Some(100));
         if fault < 3 {
             assert!(matches!(error.kind, ErrorKind::Cancelled));
         } else {
-            assert!(matches!(error.kind, ErrorKind::Source { .. }));
+            assert!(error.reason.starts_with("synthetic"), "{error}");
         }
     }
 }
@@ -366,8 +383,11 @@ fn current_variant_is_enforced() {
             assert_eq!(reader.next_page().unwrap(), None);
         } else {
             assert!(matches!(
-                result.unwrap_err().kind,
-                ErrorKind::Unsupported { .. }
+                result.unwrap_err(),
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    ..
+                }
             ));
         }
     }
@@ -432,7 +452,7 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
     impl NativeRecordVisitor for Text {
         fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
             if let NativeRecord::Glyph { code, .. } = record {
-                decode_native_character(code).ok_or(Error::UnsupportedFormat)?;
+                decode_native_character(code).ok_or(Error::from(ErrorKind::UnsupportedFormat))?;
             }
             Ok(())
         }
@@ -448,15 +468,9 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
             assert_eq!(result.unwrap(), 4);
         } else {
             let error = result.unwrap_err();
-            assert_eq!(error.offset, 108);
-            assert_eq!(error.page, Some(1));
-            assert!(matches!(
-                error.kind,
-                ErrorKind::Source {
-                    source: Error::UnsupportedFormat,
-                    ..
-                }
-            ));
+            assert_eq!(error.offset, Some(108));
+            assert_eq!(page_image(&error).0, Some(1));
+            assert!(matches!(error.kind, ErrorKind::UnsupportedFormat));
         }
     }
 }
@@ -526,8 +540,14 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
         &mut Visitor::default(),
     )
     .unwrap_err();
-    assert_eq!(error.offset, 112);
-    assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+    assert_eq!(error.offset, Some(112));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -756,8 +776,14 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         source.bytes[110..112].copy_from_slice(&value.to_le_bytes());
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
-        assert_eq!(error.offset, 108);
-        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!(error.offset, Some(108));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
+        ));
         assert_eq!(visitor.events.len(), 2);
     }
     for word in [0xe01f_u16, 0xe07f, 0xe080, 0x8004, 0x8001, 0xffff] {
@@ -769,11 +795,12 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         reader.next_page().unwrap();
         let mut visitor = Visitor::default();
         let error = reader.visit_native_records(&mut visitor).unwrap_err();
-        assert_eq!(error.offset, 140);
+        assert_eq!(error.offset, Some(140));
         assert!(matches!(
-            error.kind,
-            ErrorKind::Unsupported {
-                field: "native encoded-string word",
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "native encoded-string word",
                 ..
             }
         ));
@@ -860,8 +887,14 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         assert!(source.max_request <= 24);
         source.bytes[114..116].copy_from_slice(&0xffff_u16.to_le_bytes());
         let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
-        assert_eq!(error.offset, 112);
-        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!(error.offset, Some(112));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
+        ));
     }
 }
 
@@ -916,10 +949,11 @@ fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
     for pair in [[0x81ff, 0], [0x81ff, 4], [0x80cc, 0x0203], [0x80cc, 0x0205]] {
         let mut source = fixture(&[pair, [0, 200], [0x8004, 0]], 0);
         assert!(matches!(
-            parse(&mut source, &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Unsupported { .. }
+            parse(&mut source, &mut Visitor::default()).unwrap_err(),
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
     }
 }
@@ -987,8 +1021,14 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
         source.bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
-        assert_eq!(error.offset, at);
-        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!(error.offset, Some(at));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
+        ));
         assert!(visitor.events.is_empty());
     }
     for offset in 120..124 {
@@ -996,27 +1036,30 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
         source.bytes[offset] = 1;
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
-        assert_eq!(error.offset, offset as u64);
-        assert!(matches!(
-            error.kind,
-            ErrorKind::Malformed {
-                field: "native image reference",
-                ..
-            }
-        ));
+        assert_eq!(error.offset, Some(offset as u64));
+        assert!(
+            (matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            ) && field_of(&error) == "native image reference")
+        );
         assert!(visitor.events.is_empty());
     }
     for count in [0, 2] {
         let mut source = image_reference_fixture(b"abcd", count);
-        assert!(matches!(
-            parse(&mut source, &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Malformed {
-                field: "native image records",
-                ..
-            }
-        ));
+        assert!(
+            (matches!(
+                parse(&mut source, &mut Visitor::default()).unwrap_err(),
+                Error {
+                    kind: ErrorKind::Malformed,
+                    ..
+                }
+            ) && field_of(&parse(&mut source, &mut Visitor::default()).unwrap_err())
+                == "native image records")
+        );
     }
 }
 
@@ -1076,10 +1119,10 @@ fn image_reference_mid_payload_failure_and_cancellation_are_reported() {
         reader.next_page().unwrap();
         let mut visitor = Visitor::default();
         let error = reader.visit_native_records(&mut visitor).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            ErrorKind::Cancelled | ErrorKind::Source { .. }
-        ));
+        assert!(
+            matches!(error.kind, ErrorKind::Cancelled) || error.reason.starts_with("synthetic"),
+            "{error}"
+        );
         assert!(visitor.events.is_empty());
     }
 }
@@ -1231,13 +1274,14 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
         );
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
-        assert_eq!(error.variant, Some(Variant::HnB));
-        assert_eq!(error.page, Some(1));
-        assert_eq!(error.offset, 236);
+        assert_eq!(variant_of(&error), Some(Variant::HnB));
+        assert_eq!(page_image(&error).0, Some(1));
+        assert_eq!(error.offset, Some(236));
         assert!(matches!(
-            error.kind,
-            ErrorKind::Unsupported {
-                field: "HN-B native record tag/value",
+            error,
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                reason: "HN-B native record tag/value",
                 ..
             }
         ));
@@ -1467,10 +1511,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             ]],
         );
         assert!(matches!(
-            parse(&mut source, &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Unsupported { .. }
+            parse(&mut source, &mut Visitor::default()).unwrap_err(),
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
     }
     for control in [
@@ -1492,10 +1537,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     ] {
         let mut source = hnb_source(12, &[&[control, [0x8004, 1]]]);
         assert!(matches!(
-            parse(&mut source, &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Unsupported { .. }
+            parse(&mut source, &mut Visitor::default()).unwrap_err(),
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
     }
     // These values remain HN-B-only. Independently admitted C8 numeric
@@ -1509,10 +1555,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
         assert!(matches!(
-            parse(&mut source, &mut Visitor::default())
-                .unwrap_err()
-                .kind,
-            ErrorKind::Unsupported { .. }
+            parse(&mut source, &mut Visitor::default()).unwrap_err(),
+            Error {
+                kind: ErrorKind::UnsupportedFormat,
+                ..
+            }
         ));
     }
 }
@@ -1536,10 +1583,11 @@ fn hnb_implicit_style_requires_verified_paired_axes() {
             }
             let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
             assert!(matches!(
-                error.kind,
-                ErrorKind::Unsupported {
-                    field: "HN-B implicit native glyph style",
-                    value: 0
+                error,
+                Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    reason: "HN-B implicit native glyph style",
+                    ..
                 }
             ));
         }
@@ -1587,8 +1635,11 @@ fn hnb_images_preserve_atomic_words_and_following_glyph_order() {
                 assert_eq!(visitor.events[1].0 - visitor.events[0].0, 28);
             } else {
                 assert!(matches!(
-                    result.unwrap_err().kind,
-                    ErrorKind::Malformed { .. }
+                    result.unwrap_err(),
+                    Error {
+                        kind: ErrorKind::Malformed,
+                        ..
+                    }
                 ));
             }
         }
@@ -1626,7 +1677,7 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
                 matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. }
                 if available == u64::from(length as u32 - 4))
             );
-            assert_eq!(error.page, Some(1));
+            assert_eq!(page_image(&error).0, Some(1));
             assert!(visitor.events.is_empty());
         };
     }
@@ -1667,11 +1718,14 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
     source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
     let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
     assert!(matches!(
-        error.kind,
-        ErrorKind::Truncated {
-            field: "native record",
-            expected: 4,
-            available: 2,
+        error,
+        Error {
+            kind: ErrorKind::Truncated {
+                expected: 4,
+                available: 2
+            },
+            reason: "native record",
+            ..
         }
     ));
     let mut c8 = fixture(&[[0x8004, 1]], 0);
@@ -1728,7 +1782,7 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
     // C8 retains its independently established strict terminal position.
     let mut c8 = fixture(&[[0x8004, 1], [0x8099, 0xffff]], 0);
     let error = parse(&mut c8, &mut Visitor::default()).unwrap_err();
-    assert_eq!(error.kind.field(), "native page end");
+    assert_eq!(field_of(&error), "native page end");
 }
 
 #[test]

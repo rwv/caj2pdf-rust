@@ -3,8 +3,7 @@
 //! Original synthetic containers for every accepted text framing.
 
 use super::*;
-use crate::hnc8::Hnc8Error;
-use crate::test_support::NEVER;
+use crate::test_support::{NEVER, field_of};
 use crate::{Error, Limits};
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
@@ -22,9 +21,7 @@ impl RangedSource for Memory {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         if offset >= self.fail_at {
-            return Err(Error::InvalidInput {
-                reason: "synthetic read failure",
-            });
+            return Err(Error::invalid("synthetic read failure"));
         }
         let start = offset as usize;
         let count = destination.len().min(self.bytes.len() - start);
@@ -134,7 +131,7 @@ fn native_text() -> Vec<u8> {
     words(&[[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1], [0x8004, 40]])
 }
 
-type Outcome = std::result::Result<TextStructure, Hnc8Error>;
+type Outcome = Result<TextStructure>;
 
 /// Inspect every page with a fresh cursor, after reading its descriptors.
 fn inspect(bytes: Vec<u8>) -> Vec<Outcome> {
@@ -237,7 +234,7 @@ fn rejected_text_reports_the_deciding_reader_error() {
     ));
     let errors: Vec<_> = outcomes.into_iter().map(Result::unwrap_err).collect();
     // A compressed error past the header is not retried as native records.
-    assert_eq!(errors[0].kind.field(), "text zlib frame");
+    assert_eq!(field_of(&errors[0]), "text zlib frame");
     // A span without the compressed header is framed as native records.
     assert!(errors[1].to_string().contains("native"), "{}", errors[1]);
     // HN-A never falls back to native framing.
@@ -245,7 +242,7 @@ fn rejected_text_reports_the_deciding_reader_error() {
         .pop()
         .unwrap()
         .unwrap_err();
-    assert_eq!(error.kind.field(), "page text prefix");
+    assert_eq!(field_of(&error), "page text prefix");
 }
 
 #[test]
@@ -259,7 +256,7 @@ fn inspect_text_requires_a_current_page() {
         let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.page_row_bytes(), 20);
         let error = reader.inspect_text().unwrap_err();
-        assert!(matches!(error.kind, ErrorKind::NoCurrentPage));
+        assert_eq!(error.reason, "no current page");
         reader.next_page().unwrap();
         reader.inspect_text().unwrap_err();
     };
@@ -323,5 +320,5 @@ fn application_info_tail_reports_presence_and_extent_only() {
     }
     // Every header field precedes the page index at 0x50; the trailer does not.
     let error = tail(b"APPINFOSIGN 100", 0x50).unwrap_err();
-    assert_eq!(error.kind.field(), "application-info trailer");
+    assert_eq!(error.reason, "synthetic read failure");
 }

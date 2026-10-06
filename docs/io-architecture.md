@@ -48,9 +48,21 @@ JavaScript `limits` option sets the first six fields; `max_image_pixels` and
 Format engines are plain functions over `RangedSource`, `Write` and
 `Cancellation`. Bookmark visits use a `BookmarkVisitor` rather than a
 whole-outline vector. Conversion returns a `ConversionReport` with byte, page
-and bookmark counts; inspection returns a bounded `DocumentInfo`. The core
-`Error` distinguishes unsupported format, invalid input, truncated input,
-resource limit, I/O failure, cancellation and located format errors.
+and bookmark counts; inspection returns a bounded `DocumentInfo`.
+
+Every failure is one core `Error { kind, offset, context, reason }`. `kind`
+is an `ErrorKind`: unsupported format, malformed, encrypted, truncated
+(expected and available bytes), limit exceeded (resource, limit and
+attempt), I/O or cancelled. `offset` is the source byte, when known.
+`context` is a `Context` naming the format and its location: a CAJ record,
+KDH, a PDF object (or an ambiguous repair), an HN/C8 variant, page, image,
+JBIG2 segment and conversion stage (`Hnc8Stage`, `Type3Stage`), or a JBIG2
+segment. `reason` is a static description. A decoder returns an unlocated
+error; the format layer that knows the position fills in the offset and
+context once, and an error located deeper keeps its own. The message names
+the kind and format, then the byte, location, reason and details that are
+present (for example `malformed CAJ at byte 276, record 3: empty CAJ TOC
+title`); only an I/O error has a `source()`.
 
 ## Adapters
 

@@ -4,9 +4,12 @@
 
 use super::native_document::{hnb_fixture, native_text, roles};
 use super::*;
+use crate::Context;
+use crate::test_support::page_image;
+use crate::test_support::stage_of;
 
 /// Convert through the routing entry point, with or without the test font.
-fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec<u8>) {
+fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport>, Vec<u8>) {
     let mut source = Source::new(bytes.to_vec());
     let mut font = [C8FontSource {
         source: Source::new(crate::pdf::drawing_font()),
@@ -30,7 +33,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     (result, sink.bytes)
 }
 
-fn native(bytes: &[u8]) -> Result<bool, ComposeError> {
+fn native(bytes: &[u8]) -> Result<bool> {
     native_with(
         Source::new(bytes.to_vec()),
         &Limits::default(),
@@ -42,7 +45,7 @@ fn native_with(
     mut source: Source,
     limits: &Limits,
     cancellation: &impl Cancellation,
-) -> Result<bool, ComposeError> {
+) -> Result<bool> {
     uses_native_text(&mut source, limits, cancellation)
 }
 
@@ -130,7 +133,10 @@ fn native_documents_use_native_composition_only_with_fonts() {
     }
     // Without fonts the native C8 text is refused by image composition.
     let error = route(&c8.bytes, false).0.unwrap_err();
-    assert_eq!((error.page, error.stage), (Some(1), ComposeStage::Text));
+    assert_eq!(
+        (page_image(&error).0, stage_of(&error)),
+        (Some(1), Some(Hnc8Stage::Text))
+    );
 }
 
 #[test]
@@ -149,12 +155,15 @@ fn mixed_documents_follow_their_first_page_with_text() {
         mixed_text,
     );
     for (fixture, routed, stage) in [
-        (&compressed_first, false, ComposeStage::Preflight),
-        (&native_first, true, ComposeStage::Text),
+        (&compressed_first, false, Hnc8Stage::Preflight),
+        (&native_first, true, Hnc8Stage::Text),
     ] {
         assert_eq!(native(&fixture.bytes).unwrap(), routed);
         let error = route(&fixture.bytes, true).0.unwrap_err();
-        assert_eq!((error.page, error.stage), (Some(2), stage));
+        assert_eq!(
+            (page_image(&error).0, stage_of(&error)),
+            (Some(2), Some(stage))
+        );
     }
 }
 
@@ -186,7 +195,10 @@ fn native_text_defects_are_reported_by_native_composition() {
     for bytes in [&c8.bytes, &hnb.bytes] {
         assert!(native(bytes).unwrap());
         let error = route(bytes, true).0.unwrap_err();
-        assert_eq!((error.page, error.stage), (Some(1), ComposeStage::Text));
+        assert_eq!(
+            (page_image(&error).0, stage_of(&error)),
+            (Some(1), Some(Hnc8Stage::Text))
+        );
     }
     assert!(route(&hnb.bytes, false).0.is_ok());
 }
@@ -195,19 +207,19 @@ fn native_text_defects_are_reported_by_native_composition() {
 fn source_failures_cancellation_and_invalid_limits_are_returned() {
     let fixture = fixture_with_text(Variant::C8, &[vec![], vec![]], native_text);
     for (at, stage) in [
-        (fixture.index as u64, ComposeStage::Container),
-        (fixture.text_offsets[0] as u64, ComposeStage::Text),
+        (fixture.index as u64, Hnc8Stage::Container),
+        (fixture.text_offsets[0] as u64, Hnc8Stage::Text),
     ] {
         let mut source = Source::new(fixture.bytes.clone());
         source.fault_at = Some((at, Fault::Io));
         let error = native_with(source, &Limits::default(), &NeverCancel).unwrap_err();
-        assert_eq!(error.stage, stage);
-        assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+        assert_eq!(stage_of(&error), Some(stage));
+        assert!(matches!(error.context, Context::Hnc8 { .. }));
     }
     let cancelled = Flag(Rc::new(Cell::new(true)));
     let source = Source::new(fixture.bytes.clone());
     let error = native_with(source, &Limits::default(), &cancelled).unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Container);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Container));
     let invalid = Limits {
         io_chunk_bytes: 0,
         ..Limits::default()
@@ -215,7 +227,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
     let mut source = Source::new(fixture.bytes.clone());
     source.fault_at = Some((0, Fault::Io));
     let error = native_with(source, &invalid, &NeverCancel).unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Preflight);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Preflight));
     // A routing failure is reported before any output.
     let mut source = Source::new(fixture.bytes);
     source.fault_at = Some((fixture.index as u64, Fault::Io));
@@ -238,7 +250,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Container);
+    assert_eq!(stage_of(&error), Some(Hnc8Stage::Container));
     assert!(sink.bytes.is_empty());
 }
 

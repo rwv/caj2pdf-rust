@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+use crate::Context;
 use crate::native::SeekableSource;
 use crate::pdf::input::recovery::{
     PatchedSource, candidate_prefix_end, interrupted_syntax_prefix, replay_end,
@@ -22,10 +23,10 @@ impl RangedSource for UnreadableTail {
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if offset >= self.unreadable_from {
-            return Err(Error::Io(io::Error::new(
+            return Err(Error::from(ErrorKind::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "injected unreadable fragment tail",
-            )));
+            ))));
         }
         let start = offset as usize;
         let end = (self.unreadable_from.min(self.bytes.len() as u64) as usize)
@@ -49,7 +50,7 @@ fn expect_injected_io(result: Result<FragmentScan>) {
     assert!(
         matches!(
             &error,
-            Error::Io(inner) if inner.kind() == io::ErrorKind::UnexpectedEof
+            Error { kind: ErrorKind::Io(inner), .. } if inner.kind() == io::ErrorKind::UnexpectedEof
                 && inner.to_string() == "injected unreadable fragment tail"
         ),
         "{error:?}"
@@ -178,13 +179,7 @@ fn an_object_extending_past_the_page_table_end_is_charged_as_input() {
     assert!(
         matches!(
             error,
-            Error::PdfLimitExceeded {
-                offset,
-                object: None,
-                resource: "input bytes",
-                limit,
-                attempted,
-            } if offset == end && limit == hint && attempted == end
+            Error { kind: ErrorKind::LimitExceeded { resource: "input bytes", limit, attempted, .. }, offset: Some(offset), context: Context::Pdf { object: None, .. }, .. } if offset == end && limit == hint && attempted == end
         ),
         "{error:?}"
     );
@@ -699,9 +694,7 @@ fn refuses_incomplete_candidate_and_ambiguous_embedded_scalar_copies() {
     };
     let indexed = |object| ScannedObject {
         object,
-        inspection: Err(Error::InvalidInput {
-            reason: "not inspected",
-        }),
+        inspection: Err(Error::invalid("not inspected")),
     };
     let objects = [
         indexed(FragmentObject {
@@ -767,6 +760,7 @@ fn a_stream_prefix_followed_by_its_length_replay_is_skipped() {
 
 mod candidate_tests {
     use super::*;
+    use crate::Context;
     use crate::native::SeekableSource;
     use crate::test_support::NEVER;
     use std::io::Cursor;
@@ -925,8 +919,9 @@ mod candidate_tests {
         bytes.extend_from_slice(b"\nendstream\nendobj\n");
         assert!(matches!(
             scan(bytes, &mut candidates),
-            Err(Error::Pdf {
-                kind: PdfErrorKind::AmbiguousRepair,
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                context: Context::Pdf { repair: true, .. },
                 reason: "recovery candidate is not a complete fragment object",
                 ..
             })
@@ -998,7 +993,9 @@ mod candidate_tests {
             b"7 0 obj << /LongDictionaryName 3 >\n8 0 obj 42 endobj\n7 0 obj null endobj\n";
         assert!(matches!(
             scan(too_short.to_vec(), &mut []),
-            Err(Error::Pdf {
+            Err(Error {
+                kind: _,
+                context: Context::Pdf { .. },
                 reason: "interrupted prefix has no exact complete counterpart",
                 ..
             })
@@ -1025,7 +1022,9 @@ mod candidate_tests {
         fake.extend_from_slice(b"\nendstream\nendobj\n");
         assert!(matches!(
             scan(fake, &mut []),
-            Err(Error::Pdf {
+            Err(Error {
+                kind: _,
+                context: Context::Pdf { .. },
                 reason: "interrupted prefix has no exact complete counterpart",
                 ..
             })
@@ -1434,7 +1433,11 @@ mod candidate_tests {
         };
         assert!(matches!(
             scan_fragment_with_candidates(&mut source, 0, size, &limits, &NEVER, &mut [],),
-            Err(Error::PdfLimitExceeded { .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                context: Context::Pdf { .. },
+                ..
+            })
         ));
     }
 
@@ -1474,7 +1477,11 @@ mod candidate_tests {
         bytes.extend_from_slice(b") >> endobj");
         assert!(matches!(
             probe(bytes, PREFIX.len() as u64, 4096),
-            Err(Error::PdfLimitExceeded { .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                context: Context::Pdf { .. },
+                ..
+            })
         ));
     }
 
@@ -1532,7 +1539,11 @@ mod candidate_tests {
         long.extend_from_slice(ORIGINAL);
         assert!(matches!(
             probe(long, 0, candidate(at), 512),
-            Err(Error::PdfLimitExceeded { .. })
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                context: Context::Pdf { .. },
+                ..
+            })
         ));
     }
 }

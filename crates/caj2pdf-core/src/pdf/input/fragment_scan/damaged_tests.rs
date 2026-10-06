@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+use crate::Context;
 use crate::native::SeekableSource;
 use crate::pdf::input::recovery::{damaged_page_anchor, damaged_stream_end};
 use crate::test_support::NEVER;
@@ -52,7 +53,11 @@ fn partial_boundaries_require_one_complete_table_named_page() {
     );
     assert!(matches!(
         anchor(nested.as_bytes(), &limits),
-        Err(Error::PdfLimitExceeded { .. })
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            context: Context::Pdf { .. },
+            ..
+        })
     ));
 }
 
@@ -108,7 +113,10 @@ fn discarded_stream_boundaries_use_only_parsed_lengths_and_existing_tail_rules()
     .unwrap();
     assert!(matches!(
         damaged_stream_end(&mut reader, 0, &BTreeMap::new()),
-        Err(Error::Io(_))
+        Err(Error {
+            kind: ErrorKind::Io(_),
+            ..
+        })
     ));
 }
 

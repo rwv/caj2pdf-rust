@@ -4,10 +4,8 @@
 //! traces are hand-derived from the standard T.88 Table E.1 states.
 
 use caj2pdf_core::{
-    Error, Limits, Payload,
-    jbig2::mq::{
-        ArithmeticErrorKind, CodedSpan, ContextBank, ContextState, MqDecoder, MqTable, context_bank,
-    },
+    Error, ErrorKind, Limits, Payload,
+    jbig2::mq::{CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
 };
 
 fn table() -> MqTable {
@@ -15,7 +13,7 @@ fn table() -> MqTable {
 }
 
 fn bank(limits: &Limits) -> ContextBank {
-    context_bank(1, limits).unwrap()
+    ContextBank::new(1, limits).unwrap()
 }
 
 #[test]
@@ -25,16 +23,19 @@ fn context_banks_beyond_the_address_space_are_refused_without_allocating() {
         ..Limits::default()
     };
     // The byte size of this bank overflows `usize`.
-    assert!(matches!(
-        context_bank(usize::MAX, &limits).unwrap_err().kind,
-        ArithmeticErrorKind::InvalidContext
-    ));
+    assert!(
+        (ContextBank::new(usize::MAX, &limits).unwrap_err().reason
+            == "invalid arithmetic context index or count")
+    );
     // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
     // reservation fails before the allocator is called.
     #[cfg(target_pointer_width = "64")]
     assert!(matches!(
-        context_bank(1 << 62, &limits).unwrap_err().kind,
-        ArithmeticErrorKind::AllocationFailed
+        ContextBank::new(1 << 62, &limits).unwrap_err(),
+        Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        }
     ));
 }
 
@@ -182,10 +183,7 @@ fn terminal_input_is_counted_and_marker_is_bounded() {
     )
     .err()
     .expect("malformed marker must fail");
-    assert!(matches!(
-        error.kind,
-        ArithmeticErrorKind::InvalidMarker(0x90)
-    ));
+    assert_eq!(error.reason, "invalid MQ marker following 0xFF");
     assert_eq!(error.offset, Some(1));
 }
 
@@ -206,7 +204,13 @@ fn spans_beyond_the_payload_are_refused() {
     )
     .err()
     .unwrap();
-    assert!(matches!(error.kind, ArithmeticErrorKind::InvalidSpan(_)));
+    assert!(matches!(
+        error,
+        Error {
+            kind: ErrorKind::Malformed,
+            ..
+        }
+    ));
     assert_eq!(error.offset, Some(0));
     assert!(std::error::Error::source(&error).is_none());
 }
@@ -232,22 +236,16 @@ fn finish_and_context_errors_keep_public_locations() {
     )
     .unwrap();
     let bad_context = decoder.decode_bit(1).unwrap_err();
-    assert!(matches!(
-        bad_context.kind,
-        ArithmeticErrorKind::InvalidContext
-    ));
-    assert_eq!(bad_context.context, Some(1));
-    assert!(bad_context.to_string().contains("context 1"));
+    assert_eq!(
+        bad_context.reason,
+        "invalid arithmetic context index or count"
+    );
     assert!(bad_context.source().is_none());
     decoder.decode_bit(0).unwrap();
     let at_end = decoder.decode_bit(0).unwrap_err();
-    assert!(matches!(
-        at_end.kind,
-        ArithmeticErrorKind::MissingTerminator
-    ));
+    assert_eq!(at_end.reason, "MQ coding unit lacks its terminal marker");
     assert_eq!(at_end.offset, Some(2));
-    assert_eq!(at_end.context, Some(0));
-    assert!(at_end.to_string().contains("source byte 2"));
+    assert!(at_end.to_string().contains("at byte 2"), "{at_end}");
 
     let source: &[u8] = &[0, 0, 0];
     let mut contexts = bank(&limits);
@@ -263,14 +261,11 @@ fn finish_and_context_errors_keep_public_locations() {
     )
     .unwrap();
     let wrong_count = decoder.finish(1).unwrap_err();
-    assert!(matches!(
-        wrong_count.kind,
-        ArithmeticErrorKind::SymbolCount {
-            expected: 1,
-            decoded: 0
-        }
-    ));
-    assert!(wrong_count.to_string().contains("expected 1 symbols"));
+    assert_eq!(
+        wrong_count.reason,
+        "decoded symbol count differs from the expected count"
+    );
+    assert!(wrong_count.offset.is_some(), "{wrong_count}");
 
     let mut decoder = MqDecoder::new(
         Payload::from(source),
@@ -284,12 +279,9 @@ fn finish_and_context_errors_keep_public_locations() {
     )
     .unwrap();
     let marker = decoder.finish(0).unwrap_err();
-    assert!(matches!(
-        marker.kind,
-        ArithmeticErrorKind::MissingTerminator
-    ));
+    assert_eq!(marker.reason, "MQ coding unit lacks its terminal marker");
     assert_eq!(marker.offset, Some(1));
-    assert!(marker.to_string().contains("missing terminal marker"));
+    assert!(marker.to_string().contains("lacks its terminal marker"));
 
     let interior_marker: &[u8] = &[0xff, 0xac, 0, 0xff, 0xac];
     let error = MqDecoder::new(
@@ -304,10 +296,7 @@ fn finish_and_context_errors_keep_public_locations() {
     )
     .err()
     .unwrap();
-    assert!(matches!(
-        error.kind,
-        ArithmeticErrorKind::InvalidMarker(0xac)
-    ));
+    assert_eq!(error.reason, "invalid MQ marker following 0xFF");
     assert_eq!(error.offset, Some(1));
 
     // A terminal pair beyond the initial prefetch is checked only by finish.
@@ -326,20 +315,17 @@ fn finish_and_context_errors_keep_public_locations() {
     )
     .unwrap();
     let error = decoder.finish(0).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        ArithmeticErrorKind::InvalidMarker(0xab)
-    ));
+    assert_eq!(error.reason, "invalid MQ marker following 0xFF");
     assert_eq!(error.offset, Some(299));
 }
 
 #[test]
 fn invalid_configuration_fails_before_decoding() {
     let limits = Limits::default();
-    assert!(matches!(
-        context_bank(0, &limits).unwrap_err().kind,
-        ArithmeticErrorKind::InvalidContext
-    ));
+    assert!(
+        (ContextBank::new(0, &limits).unwrap_err().reason
+            == "invalid arithmetic context index or count")
+    );
     let source: &[u8] = &[0, 0, 0xff, 0xac];
     let state_table = table();
     let mut contexts = bank(&limits);
@@ -366,7 +352,13 @@ fn invalid_configuration_fails_before_decoding() {
         )
         .err()
         .unwrap();
-        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidSpan(_)));
+        assert!(matches!(
+            error,
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
     }
 }
 
@@ -455,19 +447,20 @@ fn span_beyond_input_limit_is_rejected_before_reading() {
     .unwrap();
     assert_eq!(error.offset, Some(0));
     assert!(matches!(
-        error.kind,
-        ArithmeticErrorKind::Source(Error::LimitExceeded {
-            limit: 3,
-            attempted: 4,
+        error,
+        Error {
+            kind: ErrorKind::LimitExceeded {
+                limit: 3,
+                attempted: 4,
+                ..
+            },
             ..
-        })
+        }
     ));
 }
 
 #[test]
-fn configuration_errors_render_without_a_source_location() {
-    use caj2pdf_core::jbig2::mq::{ArithmeticError, Coder};
-
+fn configuration_errors_render_their_span_offset() {
     let limits = Limits::default();
     let mut contexts = bank(&limits);
     let state_table = table();
@@ -486,18 +479,7 @@ fn configuration_errors_render_without_a_source_location() {
     .unwrap();
     assert_eq!(
         short_span.to_string(),
-        "T.88 MQ decoder at source byte 1: invalid span: requires at least two terminal bytes"
+        "invalid input at byte 1: MQ coded span lacks two terminal bytes"
     );
-
-    let error = ArithmeticError {
-        coder: Some(Coder::T88),
-        offset: None,
-        context: None,
-        kind: ArithmeticErrorKind::AllocationFailed,
-    };
-    assert_eq!(
-        error.to_string(),
-        "T.88 MQ decoder: context allocation failed"
-    );
-    assert!(std::error::Error::source(&error).is_none());
+    assert!(std::error::Error::source(&short_span).is_none());
 }

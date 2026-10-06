@@ -7,9 +7,7 @@
 //! full-page OR profile has its own checked composition primitive.
 
 mod directory;
-pub use directory::{
-    DirectoryError, DirectoryErrorKind, SegmentDirectory, read_embedded_directory,
-};
+pub use directory::{SegmentDirectory, read_embedded_directory};
 
 pub mod dictionary;
 pub mod generic;
@@ -25,8 +23,8 @@ pub mod text_composer;
 pub mod text_instances;
 
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
-use crate::{Cancellation, Error, Limits, RangedSource};
-use std::{error, fmt, mem};
+use crate::{Cancellation, Context, Error, Limits, RangedSource, Result};
+use std::mem;
 
 /// An exact range containing one segment header immediately followed by its data.
 /// Coordinates are in the supplied `RangedSource`, which may be a logical span.
@@ -76,71 +74,6 @@ impl SegmentHeader {
     }
 }
 
-/// A located failure while reading a JBIG2 segment header.
-#[derive(Debug)]
-pub struct HeaderError {
-    pub offset: u64,
-    pub segment: Option<u32>,
-    pub kind: HeaderErrorKind,
-}
-
-/// Distinct malformed, unsupported, resource, cancellation, and source errors.
-#[derive(Debug)]
-pub enum HeaderErrorKind {
-    InvalidSpan(&'static str),
-    Truncated(&'static str),
-    Malformed(&'static str),
-    Unsupported {
-        feature: &'static str,
-        value: u64,
-    },
-    LimitExceeded {
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    },
-    AllocationFailed,
-    Cancelled,
-    Source(Error),
-}
-
-pub type HeaderResult<T> = std::result::Result<T, HeaderError>;
-
-impl fmt::Display for HeaderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "JBIG2 segment header at source byte {}", self.offset)?;
-        if let Some(number) = self.segment {
-            write!(f, ", segment {number}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            HeaderErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            HeaderErrorKind::Truncated(field) => write!(f, "truncated {field}"),
-            HeaderErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
-            HeaderErrorKind::Unsupported { feature, value } => {
-                write!(f, "unsupported {feature} ({value})")
-            }
-            HeaderErrorKind::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
-            HeaderErrorKind::AllocationFailed => f.write_str("header allocation failed"),
-            HeaderErrorKind::Cancelled => f.write_str("cancelled"),
-            HeaderErrorKind::Source(source) => write!(f, "source: {source}"),
-        }
-    }
-}
-
-impl error::Error for HeaderError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            HeaderErrorKind::Source(source) => Some(source),
-            _ => None,
-        }
-    }
-}
-
 mod cursor;
 use cursor::{FieldCursor, FieldFault};
 
@@ -163,46 +96,47 @@ impl HeaderCursor {
         }
     }
 
-    fn error(&self, kind: HeaderErrorKind) -> HeaderError {
-        HeaderError {
-            offset: self.fields.at,
-            segment: self.segment,
-            kind,
-        }
+    /// Locate an error at the cursor in the segment read so far.
+    fn locate(&self, error: Error) -> Error {
+        error.or_at(
+            self.fields.at,
+            Context::Jbig2 {
+                segment: self.segment,
+            },
+        )
     }
 
-    fn invalid_span(&self, reason: &'static str) -> HeaderError {
-        self.error(HeaderErrorKind::InvalidSpan(reason))
+    fn malformed(&self, reason: &'static str) -> Error {
+        self.locate(Error::malformed(self.fields.at, reason))
     }
 
-    fn check_cancelled<C: Cancellation>(&self, cancellation: &C) -> HeaderResult<()> {
+    fn unsupported(&self, reason: &'static str) -> Error {
+        self.locate(Error::unsupported(self.fields.at, reason))
+    }
+
+    fn check_cancelled<C: Cancellation>(&self, cancellation: &C) -> Result<()> {
         if cancellation.is_cancelled() {
-            Err(self.error(HeaderErrorKind::Cancelled))
+            Err(self.locate(Error::cancelled()))
         } else {
             Ok(())
         }
     }
 
-    fn fault(&self, fault: FieldFault, field: &'static str) -> HeaderError {
+    /// A header that would end past the span is truncated at its end.
+    fn fault(&self, fault: FieldFault, field: &'static str) -> Error {
         match fault {
-            FieldFault::Overflow => self.invalid_span("header end overflows"),
-            FieldFault::PastEnd => HeaderError {
-                offset: self.fields.end,
-                segment: self.segment,
-                kind: HeaderErrorKind::Truncated("segment header"),
-            },
-            FieldFault::Cancelled => self.error(HeaderErrorKind::Cancelled),
-            FieldFault::Source(error) => self.error(HeaderErrorKind::Source(error)),
-            FieldFault::Overread => self.error(HeaderErrorKind::Malformed(
-                "source returned more bytes than requested",
-            )),
-            // A cancellation seen with the short read takes precedence.
-            FieldFault::Ended { cancelled: true } => self.error(HeaderErrorKind::Cancelled),
-            FieldFault::Ended { cancelled: false } => self.error(HeaderErrorKind::Truncated(field)),
+            FieldFault::Overflow { .. } => self.malformed("header end overflows"),
+            FieldFault::PastEnd {
+                expected,
+                available,
+            } => self.locate(
+                Error::truncated(self.fields.end, expected, available).because("segment header"),
+            ),
+            fault => self.locate(fault.error(self.fields.at, field)),
         }
     }
 
-    fn check_future_header(&self, additional: u64) -> HeaderResult<()> {
+    fn check_future_header(&self, additional: u64) -> Result<()> {
         self.fields
             .check_room(additional)
             .map_err(|fault| self.fault(fault, "segment header"))
@@ -214,7 +148,7 @@ impl HeaderCursor {
         destination: &mut [u8],
         field: &'static str,
         cancellation: &C,
-    ) -> HeaderResult<()> {
+    ) -> Result<()> {
         let result = self.fields.fill(source, cancellation, destination);
         result.map_err(|fault| self.fault(fault, field))
     }
@@ -224,31 +158,57 @@ impl HeaderCursor {
         source: &mut S,
         field: &'static str,
         cancellation: &C,
-    ) -> HeaderResult<[u8; N]> {
+    ) -> Result<[u8; N]> {
         let mut bytes = [0; N];
         self.read_into(source, &mut bytes, field, cancellation)?;
         Ok(bytes)
     }
 }
 
-/// Where a dictionary or text-region check before decoding failed: the
-/// segment, the offset, and the header bytes fetched so far.
+/// An unlocated feature outside the supported profile.
+fn unsupported(feature: &'static str) -> Error {
+    Error::from(crate::ErrorKind::UnsupportedFormat).because(feature)
+}
+
+/// Where in a segment a dictionary or text-region check before decoding
+/// failed.
 #[derive(Clone, Copy)]
-struct PreflightSite {
+struct Site {
     segment: u32,
     offset: u64,
-    header_fetched: u64,
 }
 
-/// An error kind that a [`PreflightSite`] locates as its module's error.
-trait PreflightKind {
-    type Error;
-    fn locate(self, site: PreflightSite) -> Self::Error;
-}
+impl Site {
+    fn context(self) -> Context {
+        Context::Jbig2 {
+            segment: Some(self.segment),
+        }
+    }
 
-impl PreflightSite {
-    fn error<K: PreflightKind>(self, kind: K) -> K::Error {
-        kind.locate(self)
+    /// Locate an unlocated error here.
+    fn locate(self, error: Error) -> Error {
+        error.or_at(self.offset, self.context())
+    }
+
+    fn malformed(self, reason: &'static str) -> Error {
+        self.locate(Error::invalid(reason))
+    }
+
+    fn unsupported(self, reason: &'static str) -> Error {
+        self.locate(unsupported(reason))
+    }
+
+    fn limit(self, resource: &'static str, limit: u64, attempted: u64) -> Error {
+        self.locate(Error::limit(resource, limit, attempted))
+    }
+
+    /// Fail with a limit error when `attempted` exceeds `limit`.
+    fn cap(self, resource: &'static str, limit: u64, attempted: u64) -> Result<()> {
+        if attempted > limit {
+            Err(self.limit(resource, limit, attempted))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -299,17 +259,17 @@ pub(super) fn validate_enclosing_span<S: RangedSource>(
     source: &S,
     span: SegmentSpan,
     limits: &Limits,
-) -> HeaderResult<u64> {
+) -> Result<u64> {
     let cursor = HeaderCursor::new(span.offset, span.offset, limits.io_chunk_bytes);
     limits
         .check_input_size(span.length)
-        .map_err(|error| cursor.error(HeaderErrorKind::Source(error)))?;
+        .map_err(|error| cursor.locate(error))?;
     let end = span
         .offset
         .checked_add(span.length)
-        .ok_or(cursor.invalid_span("end overflows 64 bits"))?;
+        .ok_or_else(|| cursor.malformed("segment span end overflows 64 bits"))?;
     if end > source.size() {
-        return Err(cursor.invalid_span("range extends beyond source size"));
+        return Err(cursor.malformed("segment span extends beyond source size"));
     }
     Ok(end)
 }
@@ -322,7 +282,7 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
     end: u64,
     limits: &Limits,
     cancellation: &C,
-) -> HeaderResult<(SegmentHeader, u64)> {
+) -> Result<(SegmentHeader, u64)> {
     let mut cursor = HeaderCursor::new(start, end, limits.io_chunk_bytes);
     cursor.check_cancelled(cancellation)?;
 
@@ -331,10 +291,7 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let flags = cursor.read::<1, _, _>(source, "segment flags", cancellation)?[0];
     let segment_type = flags & 0x3f;
     if !allowed_type(segment_type) {
-        return Err(cursor.error(HeaderErrorKind::Unsupported {
-            feature: "reserved segment type",
-            value: u64::from(segment_type),
-        }));
+        return Err(cursor.unsupported("reserved segment type"));
     }
     let first = cursor.read::<1, _, _>(source, "reference count and retention", cancellation)?[0];
     let count_tag = first >> 5;
@@ -344,23 +301,16 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
             let tail = cursor.read::<3, _, _>(source, "long reference count", cancellation)?;
             let count = u32::from_be_bytes([first, tail[0], tail[1], tail[2]]) & 0x1fff_ffff;
             if count <= 4 {
-                return Err(cursor.error(HeaderErrorKind::Malformed(
-                    "noncanonical long reference count",
-                )));
+                return Err(cursor.malformed("noncanonical long reference count"));
             }
             (count, (u64::from(count) + 1).div_ceil(8), None)
         }
         _ => {
-            return Err(cursor.error(HeaderErrorKind::Unsupported {
-                feature: "reserved reference-count form",
-                value: u64::from(count_tag),
-            }));
+            return Err(cursor.unsupported("reserved reference-count form"));
         }
     };
     if !valid_reference_count(segment_type, reference_count) {
-        return Err(cursor.error(HeaderErrorKind::Malformed(
-            "reference count for segment type",
-        )));
+        return Err(cursor.malformed("reference count for segment type"));
     }
     let reference_width = if number <= 256 {
         1_u64
@@ -372,48 +322,49 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let association_width = if flags & 0x40 == 0 { 1_u64 } else { 4 };
     let reference_bytes = u64::from(reference_count)
         .checked_mul(reference_width)
-        .ok_or(cursor.invalid_span("reference size overflows"))?;
+        .ok_or_else(|| cursor.malformed("reference size overflows"))?;
     let remaining_header = retention_bytes
         .checked_sub(u64::from(short_retention.is_some()))
         .and_then(|value| value.checked_add(reference_bytes))
         .and_then(|value| value.checked_add(association_width + 4))
-        .ok_or(cursor.invalid_span("header size overflows"))?;
+        .ok_or_else(|| cursor.malformed("header size overflows"))?;
     cursor.check_future_header(remaining_header)?;
     let allocation_bytes = u64::from(reference_count)
         .checked_mul(mem::size_of::<u32>() as u64)
         .and_then(|value| value.checked_add(retention_bytes))
-        .ok_or(cursor.invalid_span("allocation size overflows"))?;
+        .ok_or_else(|| cursor.malformed("allocation size overflows"))?;
     if allocation_bytes > limits.max_allocation_bytes {
-        return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 header metadata bytes",
-            limit: limits.max_allocation_bytes,
-            attempted: allocation_bytes,
-        }));
+        return Err(cursor.locate(Error::limit(
+            "JBIG2 header metadata bytes",
+            limits.max_allocation_bytes,
+            allocation_bytes,
+        )));
     }
 
     let mut retention = Vec::new();
     // At most `(2^29 + 1).div_ceil(8)` bytes for a 29-bit reference count.
     let retention_length = retention_bytes as usize;
-    let failed = cursor.error(HeaderErrorKind::AllocationFailed);
+    let failed = cursor.locate(limits.allocation_refused("JBIG2 retention bytes", retention_bytes));
     reserve_exact(&mut retention, retention_length, failed)?;
     if let Some(short) = short_retention {
         retention.push(short);
         let used = (1_u8 << (reference_count + 1)) - 1;
         if short & !used != 0 {
-            return Err(cursor.error(HeaderErrorKind::Malformed("unused short retention bits")));
+            return Err(cursor.malformed("unused short retention bits"));
         }
     } else {
         retention.resize(retention_length, 0);
         cursor.read_into(source, &mut retention, "long retention flags", cancellation)?;
         let used = ((reference_count + 1) % 8) as u8;
         if used != 0 && retention[retention_length - 1] & !((1_u8 << used) - 1) != 0 {
-            return Err(cursor.error(HeaderErrorKind::Malformed("unused long retention bits")));
+            return Err(cursor.malformed("unused long retention bits"));
         }
     }
 
     let mut referred_to = Vec::new();
     let count = usize_from_u32(reference_count);
-    let failed = cursor.error(HeaderErrorKind::AllocationFailed);
+    let failed =
+        cursor.locate(limits.allocation_refused("JBIG2 reference bytes", allocation_bytes));
     reserve_exact(&mut referred_to, count, failed)?;
     for _ in 0..count {
         let reference = match reference_width {
@@ -426,9 +377,7 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
             _ => u32::from_be_bytes(cursor.read(source, "reference number", cancellation)?),
         };
         if reference >= number {
-            return Err(cursor.error(HeaderErrorKind::Malformed(
-                "reference is not lower than segment number",
-            )));
+            return Err(cursor.malformed("reference is not lower than segment number"));
         }
         referred_to.push(reference);
     }
@@ -438,25 +387,27 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
         u32::from_be_bytes(cursor.read(source, "page association", cancellation)?)
     };
     if !valid_page_association(segment_type, page_association) {
-        return Err(cursor.error(HeaderErrorKind::Malformed(
-            "page association for segment type",
-        )));
+        return Err(cursor.malformed("page association for segment type"));
     }
     let data_length =
         u32::from_be_bytes(cursor.read(source, "segment data length", cancellation)?);
     if data_length == u32::MAX {
-        return Err(cursor.error(HeaderErrorKind::Unsupported {
-            feature: "unknown segment data length",
-            value: u64::from(data_length),
-        }));
+        return Err(cursor.unsupported("unknown segment data length"));
     }
     let data_end = cursor
         .fields
         .at
         .checked_add(u64::from(data_length))
-        .ok_or(cursor.invalid_span("data end overflows"))?;
+        .ok_or_else(|| cursor.malformed("data end overflows"))?;
     if data_end > cursor.fields.end {
-        return Err(cursor.error(HeaderErrorKind::Truncated("segment data")));
+        return Err(cursor.locate(
+            Error::truncated(
+                cursor.fields.at,
+                u64::from(data_length),
+                cursor.fields.end - cursor.fields.at,
+            )
+            .because("segment data"),
+        ));
     }
     cursor.check_cancelled(cancellation)?;
     Ok((
@@ -486,15 +437,14 @@ pub fn read_segment_header<S: RangedSource, C: Cancellation>(
     span: SegmentSpan,
     limits: &Limits,
     cancellation: &C,
-) -> HeaderResult<SegmentHeader> {
+) -> Result<SegmentHeader> {
     let end = validate_enclosing_span(source, span, limits)?;
     let (header, next) = read_header_prefix(source, span.offset, end, limits, cancellation)?;
     if next != end {
-        return Err(HeaderError {
-            offset: header.data.offset,
-            segment: Some(header.number),
-            kind: HeaderErrorKind::Malformed("bytes follow declared segment data"),
-        });
+        return Err(
+            Error::malformed(header.data.offset, "bytes follow declared segment data")
+                .in_jbig2(Some(header.number)),
+        );
     }
     Ok(header)
 }
