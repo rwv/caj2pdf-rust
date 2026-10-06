@@ -53,9 +53,11 @@ test("WASM HN preserves short scratch I/O and resets on completion", async () =>
   assert.ok(scratch.every((store) => store.size === 0n));
 });
 
-test("HN uses the standard states and requires random-access scratch", async () => {
-  await assert.rejects(convert(await newInstance(), source(), sink()), { code: "RANDOM_ACCESS_REQUIRED" });
-  await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: {} }), { code: "RANDOM_ACCESS_REQUIRED" });
+test("HN type-0 images use the standard states and need no scratch", async () => {
+  // Only type-3 images use the stores; type-0 rows stream straight to the PDF.
+  for (const options of [undefined, { hnc8: {} }]) {
+    assert.equal((await convert(await newInstance(), source(), sink(), options)).pagesConverted, 1);
+  }
   const scratch = stores();
   const report = await convert(await newInstance(), source(), sink(), { hnc8: { scratch } });
   assert.equal(report.pagesConverted, 1);
@@ -65,16 +67,20 @@ test("HN uses the standard states and requires random-access scratch", async () 
   await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: { scratch: [one, one, one, one] } }), TypeError);
 });
 
-test("scratch faults reject output, clear all stores and permit instance reuse", async () => {
+test("type-0 HN never uses scratch I/O; source and sink faults clear all stores and permit instance reuse", async () => {
   for (const mode of ["read", "write", "resize", "flush", "source", "sink"]) {
     const instance = await newInstance(); const scratch = stores(); const failure = new Error(mode);
-    if (mode === "read") scratch[0].readAt = async (_offset, length) => new Uint8Array(length + 1);
-    if (mode === "write") scratch[0].writeAt = async (_offset, bytes) => bytes.length + 1;
-    if (mode === "resize") { const original = scratch[0].resize; scratch[0].resize = async (size) => { if (size !== 0n) throw failure; await original(size); }; }
-    if (mode === "flush") scratch[0].flush = async () => { throw failure; };
+    for (const store of scratch) {
+      if (mode === "read") store.readAt = async () => { throw failure; };
+      if (mode === "write") store.writeAt = async () => { throw failure; };
+      if (mode === "resize") { const original = store.resize; store.resize = async (size) => { if (size !== 0n) throw failure; await original(size); }; }
+      if (mode === "flush") store.flush = async () => { throw failure; };
+    }
     const input = mode === "source" ? { size: 1024n, async readAt() { throw failure; } } : source();
     const output = mode === "sink" ? { async writeChunk() { throw failure; }, async flush() {} } : sink();
-    await assert.rejects(convert(instance, input, output, { hnc8: { scratch } }));
+    const run = convert(instance, input, output, { hnc8: { scratch } });
+    if (mode === "source" || mode === "sink") await assert.rejects(run);
+    else assert.equal((await run).pagesConverted, 1);
     assert.ok(scratch.every((store) => store.size === 0n));
     const report = await convert(instance, source(), sink(), { hnc8: { scratch: stores() } });
     assert.equal(report.pagesConverted, 1);
@@ -91,16 +97,17 @@ test("conversion and cleanup failures are both retained and every store is attem
   assert.deepEqual(attempted, [0, 1, 2, 3]);
 });
 
-test("HN yields to scheduled cancellation and clears pending workspace contents", async () => {
+test("HN yields to scheduled cancellation and clears every supplied store", async () => {
   const scratch = stores(); const controller = new AbortController(); const reason = new Error("stop HN");
-  const write = scratch[0].writeAt;
   let scheduled = false;
-  scratch[0].writeAt = async (...args) => {
-    const count = await write(...args);
-    if (!scheduled) { scheduled = true; setTimeout(() => controller.abort(reason), 0); }
-    return count;
+  const output = {
+    async writeChunk(bytes) {
+      if (!scheduled) { scheduled = true; setTimeout(() => controller.abort(reason), 0); }
+      return bytes.length;
+    },
+    async flush() {},
   };
-  await assert.rejects(convert(await newInstance(), source(), sink(), { chunkSize: 1, signal: controller.signal, hnc8: { scratch } }), (error) => error === reason);
+  await assert.rejects(convert(await newInstance(), source(), output, { chunkSize: 1, signal: controller.signal, hnc8: { scratch } }), (error) => error === reason);
   assert.ok(scheduled);
   assert.ok(scratch.every((store) => store.size === 0n));
 });

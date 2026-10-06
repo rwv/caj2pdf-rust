@@ -13,7 +13,7 @@ use caj2pdf_core::{
     hnc8::{
         ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, C8FontSource,
         C8FontSources, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
-        ComposeWorkspaces, OutlineReport, Type3PdfOptions, convert_document_pdf,
+        OutlineReport, Type3PdfOptions, convert_document_pdf,
     },
     jbig2::mq::MqTable,
     jbig2::text::TextHeaderPolicy,
@@ -226,18 +226,19 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
                 directory.display()
             )
         })?;
-        FileScratch::new(file, options.budget.max_row_store_bytes).map_err(|e| e.to_string())
+        FileScratch::new(file, options.budget.max_type3_store_bytes).map_err(|e| e.to_string())
     };
-    let mut rows = scratch()?;
     let mut first = scratch()?;
     let mut second = scratch()?;
     let mut refined = scratch()?;
+    let mut text = scratch()?;
     let mq = MqTable::standard();
     let type3 = Some(ComposeType3Workspaces {
         table: &mq,
         first: &mut first,
         second: &mut second,
         refined: &mut refined,
+        text: &mut text,
     });
     // Empty unless fonts were supplied.
     let mut fonts = resources
@@ -261,10 +262,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
             roles,
         }),
         Some(&QmTable::standard()),
-        ComposeWorkspaces {
-            rows: &mut rows,
-            type3,
-        },
+        type3,
         &mut CompletePages,
         options,
         limits,

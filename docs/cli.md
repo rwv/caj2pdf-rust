@@ -86,7 +86,8 @@ outside the [verified text scope](https://github.com/rwv/caj2pdf-samples/tree/ma
 malformed JBIG2 flags remain errors.
 
 The command creates four private anonymous files in `TMPDIR` (or the system
-temporary directory), each capped at 64 MiB by the composition budget. The
+temporary directory) for type-3 images, each capped at 64 MiB by the
+composition budget; type-0 and JPEG images stream without them. The
 names are removed before conversion; the OS releases storage when handles
 close, including on process exit. This reuses input spooling's file helper.
 Forward-only document input is separately spooled within its input limit.

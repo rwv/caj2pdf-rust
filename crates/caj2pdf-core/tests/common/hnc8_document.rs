@@ -11,7 +11,7 @@ use caj2pdf_core::{
     Cancellation, Error, Limits, RangedSource, SequentialSink,
     hnc8::{
         ComposeError, ComposeOptions, ComposeReport, ComposeType3Workspaces, ComposeVisitor,
-        ComposeWorkspaces, Variant, convert_source_pages_pdf,
+        Variant, convert_source_pages_pdf,
     },
     jbig2::{
         mq::{MQ_STATE_COUNT, MqState, MqTable},
@@ -226,7 +226,7 @@ impl RandomAccessScratch for Store {
     }
 }
 
-/// Run the document pipeline with a row store and type-3 symbol stores.
+/// Run the document pipeline with the type-3 text scratch and symbol stores.
 #[allow(clippy::too_many_arguments)]
 pub fn convert<S, W, V, C>(
     source: &mut S,
@@ -245,20 +245,18 @@ where
     C: Cancellation,
 {
     let mq = invented_mq_table();
-    let [rows, first, second, refined] = stores;
+    let [text, first, second, refined] = stores;
     ready(convert_source_pages_pdf(
         source,
         sink,
         table,
-        ComposeWorkspaces {
-            rows,
-            type3: Some(ComposeType3Workspaces {
-                table: &mq,
-                first,
-                second,
-                refined,
-            }),
-        },
+        Some(ComposeType3Workspaces {
+            table: &mq,
+            first,
+            second,
+            refined,
+            text,
+        }),
         visitor,
         options,
         limits,

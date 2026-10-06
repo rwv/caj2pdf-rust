@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Breaking:** HN-A/C8 type-0 (JBIG1) images are written top-first, in
+  decode order, and drawn with a positive-height matrix whose origin is
+  shifted to the image's bottom edge, the same convention as type-3 images
+  (#354). The image stream and content stream bytes of every document with a
+  type-0 image change; `/Decode` and the packed-row format do not. MuPDF
+  renders the converted fixtures pixel-identically; Poppler (`pdftoppm`) may
+  place a boundary between two image rows one device pixel differently when
+  an image row covers a fractional number of pixels. The bounded row-reversal
+  store is gone, so type-0 images need no scratch: only type-3 images use the
+  stores. The store count stays four (three symbol stores and the type-3 text
+  scratch); JS conversions of HN/C8 documents without type-3 images no longer
+  need `hnc8.scratch`, and supplied stores are only validated and cleared.
+  Removed from `caj2pdf_core::hnc8`: `ComposeWorkspaces` (pass
+  `Option<ComposeType3Workspaces>`; its `rows` store is the new
+  `ComposeType3Workspaces::text` field) and the `ComposeBudget` fields
+  `max_row_store_bytes` and `max_row_store_io_bytes`, now
+  `max_type3_store_bytes` and `max_type3_store_io_bytes` for the type-3
+  stores only. A refused PDF image write while decoding a type-0 image is
+  reported at `ComposeStage::Pdf` instead of `Scratch`, and the type-0
+  row-storage limits and errors are removed.
+
 - **Breaking:** CAJ PDF fragments are framed without decoding stream
   payloads, each object is inspected once, and damaged-input recovery sits
   behind one hook (#359; see [PDF input](docs/pdf-input.md)). A stream ends

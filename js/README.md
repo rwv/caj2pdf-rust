@@ -260,7 +260,10 @@ not provide that contract. Pass four independent adapters to `convert` as shown 
 ## Experimental HN/C8 conversion
 
 `convert` uses the built-in standard QM/MQ states. Provide `hnc8: { scratch }`
-for arithmetic image decoding.
+for type-3 (JBIG2) image decoding: three symbol stores and the full-page text
+scratch. Type-0 (JBIG1) rows stream straight to the PDF, so documents without
+type-3 images convert without scratch; supplied stores are still validated and
+cleared. A type-3 image without stores fails with `RANDOM_ACCESS_REQUIRED`.
 
 ```js
 // `source`, `sink`, `wasm` use the ordinary streaming API.
@@ -520,7 +523,7 @@ ranged font sources. Only `cjk` and `latin` are required:
 await convert(wasm, documentSource, outputSink, {
   includeBookmarks: false, // C8/HN-B bookmarks are not supported yet.
   hnc8: {
-    scratch, // Existing four reusable stores for image decoding, when needed.
+    scratch, // Existing four reusable stores for type-3 image decoding, when needed.
     fonts: {
       cjk: cjkFontSource,
       latin: latinFontSource,

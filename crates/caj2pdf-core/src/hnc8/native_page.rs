@@ -63,7 +63,7 @@ pub fn is_cjk_coded(character: char) -> bool {
 ///
 /// Call `next_page` first. Images must be supplied in descriptor order, decoded
 /// through the existing codecs. `top_first` identifies each emitted image's row
-/// representation: existing JPEG/type-0 emitters use false; type-3 uses true.
+/// representation: JPEG emitters use false; type-0 and type-3 use true.
 /// Fonts are embedded once per document and may share resource indices.
 ///
 /// Records are consumed one at a time; no glyph or page-content vector is kept.

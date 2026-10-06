@@ -8,7 +8,7 @@ use caj2pdf_core::{
     Bookmark, BookmarkVisitor, ConversionOptions, Error, InputFormat, Limits, NeverCancel,
     RangedSource, Result, SIGNATURE_BYTES, SequentialSink, caj, detect_format,
     hnc8::{
-        Budget, ComposeOptions, ComposeType3Workspaces, ComposeWorkspaces, Hnc8Reader,
+        Budget, ComposeOptions, ComposeType3Workspaces, Hnc8Reader,
         Type3PdfOptions, convert_source_pages_pdf,
     },
     jbig2::{mq::MqTable, text::TextHeaderPolicy, text_composer::RandomAccessScratch},
@@ -143,7 +143,7 @@ pub fn convert(data: &[u8]) {
             InputFormat::Hn | InputFormat::C8 => {
                 let (qm, mq) = (QmTable::standard(), MqTable::standard());
                 let mut stores: [Scratch; 4] = Default::default();
-                let [rows, first, second, refined] = &mut stores;
+                let [text, first, second, refined] = &mut stores;
                 let compose = ComposeOptions {
                     type3: Type3PdfOptions {
                         text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
@@ -151,15 +151,13 @@ pub fn convert(data: &[u8]) {
                     },
                     ..Default::default()
                 };
-                let workspaces = ComposeWorkspaces {
-                    rows,
-                    type3: Some(ComposeType3Workspaces {
+                let workspaces = Some(ComposeType3Workspaces {
                         table: &mq,
                         first,
                         second,
                         refined,
-                    }),
-                };
+                        text,
+                    });
                 convert_source_pages_pdf(
                     &mut source,
                     &mut sink,

@@ -86,7 +86,7 @@ export interface OperationOptions {
 }
 
 export interface ConvertOptions extends OperationOptions {
-  /** Experimental HN/C8 table overrides and four independent disposable stores. */
+  /** Experimental HN/C8 fonts and the four disposable type-3 image stores. */
   hnc8?: Hnc8Options;
   /** Write supported CAJ/HN-A outlines. Default `true`; C8/HN-B require `false`. */
   includeBookmarks?: boolean;
@@ -225,6 +225,9 @@ export interface C8Fonts {
 export interface Hnc8Options {
   /** Enables the admitted native C8 profile; currently requires includeBookmarks: false. */
   fonts?: C8Fonts;
-  /** Contents are reset on exit; callers retain handle ownership. */
+  /**
+   * Four independent stores for type-3 (JBIG2) images; type-0 and JPEG images
+   * use none. Contents are reset on exit; callers retain handle ownership.
+   */
   scratch?: readonly [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch];
 }

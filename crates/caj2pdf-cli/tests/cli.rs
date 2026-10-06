@@ -1039,7 +1039,8 @@ fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
         .output()
         .unwrap();
     assert_success(&pixels);
-    assert_eq!(pixels.stdout, [0x40, 0xa0]);
+    // Rows 101 / 010, top-first.
+    assert_eq!(pixels.stdout, [0xa0, 0x40]);
     let pipe = scratch.run_with_stdin(&["-", "--no-bookmarks"], &input);
     assert_success(&pipe);
     assert_eq!(pipe.stdout, fs::read(scratch.path("out.pdf")).unwrap());

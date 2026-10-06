@@ -670,7 +670,7 @@ fn synthetic_hn() -> Vec<u8> {
 }
 
 #[test]
-fn hnc8_type0_converts_through_short_scratch_io_and_clears_stores() {
+fn hnc8_type0_converts_without_scratch_io() {
     let input = synthetic_hn();
     for chunk in [1, 3, 7] {
         let mut engine =

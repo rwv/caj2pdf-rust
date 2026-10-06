@@ -4,7 +4,7 @@ use super::*;
 use caj2pdf_core::{
     hnc8::{
         ApplicationInfo, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
-        ComposeWorkspaces, Type3PdfOptions, convert_document_pdf,
+        Type3PdfOptions, convert_document_pdf,
     },
     jbig2::mq::MqTable,
     jbig2::text::TextHeaderPolicy,
@@ -133,19 +133,17 @@ pub(super) async fn convert(
         scratch::Scratch::new(
             Rc::clone(&source.shared),
             index as u32 + 1,
-            options.budget.max_row_store_bytes,
+            options.budget.max_type3_store_bytes,
         )
     });
-    let [rows, first, second, refined] = &mut stores;
-    let workspaces = ComposeWorkspaces {
-        rows,
-        type3: Some(ComposeType3Workspaces {
-            table: &mq,
-            first,
-            second,
-            refined,
-        }),
-    };
+    let [first, second, refined, text] = &mut stores;
+    let workspaces = Some(ComposeType3Workspaces {
+        table: &mq,
+        first,
+        second,
+        refined,
+        text,
+    });
     let fonts = std::mem::take(&mut source.shared.borrow_mut().fonts);
     let roles = match fonts.count {
         0 => None,

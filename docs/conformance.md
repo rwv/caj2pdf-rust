@@ -57,7 +57,7 @@ original-font pixel parity or unrestricted copy/search fidelity.
 Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
 state overrides remain supported. The owner-directed adoption and upstream
 practice are recorded in [provenance](provenance.md); #189 completed #30/#44.
-JS arithmetic image decoding needs bounded scratch stores; `withHnc8Scratch`
+JS type-3 (JBIG2) image decoding needs bounded scratch stores; `withHnc8Scratch`
 can manage their lifetime for Node or browser Workers.
 
 [Viewer results](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-fixtures.md) record the pinned application and

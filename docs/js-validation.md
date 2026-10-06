@@ -101,6 +101,10 @@ pixels after PDF extraction, one-byte short I/O, Node files and real Chromium
 Dedicated Worker OPFS storage. Negative tests cover missing/invalid caller
 configuration, source/sink/store failure, cancellation, cleanup failure and
 instance reuse. Rust also rejects image-less HN-B source rows explicitly.
+Since #354 only type-3 images use the stores: type-0 rows stream top-first to
+the PDF, so the type-0 JS fixtures convert without store I/O (supplied stores
+are still validated and cleared). The engine's store requests are covered by
+the WASM Rust tests; the JS suite has no standard-state type-3 fixture yet.
 DOM/Node and WebWorker TypeScript consumers compile the HN/C8 options.
 
 ### External four-page C8 check

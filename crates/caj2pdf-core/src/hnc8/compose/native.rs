@@ -37,7 +37,7 @@ pub async fn convert_c8_native_pdf<'a, S, F, W, T, C>(
     sink: &mut W,
     fonts: C8FontSources<'_, F>,
     table: Option<&QmTable>,
-    workspaces: impl Into<ComposeWorkspaces<'a, T>>,
+    mut type3: Option<ComposeType3Workspaces<'a, T>>,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
@@ -124,7 +124,6 @@ where
     let mut report = ComposeReport::new(header);
     // C8/HN-B outlines are unverified; a request writes none and is reported.
     report.outline.unverified = options.include_bookmarks;
-    let mut workspaces = workspaces.into();
     let mut contexts = None;
     while let Some(page) = reader
         .next_page()
@@ -152,19 +151,19 @@ where
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
-            let (checked, type3, visible_width, display_width, height) = preflight_image(
+            let (checked, plan, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
                 header.variant,
                 image_at,
                 table,
-                workspaces.type3.is_some(),
+                type3.is_some(),
                 options,
                 limits,
                 cancellation,
             )
             .await?;
-            top_first.push(matches!(checked, CheckedImage::Type3));
+            top_first.push(!matches!(checked, CheckedImage::Jpeg(_)));
             // Native placement comes from the record visitor, after resources
             // are emitted. The codec emitter does not consume this transform.
             let mut image = ComposedImage {
@@ -182,10 +181,10 @@ where
                     reader.source_mut(),
                     &mut document,
                     &mut image,
-                    type3,
+                    plan,
                     image_at,
                     &mut contexts,
-                    &mut workspaces,
+                    &mut type3,
                     table,
                     options,
                     limits,
