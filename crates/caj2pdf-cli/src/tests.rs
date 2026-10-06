@@ -8,7 +8,7 @@ use crate::cli::default_output;
 use crate::command::{Command, Endpoint, parse};
 use crate::document::unsupported;
 use crate::files::{
-    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
+    Input, Output, STAGED_PREFIX, STAGED_SUFFIX, SpoolError, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
 };
 use crate::report::{
@@ -27,7 +27,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 fn args(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
@@ -44,9 +44,11 @@ fn parse_str(values: &[&str]) -> Result<Command, String> {
 /// A temporary directory removed on drop; shared by the module tests.
 pub(crate) struct TempDir(pub(crate) PathBuf);
 
+static NEXT_DIR: AtomicU32 = AtomicU32::new(0);
+
 impl TempDir {
     pub(crate) fn new(label: &str) -> Self {
-        let counter = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let counter = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "caj2pdf-cli-unit-{label}-{}-{counter}",
             std::process::id()
@@ -641,6 +643,32 @@ fn spooling_retries_interrupts_and_leaves_no_name() {
     assert_eq!(text, "abcde");
 }
 
+/// A reader that records whether its directory holds any name while it is
+/// being spooled.
+struct Watching<'a>(&'a Path, Vec<usize>);
+
+impl Read for Watching<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.1.push(fs::read_dir(self.0)?.count());
+        if self.1.len() > 2 {
+            return Ok(0);
+        }
+        buffer[0] = b'x';
+        Ok(1)
+    }
+}
+
+#[test]
+fn the_spool_has_no_name_while_it_is_written() {
+    let dir = TempDir::new("spool-anonymous");
+    let mut reader = Watching(&dir.0, Vec::new());
+    let mut file = spool(&mut reader, 2, &dir.0).unwrap();
+    assert_eq!(reader.1, [0, 0, 0]);
+    let mut text = String::new();
+    file.read_to_string(&mut text).unwrap();
+    assert_eq!(text, "xx");
+}
+
 #[test]
 fn spooling_enforces_the_limit_and_reports_read_errors() {
     let dir = TempDir::new("spool-limit");
@@ -657,24 +685,6 @@ fn spooling_enforces_the_limit_and_reports_read_errors() {
         spool(Chunks(Vec::new()), 4, &missing),
         Err(SpoolError::Io(_))
     ));
-}
-
-#[test]
-fn temporary_names_are_bounded_retries() {
-    let dir = TempDir::new("names");
-    // Occupy every name the next attempts can pick, including counter values
-    // consumed concurrently by other tests.
-    let first = NEXT_TEMP.load(Ordering::Relaxed);
-    for counter in first..first + 256 {
-        let name = format!(".caj2pdf-spool.{}-{counter}.tmp", std::process::id());
-        File::create(dir.0.join(name)).unwrap();
-    }
-    let error = spool(Chunks(Vec::new()), 1, &dir.0).unwrap_err();
-    let SpoolError::Io(error) = error else {
-        panic!("expected an I/O error");
-    };
-    assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
-    const { assert!(TEMP_ATTEMPTS < 256) };
 }
 
 #[test]
@@ -703,7 +713,10 @@ fn output_paths_are_checked_before_staging() {
     std::os::unix::fs::symlink(&source, &link).unwrap();
     let hard = dir.0.join("hard.pdf");
     fs::hard_link(&source, &hard).unwrap();
-    for target in [&source, &link, &hard] {
+    fs::create_dir(dir.0.join("sub")).unwrap();
+    let dotted = dir.0.join("./in.caj");
+    let parent = dir.0.join("sub/../in.caj");
+    for target in [&source, &link, &hard, &dotted, &parent] {
         let error = open_error(&Endpoint::Path(target.clone()), true, &[&source_input]);
         assert!(
             error.message.contains("same file as input"),
@@ -723,6 +736,33 @@ fn output_paths_are_checked_before_staging() {
     assert!(error.message.contains("does not name a file"));
     let error = open_error(&Endpoint::Path(dir.0.join("missing/out.pdf")), false, &[]);
     assert!(error.message.contains("cannot create a temporary file"));
+}
+
+#[test]
+fn an_unreadable_existing_output_is_identified_without_opening_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("unreadable");
+    let source = dir.0.join("in.caj");
+    fs::write(&source, b"CAJ").unwrap();
+    let source_input = input(&source);
+    let sealed = dir.0.join("sealed.pdf");
+    fs::write(&sealed, b"old").unwrap();
+    for path in [&source, &sealed] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    let error = open_error(&Endpoint::Path(source.clone()), true, &[&source_input]);
+    assert!(
+        error.message.contains("same file as input"),
+        "{}",
+        error.message
+    );
+    let error = open_error(&Endpoint::Path(sealed.clone()), false, &[&source_input]);
+    assert!(error.message.contains("already exists; use --force"));
+    staged_for(&sealed, true, &[&source_input])
+        .commit()
+        .unwrap();
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(fs::read(&sealed).unwrap(), b"%PDF-");
 }
 
 fn staged(target: &Path, force: bool) -> Output {
@@ -847,12 +887,56 @@ fn commit_rechecks_the_target_and_never_clobbers_without_force() {
 }
 
 #[test]
-fn long_output_names_get_a_bounded_temporary_name() {
+fn an_output_name_at_the_name_limit_still_stages() {
     let dir = TempDir::new("long");
     let name = format!("{}.pdf", "n".repeat(251));
     let target = dir.0.join(&name);
-    staged(&target, false).commit().unwrap();
+    let output = staged(&target, false);
+    assert!(temp_name(&dir).exists());
+    output.commit().unwrap();
     assert_eq!(dir.entries(), vec![OsString::from(name)]);
+}
+
+#[test]
+fn staging_uses_one_hidden_sibling_removed_after_commit_or_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("sibling");
+    fs::create_dir(dir.0.join("sub")).unwrap();
+    let target = dir.0.join("sub/out.pdf");
+    let sub = TempDir(dir.0.join("sub"));
+    let is_staged = |name: &OsString| {
+        let name = name.to_str().unwrap();
+        name.starts_with(STAGED_PREFIX) && name.ends_with(STAGED_SUFFIX)
+    };
+
+    // The temporary is a hidden sibling of the target, not a file in TMPDIR
+    // or the current directory, and it is gone after commit.
+    let output = staged(&target, false);
+    let names = sub.entries();
+    assert!(names.len() == 1 && is_staged(&names[0]), "{names:?}");
+    assert_eq!(dir.entries(), vec![OsString::from("sub")]);
+    output.commit().unwrap();
+    assert_eq!(sub.entries(), vec![OsString::from("out.pdf")]);
+
+    // The committed file has the permissions of an ordinary new file
+    // (0o666 before the umask), not a private temporary's 0o600.
+    let reference = dir.write("reference", b"");
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&target), mode(&reference));
+    fs::remove_file(reference).unwrap();
+
+    // A failed commit and a dropped output both remove it.
+    let other = sub.0.join("other.pdf");
+    let output = staged(&other, false);
+    fs::create_dir(&other).unwrap();
+    assert_eq!(sub.entries().len(), 3);
+    assert!(output.commit().is_err());
+    fs::remove_dir(&other).unwrap();
+    assert_eq!(sub.entries(), vec![OsString::from("out.pdf")]);
+    let output = staged(&target, true);
+    assert_eq!(sub.entries().len(), 2);
+    drop(output);
+    assert_eq!(sub.entries(), vec![OsString::from("out.pdf")]);
 }
 
 fn c8_package(doi: Option<&str>, url: Option<&str>) -> Inspection {

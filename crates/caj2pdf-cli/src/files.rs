@@ -2,51 +2,41 @@
 
 //! Native file handling: seekable inputs, bounded stdin spooling, same-file
 //! checks, and staged path output that is renamed into place only on success.
+//!
+//! Temporary files come from `tempfile` and file identity from `same-file`.
 
 use crate::CliError;
 use crate::command::Endpoint;
-#[cfg(unix)]
-use std::ffi::OsStr;
-use std::ffi::OsString;
-use std::fs::{self, File, Metadata, OpenOptions};
+use same_file::Handle;
+use std::fs::{self, File, Metadata};
 use std::io::{self, BufWriter, Read, Seek, Write};
 #[cfg(unix)]
 use std::os::fd::AsFd;
 #[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
-#[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-#[cfg(windows)]
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::PermissionsExt;
 #[cfg(windows)]
 use std::os::windows::io::AsHandle;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::rc::Rc;
+use tempfile::TempPath;
 
 const COPY_CHUNK: usize = 64 * 1024;
 const OUTPUT_BUFFER: usize = 64 * 1024;
-pub(crate) const TEMP_ATTEMPTS: u32 = 64;
-pub(crate) static NEXT_TEMP: AtomicU32 = AtomicU32::new(0);
+/// Name prefix of a staged output, a hidden sibling of the target.
+pub(crate) const STAGED_PREFIX: &str = ".caj2pdf-";
+/// Name suffix of a staged output.
+pub(crate) const STAGED_SUFFIX: &str = ".tmp";
 
-/// A device and inode pair identifying one file.
-type Identity = (u64, u64);
+/// Metadata of an open file, or `None` when it is not a disk file. Windows
+/// pipes, consoles, and character devices have no meaningful metadata, and
+/// asking for it can fail.
 #[cfg(unix)]
-type InputIdentity = Identity;
-#[cfg(windows)]
-type InputIdentity = Option<Identity>;
-
-#[cfg(unix)]
-fn identity(metadata: &Metadata) -> Identity {
-    (metadata.dev(), metadata.ino())
-}
-
-#[cfg(unix)]
-fn file_metadata(file: &File) -> io::Result<Option<Metadata>> {
+fn disk_metadata(file: &File) -> io::Result<Option<Metadata>> {
     file.metadata().map(Some)
 }
 
 #[cfg(windows)]
-fn file_metadata(file: &File) -> io::Result<Option<Metadata>> {
+fn disk_metadata(file: &File) -> io::Result<Option<Metadata>> {
     if winapi_util::file::typ(file)?.is_disk() {
         file.metadata().map(Some)
     } else {
@@ -54,10 +44,14 @@ fn file_metadata(file: &File) -> io::Result<Option<Metadata>> {
     }
 }
 
-#[cfg(windows)]
-fn identity(file: &File) -> io::Result<Identity> {
-    let info = winapi_util::file::information(file)?;
-    Ok((info.volume_serial_number(), info.file_index()))
+/// The identity of an open regular file. Anything else has none and is never
+/// compared: it is spooled as input and cannot hold an input's bytes.
+fn identity(file: &File, metadata: Option<&Metadata>) -> io::Result<Option<Handle>> {
+    if metadata.is_some_and(Metadata::is_file) {
+        Handle::from_file(file.try_clone()?).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 /// Human-readable name of an endpoint for diagnostics.
@@ -71,11 +65,8 @@ fn describe(endpoint: &Endpoint) -> String {
 /// An opened, seekable input. Forward-only input has already been spooled.
 pub struct Input {
     pub file: File,
-    /// The identity of the file the user named; kept for same-file checks.
-    #[cfg(unix)]
-    identity: Identity,
-    #[cfg(windows)]
-    identity: Option<Identity>,
+    /// The regular file the user named, kept for same-file checks.
+    identity: Option<Rc<Handle>>,
     pub name: String,
 }
 
@@ -109,19 +100,12 @@ pub fn open_input_spooling_in(
         Endpoint::Path(path) => File::open(path),
     }
     .map_err(fail)?;
-    let metadata = file_metadata(&file).map_err(fail)?;
+    let metadata = disk_metadata(&file).map_err(fail)?;
     if metadata.as_ref().is_some_and(Metadata::is_dir) {
         return Err(CliError::runtime(format!("{name} is a directory")));
     }
-    #[cfg(unix)]
-    let file_identity = identity(metadata.as_ref().expect("Unix file metadata"));
-    #[cfg(windows)]
-    let file_identity = if metadata.as_ref().is_some_and(Metadata::is_file) {
-        Some(identity(&file).map_err(fail)?)
-    } else {
-        None
-    };
-    let file = if metadata.as_ref().is_some_and(Metadata::is_file) {
+    let identity = identity(&file, metadata.as_ref()).map_err(fail)?;
+    let file = if identity.is_some() {
         file
     } else {
         spool(file, limit, spool_directory).map_err(|error| match error {
@@ -133,7 +117,7 @@ pub fn open_input_spooling_in(
     };
     Ok(Input {
         file,
-        identity: file_identity,
+        identity: identity.map(Rc::new),
         name,
     })
 }
@@ -150,43 +134,12 @@ impl From<io::Error> for SpoolError {
     }
 }
 
-/// Create a new file in `directory` whose name starts with `stem`.
-fn create_unique(directory: &Path, stem: &OsString, mode: u32) -> io::Result<(PathBuf, File)> {
-    for _ in 0..TEMP_ATTEMPTS {
-        let counter = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let mut name = stem.clone();
-        name.push(format!(".{}-{counter}.tmp", std::process::id()));
-        let path = directory.join(name);
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(mode);
-        #[cfg(windows)]
-        let _ = mode; // Access inherits the containing directory's Windows ACL.
-        match options.open(&path) {
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            result => return result.map(|file| (path, file)),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "no unused temporary file name",
-    ))
-}
-
-/// Create private storage whose name is removed before it is used. The OS
-/// releases the file when the handle closes, including after process exit.
-fn anonymous_file(directory: &Path) -> io::Result<File> {
-    let (path, file) = create_unique(directory, &OsString::from(".caj2pdf-spool"), 0o600)?;
-    fs::remove_file(path)?;
-    Ok(file)
-}
-
-/// Copy a forward-only reader into an unlinked temporary file in
-/// `directory`. The name is removed before copying begins, so the storage
-/// is released when the returned handle closes, including after a failure.
+/// Copy a forward-only reader into an anonymous temporary file in
+/// `directory`. The file has no name while it is copied (`O_TMPFILE`, or a
+/// name removed at once; delete-on-close on Windows), so its storage is
+/// released when the returned handle closes, including after a failure.
 pub fn spool<R: Read>(mut reader: R, limit: u64, directory: &Path) -> Result<File, SpoolError> {
-    let mut file = anonymous_file(directory)?;
+    let mut file = tempfile::tempfile_in(directory)?;
     let mut buffer = vec![0; COPY_CHUNK];
     let mut total = 0u64;
     loop {
@@ -212,21 +165,23 @@ pub enum Output {
     Staged(Staged),
 }
 
-/// A temporary sibling file removed on drop unless committed.
+/// A hidden temporary sibling of the target, removed on drop unless
+/// committed.
 pub struct Staged {
-    writer: Option<BufWriter<File>>,
-    temp: PathBuf,
+    // Declared before `temp`, so the file is closed before its name is removed.
+    writer: BufWriter<File>,
+    temp: TempPath,
     target: PathBuf,
     force: bool,
     /// Inputs the target must not become between staging and commit.
-    inputs: Vec<(InputIdentity, String)>,
+    inputs: Vec<(Rc<Handle>, String)>,
 }
 
 impl Output {
     pub fn writer(&mut self) -> &mut BufWriter<File> {
         match self {
             Self::Stdout(writer) => writer,
-            Self::Staged(staged) => staged.writer.as_mut().expect("uncommitted output"),
+            Self::Staged(staged) => &mut staged.writer,
         }
     }
 
@@ -241,59 +196,44 @@ impl Output {
 
 impl Staged {
     /// Synchronize the staged file and give it the target name. The same-file
-    /// and existence checks are repeated here because the target may have
-    /// changed during conversion. Without `--force` the file is hard-linked,
-    /// which fails atomically when the target exists; a file system without
-    /// hard links falls back to a re-check and rename, leaving a short race.
-    /// With `--force` a target swapped for an input between the re-check and
-    /// the rename is still replaced. Drop removes the temporary name.
-    fn commit(mut self) -> Result<(), CliError> {
-        let target = self.target.display().to_string();
-        let fail =
-            |error: io::Error| CliError::runtime(format!("cannot write '{target}': {error}"));
-        let file = self
-            .writer
-            .take()
-            .expect("uncommitted output")
+    /// check is repeated here because the target may have changed during
+    /// conversion. Without `--force` the name is given with an exclusive
+    /// rename or a hard link, either of which fails atomically when the
+    /// target exists; a file system supporting neither falls back to a
+    /// re-check and rename, leaving a short race. With `--force` a target
+    /// swapped for an input between the re-check and the rename is still
+    /// replaced. On failure the temporary name is removed.
+    fn commit(self) -> Result<(), CliError> {
+        let Self {
+            writer,
+            temp,
+            target,
+            force,
+            inputs,
+        } = self;
+        let shown = target.display();
+        let fail = |error: io::Error| CliError::runtime(format!("cannot write '{shown}': {error}"));
+        let file = writer
             .into_inner()
             .map_err(|error| fail(error.into_error()))?;
         file.sync_all().map_err(fail)?;
         drop(file);
-        if let Ok(metadata) = fs::metadata(&self.target) {
-            #[cfg(unix)]
-            check_distinct(&metadata, &self.inputs, &format!("output '{target}'"))?;
-            #[cfg(windows)]
-            check_windows_path(
-                &self.target,
-                &metadata,
-                &self.inputs,
-                &format!("output '{target}'"),
-            )?;
-        }
-        if !self.force {
-            match fs::hard_link(&self.temp, &self.target) {
-                Ok(()) => return Ok(()),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    return Err(exists_error(&self.target));
+        check_path(&target, &inputs, &format!("output '{shown}'"))?;
+        let persisted = if force {
+            temp.persist(&target)
+        } else {
+            match temp.persist_noclobber(&target) {
+                Err(error)
+                    if error.error.kind() == io::ErrorKind::AlreadyExists
+                        || fs::symlink_metadata(&target).is_ok() =>
+                {
+                    return Err(exists_error(&target));
                 }
-                Err(_) if fs::symlink_metadata(&self.target).is_ok() => {
-                    return Err(exists_error(&self.target));
-                }
-                Err(_) => {}
+                Err(error) => error.path.persist(&target),
+                persisted => persisted,
             }
-        }
-        fs::rename(&self.temp, &self.target).map_err(fail)?;
-        self.temp = PathBuf::new();
-        Ok(())
-    }
-}
-
-impl Drop for Staged {
-    fn drop(&mut self) {
-        self.writer.take();
-        if !self.temp.as_os_str().is_empty() {
-            let _ = fs::remove_file(&self.temp);
-        }
+        };
+        persisted.map_err(|error| fail(error.error))
     }
 }
 
@@ -308,51 +248,56 @@ fn exists_error(path: &Path) -> CliError {
     ))
 }
 
-/// Check that `metadata` does not belong to any input file.
-#[cfg(unix)]
+/// Check that `output` is not any of `inputs`.
 fn check_distinct(
-    metadata: &Metadata,
-    inputs: &[(Identity, String)],
-    output: &str,
+    output: &Handle,
+    inputs: &[(Rc<Handle>, String)],
+    shown: &str,
 ) -> Result<(), CliError> {
-    match inputs.iter().find(|(id, _)| *id == identity(metadata)) {
-        Some((_, name)) => Err(CliError::runtime(format!(
-            "{output} is the same file as input {name}; refusing to overwrite an input"
-        ))),
+    match inputs.iter().find(|(input, _)| **input == *output) {
+        Some((_, name)) => Err(same_file_error(shown, name)),
         None => Ok(()),
     }
 }
 
-#[cfg(windows)]
-fn check_windows_file(
-    file: &File,
-    inputs: &[(InputIdentity, String)],
-    output: &str,
-) -> Result<(), CliError> {
-    let id =
-        identity(file).map_err(|e| CliError::runtime(format!("cannot identify {output}: {e}")))?;
-    if let Some((_, name)) = inputs.iter().find(|(input, _)| *input == Some(id)) {
-        return Err(CliError::runtime(format!(
-            "{output} is the same file as input {name}; refusing to overwrite an input"
-        )));
-    }
-    Ok(())
+fn same_file_error(shown: &str, input: &str) -> CliError {
+    CliError::runtime(format!(
+        "{shown} is the same file as input {input}; refusing to overwrite an input"
+    ))
 }
 
-#[cfg(windows)]
-fn check_windows_path(
+/// Check that `path`, after following symbolic links, is not a regular file
+/// that is one of `inputs`, and return its metadata when it exists. Unix
+/// identifies the file from its metadata, so an unreadable target can still
+/// be replaced with `--force`; Windows has to open it.
+fn check_path(
     path: &Path,
-    metadata: &Metadata,
-    inputs: &[(InputIdentity, String)],
-    output: &str,
-) -> Result<(), CliError> {
+    inputs: &[(Rc<Handle>, String)],
+    shown: &str,
+) -> Result<Option<Metadata>, CliError> {
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(None);
+    };
     if metadata.is_file() {
-        let file = File::open(path).map_err(|e| {
-            CliError::runtime(format!("cannot open {output} for identity check: {e}"))
-        })?;
-        check_windows_file(&file, inputs, output)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if let Some((_, name)) = inputs
+                .iter()
+                .find(|(input, _)| (input.dev(), input.ino()) == (metadata.dev(), metadata.ino()))
+            {
+                return Err(same_file_error(shown, name));
+            }
+        }
+        #[cfg(windows)]
+        {
+            let handle = Handle::from_path(path).map_err(|error| {
+                CliError::runtime(format!("cannot open {shown} for identity check: {error}"))
+            })?;
+            check_distinct(&handle, inputs, shown)?;
+        }
     }
-    Ok(())
+    Ok(Some(metadata))
 }
 
 /// Refuse PDF output to a terminal. It is checked before any input is opened,
@@ -368,10 +313,6 @@ pub fn refuse_terminal(endpoint: &Endpoint, stdout_is_terminal: bool) -> Result<
     }
 }
 
-/// Longest output file name kept in a temporary name, leaving room for the
-/// prefix and suffix within the usual 255-byte name limit.
-const TEMP_STEM_BYTES: usize = 200;
-
 /// Validate and open an output endpoint.
 pub fn open_output(
     endpoint: &Endpoint,
@@ -380,23 +321,16 @@ pub fn open_output(
 ) -> Result<Output, CliError> {
     let inputs: Vec<_> = inputs
         .iter()
-        .map(|input| (input.identity, input.name.clone()))
+        .filter_map(|input| Some((Rc::clone(input.identity.as_ref()?), input.name.clone())))
         .collect();
     let path = match endpoint {
         Endpoint::Std => {
             // Rust reopens a closed descriptor 1 as /dev/null at startup, so
             // duplicating it fails only when descriptors are exhausted.
-            let (metadata, stdout) = duplicate(io::stdout())
-                .and_then(|file| Ok((file_metadata(&file)?, file)))
-                .map_err(stdout_error)?;
-            if let Some(metadata) = metadata.filter(Metadata::is_file) {
-                #[cfg(unix)]
-                check_distinct(&metadata, &inputs, "standard output")?;
-                #[cfg(windows)]
-                {
-                    let _ = metadata;
-                    check_windows_file(&stdout, &inputs, "standard output")?;
-                }
+            let stdout = duplicate(io::stdout()).map_err(stdout_error)?;
+            let metadata = disk_metadata(&stdout).map_err(stdout_error)?;
+            if let Some(handle) = identity(&stdout, metadata.as_ref()).map_err(stdout_error)? {
+                check_distinct(&handle, &inputs, "standard output")?;
             }
             return Ok(Output::Stdout(BufWriter::with_capacity(
                 OUTPUT_BUFFER,
@@ -406,45 +340,36 @@ pub fn open_output(
         Endpoint::Path(path) => path,
     };
     let shown = format!("output '{}'", path.display());
-    if let Ok(metadata) = fs::metadata(path) {
-        #[cfg(unix)]
-        check_distinct(&metadata, &inputs, &shown)?;
-        #[cfg(windows)]
-        check_windows_path(path, &metadata, &inputs, &shown)?;
-        if metadata.is_dir() {
-            return Err(CliError::runtime(format!("{shown} is a directory")));
-        }
+    if check_path(path, &inputs, &shown)?.is_some_and(|metadata| metadata.is_dir()) {
+        return Err(CliError::runtime(format!("{shown} is a directory")));
     }
     if !force && fs::symlink_metadata(path).is_ok() {
         return Err(exists_error(path));
     }
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| CliError::runtime(format!("{shown} does not name a file")))?;
+    if path.file_name().is_none() {
+        return Err(CliError::runtime(format!("{shown} does not name a file")));
+    }
     let directory = match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(STAGED_PREFIX).suffix(STAGED_SUFFIX);
+    // A finished PDF gets ordinary permissions, not tempfile's private 0600.
+    // On Windows the file inherits the directory's ACL.
     #[cfg(unix)]
-    let name = file_name.as_bytes();
-    let mut stem = OsString::from(".");
-    #[cfg(unix)]
-    stem.push(OsStr::from_bytes(&name[..name.len().min(TEMP_STEM_BYTES)]));
-    #[cfg(windows)]
-    stem.push(OsString::from_wide(
-        &file_name
-            .encode_wide()
-            .take(TEMP_STEM_BYTES)
-            .collect::<Vec<_>>(),
-    ));
-    let (temp, file) = create_unique(directory, &stem, 0o666).map_err(|error| {
-        CliError::runtime(format!(
-            "cannot create a temporary file in '{}': {error}",
-            directory.display()
-        ))
-    })?;
+    builder.permissions(fs::Permissions::from_mode(0o666));
+    let (file, temp) = builder
+        .tempfile_in(directory)
+        .map_err(|error| {
+            CliError::runtime(format!(
+                "cannot create a temporary file in '{}': {error}",
+                directory.display()
+            ))
+        })?
+        .into_parts();
     Ok(Output::Staged(Staged {
-        writer: Some(BufWriter::with_capacity(OUTPUT_BUFFER, file)),
+        writer: BufWriter::with_capacity(OUTPUT_BUFFER, file),
         temp,
         target: path.clone(),
         force,
