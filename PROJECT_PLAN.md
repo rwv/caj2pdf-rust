@@ -50,4 +50,5 @@ baseline and the v0.3.0 platform expansion) is preserved at
 [this revision](https://github.com/rwv/caj2pdf-rust/blob/f21fa98c600d8aa3113f9daa0e7c08dc6a6ce4a3/PROJECT_PLAN.md).
 Delivered changes are in the [changelog](CHANGELOG.md) and the
 [release notes](docs/releases/). The format investigations are indexed in
-[docs/research](docs/research/README.md).
+[docs/research](docs/research/README.md) and live, with the research tooling,
+in [caj2pdf-samples `research/`](https://github.com/rwv/caj2pdf-samples/tree/main/research/README.md).

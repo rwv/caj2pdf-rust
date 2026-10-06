@@ -77,7 +77,8 @@ rule. Node and the browser take fonts only as explicit options.
 - [Release policy](docs/release-policy.md) and
   [build provenance](docs/build-provenance.md) for verifying downloads.
 - [Research notes](docs/research/README.md): the format investigations
-  behind the decoders.
+  behind the decoders, kept with the oracles and conformance harnesses in
+  [caj2pdf-samples](https://github.com/rwv/caj2pdf-samples/tree/main/research/README.md).
 
 ## Contributing, provenance and license
 

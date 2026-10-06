@@ -35,7 +35,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` (byte 0, else within the first 1,024 bytes) | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](research/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
+| `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
 | `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with installed or given fonts | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
@@ -63,7 +63,7 @@ separately measured single-JPEG behavior.
 
 The source-unit-to-point factor remains empirical (`240 / 2473`); this correction
 does not claim exact CAJViewer rasterization or establish a universal physical
-unit. See the [controlled field checks](research/cajviewer-hnc8-kdh.md#controlled-geometry-checks).
+unit. See the [controlled field checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-hnc8-kdh.md#controlled-geometry-checks).
 
 ### Experimental HN/C8 options
 
@@ -82,7 +82,7 @@ HN-A outlines are supported;
 C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the
 fonts below, installed or given; unverified profiles are rejected. Image-only pages receive
 no OCR text layer. General text extraction and semantic reading order remain
-outside the [verified text scope](research/hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
+outside the [verified text scope](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
 malformed JBIG2 flags remain errors.
 
 The command creates four private anonymous files in `TMPDIR` (or the system
@@ -255,7 +255,7 @@ a different single BMP Unicode scalar from the decoration font. It requires
 `decoration.ttf`. The alias is not emitted as document text.
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.
-See the [C8 same-resource controls](research/c8-real-font-fidelity.md#same-resource-control-follow-up).
+See the [C8 same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).
 At most eight distinct sources are accepted. Node/browser expose the same
 roles, and the same fallback, as `hnc8.fonts` options.
 
@@ -321,7 +321,7 @@ that failure should check `outline_warnings` in `inspect --json`.
 ### C8 application info
 
 Some C8 files end with an application-info package (see
-[the C8 record notes](research/c8-native-records.md#package-framing-and-reader-302)).
+[the C8 record notes](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-native-records.md#package-framing-and-reader-302)).
 `inspect` reports its DOI, URL and annotation count. Conversion writes a PDF
 document information dictionary only when a DOI or URL is present:
 the custom keys `/CNKI_DOI` and `/CNKI_URL` hold the verbatim identifier and
@@ -632,7 +632,7 @@ malformed input, HN-B empty-row rejection, input/hardlink overwrite protection,
 scratch creation failure, anonymous-file cleanup and CAJ bookmark omission.
 
 The release CLI converted the external four-page C8 issue-58 document described
-in [the direct-record comparison](research/hnc8-direct-text.md), using a caller-supplied
+in [the direct-record comparison](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-direct-text.md), using a caller-supplied
 MQ file and `--no-bookmarks`. All four pages passed qpdf; the 3,992,137-byte
 PDF is byte-identical to the native example, Node and Chromium outputs:
 `fffa38e8f2cd675352108488117f13983f959ead7500f9f4ba1cab9a2e74ef1e`.

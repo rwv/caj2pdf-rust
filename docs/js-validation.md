@@ -4,7 +4,7 @@ Issue #13 covers the common browser/Node package and CAJ/KDH/PDF conversion.
 HN/C8 integration acceptance is tracked in #10. Representative vendor-page
 comparisons and whole-process release measurements remain #123/#14.
 After #184, selected HN/C8 page-frame sizes match CAJViewer, but exact pixels
-still differ. See [the corrected results](research/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
+still differ. See [the corrected results](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
 Earlier conversion hashes and geometry checks below predate that correction;
 [the final section](#source-geometry-correction-repeat) records the corrected runs.
 
@@ -106,7 +106,7 @@ DOM/Node and WebWorker TypeScript consumers compile the HN/C8 options.
 ### External four-page C8 check
 
 Input: CAJSamples `issue-58/混凝土道面评价指标分析_谢永亮.caj`, with the same
-external MQ table and source identity recorded in the [direct-text comparison](research/hnc8-direct-text.md).
+external MQ table and source identity recorded in the [direct-text comparison](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-direct-text.md).
 Both calls used `includeBookmarks: false`, 4096-byte I/O, four 64 MiB-capped
 scratch adapters and the release WASM build. Native file-scratch output is the
 previous independently checked reference for byte identity.
@@ -173,7 +173,7 @@ browser metadata checks use original fixtures, not these external documents.
 ## Complete multi-image HN-A public-interface check
 
 The 2026-09-29 run uses the 24,519,256-byte, 163-page source identified in
-[repeated HN image groups](research/hnc8-repeated-groups.md), SHA-256
+[repeated HN image groups](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-repeated-groups.md), SHA-256
 `46779c74e34f1508125fe94f482672b4eb518436bc663dc5470df814cb41f0aa`.
 It has 210 image draws (161 type-3 and 49 JPEG), repeated descriptor groups,
 and 96 HN-A bookmarks. Runtime conversion code is main revision `f092bdf`;
@@ -271,7 +271,7 @@ All three HN-A output hashes:
 `f903d8a871fcbead87ab76a65e19685f9385573e75d1e9b5a6babf5175320356`.
 All three C8 output hashes:
 `a28f46d2534935999b30048cfe49c7fc606fa4e4851cfe1814b5f1860bc0f726`.
-The [viewer report](research/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction)
+The [viewer report](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction)
 records remaining exact-pixel failures and independent content/bookmark checks.
 These hashes supersede the old geometry outputs, not their historical evidence.
 

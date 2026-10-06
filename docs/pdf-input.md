@@ -146,8 +146,9 @@ At the pinned corpus revision used for issue #36, the local check returned
 MuPDF PNM hashes on all 74 pages (6 + 67 + 1). This is PDF-body evidence;
 the KDH wrapper and decryption path remain issue #11 work. The same outputs,
 copied to the matrix-mapped paths outside Git, also returned inventory
-`PASS` 3/3 and PDF `PASS` 3/3 from
-`scripts/conformance.py --only-format KDH --pdf-dir ... --corpus-dir ...`:
+`PASS` 3/3 and PDF `PASS` 3/3 from the corpus runner
+`conformance.py --only-format KDH --pdf-dir ... --corpus-dir ...` (now in
+[caj2pdf-samples](https://github.com/rwv/caj2pdf-samples/tree/main/research/scripts/conformance.py)):
 all page counts, dimensions, outlines, and 74 rendered-page hashes matched
 the pinned matrix. The first attempt used external symlinks and was rejected
 by the harness's path-safety check; the reported pass used copied files.
