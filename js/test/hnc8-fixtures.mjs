@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-/** Invented constant arithmetic states, not the normative QM probability data. */
-export const qmStates = Array.from({ length: 113 }, () => ({
-  qe: 0x4000, nextLps: 0, nextMps: 0, switchMps: false,
-}));
-
 /** One raw HN-A page containing one or two original 3 x 2 type-0 images. */
 export function syntheticHn(withBookmarks = false, twoImages = false) {
   const count = withBookmarks ? 2 : 0;
@@ -38,9 +33,9 @@ export function syntheticHn(withBookmarks = false, twoImages = false) {
     u32(dib, 40); u32(dib + 4, 3); u32(dib + 8, 2);
     u16(dib + 12, 1); u16(dib + 14, 1); u32(dib + 32, 2);
     bytes.fill(255, dib + 40, dib + 43);
-    // Original rows: 101 / 010, then 110 / 001. Their constant-state
-    // interval lower bounds are 0x9200 and 0xa100 (see core compose tests).
-    bytes[dib + 48] = image === 0 ? 0x92 : 0xa1;
+    // Original rows: 101 / 010, then 110 / 001, each a one-byte SCD under
+    // the standard QM states.
+    bytes[dib + 48] = image === 0 ? 0x39 : 0x0a;
   }
   u16(text + images * 28, 0x8004);
   return bytes;

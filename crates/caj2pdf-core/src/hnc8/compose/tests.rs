@@ -738,7 +738,6 @@ fn hnb_maps_all_six_rows_without_a_table_or_scratch_activity() {
     assert!(contains(&sink.bytes, &last.bytes));
     assert_eq!(scratch.peak, 0);
     assert_eq!(scratch.max_request, 0);
-    assert_eq!(report.peak_row_store_bytes, 0);
 }
 
 #[test]
@@ -843,9 +842,6 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
         assert_eq!(report.type0_images, 2);
         assert_eq!(report.jpeg_images, 1);
         let scratch_bytes = width.div_ceil(32) * 4 * pixels.len();
-        assert_eq!(report.peak_row_store_bytes, scratch_bytes as u64);
-        assert_eq!(report.row_store_read_bytes, 2 * scratch_bytes as u64);
-        assert_eq!(report.row_store_written_bytes, 2 * scratch_bytes as u64);
         assert_eq!(scratch.peak, scratch_bytes);
         assert!(scratch.bytes.is_empty());
     }
@@ -895,7 +891,7 @@ fn short_source_scratch_and_sink_calls_stay_bounded() {
 }
 
 #[test]
-fn current_page_metadata_and_row_storage_peaks_do_not_accumulate_across_pages() {
+fn row_storage_peaks_do_not_accumulate_across_pages() {
     let one = vec![Record::type0(&rows(9), 0, 0), Record::jpeg(8, 8, 90, 2, 2)];
     let mut peaks = Vec::new();
     for count in [1, 20] {
@@ -915,15 +911,10 @@ fn current_page_metadata_and_row_storage_peaks_do_not_accumulate_across_pages() 
         )
         .unwrap();
         assert_eq!(report.output_pages, count as u32);
-        assert_eq!(report.row_store_written_bytes, count as u64 * 12);
-        assert_eq!(report.row_store_read_bytes, count as u64 * 12);
+        assert_eq!(scratch.written, count as u64 * 12);
+        assert_eq!(scratch.read, count as u64 * 12);
         assert!(scratch.bytes.is_empty());
-        peaks.push((
-            report.peak_page_metadata_bytes,
-            report.peak_text_working_bytes,
-            report.peak_row_store_bytes,
-            scratch.peak,
-        ));
+        peaks.push(scratch.peak);
     }
     assert_eq!(peaks[0], peaks[1]);
 }
@@ -1382,8 +1373,6 @@ fn invalid_configuration_is_refused_before_source_sink_or_store_access() {
 fn resource_arithmetic_and_noop_visitor_are_checked_at_boundaries() {
     assert_eq!(metadata_bytes(3, 8).unwrap(), 24);
     assert!(metadata_bytes(u64::MAX, 2).is_err());
-    assert_eq!(add_store_bytes(u64::MAX - 2, 2).unwrap(), u64::MAX);
-    assert!(add_store_bytes(u64::MAX, 1).is_err());
     let unlimited = Limits {
         max_allocation_bytes: u64::MAX,
         ..Limits::default()
@@ -1442,12 +1431,8 @@ fn larger_padded_rows_are_streamed_in_chunks_without_growing_page_metadata() {
         io_chunk_bytes: 17,
         ..Limits::default()
     };
-    let report = case
-        .run(Some(&table()), ComposeOptions::default(), &limits)
+    case.run(Some(&table()), ComposeOptions::default(), &limits)
         .unwrap();
-    assert_eq!(report.peak_row_store_bytes, 516 * 3);
-    assert_eq!(report.row_store_read_bytes, 516 * 3);
-    assert_eq!(report.row_store_written_bytes, 516 * 3);
     assert!(case.source.max_request <= 17);
     assert!(case.scratch.max_request <= 17);
     assert!(case.sink.max_request <= 17);
@@ -2141,9 +2126,6 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         (report.output_pages, report.type3_images, report.jpeg_images),
         (2, 3, 1)
     );
-    assert!(report.peak_row_store_bytes > 0);
-    assert!(report.row_store_written_bytes > 0);
-    assert!(report.row_store_read_bytes > 0);
     for store in [&rows, &first, &second, &refined] {
         assert!(store.bytes.is_empty());
     }

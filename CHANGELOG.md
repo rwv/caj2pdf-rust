@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Breaking:** removed dead API and experimental codec-table switches
+  (#348). HN/C8 conversion always uses the built-in standard T.82/T.88
+  states. Removed: the CLI flags `--qm-states` and `--mq-states`; the WASM
+  exports `caj2pdf_io_start` and `caj2pdf_hnc8_add_state` (error code 7 is
+  now reserved for the JavaScript-only `RANDOM_ACCESS_REQUIRED`); the JS
+  `hnc8.qmStates` and `hnc8.mqStates` options, the `ProbabilityState` type
+  and the `copyRange` I/O diagnostic; and the Rust items
+  `DocumentOperations`, `copy_range`, `Error::RandomAccessRequired`,
+  `qm::StripeMode` (with `ArithmeticDecoder::new`'s `mode` argument and
+  `ArithmeticErrorKind::UnreadyCarry`; every stripe now starts from reset
+  contexts), `FragmentPlan::catalog` and `reconstruct_fragment` (use
+  `reconstruct_fragment_with_bookmarks` with no bookmarks; a fragment
+  catalog is always synthesized), `hnc8::read_text_coordinates` and
+  `hnc8::TextCoordinates` with its SHA-256 fields, and the `ComposeReport`
+  peak and row-store counters. The empirical placement helpers, the native
+  record decoders and `write_c8_native_page` are no longer public. `inspect`
+  now reports HN/C8 conversion as `experimental` without the caller-states
+  note. The `native_bounded_copy` and `hnc8_text_placement` examples were
+  deleted.
+
 - **Breaking:** HN/C8 image payloads are no longer re-read and hashed with
   SHA-256 to detect a source that changes during conversion (#349); like
   every `RangedSource`, the input must stay unchanged. A type-3 (JBIG2)

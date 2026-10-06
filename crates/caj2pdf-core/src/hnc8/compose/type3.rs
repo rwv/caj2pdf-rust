@@ -18,18 +18,9 @@ pub(super) fn error(at: At, stage: ComposeStage, error: Type3PdfError) -> Compos
     .error(stage, ComposeErrorKind::Type3(Box::new(error)))
 }
 
-#[derive(Default)]
-pub(super) struct StoreStats {
-    pub peak: u64,
-    pub read: u64,
-    pub written: u64,
-    pub anomaly: Option<TextHeaderAnomaly>,
-}
-
 struct Meter {
     bytes: Cell<u64>,
     work: Cell<u64>,
-    stats: RefCell<StoreStats>,
     budget: ComposeBudget,
 }
 
@@ -59,8 +50,6 @@ impl Meter {
     }
     fn resized(&self, bytes: u64) {
         self.bytes.set(bytes);
-        let mut stats = self.stats.borrow_mut();
-        stats.peak = stats.peak.max(bytes);
     }
 }
 
@@ -101,7 +90,6 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
                 reason: "type-3 store overreported read",
             });
         }
-        self.meter.stats.borrow_mut().read += read as u64;
         Ok(read)
     }
     async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
@@ -122,7 +110,6 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
                 reason: "type-3 store overreported write",
             });
         }
-        self.meter.stats.borrow_mut().written += written as u64;
         Ok(written)
     }
     async fn flush(&mut self) -> crate::Result<()> {
@@ -167,7 +154,7 @@ pub(super) async fn emit<S, W, T, C>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, StoreStats), ComposeError>
+) -> Result<(ImageObject, Option<TextHeaderAnomaly>), ComposeError>
 where
     S: RangedSource,
     W: SequentialSink,
@@ -178,7 +165,6 @@ where
     let meter = Meter {
         bytes: Cell::new(0),
         work: Cell::new(0),
-        stats: RefCell::new(StoreStats::default()),
         budget: options.budget,
     };
     let result = async {
@@ -238,8 +224,7 @@ where
         )
         .await
         .map_err(|e| error(at, ComposeStage::Decode, e))?;
-        meter.stats.borrow_mut().anomaly = report.text_header_anomaly;
-        Ok(object)
+        Ok((object, report.text_header_anomaly))
     }
     .await;
     // Try every cleanup even if an earlier one fails. The caller still owns
@@ -256,7 +241,7 @@ where
         }
     }
     match (result, cleanup) {
-        (Ok(object), None) => Ok((object, meter.stats.into_inner())),
+        (Ok(emitted), None) => Ok(emitted),
         (Err(primary), None) => Err(primary),
         (Ok(_), Some(cleanup)) => Err(at.io(ComposeStage::Cleanup)(cleanup)),
         (Err(primary), Some(cleanup)) => Err(at.error(
@@ -313,7 +298,6 @@ mod tests {
         let meter = Meter {
             bytes: Cell::new(0),
             work: Cell::new(0),
-            stats: RefCell::new(StoreStats::default()),
             budget: ComposeBudget {
                 max_row_store_bytes: 5,
                 ..Default::default()
@@ -345,9 +329,6 @@ mod tests {
         ready(SequentialSink::flush(&mut writer)).unwrap();
         ready(RandomAccessScratch::set_len(&mut &second, 3)).unwrap();
         assert!(ready(RandomAccessScratch::set_len(&mut writer, 3)).is_err());
-        assert_eq!(meter.stats.borrow().peak, 5);
-        assert_eq!(meter.stats.borrow().written, 2);
-        assert_eq!(meter.stats.borrow().read, 1);
         ready(RandomAccessScratch::set_len(&mut writer, 0)).unwrap();
         assert_eq!(RangedSource::size(&reader), 0);
         store.inner.borrow_mut().overread = true;

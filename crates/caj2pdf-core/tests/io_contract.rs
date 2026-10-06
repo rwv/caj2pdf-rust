@@ -2,8 +2,8 @@
 
 use caj2pdf_core::{
     Cancellation, ConversionOptions, DEFAULT_IO_CHUNK, Error, Limits, MAX_IO_CHUNK, NeverCancel,
-    PdfErrorKind, RangedSource, SequentialSink, copy_range, native::SeekableSource,
-    native::WriteSink, read_exact_at, write_all,
+    PdfErrorKind, RangedSource, SequentialSink, native::SeekableSource, native::WriteSink,
+    read_exact_at, write_all,
 };
 use std::{
     cell::Cell,
@@ -36,7 +36,6 @@ struct Source {
     advertised_size: u64,
     max_read: usize,
     reads: Vec<(u64, usize)>,
-    fail_at: Option<u64>,
     cancel_after_read: Option<Rc<Cell<bool>>>,
     overreport: bool,
 }
@@ -48,7 +47,6 @@ impl Source {
             advertised_size: data.len() as u64,
             max_read,
             reads: Vec::new(),
-            fail_at: None,
             cancel_after_read: None,
             overreport: false,
         }
@@ -66,9 +64,6 @@ impl RangedSource for Source {
         destination: &mut [u8],
     ) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
-        if self.fail_at == Some(offset) {
-            return Err(Error::Io(io::Error::other("source failure")));
-        }
         if self.overreport {
             return Ok(destination.len() + 1);
         }
@@ -90,11 +85,8 @@ struct Sink {
     bytes: Vec<u8>,
     max_write: usize,
     writes: Vec<usize>,
-    flushes: usize,
     fail_after: Option<usize>,
     cancel_after_write: Option<Rc<Cell<bool>>>,
-    fail_flush: bool,
-    cancel_after_flush: Option<Rc<Cell<bool>>>,
     overreport: bool,
 }
 
@@ -119,69 +111,8 @@ impl SequentialSink for Sink {
     }
 
     async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        self.flushes += 1;
-        if self.fail_flush {
-            return Err(Error::Io(io::Error::other("flush failure")));
-        }
-        if let Some(flag) = &self.cancel_after_flush {
-            flag.set(true);
-        }
         Ok(())
     }
-}
-
-#[test]
-fn bounded_copy_handles_short_reads_and_writes() {
-    let data: Vec<u8> = (0..91).map(|n| n as u8).collect();
-    let mut source = Source::new(&data, 3);
-    let mut sink = Sink {
-        max_write: 2,
-        ..Sink::default()
-    };
-    let limits = Limits {
-        io_chunk_bytes: 7,
-        ..Limits::default()
-    };
-
-    let report = run(copy_range(
-        &mut source,
-        &mut sink,
-        5,
-        81,
-        &limits,
-        &NeverCancel,
-    ))
-    .unwrap();
-
-    assert_eq!(sink.bytes, data[5..86]);
-    assert_eq!(report.input_bytes_read, 81);
-    assert_eq!(report.output_bytes_written, 81);
-    assert_eq!(report.pages_converted, 0);
-    assert_eq!(report.bookmarks_written, 0);
-    assert_eq!(sink.flushes, 1);
-    assert!(source.reads.iter().all(|(_, length)| *length <= 7));
-    assert!(sink.writes.iter().all(|length| *length <= 7));
-    assert!(source.reads.len() > 12);
-    assert!(sink.writes.len() > 12);
-}
-
-#[test]
-fn empty_range_flushes_without_reading() {
-    let mut source = Source::new(b"abc", 1);
-    let mut sink = Sink::default();
-    let report = run(copy_range(
-        &mut source,
-        &mut sink,
-        3,
-        0,
-        &Limits::default(),
-        &NeverCancel,
-    ))
-    .unwrap();
-    assert_eq!(report.input_bytes_read, 0);
-    assert_eq!(sink.flushes, 1);
-    assert!(source.reads.is_empty());
-    assert!(sink.writes.is_empty());
 }
 
 #[test]
@@ -323,24 +254,6 @@ fn configured_limits_reject_oversized_requests_before_io() {
     ));
     assert!(source.reads.is_empty());
 
-    limits.io_chunk_bytes = 2;
-    limits.max_output_bytes = 1;
-    let mut sink = Sink {
-        max_write: 2,
-        ..Sink::default()
-    };
-    assert!(matches!(
-        run(copy_range(
-            &mut source,
-            &mut sink,
-            0,
-            2,
-            &limits,
-            &NeverCancel
-        )),
-        Err(Error::LimitExceeded { .. })
-    ));
-    assert!(sink.writes.is_empty());
     limits.max_pages = 1;
     limits.max_bookmarks = 1;
     assert!(limits.check_pages(1).is_ok());
@@ -454,46 +367,6 @@ fn zero_overreported_and_failing_writes_are_not_success() {
 }
 
 #[test]
-fn source_and_flush_failures_do_not_produce_success_reports() {
-    let mut source = Source::new(b"abcdef", 2);
-    source.fail_at = Some(2);
-    let mut sink = Sink {
-        max_write: 2,
-        ..Sink::default()
-    };
-    let limits = Limits {
-        io_chunk_bytes: 2,
-        ..Limits::default()
-    };
-    let error = run(copy_range(
-        &mut source,
-        &mut sink,
-        0,
-        6,
-        &limits,
-        &NeverCancel,
-    ))
-    .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
-    assert_eq!(sink.bytes, b"ab");
-    assert_eq!(sink.flushes, 0);
-
-    source.fail_at = None;
-    sink.fail_flush = true;
-    let error = run(copy_range(
-        &mut source,
-        &mut sink,
-        0,
-        2,
-        &limits,
-        &NeverCancel,
-    ))
-    .unwrap_err();
-    assert!(matches!(error, Error::Io(_)));
-    assert_eq!(sink.flushes, 1);
-}
-
-#[test]
 fn output_budget_is_cumulative_and_counts_use_checked_arithmetic() {
     let mut sink = Sink {
         max_write: 4,
@@ -531,48 +404,6 @@ fn output_budget_is_cumulative_and_counts_use_checked_arithmetic() {
         )),
         Err(Error::InvalidInput { .. })
     ));
-
-    let mut source = Source::new(b"x", 1);
-    source.advertised_size = u64::MAX;
-    assert!(matches!(
-        run(copy_range(
-            &mut source,
-            &mut sink,
-            u64::MAX,
-            1,
-            &Limits {
-                max_input_bytes: u64::MAX,
-                ..Limits::default()
-            },
-            &NeverCancel
-        )),
-        Err(Error::InvalidInput { .. })
-    ));
-    assert!(source.reads.is_empty());
-}
-
-#[test]
-fn cancellation_during_flush_returns_cancelled() {
-    let state = Rc::new(Cell::new(false));
-    let mut source = Source::new(b"x", 1);
-    let mut sink = Sink {
-        max_write: 1,
-        cancel_after_flush: Some(state.clone()),
-        ..Sink::default()
-    };
-    assert!(matches!(
-        run(copy_range(
-            &mut source,
-            &mut sink,
-            0,
-            1,
-            &Limits::default(),
-            &Flag(state)
-        )),
-        Err(Error::Cancelled)
-    ));
-    assert_eq!(sink.bytes, b"x");
-    assert_eq!(sink.flushes, 1);
 }
 
 #[test]
@@ -584,16 +415,25 @@ fn native_adapters_borrow_handles_and_restore_input_position() {
         let mut source = SeekableSource::new(&mut input).unwrap();
         assert_eq!(source.size(), 6);
         let mut sink = WriteSink::new(&mut output);
-        let report = run(copy_range(
+        let mut buffer = [0; 4];
+        run(read_exact_at(
             &mut source,
-            &mut sink,
             1,
-            4,
+            &mut buffer,
             &Limits::default(),
             &NeverCancel,
         ))
         .unwrap();
-        assert_eq!(report.output_bytes_written, 4);
+        let mut written = 0;
+        run(write_all(
+            &mut sink,
+            &buffer,
+            &mut written,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(written, 4);
         assert_eq!(source.into_inner().stream_position().unwrap(), 5);
         assert_eq!(sink.into_inner().as_slice(), b"bcde");
     }
@@ -633,11 +473,6 @@ fn error_types_preserve_context_and_sources() {
     assert!(error.to_string().contains("disk failed"));
     assert!(std::error::Error::source(&error).is_some());
     assert!(std::error::Error::source(&Error::Cancelled).is_none());
-    assert!(
-        Error::RandomAccessRequired
-            .to_string()
-            .contains("random-access")
-    );
     assert!(Error::UnsupportedFormat.to_string().contains("unsupported"));
     assert_eq!(Error::Cancelled.to_string(), "operation cancelled");
     assert_eq!(

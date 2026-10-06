@@ -23,8 +23,6 @@ pub enum Topic {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConvertOptions {
-    pub qm_states: Option<PathBuf>,
-    pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
     pub allow_damaged: bool,
     pub quiet: bool,
@@ -98,8 +96,6 @@ Options:
   -q, --quiet          Do not show progress on a terminal or the chosen fonts
   --allow-damaged     Replace damaged CAJ pages with blanks; exit 3 if any
   --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
-  --qm-states FILE    Experimental QM states for HN/C8 type-0 images
-  --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
   --fonts DIR         Native C8/HN-B fonts named cjk, latin, ... (.ttf/.otf/.ttc) in DIR
   --font-cjk FILE     Native C8/HN-B CJK font (required with --font-latin)
   --font-latin FILE   Native C8/HN-B ordinary Latin font
@@ -187,16 +183,6 @@ fn set_output(output: &mut Option<OsString>, value: OsString) -> Result<(), Stri
     }
 }
 
-fn set_states(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String> {
-    if value.is_empty() || value == "-" {
-        return Err("codec state files require a nonempty path, not standard input".into());
-    }
-    if path.replace(value.into()).is_some() {
-        return Err("a codec state option was given more than once".into());
-    }
-    Ok(())
-}
-
 fn set_font_dir(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String> {
     if value.is_empty() || value == "-" {
         return Err("--fonts requires a nonempty directory path, not standard input".into());
@@ -261,17 +247,6 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             "--no-bookmarks" if topic == Topic::Convert => options.no_bookmarks = true,
             "-q" | "--quiet" if topic == Topic::Convert => options.quiet = true,
             "--no-system-fonts" if topic == Topic::Convert => options.no_system_fonts = true,
-            "--qm-states" | "--mq-states" if topic == Topic::Convert => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("option '{text}' requires a value"))?;
-                let path = if text == "--qm-states" {
-                    &mut options.qm_states
-                } else {
-                    &mut options.mq_states
-                };
-                set_states(path, value)?;
-            }
             _ if topic == Topic::Convert
                 && font_option(text.split('=').next().unwrap()).is_some() =>
             {
@@ -319,12 +294,6 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             }
             _ if topic == Topic::Convert && text.starts_with("--fonts=") => {
                 set_font_dir(&mut options.font_dir, text[8..].into())?;
-            }
-            _ if topic == Topic::Convert && text.starts_with("--qm-states=") => {
-                set_states(&mut options.qm_states, text[12..].into())?;
-            }
-            _ if topic == Topic::Convert && text.starts_with("--mq-states=") => {
-                set_states(&mut options.mq_states, text[12..].into())?;
             }
             _ => match text.strip_prefix("--output=") {
                 Some(value) if writes => set_output(&mut output, value.into())?,

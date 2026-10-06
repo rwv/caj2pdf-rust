@@ -954,7 +954,7 @@ fn page_reports_stream_spans_counts_and_errors() {
     let info = hnc8_structure(Some(tail));
     assert_eq!(
         rendered_pages(false, &info),
-        "Format: C8\nVariant: C8\nConversion: experimental (caller codec states may be required)\n\
+        "Format: C8\nVariant: C8\nConversion: experimental\n\
          Pages: 2\nOutline: unknown\nPage index: 80+40 (20-byte rows)\nNative mode: 23112\n\
          Native origin: unknown\nPage size: 5901 8354\n\
          Application info: declared at 99, outside the input\n\
@@ -1181,26 +1181,12 @@ fn stdout_commit_reports_a_failed_flush() {
 #[test]
 fn experimental_conversion_options_are_scoped_and_unambiguous() {
     for args in [
-        vec![
-            "paper.hn",
-            "--qm-states",
-            "qm.txt",
-            "--mq-states",
-            "mq.txt",
-            "--no-bookmarks",
-        ],
-        vec![
-            "--qm-states=qm.txt",
-            "--mq-states=mq.txt",
-            "--no-bookmarks",
-            "paper.hn",
-        ],
+        vec!["paper.hn", "--no-bookmarks"],
+        vec!["--no-bookmarks", "paper.hn"],
     ] {
         let Command::Convert { options, .. } = parse_str(&args).unwrap() else {
             panic!()
         };
-        assert_eq!(options.qm_states, Some("qm.txt".into()));
-        assert_eq!(options.mq_states, Some("mq.txt".into()));
         assert!(options.no_bookmarks);
         assert!(!options.quiet);
     }
@@ -1220,25 +1206,12 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
     for args in [
         vec!["inspect", "paper.caj", "--quiet"],
         vec!["inspect", "paper.c8", "--no-system-fonts"],
-        vec!["paper.hn", "--qm-states"],
-        vec!["paper.hn", "--mq-states", "-"],
-        vec!["paper.hn", "--qm-states="],
-        vec!["paper.hn", "--mq-states=a", "--mq-states=b"],
+        vec!["paper.hn", "--qm-states", "qm.txt"],
+        vec!["paper.hn", "--mq-states=mq.txt"],
         vec!["inspect", "paper.hn", "--no-bookmarks"],
-        vec!["inspect", "paper.hn", "--qm-states=a"],
     ] {
         assert!(parse_str(&args).is_err(), "{args:?}");
     }
-    let unusual = OsString::from_vec(b"state-\xff".to_vec());
-    let Command::Convert { options, .. } = parse(vec![
-        "paper.hn".into(),
-        "--qm-states".into(),
-        unusual.clone(),
-    ])
-    .unwrap() else {
-        panic!()
-    };
-    assert_eq!(options.qm_states, Some(unusual.into()));
 }
 
 #[test]

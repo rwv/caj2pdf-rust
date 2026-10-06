@@ -18,7 +18,7 @@ use caj2pdf_core::{
     Cancellation, ConversionOptions, ConversionReport, Detection, DocumentInfo, Error, InputFormat,
     Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
     caj::{convert_caj, parse_metadata},
-    copy_range, detect_source,
+    detect_source,
     hnc8::OutlineReport,
     kdh::{KdhPdfSource, convert_kdh},
     pdf::{PdfIndex, PdfRange, copy_pdf_range},
@@ -99,8 +99,6 @@ enum Response {
 /// The work an engine performs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Operation {
-    /// Bounded byte copy used to test the I/O contract; not conversion.
-    Copy { offset: u64, length: u64 },
     /// Convert to PDF. `None` detects the format from the leading signature.
     Convert {
         format: Option<InputFormat>,
@@ -148,7 +146,7 @@ pub fn error_code(error: &Error) -> u32 {
         Error::LimitExceeded { .. } => 4,
         Error::Io(_) => 5,
         Error::Cancelled => 6,
-        Error::RandomAccessRequired => 7,
+        // 7 is reserved: JavaScript reports `RANDOM_ACCESS_REQUIRED` itself.
         Error::Pdf { kind, .. } => match kind {
             PdfErrorKind::Malformed => 8,
             PdfErrorKind::Encrypted => 9,
@@ -198,7 +196,6 @@ struct Shared {
     response: Option<Response>,
     cancelled: bool,
     format: Option<InputFormat>,
-    tables: hnc8::Tables,
     fonts: hnc8::Fonts,
 }
 
@@ -327,7 +324,6 @@ impl Engine {
             response: None,
             cancelled: false,
             format: None,
-            tables: hnc8::Tables::default(),
             fonts: hnc8::Fonts::default(),
         }));
         let source = BridgeSource {
@@ -440,27 +436,6 @@ impl Engine {
         })
     }
 
-    /// Append one caller-supplied codec state before the first poll. Table 0
-    /// is the 113-state QM table; table 1 is the 47-state MQ table.
-    pub fn add_hnc8_state(
-        &mut self,
-        table: u32,
-        qe: u32,
-        next_lps: u32,
-        next_mps: u32,
-        switch: u32,
-    ) -> bool {
-        !self.started
-            && self.shared.borrow_mut().tables.push(
-                table,
-                qe,
-                next_lps,
-                next_mps,
-                switch,
-                &self.limits,
-            )
-    }
-
     /// Register one ranged font resource and its collection face (0 for a
     /// standalone font) before polling. Returns its 1-based host resource
     /// ID, or 0 when registration is rejected.
@@ -558,21 +533,6 @@ async fn run(
         header_offset,
         bytes_read: detected_bytes,
     } = match operation {
-        Operation::Copy { offset, length } => {
-            let report = copy_range(
-                &mut source,
-                &mut sink,
-                offset,
-                length,
-                &limits,
-                &cancellation,
-            )
-            .await?;
-            return Ok(Outcome {
-                report,
-                ..Outcome::default()
-            });
-        }
         Operation::Convert { format, .. } | Operation::Inspect { format } => {
             limits.check_input_size(source.size)?;
             resolve_format(&mut source, format, &limits, &cancellation).await?

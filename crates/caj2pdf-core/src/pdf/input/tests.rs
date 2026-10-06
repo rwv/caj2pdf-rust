@@ -69,12 +69,14 @@ fn scan_indirect(
 ) -> Result<fragment_scan::FragmentScan> {
     let size = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    run(scan_fragment_objects(
+    run(scan_fragment_with_candidates(
         &mut source,
         0,
         size,
         limits,
         cancellation,
+        &mut [],
+        &mut 0,
     ))
 }
 
@@ -264,12 +266,14 @@ fn fragment_scanner_skips_binary_markers_repairs_unique_short_length_and_exclude
     let hint = bytes.len() as u64;
     bytes.extend_from_slice(b"<container-tail>");
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         0,
         hint - 3,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 2);
@@ -298,12 +302,14 @@ fn fragment_scanner_rejects_ambiguous_nearby_stream_terminators() {
     bytes.extend_from_slice(b"\r\nendstream\rendobj");
     let hint = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let result = run(scan_fragment_objects(
+    let result = run(scan_fragment_with_candidates(
         &mut source,
         0,
         hint,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ));
     assert!(matches!(
         result,
@@ -321,12 +327,14 @@ fn fragment_scanner_does_not_stop_at_a_fake_final_stream_terminator() {
     bytes.extend(std::iter::repeat_n(b'x', 100));
     bytes.extend_from_slice(b"\r\nendstream\rendobj");
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let error = run(scan_fragment_objects(
+    let error = run(scan_fragment_with_candidates(
         &mut source,
         0,
         hint,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .err()
     .expect("fake final stream terminator was accepted");
@@ -347,12 +355,14 @@ fn fragment_scanner_grows_syntax_window_for_split_endobj_keyword() {
     bytes.extend_from_slice(b"]\nendobj");
     assert_eq!(&bytes[510..512], b"en");
     let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         0,
         bytes.len() as u64,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -366,12 +376,14 @@ fn fragment_scanner_uses_declared_stream_extent_even_with_complete_fake_terminat
     bytes.extend_from_slice(payload);
     bytes.extend_from_slice(b"\r\nendstream\rendobj");
     let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         0,
         bytes.len() as u64,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -393,12 +405,14 @@ fn fragment_scanner_rejects_unbounded_or_width_changing_stream_repairs() {
     ] {
         let bytes = make(declared, actual);
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-        let error = run(scan_fragment_objects(
+        let error = run(scan_fragment_with_candidates(
             &mut source,
             0,
             bytes.len() as u64,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .err()
         .expect("unsafe stream repair was accepted");
@@ -410,12 +424,14 @@ fn fragment_scanner_rejects_unbounded_or_width_changing_stream_repairs() {
 fn fragment_scanner_rejects_unresolved_length_and_body_budget_before_output() {
     let bytes = b"1 0 obj\n<< /Length 9 0 R >>\nstream\nabc\r\nendstream\rendobj";
     let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
-    let result = run(scan_fragment_objects(
+    let result = run(scan_fragment_with_candidates(
         &mut source,
         0,
         bytes.len() as u64,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ));
     assert!(matches!(
         result,
@@ -429,12 +445,14 @@ fn fragment_scanner_rejects_unresolved_length_and_body_budget_before_output() {
         max_input_bytes: bytes.len() as u64 - 1,
         ..Limits::default()
     };
-    let result = run(scan_fragment_objects(
+    let result = run(scan_fragment_with_candidates(
         &mut source,
         0,
         bytes.len() as u64,
         &limits,
         &NEVER,
+        &mut [],
+        &mut 0,
     ));
     assert!(matches!(
         result,
@@ -451,12 +469,14 @@ fn fragment_scanner_rejects_invalid_ranges_and_unfinished_objects() {
     let mut source = SeekableSource::new(Cursor::new(b"1 0 obj\nnull\nendobj".to_vec())).unwrap();
     for (start, end) in [(0, 0), (10, 10), (0, source.size() + 1)] {
         assert!(matches!(
-            run(scan_fragment_objects(
+            run(scan_fragment_with_candidates(
                 &mut source,
                 start,
                 end,
                 &Limits::default(),
-                &NEVER
+                &NEVER,
+                &mut [],
+                &mut 0
             )),
             Err(Error::Caj {
                 reason: "CAJ PDF fragment body range is invalid",
@@ -472,12 +492,14 @@ fn fragment_scanner_rejects_invalid_ranges_and_unfinished_objects() {
     ] {
         let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
         assert!(matches!(
-            run(scan_fragment_objects(
+            run(scan_fragment_with_candidates(
                 &mut source,
                 0,
                 bytes.len() as u64,
                 &Limits::default(),
-                &NEVER
+                &NEVER,
+                &mut [],
+                &mut 0
             )),
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
@@ -505,12 +527,14 @@ fn fragment_scanner_rejects_unsupported_generation_and_stream_framing() {
         ),
     ] {
         let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
-        let error = run(scan_fragment_objects(
+        let error = run(scan_fragment_with_candidates(
             &mut source,
             0,
             bytes.len() as u64,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .err()
         .expect("invalid fragment was accepted");
@@ -525,12 +549,14 @@ fn fragment_scanner_rejects_unsupported_generation_and_stream_framing() {
 fn fragment_scanner_requires_a_dictionary_for_stream_payloads() {
     let bytes = b"1 0 obj\nnull\nstream\nabc\nendstream\nendobj";
     let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
-    let error = run(scan_fragment_objects(
+    let error = run(scan_fragment_with_candidates(
         &mut source,
         0,
         bytes.len() as u64,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .err()
     .expect("a stream without a dictionary was accepted");
@@ -550,12 +576,14 @@ fn patched_stream_length_rejects_source_mutation_after_scan() {
     bytes.extend_from_slice(b"123456789012\r\nendstream\rendobj");
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let length = source.size();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         0,
         length,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.patches.len(), 1);
@@ -618,9 +646,17 @@ fn fragment_scanner_caps_the_total_object_index_before_allocating_it() {
         ..Limits::default()
     };
     let size = source.size();
-    let error = run(scan_fragment_objects(&mut source, 0, size, &limits, &NEVER))
-        .err()
-        .expect("an unbounded object index was accepted");
+    let error = run(scan_fragment_with_candidates(
+        &mut source,
+        0,
+        size,
+        &limits,
+        &NEVER,
+        &mut [],
+        &mut 0,
+    ))
+    .err()
+    .expect("an unbounded object index was accepted");
     assert!(matches!(
         error,
         Error::PdfLimitExceeded {
@@ -648,12 +684,14 @@ fn patched_source_applies_multiple_sorted_lengths_across_split_reads() {
     }
     let body_end = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         body_start,
         body_end,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 3);
@@ -721,12 +759,14 @@ fn repaired_final_stream_accepts_xml_trailer_but_rejects_unknown_tail() {
     let mut with_xml = body.clone();
     with_xml.extend_from_slice(b"\r\n<?xml version=\"1.0\"?><Doc/>");
     let mut source = SeekableSource::new(Cursor::new(with_xml)).unwrap();
-    let scan = run(scan_fragment_objects(
+    let scan = run(scan_fragment_with_candidates(
         &mut source,
         0,
         understated_hint,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -737,12 +777,14 @@ fn repaired_final_stream_accepts_xml_trailer_but_rejects_unknown_tail() {
     let mut with_unknown_tail = body;
     with_unknown_tail.extend_from_slice(b"\r\n<unexpected/>");
     let mut source = SeekableSource::new(Cursor::new(with_unknown_tail)).unwrap();
-    let error = run(scan_fragment_objects(
+    let error = run(scan_fragment_with_candidates(
         &mut source,
         0,
         understated_hint,
         &Limits::default(),
         &NEVER,
+        &mut [],
+        &mut 0,
     ))
     .err()
     .expect("unknown trailer after repaired stream was accepted");

@@ -256,7 +256,6 @@ fn error_codes_are_stable() {
         ),
         (Error::Io(io::Error::other("x")), 5),
         (Error::Cancelled, 6),
-        (Error::RandomAccessRequired, 7),
         (
             Error::PdfLimitExceeded {
                 offset: 0,
@@ -502,12 +501,8 @@ fn engine_errors_carry_typed_errors_and_messages() {
 
 #[test]
 fn rejects_invalid_completions_without_corrupting_the_request() {
-    let input = [1_u8, 2, 3, 4];
-    let copy = Operation::Copy {
-        offset: 0,
-        length: 4,
-    };
-    let mut engine = Engine::start(4, limits(2), copy).unwrap();
+    let input = fixture("valid_out_of_order_objects.pdf");
+    let mut engine = Engine::start(input.len() as u64, limits(2), convert_op(None)).unwrap();
     assert!(!engine.complete_read(0), "no request is pending yet");
     assert_eq!(engine.poll(), Status::Read);
     assert_eq!(
@@ -525,13 +520,21 @@ fn rejects_invalid_completions_without_corrupting_the_request() {
     engine.with_staging(|staging| staging[..2].copy_from_slice(&input[..2]));
     assert!(engine.complete_read(2));
     assert!(!engine.complete_read(2), "the request was consumed");
-    assert_eq!(engine.poll(), Status::Write);
-    assert!(!engine.complete_write(3));
+    drive_until(&mut engine, &input, None, Some(Status::Write));
+    let Some(Request::Write { length }) = engine.request() else {
+        panic!("write status without a write request");
+    };
+    assert!(!engine.complete_write(length + 1));
     assert!(!engine.complete_read(1));
-    assert!(engine.complete_write(2));
-    let run = drive(&mut engine, &input, None);
-    assert_eq!(run.output, [3, 4], "the first chunk was accepted by hand");
-    assert_eq!(outcome(&engine).report.output_bytes_written, 4);
+    let mut output = Vec::new();
+    engine.with_staging(|staging| output.extend_from_slice(&staging[..length]));
+    assert!(engine.complete_write(length));
+    output.extend(drive(&mut engine, &input, None).output);
+    assert_eq!(output, input, "the first chunk was accepted by hand");
+    assert_eq!(
+        outcome(&engine).report.output_bytes_written,
+        input.len() as u64
+    );
 }
 
 #[test]
@@ -544,23 +547,9 @@ fn cancellation_resolves_the_pending_request_with_a_typed_error() {
     assert!(matches!(failure(&engine), Error::Cancelled));
     assert!(engine.request().is_none());
 
-    let copy = Operation::Copy {
-        offset: 0,
-        length: 2,
-    };
     for status in [Status::Write, Status::Flush] {
-        let mut engine = Engine::start(2, limits(2), copy).unwrap();
-        loop {
-            let current = engine.poll();
-            if current == status {
-                break;
-            }
-            match current {
-                Status::Read => assert!(engine.complete_read(2)),
-                Status::Write => assert!(engine.complete_write(2)),
-                other => panic!("unexpected {other:?}"),
-            }
-        }
+        let mut engine = Engine::start(pdf.len() as u64, limits(64), convert_op(None)).unwrap();
+        drive_until(&mut engine, &pdf, None, Some(status));
         engine.cancel();
         assert_eq!(engine.poll(), Status::Failed);
         assert!(matches!(failure(&engine), Error::Cancelled));
@@ -585,7 +574,6 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         response: None,
         cancelled: false,
         format: None,
-        tables: hnc8::Tables::default(),
         fonts: hnc8::Fonts::default(),
     }));
     let mut source = BridgeSource {
@@ -624,11 +612,7 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
 fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
     // The bridged operations always leave a request when they wait, so a
     // hand-built task stands in for one that yields without host I/O.
-    let copy = Operation::Copy {
-        offset: 0,
-        length: 0,
-    };
-    let mut engine = Engine::start(0, limits(512), copy).unwrap();
+    let mut engine = Engine::start(0, limits(512), convert_op(None)).unwrap();
     let mut yielded = false;
     engine.task = Box::pin(poll_fn(move |_| {
         if std::mem::replace(&mut yielded, true) {
@@ -681,32 +665,21 @@ fn synthetic_hn() -> Vec<u8> {
         bytes[at..at + 2].copy_from_slice(&value.to_le_bytes());
     }
     bytes[payload + 40..payload + 43].fill(255);
-    bytes[payload + 48] = 0x92; // Original 101 / 010 rows under the invented table.
+    bytes[payload + 48] = 0x39; // Rows 101 / 010 under the standard QM states.
     bytes
-}
-
-fn add_table(engine: &mut Engine, table: u32, count: usize) {
-    for _ in 0..count {
-        assert!(engine.add_hnc8_state(table, 0x4000, 0, 0, 0));
-    }
 }
 
 #[test]
 fn hnc8_type0_converts_through_short_scratch_io_and_clears_stores() {
     let input = synthetic_hn();
-    for (chunk, with_mq) in [(1, false), (3, false), (7, true)] {
+    for chunk in [1, 3, 7] {
         let mut engine =
             Engine::start(input.len() as u64, limits(chunk), convert_op(None)).unwrap();
-        add_table(&mut engine, 0, 113);
-        if with_mq {
-            add_table(&mut engine, 1, 47);
-        }
         let run = drive(&mut engine, &input, Some(1));
         assert_eq!(outcome(&engine).report.pages_converted, 1);
         assert!(run.output.starts_with(b"%PDF-1.7"));
         assert!(run.output.ends_with(b"%%EOF\n"));
         assert!(run.stores.iter().all(Vec::is_empty));
-        assert!(!engine.add_hnc8_state(0, 0x4000, 0, 0, 0));
     }
 }
 
@@ -717,12 +690,6 @@ fn hnc8_configuration_and_located_failures_are_explicit() {
     let result = drive(&mut standard, &input, Some(1));
     assert_eq!(outcome(&standard).report.pages_converted, 1);
     assert!(result.stores.iter().all(Vec::is_empty));
-    for table in [0, 1] {
-        let mut engine = Engine::start(input.len() as u64, limits(8), convert_op(None)).unwrap();
-        add_table(&mut engine, table, 1);
-        drive(&mut engine, &input, None);
-        assert!(matches!(failure(&engine), Error::InvalidInput { .. }));
-    }
     let mut invalid = input.clone();
     put_u32(&mut invalid, 0x15c + 20 + 32, 99);
     let mut engine = Engine::start(invalid.len() as u64, limits(8), convert_op(None)).unwrap();
@@ -732,27 +699,6 @@ fn hnc8_configuration_and_located_failures_are_explicit() {
     assert!(engine.message().contains("page 1"));
     assert!(engine.message().contains("image 1"));
     assert!(std::error::Error::source(error).is_some());
-    let mut engine = Engine::start(0, limits(8), convert_op(None)).unwrap();
-    for args in [
-        (2, 1, 0, 0, 0),
-        (0, 0, 0, 0, 0),
-        (0, 0x8000, 0, 0, 0),
-        (0, 1, 113, 0, 0),
-        (0, 1, 0, 113, 0),
-        (0, 1, 0, 0, 2),
-        (1, 1, 47, 0, 0),
-    ] {
-        assert!(!engine.add_hnc8_state(args.0, args.1, args.2, args.3, args.4));
-    }
-    add_table(&mut engine, 0, 113);
-    add_table(&mut engine, 1, 47);
-    assert!(!engine.add_hnc8_state(0, 1, 0, 0, 0));
-    assert!(!engine.add_hnc8_state(1, 1, 0, 0, 0));
-    let mut tiny = limits(1);
-    tiny.max_allocation_bytes = 1;
-    let mut engine = Engine::start(0, tiny, convert_op(None)).unwrap();
-    assert!(!engine.add_hnc8_state(0, 1, 0, 0, 0));
-    assert!(!engine.add_hnc8_state(1, 1, 0, 0, 0));
 }
 
 #[test]
@@ -771,38 +717,9 @@ fn default_tables_do_not_turn_small_allocation_limits_into_invalid_input() {
     ));
 }
 
-#[test]
-fn custom_mq_validation_preserves_resource_errors() {
-    let input = synthetic_hn();
-    let mut bounded = limits(8);
-    bounded.max_allocation_bytes = 8;
-    let mut engine = Engine::start(input.len() as u64, bounded, convert_op(None)).unwrap();
-    // Exercise the conversion boundary independently of the public state-upload
-    // guard, which normally rejects oversized tables before this point.
-    for _ in 0..47 {
-        assert!(
-            engine
-                .shared
-                .borrow_mut()
-                .tables
-                .push(1, 0x4000, 0, 0, 0, &Limits::default())
-        );
-    }
-    drive(&mut engine, &input, None);
-    assert!(matches!(failure(&engine), Error::LimitExceeded { .. }));
-}
-
 fn scratch_engine() -> Engine {
     use caj2pdf_core::jbig2::text_composer::RandomAccessScratch;
-    let mut engine = Engine::start(
-        0,
-        limits(3),
-        Operation::Copy {
-            offset: 0,
-            length: 0,
-        },
-    )
-    .unwrap();
+    let mut engine = Engine::start(0, limits(3), convert_op(None)).unwrap();
     let shared = Rc::clone(&engine.shared);
     engine.task = Box::pin(async move {
         for id in 1..=4 {
@@ -1104,16 +1021,8 @@ fn font_configuration_rejects_invalid_or_late_resources() {
     assert_eq!(engine.add_font_source(100, 0), 0);
     assert_eq!(engine.poll(), Status::Read);
     assert!(!engine.set_c8_latin_state3(5));
-    let mut copy = Engine::start(
-        1,
-        limits(32),
-        Operation::Copy {
-            offset: 0,
-            length: 1,
-        },
-    )
-    .unwrap();
-    assert_eq!(copy.add_font_source(100, 0), 0);
+    let mut inspect = Engine::start(1, limits(32), Operation::Inspect { format: None }).unwrap();
+    assert_eq!(inspect.add_font_source(100, 0), 0);
 }
 
 #[test]

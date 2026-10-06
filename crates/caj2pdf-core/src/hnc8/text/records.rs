@@ -15,13 +15,12 @@ pub(super) struct Records {
     count: u32,
     limit: u32,
     ended: bool,
-    exact_images: bool,
     page_prefix: bool,
     decode_raw_hna_markers: bool,
 }
 
 impl Records {
-    pub(super) fn new(limit: u32, exact_images: bool) -> Self {
+    pub(super) fn new(limit: u32) -> Self {
         Self {
             bytes: [0; 28],
             filled: 0,
@@ -30,23 +29,22 @@ impl Records {
             count: 0,
             limit,
             ended: false,
-            exact_images,
             page_prefix: false,
             decode_raw_hna_markers: false,
         }
     }
 
-    pub(super) fn with_page_prefix(limit: u32, exact_images: bool) -> Self {
+    pub(super) fn with_page_prefix(limit: u32) -> Self {
         Self {
             page_prefix: true,
-            ..Self::new(limit, exact_images)
+            ..Self::new(limit)
         }
     }
 
-    /// Composition of the verified raw HN-A profile decodes image marker bits;
-    /// public inspection and compressed/unverified profiles preserve raw words.
-    pub(super) fn decode_raw_hna_markers(mut self, enabled: bool) -> Self {
-        self.decode_raw_hna_markers = enabled;
+    /// The verified raw HN-A profile decodes image marker bits; compressed
+    /// and unverified profiles preserve raw words.
+    pub(super) fn decode_raw_hna_markers(mut self) -> Self {
+        self.decode_raw_hna_markers = true;
         self
     }
 
@@ -123,12 +121,6 @@ impl Records {
     ) -> Result<u32> {
         if !self.ended {
             return Err(loc.malformed("decoded text records", "missing complete terminator"));
-        }
-        if self.exact_images && self.images != coordinates.len() {
-            return Err(loc.malformed(
-                "decoded image records",
-                "image count differs from source descriptors",
-            ));
         }
         coordinates.truncate(self.images);
         Ok(self.count)

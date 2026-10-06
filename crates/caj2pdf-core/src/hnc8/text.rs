@@ -8,7 +8,6 @@ use super::{ErrorKind, Header, Location, PageRecord, Result, Span, Variant};
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
 use flate2::{Decompress, FlushDecompress, Status};
-use sha2::{Digest, Sha256};
 
 mod raw;
 mod records;
@@ -77,10 +76,6 @@ pub struct TextCoordinates {
     /// Fixed-layout glyph records, or logical raw/direct-frame records.
     pub record_count: u32,
     pub coordinates: Vec<RawTextCoordinate>,
-    /// SHA-256 of the zlib frame, or the entire uncompressed text span.
-    pub encoded_sha256: [u8; 32],
-    /// SHA-256 of all expanded bytes, or the entire uncompressed text span.
-    pub decoded_sha256: [u8; 32],
     pub max_source_request_bytes: usize,
     pub max_decoder_output_chunk_bytes: usize,
     /// Capacities of the compressed/expanded scratch and coordinate Vecs.
@@ -89,7 +84,8 @@ pub struct TextCoordinates {
     pub working_memory_bytes: u64,
 }
 
-/// Validate either compressed HN-A/C8 text layout or uncompressed HN-A records.
+/// Validate either compressed HN-A/C8 text layout or uncompressed HN-A records
+/// and return the image coordinates for composition.
 ///
 /// The caller supplies metadata from the same stable [`RangedSource`],
 /// normally [`super::Hnc8Reader`]. Public header/page values are rechecked
@@ -100,34 +96,8 @@ pub struct TextCoordinates {
 /// Source changes during the operation violate the stable-source contract.
 /// A decoded-marker error is located at the source frame start: a compressed
 /// byte offset cannot identify the corresponding expanded record byte.
-pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    header: Header,
-    page: PageRecord,
-    limits: &Limits,
-    cancellation: &C,
-    budget: TextBudget,
-) -> Result<TextCoordinates> {
-    read_coordinates(
-        source,
-        header,
-        page,
-        limits,
-        cancellation,
-        budget,
-        ReadPurpose::Inspect,
-    )
-    .await
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub(super) enum ReadPurpose {
-    Inspect,
-    Compose,
-}
-
-/// Composition alone may receive fewer coordinates than descriptors. It must
-/// prove all additional descriptor payloads repeat that coordinate group.
+/// Composition may receive fewer coordinates than descriptors; it must prove
+/// all additional descriptor payloads repeat that coordinate group.
 pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
@@ -135,9 +105,7 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    purpose: ReadPurpose,
 ) -> Result<TextCoordinates> {
-    let exact_images = purpose == ReadPurpose::Inspect;
     if header.variant == Variant::HnB {
         return Err(location(header, page).error(ErrorKind::Unsupported {
             field: "text framing variant",
@@ -198,19 +166,16 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             loc,
             if prefixed_raw {
                 Some(
-                    records::Records::with_page_prefix(budget.max_records, exact_images)
-                        .decode_raw_hna_markers(purpose == ReadPurpose::Compose),
+                    records::Records::with_page_prefix(budget.max_records).decode_raw_hna_markers(),
                 )
             } else {
-                (tag == 0x800a).then(|| {
-                    records::Records::new(budget.max_records, exact_images)
-                        .decode_raw_hna_markers(purpose == ReadPurpose::Compose)
-                })
+                (tag == 0x800a)
+                    .then(|| records::Records::new(budget.max_records).decode_raw_hna_markers())
             },
         )
         .await
     } else {
-        read_compressed_text(source, header, page, limits, cancellation, budget, purpose).await
+        read_compressed_text(source, header, page, limits, cancellation, budget).await
     }?;
     result.page_size = page_size;
     Ok(result)
@@ -441,9 +406,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    purpose: ReadPurpose,
 ) -> Result<TextCoordinates> {
-    let exact_images = purpose == ReadPurpose::Inspect;
     let loc = location(header, page);
 
     let mut max_source_request_bytes = 0;
@@ -548,9 +511,8 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         coordinates,
         loc: loc.at(zlib_frame.offset),
         image_marker: [0; 4],
-        decode_hna_markers: header.variant == Variant::HnA && purpose == ReadPurpose::Compose,
-        records: (header_bytes == 16)
-            .then(|| records::Records::new(budget.max_records, exact_images)),
+        decode_hna_markers: header.variant == Variant::HnA,
+        records: (header_bytes == 16).then(|| records::Records::new(budget.max_records)),
     };
     let owned_buffer_bytes = len_u64(input.capacity())
         .saturating_add(len_u64(output.capacity()))
@@ -560,8 +522,6 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         );
     let working_memory_bytes = check_working(owned_buffer_bytes, true, budget, loc)?;
     let mut inflater = Decompress::new(true);
-    let mut encoded_hash = Sha256::new();
-    let mut decoded_hash = Sha256::new();
     let mut fetched = 0_u64;
     let mut buffered = 0;
     let mut used = 0;
@@ -584,7 +544,6 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
                 &mut max_source_request_bytes,
             )
             .await?;
-            encoded_hash.update(&input[..buffered]);
             fetched += len_u64(buffered);
             used = 0;
         }
@@ -616,7 +575,6 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
                 .malformed("decoded text length", "output exceeds declared length"));
         }
         max_decoder_output_chunk_bytes = max_decoder_output_chunk_bytes.max(produced);
-        decoded_hash.update(&output[..produced]);
         accumulator.consume(before_out, &output[..produced])?;
         if status == Status::StreamEnd {
             if inflater.total_in() != zlib_frame.length || inflater.total_out() != decoded_bytes {
@@ -645,8 +603,6 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         decoded_length,
         record_count,
         coordinates: accumulator.coordinates,
-        encoded_sha256: encoded_hash.finalize().into(),
-        decoded_sha256: decoded_hash.finalize().into(),
         max_source_request_bytes,
         max_decoder_output_chunk_bytes,
         owned_buffer_bytes,

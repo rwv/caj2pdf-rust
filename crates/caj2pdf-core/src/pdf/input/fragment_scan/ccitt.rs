@@ -334,8 +334,16 @@ mod tests {
         );
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER))
-            .map(|scan| scan.objects.len())
+        run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            end,
+            &limits,
+            &NEVER,
+            &mut [],
+            &mut 0,
+        ))
+        .map(|scan| scan.objects.len())
     }
 
     #[test]
@@ -592,12 +600,14 @@ mod tests {
         let bytes = b"1 0 obj\n<< /Width 1 /Height 1 /Filter /CCITTFaxDecode /DecodeParms 3 0 R /Length 2 0 R >>\nstream\ninvalid\nendstream\nendobj".to_vec();
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let error = run(scan_fragment_objects(
+        let error = run(scan_fragment_with_candidates(
             &mut source,
             0,
             end,
             &Limits::default(),
             &NEVER,
+            &mut [],
+            &mut 0,
         ))
         .err()
         .unwrap();

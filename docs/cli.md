@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE] [--no-system-fonts]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--no-system-fonts]
 caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -46,7 +46,7 @@ after leading bytes is read from the header; see the
 [header offset rule](pdf-input.md#header-offset). PDF/KDH
 inspection reports outline presence rather than full outline entries;
 HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
-remains unknown. Inspection needs neither state files nor scratch storage.
+remains unknown. Inspection needs no scratch storage.
 The CLI bounds retained outline records plus title capacities by
 `max_allocation_bytes`. With a ranged input, image payloads are not read;
 stdin still follows the bounded spooling rule below.
@@ -67,8 +67,6 @@ unit. See the [controlled field checks](research/cajviewer-hnc8-kdh.md#controlle
 
 ### Experimental HN/C8 options
 
-- `--qm-states FILE`: override the standard states for type-0 images.
-- `--mq-states FILE`: override the standard states for arithmetic JBIG2 images.
 - `--allow-damaged`: explicitly replace damaged CAJ pages with blanks, warn for
   every affected page, and return status 3 when substitutions occur. See
   [partial conversion](pdf-input.md#explicit-partial-conversion-of-damaged-caj-inputs).
@@ -78,23 +76,9 @@ unit. See the [controlled field checks](research/cajviewer-hnc8-kdh.md#controlle
   outline`); the flag gives the same PDF silently. Existing embedded PDF/KDH
   outlines are not removed by this flag.
 
-The state flags accept both `--qm-states FILE` and `--qm-states=FILE`
-(and likewise MQ). Separate values preserve non-UTF-8 filenames. Values must
-be nonempty paths, not `-`; document input may still come from stdin.
-These options apply only to conversion, not `inspect` or `add-bookmarks`.
-State files are protected inputs, including aliases: `--force` cannot overwrite
-them. Unknown or duplicate state options are usage errors.
-
-A state file is UTF-8 text, at most 16 KiB, with exactly 113 QM or 47 MQ rows.
-Each row contains four whitespace-separated decimal integers in this order:
-`qe next_lps next_mps switch_mps`. `qe` is in 1..32767, transition indices are
-zero-based within the table, and switch is 0 or 1. A final newline and CRLF are
-accepted; headers, comments, blank rows and extra fields are rejected. The
-column order is explicit and differs from some standard-table presentations.
-Standard T.82/T.88 states are built in. These files are optional overrides;
-valid shape alone does not prove that a custom table is correct.
-
-Omit both state flags for normal conversion. HN-A outlines are supported;
+HN/C8 conversion always uses the built-in standard T.82/T.88 codec states.
+The `--qm-states` and `--mq-states` overrides were removed (#348).
+HN-A outlines are supported;
 C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the
 fonts below, installed or given; unverified profiles are rejected. Image-only pages receive
 no OCR text layer. General text extraction and semantic reading order remain
@@ -644,9 +628,8 @@ cargo test --locked -p caj2pdf-cli
 
 Original tests convert an asymmetric 3×2 type-0 HN-A page from a file and stdin,
 reopen the PDF with qpdf and extract exact packed pixels. They also exercise
-state-file bounds/syntax, malformed input, invalid state overrides, HN-B empty-row
-rejection, state-file/hardlink overwrite protection, scratch creation failure,
-existing-output preservation, anonymous-file cleanup and CAJ bookmark omission.
+malformed input, HN-B empty-row rejection, input/hardlink overwrite protection,
+scratch creation failure, anonymous-file cleanup and CAJ bookmark omission.
 
 The release CLI converted the external four-page C8 issue-58 document described
 in [the direct-record comparison](research/hnc8-direct-text.md), using a caller-supplied

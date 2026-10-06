@@ -212,8 +212,8 @@ JavaScript heap, browser process memory and filesystem caches. Validation reads
 the completed PDF for hashing only after conversion; that allocation is outside
 the reported conversion memory observation.
 
-Reproduction uses the existing CLI with `--mq-states FILE` and bookmarks
-left enabled. Node uses `fileHandleSource`, `nodeWritableSink`, and four
+Reproduction used the CLI with `--mq-states FILE` (removed in #348) and
+bookmarks left enabled. Node uses `fileHandleSource`, `nodeWritableSink`, and four
 `fileHandleScratch` stores. Both JS targets cap each scratch store at 64 MiB;
 JavaScript I/O chunks are
 65,536 bytes. Source, state files, generated PDFs and private run reports stay

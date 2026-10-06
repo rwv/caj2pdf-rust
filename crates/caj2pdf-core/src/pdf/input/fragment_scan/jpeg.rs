@@ -157,12 +157,14 @@ mod tests {
             );
             let end = bytes.len() as u64;
             let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-            let result = run(scan_fragment_objects(
+            let result = run(scan_fragment_with_candidates(
                 &mut source,
                 0,
                 end,
                 &Limits::default(),
                 &NEVER,
+                &mut [],
+                &mut 0,
             ));
             assert_eq!(result.is_ok(), declared == payload.len());
         }

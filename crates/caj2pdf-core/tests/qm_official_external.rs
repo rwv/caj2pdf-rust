@@ -22,7 +22,7 @@ const OFFICIAL_FIXTURE_SHA256: &str =
 const MAX_FIXTURE_BYTES: u64 = 16 * 1024;
 
 use caj2pdf_core::qm::{
-    ArithmeticBudget, ArithmeticDecoder, ContextBank, EncodedSpan, QmState, QmTable, StripeMode,
+    ArithmeticBudget, ArithmeticDecoder, ContextBank, EncodedSpan, QmState, QmTable,
 };
 
 struct Checkpoint {
@@ -174,7 +174,6 @@ fn official_1993_vector_and_register_checkpoints() {
         },
         &table,
         &mut contexts,
-        StripeMode::Reset,
         &limits,
         &NeverCancel,
         ArithmeticBudget {

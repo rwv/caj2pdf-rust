@@ -183,11 +183,6 @@ pub struct ComposeReport {
     pub jpeg_images: u64,
     pub type3_images: u64,
     pub duplicate_image_records: u64,
-    pub peak_page_metadata_bytes: u64,
-    pub peak_text_working_bytes: u64,
-    pub peak_row_store_bytes: u64,
-    pub row_store_read_bytes: u64,
-    pub row_store_written_bytes: u64,
     /// HN-A outline totals and skipped or clamped entries; empty unless
     /// `ComposeOptions::include_bookmarks` is set.
     pub outline: OutlineReport,
@@ -581,12 +576,6 @@ fn page_vector<T>(count: usize, limits: &Limits, resource: &'static str) -> crat
     Ok(values)
 }
 
-fn add_store_bytes(total: u64, bytes: u64) -> crate::Result<u64> {
-    total.checked_add(bytes).ok_or(Error::InvalidInput {
-        reason: "document row-store byte count overflows u64",
-    })
-}
-
 struct CountingSource<'a, S> {
     source: &'a mut S,
     bytes: u64,
@@ -716,7 +705,7 @@ where
                 limits,
                 cancellation,
             };
-            let (object, scratch_report) = emit_type0_xobject(
+            let object = emit_type0_xobject(
                 source,
                 document,
                 image.record,
@@ -731,24 +720,11 @@ where
             )
             .await
             .map_err(|error| scratch_error(image_at, *error))?;
-            report.peak_row_store_bytes = report
-                .peak_row_store_bytes
-                .max(scratch_report.peak_scratch_bytes);
-            report.row_store_read_bytes = add_store_bytes(
-                report.row_store_read_bytes,
-                scratch_report.scratch_read_bytes,
-            )
-            .map_err(image_at.io(ComposeStage::Scratch))?;
-            report.row_store_written_bytes = add_store_bytes(
-                report.row_store_written_bytes,
-                scratch_report.scratch_write_bytes,
-            )
-            .map_err(image_at.io(ComposeStage::Scratch))?;
             report.type0_images += 1;
             object
         }
         CheckedImage::Type3 => {
-            let (object, stats) = type3::emit(
+            let (object, anomaly) = type3::emit(
                 source,
                 document,
                 image_at,
@@ -759,13 +735,7 @@ where
                 cancellation,
             )
             .await?;
-            report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
-            report.row_store_read_bytes = add_store_bytes(report.row_store_read_bytes, stats.read)
-                .map_err(image_at.io(ComposeStage::Scratch))?;
-            report.row_store_written_bytes =
-                add_store_bytes(report.row_store_written_bytes, stats.written)
-                    .map_err(image_at.io(ComposeStage::Scratch))?;
-            image.type3_text_header_anomaly = stats.anomaly;
+            image.type3_text_header_anomaly = anomaly;
             report.type3_images += 1;
             object
         }
@@ -910,13 +880,9 @@ where
                 limits,
                 cancellation,
                 options.text,
-                super::text::ReadPurpose::Compose,
             )
             .await
             .map_err(|error| container(error, ComposeStage::Text))?;
-            report.peak_text_working_bytes = report
-                .peak_text_working_bytes
-                .max(text.working_memory_bytes);
             page_size = text.page_size.or(page_size);
             coordinates = text.coordinates;
         }
@@ -936,7 +902,6 @@ where
         let planning_peak =
             plan_capacity + capacity_bytes::<RawTextCoordinate>(coordinates.capacity());
         check_metadata(planning_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
-        report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(planning_peak);
         // Checked type-3 metadata in emit order, charged to the same budget.
         let mut type3_plans: Vec<CheckedType3> = Vec::new();
         let mut type3_bytes = 0;
@@ -994,7 +959,6 @@ where
                     + capacity_bytes::<CheckedType3>(type3_plans.capacity())
                     + type3_bytes;
                 check_metadata(peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
-                report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(peak);
             }
             if geometry.is_none() {
                 // Only HN-B lacks source page dimensions. Its admitted single
@@ -1042,7 +1006,6 @@ where
             + capacity_bytes::<CheckedType3>(type3_plans.capacity())
             + type3_bytes;
         check_metadata(metadata_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
-        report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(metadata_peak);
         let mut type3_plans = type3_plans.into_iter();
         for index in 0..images.len() {
             if let Some(original) = images[index].duplicate_of {
@@ -1134,11 +1097,6 @@ impl ComposeReport {
             jpeg_images: 0,
             type3_images: 0,
             duplicate_image_records: 0,
-            peak_page_metadata_bytes: 0,
-            peak_text_working_bytes: 0,
-            peak_row_store_bytes: 0,
-            row_store_read_bytes: 0,
-            row_store_written_bytes: 0,
             outline: OutlineReport::default(),
             application_info: ApplicationInfoStatus::Absent,
         }

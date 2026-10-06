@@ -10,7 +10,7 @@ use caj2pdf_core::{
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
-        copy_pdf, copy_pdf_range, reconstruct_fragment,
+        copy_pdf, copy_pdf_range, reconstruct_fragment_with_bookmarks,
     },
 };
 use common::CancelAfter;
@@ -1529,14 +1529,14 @@ fn fragment_rebuild_preserves_explicit_page_order_and_binary_stream() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(5),
-        catalog: None,
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let mut output = TempPdf::new("fragment-rebuild");
-    let report = run_native(reconstruct_fragment(
+    let report = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &plan,
+        &[],
         &Limits::default(),
         &CancelAfter::Never,
     ))
@@ -1591,14 +1591,14 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: Some(fragment_ref(1)),
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &Limits::default(),
         &CancelAfter::Never,
     ))
@@ -1621,7 +1621,6 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
 fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
     for parent in [b"999".as_slice(), b"[1 0 R]".as_slice()] {
         let mut bytes = Vec::new();
-        let catalog = add_fragment_object(&mut bytes, 1, b"<< /Type /Catalog /Pages 2 0 R >>");
         let mut root_body = b"<< /Type /Pages /Parent ".to_vec();
         root_body.extend_from_slice(parent);
         root_body.extend_from_slice(b" /Count 1 /Kids [3 0 R] /MediaBox [0 0 100 100] >>");
@@ -1631,20 +1630,20 @@ fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
             3,
             b"<< /Type /Page /Parent 2 0 R /Resources << >> >>",
         );
-        let objects = [catalog, root, page];
+        let objects = [root, page];
         let pages = [fragment_ref(3)];
         let plan = FragmentPlan {
             objects: &objects,
             pages: &pages,
             pages_root: fragment_ref(2),
-            catalog: Some(fragment_ref(1)),
         };
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let mut sink = WriteSink::new(Vec::<u8>::new());
-        let error = run_native(reconstruct_fragment(
+        let error = run_native(reconstruct_fragment_with_bookmarks(
             &mut source,
             &mut sink,
             &plan,
+            &[],
             &Limits::default(),
             &CancelAfter::Never,
         ))
@@ -2119,14 +2118,14 @@ fn fragment_without_page_media_box_fails_before_output() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &Limits::default(),
         &CancelAfter::Never,
     ))
@@ -2159,14 +2158,14 @@ fn fragment_page_contents_must_resolve_to_stream() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &Limits::default(),
         &CancelAfter::Never,
     ))
@@ -2198,14 +2197,14 @@ fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &Limits::default(),
         &CancelAfter::Never,
     ))
@@ -2379,7 +2378,6 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let limits = Limits {
         max_input_bytes: fragment_bytes.len() as u64 - 1,
@@ -2387,10 +2385,11 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
     };
     let mut source = SeekableSource::new(Cursor::new(fragment_bytes)).unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &limits,
         &CancelAfter::Never,
     ))
@@ -2450,7 +2449,6 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let limits = Limits {
         max_input_bytes: page.range.length,
@@ -2458,10 +2456,11 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
     };
     let mut source = SeekableSource::new(Cursor::new(fragment_container)).unwrap();
     let mut output = TempPdf::new("embedded-fragment-range");
-    let report = run_native(reconstruct_fragment(
+    let report = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &plan,
+        &[],
         &limits,
         &CancelAfter::Never,
     ))
@@ -2555,7 +2554,6 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
         objects: &objects,
         pages: &pages,
         pages_root: fragment_ref(2),
-        catalog: None,
     };
     let limits = Limits {
         max_input_bytes: u64::MAX,
@@ -2563,10 +2561,11 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
     };
     let mut source = HugeNoReadSource;
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run_native(reconstruct_fragment(
+    let error = run_native(reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
         &plan,
+        &[],
         &limits,
         &CancelAfter::Never,
     ))

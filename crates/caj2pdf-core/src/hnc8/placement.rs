@@ -8,17 +8,12 @@
 //! It does not enable production HN/C8 composition.
 
 use super::RawTextCoordinate;
-use crate::jbig1::Type0Info;
 use crate::pdf::PageSpec;
 use crate::{Error, Result};
 
 /// Empirical PDF points per raw text-coordinate unit in the measured profile.
 /// This does not assign an authoritative physical unit to the source word.
 pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 240.0 / 2473.0;
-/// Empirical PDF points per source image pixel in the measured profile.
-/// Dimension evaluation uses the exact ratio `72 / 300`: the integer product
-/// is exactly representable for every `u32`, before one floating division.
-pub const EMPIRICAL_PIXEL_POINTS: f64 = 0.24;
 /// Four-decimal reference output gives this absolute comparison tolerance.
 /// Evaluation returns full `f64` precision rather than rounding early.
 pub const EMPIRICAL_PLACEMENT_TOLERANCE_POINTS: f64 = 0.00005;
@@ -78,10 +73,10 @@ impl EmpiricalPageGeometry {
 
 /// Derive a page from the first image's checked pixel dimensions.
 ///
-/// Use this for JPEG dimensions. Type-0 DIB pages require
-/// [`empirical_page_from_type0`], because the observed profile includes the
-/// padded row width in its page size. This helper has no dynamic allocations;
-/// image-decoder limits remain the caller's responsibility.
+/// Points per pixel use the exact ratio `72 / 300`: the integer product is
+/// exactly representable for every `u32`, before one floating division.
+/// This helper has no dynamic allocations; image-decoder limits remain the
+/// caller's responsibility.
 pub fn empirical_page_from_pixels(
     pixel_width: u32,
     pixel_height: u32,
@@ -94,46 +89,6 @@ pub fn empirical_page_from_pixels(
     };
     page.media_box()?;
     Ok(page)
-}
-
-/// Display width for checked type-0 metadata in the observed reference profile.
-/// Whole padding bytes expand the displayed width; unused bits in the last
-/// visible byte do not. Callers validate the DIB dimensions before using this.
-pub(super) fn type0_display_width(info: Type0Info) -> u64 {
-    if info.visible_bytes == info.dib_stride {
-        u64::from(info.width)
-    } else {
-        info.dib_stride as u64 * 8
-    }
-}
-
-/// Derive a first-type-0 page from consistent DIB dimensions and row storage.
-///
-/// The observed profile retains visible width if its byte count already
-/// equals the DIB stride; otherwise whole padding bytes expand the width.
-/// Although [`Type0Info`] normally comes from the checked decoder, its fields
-/// are public, so both stride and visible-byte consistency are checked here.
-pub fn empirical_page_from_type0(
-    info: Type0Info,
-    origin_points: [f64; 2],
-) -> Result<EmpiricalPageGeometry> {
-    if info.width == 0 || info.height == 0 {
-        return Err(Error::InvalidInput {
-            reason: "empirical type-0 dimensions must be positive",
-        });
-    }
-    let stride = u64::from(info.width).div_ceil(32) * 4;
-    let visible = u64::from(info.width).div_ceil(8);
-    if info.dib_stride as u64 != stride || info.visible_bytes as u64 != visible {
-        return Err(Error::InvalidInput {
-            reason: "empirical type-0 stride or visible bytes differ from the one-bit DIB dimensions",
-        });
-    }
-    let display_width =
-        u32::try_from(type0_display_width(info)).map_err(|_| Error::InvalidInput {
-            reason: "empirical type-0 display width exceeds the supported pixel range",
-        })?;
-    empirical_page_from_pixels(display_width, info.height, origin_points)
 }
 
 /// Predict one image CTM from checked source pixels and raw coordinate words.
@@ -244,17 +199,7 @@ pub enum C8GlyphClass {
 /// `position` and `source_origin` are raw x/y words. Subtraction is signed;
 /// off-page glyphs remain off-page. Font selection, character decoding, color
 /// and page-content admission are the caller's separate responsibilities.
-/// This helper does not enable production native-text conversion.
-pub fn empirical_c8_glyph_transform(
-    page: EmpiricalPageGeometry,
-    source_origin: [u16; 2],
-    position: [u16; 2],
-    style: u16,
-    class: C8GlyphClass,
-) -> Result<[f64; 6]> {
-    native_glyph_transform(page, source_origin, position, style, class, [None; 2])
-}
-
+/// `axes` holds explicit glyph axes when the record supplies them.
 pub(super) fn native_glyph_transform(
     page: EmpiricalPageGeometry,
     source_origin: [u16; 2],

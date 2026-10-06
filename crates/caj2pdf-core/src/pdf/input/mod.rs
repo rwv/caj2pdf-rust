@@ -2676,9 +2676,7 @@ pub(crate) enum FragmentKind {
         kids: Vec<PdfRef>,
         has_media_box: bool,
     },
-    Catalog {
-        pages: PdfRef,
-    },
+    Catalog,
     Other,
 }
 
@@ -2853,12 +2851,11 @@ pub(crate) async fn inspect_fragment_object<
                         "preexisting outline trees in PDF fragments are unsupported",
                     ));
                 }
-                FragmentKind::Catalog {
-                    pages: dictionary
-                        .value(b"Pages")
-                        .and_then(exact_reference)
-                        .ok_or(reader.malformed(0, Some(expected), "Catalog lacks Pages"))?,
-                }
+                dictionary
+                    .value(b"Pages")
+                    .and_then(exact_reference)
+                    .ok_or(reader.malformed(0, Some(expected), "Catalog lacks Pages"))?;
+                FragmentKind::Catalog
             }
             _ => FragmentKind::Other,
         }
@@ -2904,8 +2901,6 @@ pub(crate) async fn inspect_fragment_scalar<S: RangedSource, C: Cancellation>(
 
 mod fragment_scan;
 
-#[cfg(test)]
-pub(crate) use fragment_scan::scan_fragment_objects;
 pub(crate) use fragment_scan::{
     FragmentCandidate, FragmentScan, PatchedSource, collect_fragment_candidates,
     scan_damaged_fragment, scan_fragment_with_candidates,

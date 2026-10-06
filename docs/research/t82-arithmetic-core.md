@@ -94,8 +94,9 @@ stripe for a bit-plane/resolution layer, or after a forced reset, initialize
 all of that layer's context probability states and MPS bits to zero. Otherwise,
 carry **only the appropriate previous stripe's context probability states**
 into the next stripe of the same bit-plane and resolution layer (§6.2.5 and
-§6.8.3.9). The API should
-make `Reset` versus `Carry` explicit and reject `Carry` without prior state.
+§6.8.3.9). The CAJ type-0 decoder codes each image as one stripe, so the
+decoder resets every context when a stripe starts; the unused `Carry` mode
+was removed (#348).
 Other image-model state, such as adaptive template position, typical
 prediction, and prior rows, belongs to the later image decoder and must obey
 its own stripe rules. Do not infer those rules from an arithmetic-core pass.

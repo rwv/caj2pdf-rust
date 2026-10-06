@@ -5,7 +5,7 @@
 use crate::fallible::reserve_exact;
 use crate::qm::{
     ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticErrorKind, ArithmeticSnapshot,
-    ContextBank, ContextState, EncodedSpan, QM_STATE_COUNT, QmState, QmTable, StripeMode,
+    ContextBank, ContextState, EncodedSpan, QM_STATE_COUNT, QmState, QmTable,
 };
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
 use std::{error, fmt, mem};
@@ -571,7 +571,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             coded,
             table,
             contexts,
-            StripeMode::Reset,
             limits,
             cancellation,
             arithmetic_budget,

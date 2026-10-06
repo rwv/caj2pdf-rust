@@ -6,9 +6,9 @@ use caj2pdf_core::{
         ApplicationInfo, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
         ComposeWorkspaces, Type3PdfOptions, convert_document_pdf,
     },
-    jbig2::mq::{MQ_STATE_COUNT, MqState, MqTable},
+    jbig2::mq::MqTable,
     jbig2::text::TextHeaderPolicy,
-    qm::{QM_STATE_COUNT, QmState, QmTable},
+    qm::QmTable,
 };
 
 #[derive(Default)]
@@ -99,69 +99,6 @@ impl Fonts {
     }
 }
 
-#[derive(Default)]
-pub(super) struct Tables {
-    qm: Vec<QmState>,
-    mq: Vec<MqState>,
-}
-
-impl Tables {
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn push(
-        &mut self,
-        table: u32,
-        qe: u32,
-        next_lps: u32,
-        next_mps: u32,
-        switch: u32,
-        limits: &Limits,
-    ) -> bool {
-        let count = match table {
-            0 => QM_STATE_COUNT,
-            1 => MQ_STATE_COUNT,
-            _ => return false,
-        };
-        if qe == 0
-            || qe >= 0x8000
-            || next_lps >= count as u32
-            || next_mps >= count as u32
-            || switch > 1
-        {
-            return false;
-        }
-        if table == 0 {
-            if self.qm.len() == count || !reserve(&mut self.qm, count, limits) {
-                return false;
-            }
-            self.qm.push(QmState {
-                qe: qe as u16,
-                next_lps: next_lps as u8,
-                next_mps: next_mps as u8,
-                switch_mps: switch != 0,
-            });
-        } else {
-            if self.mq.len() == count || !reserve(&mut self.mq, count, limits) {
-                return false;
-            }
-            self.mq.push(MqState {
-                qe: qe as u16,
-                next_lps: next_lps as u8,
-                next_mps: next_mps as u8,
-                switch_mps: switch != 0,
-            });
-        }
-        true
-    }
-}
-
-fn reserve<T>(states: &mut Vec<T>, count: usize, limits: &Limits) -> bool {
-    !states.is_empty()
-        || (limits
-            .check_allocation((count * std::mem::size_of::<T>()) as u64)
-            .is_ok()
-            && states.try_reserve_exact(count).is_ok())
-}
-
 struct CompletePages;
 impl ComposeVisitor for CompletePages {
     async fn page(&mut self, page: ComposePage<'_>) -> Result<()> {
@@ -181,24 +118,7 @@ pub(super) async fn convert(
     limits: &Limits,
     cancellation: &BridgeCancellation,
 ) -> Result<(ConversionReport, OutlineReport)> {
-    let tables = std::mem::take(&mut source.shared.borrow_mut().tables);
-    let qm = if tables.qm.is_empty() {
-        QmTable::standard()
-    } else {
-        QmTable::new(tables.qm).map_err(|_| Error::InvalidInput {
-            reason: "incomplete caller QM state table",
-        })?
-    };
-    let mq = if tables.mq.is_empty() {
-        MqTable::standard()
-    } else {
-        MqTable::new(tables.mq, limits).map_err(|error| match error.kind {
-            caj2pdf_core::jbig2::mq::MqErrorKind::Source(error) => error,
-            _ => Error::InvalidInput {
-                reason: "invalid or incomplete MQ state table",
-            },
-        })?
-    };
+    let (qm, mq) = (QmTable::standard(), MqTable::standard());
     let options = ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { blobSource, convert, fileHandleScratch } from "../node.mjs";
 import { newInstance, tempDirectory, validateMultiImageHn, validateType1Hn } from "./helpers.mjs";
-import { qmStates, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 function memoryStore() {
   let bytes = new Uint8Array();
@@ -33,7 +33,7 @@ test("real WASM composes multiple HN images and bookmarks through bounded Node s
       scratch.push(await fileHandleScratch(handle, { maxBytes: 1024n }));
     }
     const parts = [];
-    const report = await convert(await newInstance(), blobSource(new Blob([syntheticHn(true, true)])), sink(parts), { chunkSize: 7, hnc8: { qmStates, scratch } });
+    const report = await convert(await newInstance(), blobSource(new Blob([syntheticHn(true, true)])), sink(parts), { chunkSize: 7, hnc8: { scratch } });
     assert.equal(report.pagesConverted, 1);
     assert.equal(report.format, "hn");
     const pdf = Buffer.concat(parts);
@@ -47,31 +47,26 @@ test("real WASM composes multiple HN images and bookmarks through bounded Node s
 
 test("WASM HN preserves short scratch I/O and resets on completion", async () => {
   const scratch = stores(); const parts = [];
-  const report = await convert(await newInstance(), source(), sink(parts), { chunkSize: 3, hnc8: { qmStates, scratch } });
+  const report = await convert(await newInstance(), source(), sink(parts), { chunkSize: 3, hnc8: { scratch } });
   assert.equal(report.pagesConverted, 1);
   assert.equal(report.outputBytesWritten, BigInt(Buffer.concat(parts).length));
   assert.ok(scratch.every((store) => store.size === 0n));
 });
 
-test("HN uses standard states by default and requires random-access scratch", async () => {
+test("HN uses the standard states and requires random-access scratch", async () => {
   await assert.rejects(convert(await newInstance(), source(), sink()), { code: "RANDOM_ACCESS_REQUIRED" });
-  await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: { qmStates } }), { code: "RANDOM_ACCESS_REQUIRED" });
+  await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: {} }), { code: "RANDOM_ACCESS_REQUIRED" });
   const scratch = stores();
   const report = await convert(await newInstance(), source(), sink(), { hnc8: { scratch } });
   assert.equal(report.pagesConverted, 1);
   assert.ok(scratch.every((store) => store.size === 0n));
-  for (const hnc8 of [
-    { qmStates: [] }, { mqStates: [] }, { scratch: [memoryStore()] },
-    { qmStates: qmStates.map(() => ({ qe: 0, nextLps: 0, nextMps: 0, switchMps: false })) },
-    { qmStates: qmStates.map(() => ({ qe: 1, nextLps: 113, nextMps: 0, switchMps: false })) },
-    { qmStates: qmStates.map(() => ({ qe: 1, nextLps: 0, nextMps: 0, switchMps: 0 })) },
-  ]) await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8 }));
+  await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: { scratch: [memoryStore()] } }), TypeError);
   const one = memoryStore();
   await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: { scratch: [one, one, one, one] } }), TypeError);
 });
 
 test("scratch faults reject output, clear all stores and permit instance reuse", async () => {
-  for (const mode of ["read", "write", "resize", "flush", "source", "sink", "host-state"]) {
+  for (const mode of ["read", "write", "resize", "flush", "source", "sink"]) {
     const instance = await newInstance(); const scratch = stores(); const failure = new Error(mode);
     if (mode === "read") scratch[0].readAt = async (_offset, length) => new Uint8Array(length + 1);
     if (mode === "write") scratch[0].writeAt = async (_offset, bytes) => bytes.length + 1;
@@ -79,10 +74,9 @@ test("scratch faults reject output, clear all stores and permit instance reuse",
     if (mode === "flush") scratch[0].flush = async () => { throw failure; };
     const input = mode === "source" ? { size: 1024n, async readAt() { throw failure; } } : source();
     const output = mode === "sink" ? { async writeChunk() { throw failure; }, async flush() {} } : sink();
-    const wasm = mode === "host-state" ? { ...instance.exports, caj2pdf_hnc8_add_state: () => 0 } : instance;
-    await assert.rejects(convert(wasm, input, output, { hnc8: { qmStates, scratch } }));
+    await assert.rejects(convert(instance, input, output, { hnc8: { scratch } }));
     assert.ok(scratch.every((store) => store.size === 0n));
-    const report = await convert(instance, source(), sink(), { hnc8: { qmStates, scratch: stores() } });
+    const report = await convert(instance, source(), sink(), { hnc8: { scratch: stores() } });
     assert.equal(report.pagesConverted, 1);
   }
 });
@@ -91,7 +85,7 @@ test("conversion and cleanup failures are both retained and every store is attem
   const scratch = stores(); const primary = new Error("output failed"); const cleanup = new Error("cleanup failed");
   const attempted = [];
   scratch.forEach((store, index) => { store.resize = async () => { attempted.push(index); if (index === 0) throw cleanup; }; });
-  await assert.rejects(convert(await newInstance(), source(), { async writeChunk() { throw primary; }, async flush() {} }, { hnc8: { qmStates, scratch } }), (error) => {
+  await assert.rejects(convert(await newInstance(), source(), { async writeChunk() { throw primary; }, async flush() {} }, { hnc8: { scratch } }), (error) => {
     assert.ok(error instanceof AggregateError); assert.deepEqual(error.errors, [primary, cleanup]); return true;
   });
   assert.deepEqual(attempted, [0, 1, 2, 3]);
@@ -106,7 +100,7 @@ test("HN yields to scheduled cancellation and clears pending workspace contents"
     if (!scheduled) { scheduled = true; setTimeout(() => controller.abort(reason), 0); }
     return count;
   };
-  await assert.rejects(convert(await newInstance(), source(), sink(), { chunkSize: 1, signal: controller.signal, hnc8: { qmStates, scratch } }), (error) => error === reason);
+  await assert.rejects(convert(await newInstance(), source(), sink(), { chunkSize: 1, signal: controller.signal, hnc8: { scratch } }), (error) => error === reason);
   assert.ok(scheduled);
   assert.ok(scratch.every((store) => store.size === 0n));
 });
@@ -245,7 +239,7 @@ test("paired raw HN prefix preserves independently validated mixed-image output"
   const outputs = [];
   for (const bytes of [syntheticHn(true, true), syntheticPrefixedHn(), syntheticPrefixedHn(true)]) {
     const scratch = stores(); const parts = [];
-    const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts), { chunkSize: 3, hnc8: { qmStates, scratch } });
+    const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts), { chunkSize: 3, hnc8: { scratch } });
     assert.equal(report.pagesConverted, 1);
     assert.ok(scratch.every((store) => store.size === 0n));
     outputs.push(Buffer.concat(parts));

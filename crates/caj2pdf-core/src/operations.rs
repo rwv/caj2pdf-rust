@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use crate::{Cancellation, Limits, RangedSource, Result, SequentialSink, read_exact_at};
+use crate::{Cancellation, Limits, RangedSource, Result, read_exact_at};
 use std::ops::Range;
 
 /// Recognized input families. Recognition does not imply conversion support.
@@ -172,7 +172,7 @@ pub struct OmittedPage {
     pub offset: u64,
 }
 
-/// Counters from a completed conversion or bounded I/O proof.
+/// Counters from a completed conversion.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConversionReport {
     pub input_bytes_read: u64,
@@ -181,52 +181,6 @@ pub struct ConversionReport {
     pub bookmarks_written: u32,
     /// Blank substitutions in source page order; indices are zero-based.
     pub omitted_pages: Vec<OmittedPage>,
-}
-
-/// Operation signatures for format engines built on the same I/O contract.
-///
-/// This issue defines the interface only; format engines arrive in later
-/// issues. Bookmark enumeration uses a visitor to avoid a whole-outline
-/// allocation. An implementation must enforce `Limits` and cancellation.
-#[allow(async_fn_in_trait)]
-pub trait DocumentOperations {
-    async fn inspect<S: RangedSource, C: Cancellation>(
-        &self,
-        source: &mut S,
-        limits: &Limits,
-        cancellation: &C,
-    ) -> Result<DocumentInfo>;
-
-    async fn visit_bookmarks<S: RangedSource, V: BookmarkVisitor, C: Cancellation>(
-        &self,
-        source: &mut S,
-        visitor: &mut V,
-        limits: &Limits,
-        cancellation: &C,
-    ) -> Result<u32>;
-
-    async fn convert<S: RangedSource, W: SequentialSink, C: Cancellation>(
-        &self,
-        source: &mut S,
-        sink: &mut W,
-        options: ConversionOptions,
-        limits: &Limits,
-        cancellation: &C,
-    ) -> Result<ConversionReport>;
-
-    async fn import_bookmarks<
-        Outline: RangedSource,
-        Pdf: RangedSource,
-        W: SequentialSink,
-        C: Cancellation,
-    >(
-        &self,
-        outline_source: &mut Outline,
-        pdf_source: &mut Pdf,
-        sink: &mut W,
-        limits: &Limits,
-        cancellation: &C,
-    ) -> Result<ConversionReport>;
 }
 
 #[cfg(test)]

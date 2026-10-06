@@ -23,8 +23,9 @@ export const DEFAULT_LIMITS = Object.freeze({
 });
 
 /**
- * Format names in WASM code order. Only `pdf`, `caj`, and `kdh` convert;
- * `hn`, `c8`, `teb`, and `nh` are rejected with `UnsupportedFormatError`.
+ * Format names in WASM code order. `pdf`, `caj`, `kdh`, `hn` and `c8`
+ * convert (HN/C8 needs scratch stores, see `hnc8`); `teb` and `nh` are
+ * rejected with `UnsupportedFormatError`.
  */
 export const FORMATS = Object.freeze(["auto", "pdf", "caj", "kdh", "hn", "c8", "teb", "nh"]);
 
@@ -441,11 +442,6 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
       if (typeof exports.caj2pdf_c8_set_latin_state !== "function") throw new Error("this WASM build does not support extended C8 Latin fonts");
       if (exports.caj2pdf_c8_set_latin_state(state, index) !== 1) throw new RangeError("WASM rejected the extended C8 Latin font role");
     }
-    for (const row of hnc8?.states ?? []) {
-      if (exports.caj2pdf_hnc8_add_state(...row) !== 1) {
-        throw new RangeError("WASM rejected a caller HN/C8 codec state");
-      }
-    }
     for (;;) {
       // OPFS operations can resolve synchronously. Let Worker messages/timers
       // deliver cancellation instead of monopolizing the microtask queue.
@@ -561,17 +557,6 @@ function hnc8Config(options) {
     requireU64(store?.size, "scratch size");
     if (["resize", "readAt", "writeAt", "flush"].some((method) => typeof store[method] !== "function")) throw new TypeError("invalid HN/C8 scratch store");
   }
-  const states = [];
-  for (const [table, name, count] of [[0, "qmStates", 113], [1, "mqStates", 47]]) {
-    const rows = options[name];
-    if (rows === undefined) continue;
-    if (!Array.isArray(rows) || rows.length !== count) throw new RangeError(`${name} requires exactly ${count} states`);
-    for (const state of rows) {
-      const { qe, nextLps, nextMps, switchMps } = state ?? {};
-      if (!Number.isInteger(qe) || qe < 1 || qe >= 0x8000 || !Number.isInteger(nextLps) || nextLps < 0 || nextLps >= count || !Number.isInteger(nextMps) || nextMps < 0 || nextMps >= count || typeof switchMps !== "boolean") throw new RangeError(`invalid ${name} state`);
-      states.push([table, qe, nextLps, nextMps, Number(switchMps)]);
-    }
-  }
   let fonts;
   if (options.fonts !== undefined) {
     const { cjk, latin, alternateLatin, decoration, symbols, latinState3, latinState28, latinState31 } = options.fonts ?? {};
@@ -598,7 +583,7 @@ function hnc8Config(options) {
     }
     fonts = { sources, faces, roles, symbols: symbols === undefined ? undefined : index(symbols), latinState3: latinState3 === undefined ? undefined : index(latinState3), latinState28: latinState28 === undefined ? undefined : index(latinState28), latinState31: latinState31 === undefined ? undefined : index(latinState31) };
   }
-  return { scratch, states, fonts };
+  return { scratch, fonts };
 }
 
 const OPERATION_CONVERT = 1;
@@ -651,7 +636,7 @@ async function run(operation, wasm, source, sink, options) {
 }
 
 /**
- * Convert PDF, CAJ, KDH or experimental caller-table HN/C8 through bounded I/O.
+ * Convert PDF, CAJ, KDH or experimental HN/C8 through bounded I/O.
  * The format is detected from the leading signature unless `format` is set.
  */
 export function convert(wasm, source, sink, options = {}) {
@@ -661,27 +646,4 @@ export function convert(wasm, source, sink, options = {}) {
 /** Read format, pages and validated CAJ/HN-A bookmark counts. No image decoding. */
 export function inspect(wasm, source, options = {}) {
   return run(OPERATION_INSPECT, wasm, source, null, options);
-}
-
-/**
- * Copy a byte range through the same bounded bridge. This diagnostic checks
- * a source/sink pair; it is not PDF conversion.
- */
-export async function copyRange(wasm, source, sink, { offset = 0n, length, chunkSize = DEFAULT_IO_CHUNK, signal } = {}) {
-  requireSource(source);
-  requireSink(sink);
-  requireU64(offset, "offset");
-  length ??= source.size - offset;
-  checkRange(source.size, offset, length);
-  requireChunkLength(chunkSize);
-  checkAbort(signal);
-  const exports = await resolveExports(wasm);
-  return drive(
-    exports,
-    () => exports.caj2pdf_io_start(source.size, offset, length, chunkSize),
-    source,
-    sink,
-    chunkSize,
-    signal,
-  );
 }

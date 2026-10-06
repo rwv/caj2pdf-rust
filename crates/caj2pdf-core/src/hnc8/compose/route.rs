@@ -84,7 +84,7 @@ fn image_unless_fatal(error: Hnc8Error, stage: ComposeStage) -> Result<bool, Com
 ///
 /// Without `fonts` this is exactly [`convert_source_pages_pdf`]. With fonts,
 /// [`uses_native_text`] decides once per document: native documents use
-/// [`convert_c8_native_pdf`] and all others use image composition, leaving the
+/// `convert_c8_native_pdf` and all others use image composition, leaving the
 /// fonts unread and unvalidated, so the PDF is byte-identical to a conversion
 /// without fonts. `visitor` receives image-composition pages only. The
 /// routing reads are added to `conversion.input_bytes_read`. The CLI, Node

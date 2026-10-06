@@ -48,8 +48,8 @@ def fixture(width=4, height=2):
                     "pdf_ctm": ctm, "filter": "/DCTDecode", "color_space": "DeviceGray",
                     "raw_stream_sha256": digest, "raw_stream_length": 12, "object_id": 20+output}
             outputs.append({"page_number": output, "media_box": [0.0, 0.0, point_width, point_height], "draws": [draw]})
-    # Seventeen numeric resource fields after the variant.
-    values = [6, 2, 4, 0, 2, 256, 0, 0, 0, 0, 100, 32, 1, 1, 0, 0, 0]
+    # Twelve numeric resource fields after the variant.
+    values = [6, 2, 4, 0, 2, 100, 32, 1, 1, 0, 0, 0]
     lines.append("\t".join(map(str, ["R", "HN-B", *values])))
     case = {"source_variant": "HN-B", "source_id": "invented", "source_pages": source,
             "output_page_to_source_page": [1, 6], "pdf_pages": outputs, "pdf_sha256": digest}

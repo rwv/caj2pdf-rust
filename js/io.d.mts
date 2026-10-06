@@ -157,14 +157,6 @@ export declare function inspect(
   options?: OperationOptions,
 ): Promise<DocumentInfo>;
 
-/** Bounded byte-range copy through the WASM bridge; a diagnostic, not conversion. */
-export declare function copyRange(
-  wasm: WasmInput,
-  source: RangedSource,
-  sink: SequentialSink,
-  options?: { offset?: bigint; length?: bigint; chunkSize?: number; signal?: AbortSignal },
-): Promise<ConversionReport>;
-
 /** A source over a Blob or File using bounded `slice()` reads. */
 export declare function blobSource(blob: Blob): RangedSource;
 
@@ -205,13 +197,6 @@ export interface RandomAccessScratch {
   flush(signal?: AbortSignal): Promise<void>;
 }
 
-/** Caller-supplied probability state; no normative table is bundled. */
-export interface ProbabilityState {
-  qe: number;
-  nextLps: number;
-  nextMps: number;
-  switchMps: boolean;
-}
 /** An OpenType font (TrueType or CFF outlines), or one face of a font
  * collection (`.ttc`). */
 export type C8Font = RangedSource | { source: RangedSource; face?: number };
@@ -240,10 +225,6 @@ export interface C8Fonts {
 export interface Hnc8Options {
   /** Enables the admitted native C8 profile; currently requires includeBookmarks: false. */
   fonts?: C8Fonts;
-  /** Optional override; defaults to standard T.82 states. */
-  qmStates?: readonly ProbabilityState[];
-  /** Optional override; defaults to standard T.88 states. */
-  mqStates?: readonly ProbabilityState[];
   /** Contents are reset on exit; callers retain handle ownership. */
   scratch?: readonly [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch];
 }

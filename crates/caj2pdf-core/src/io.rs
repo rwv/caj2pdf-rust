@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::fallible::len_u64;
-use crate::{ConversionReport, Error, Limits, Result};
+use crate::{Error, Limits, Result};
 use std::io;
 
 /// A source with a stable size snapshot and positioned reads.
@@ -73,7 +73,7 @@ fn check_range(source_size: u64, offset: u64, length: u64) -> Result<()> {
 /// Fill one bounded buffer from a positioned source, tolerating short reads.
 ///
 /// This function rejects a request larger than the configured I/O chunk. A
-/// format handler must process larger ranges in a loop, as `copy_range` does.
+/// format handler must process larger ranges in a loop.
 /// The caller checks the selected operation size; unrelated source bytes do
 /// not count against this individual read.
 pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
@@ -179,68 +179,4 @@ pub async fn write_all<S: SequentialSink, C: Cancellation>(
         check_cancelled(cancellation)?;
     }
     Ok(())
-}
-
-/// Copy a source range to a forward-only sink with one reusable chunk buffer.
-///
-/// This is an I/O proof, not format conversion. The report records zero pages
-/// and bookmarks. It flushes the sink only after the requested range succeeds.
-pub async fn copy_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
-    source: &mut R,
-    sink: &mut W,
-    offset: u64,
-    length: u64,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<ConversionReport> {
-    limits.validate()?;
-    limits.check_input_size(length)?;
-    check_range(source.size(), offset, length)?;
-    if length > limits.max_output_bytes {
-        return Err(Error::LimitExceeded {
-            resource: "output bytes",
-            limit: limits.max_output_bytes,
-            attempted: length,
-        });
-    }
-    check_cancelled(cancellation)?;
-
-    let initial_chunk = length.min(len_u64(limits.io_chunk_bytes)) as usize;
-    let mut buffer = vec![0; initial_chunk];
-    let mut report = ConversionReport::default();
-    while report.input_bytes_read < length {
-        let remaining = length - report.input_bytes_read;
-        let chunk_length = remaining.min(len_u64(buffer.len())) as usize;
-        let current = offset
-            .checked_add(report.input_bytes_read)
-            .ok_or(Error::InvalidInput {
-                reason: "read offset overflows 64-bit offset",
-            })?;
-        read_exact_at(
-            source,
-            current,
-            &mut buffer[..chunk_length],
-            limits,
-            cancellation,
-        )
-        .await?;
-        report.input_bytes_read = report
-            .input_bytes_read
-            .checked_add(len_u64(chunk_length))
-            .ok_or(Error::InvalidInput {
-                reason: "input byte count overflows 64 bits",
-            })?;
-        write_all(
-            sink,
-            &buffer[..chunk_length],
-            &mut report.output_bytes_written,
-            limits,
-            cancellation,
-        )
-        .await?;
-    }
-    check_cancelled(cancellation)?;
-    sink.flush().await?;
-    check_cancelled(cancellation)?;
-    Ok(report)
 }

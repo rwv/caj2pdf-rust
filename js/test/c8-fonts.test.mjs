@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
 import { newInstance, pageText, tempDirectory, validatePdf } from "./helpers.mjs";
-import { syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn, qmStates } from "./hnc8-fixtures.mjs";
+import { syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -24,7 +24,7 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
     const parts = [];
     await withHnc8Scratch(async (scratch) => {
       const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
-        includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...roles(font), ...(hasSymbols ? { symbols: source(symbolBytes) } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}), ...(latinState ? { [`latinState${latinState}`]: { ...font } } : {}) }, scratch, qmStates },
+        includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...roles(font), ...(hasSymbols ? { symbols: source(symbolBytes) } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}), ...(latinState ? { [`latinState${latinState}`]: { ...font } } : {}) }, scratch },
       });
       assert.equal(result.pagesConverted, pages);
       assert.ok(scratch.every((store) => store.size === 0n));
@@ -53,7 +53,7 @@ test("image HN-A and compressed-text C8 inputs ignore supplied fonts", async (t)
       const parts = [];
       await withHnc8Scratch(async (scratch) => {
         const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
-          includeBookmarks: false, hnc8: { scratch, qmStates, ...(fonts ? { fonts } : {}) },
+          includeBookmarks: false, hnc8: { scratch, ...(fonts ? { fonts } : {}) },
         });
         assert.equal(result.pagesConverted, 1);
       });
@@ -167,7 +167,7 @@ test("HN-B image after text fails explicitly and releases scratch", async () => 
   bytes.set(image, 248);
   await withHnc8Scratch(async (scratch) => {
     await assert.rejects(convert(await newInstance(), source(bytes), sink(), {
-      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch, qmStates },
+      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch },
     }), (error) => error.code === "HNC8" && /image after text or drawing/.test(error.message));
     assert.ok(scratch.every((store) => store.size === 0n));
   });
@@ -215,7 +215,7 @@ test("collection faces are selected per role and embedded as distinct fonts", as
   await withHnc8Scratch(async (scratch) => {
     const result = await convert(await newInstance(), source(syntheticNativeHnb(0)), sink(parts), {
       includeBookmarks: false,
-      hnc8: { fonts: { cjk: { source: collection }, latin: { source: collection, face: 0 }, alternateLatin: collection, symbols: { source: collection, face: 1 } }, scratch, qmStates },
+      hnc8: { fonts: { cjk: { source: collection }, latin: { source: collection, face: 0 }, alternateLatin: collection, symbols: { source: collection, face: 1 } }, scratch },
     });
     assert.equal(result.pagesConverted, 2);
   });

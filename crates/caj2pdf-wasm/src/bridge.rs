@@ -51,22 +51,6 @@ fn with_outcome<T: Copy>(default: T, access: impl FnOnce(&Outcome) -> T) -> T {
     })
 }
 
-/// Start a bounded range copy (an I/O contract diagnostic, not conversion).
-/// Returns 0 on success, 1 when busy, or 2 for an invalid configuration.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_io_start(
-    source_size: u64,
-    offset: u64,
-    length: u64,
-    chunk_size: u32,
-) -> u32 {
-    let limits = Limits {
-        io_chunk_bytes: chunk_size as usize,
-        ..Limits::default()
-    };
-    install(source_size, limits, Operation::Copy { offset, length })
-}
-
 /// Start a conversion (`operation` 1) or inspection (`operation` 2).
 ///
 /// `format` 0 detects the input from its leading signature. Limits are
@@ -216,20 +200,6 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_latin_state3(index: u32) -> u32 {
     with_engine(0, |engine| engine.set_c8_latin_state3(index) as u32)
-}
-
-/// Append a validated caller-owned codec state before the first poll.
-#[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_hnc8_add_state(
-    table: u32,
-    qe: u32,
-    next_lps: u32,
-    next_mps: u32,
-    switch: u32,
-) -> u32 {
-    with_engine(0, |engine| {
-        engine.add_hnc8_state(table, qe, next_lps, next_mps, switch) as u32
-    })
 }
 
 /// Complete an awaited scratch resize (the requested extent is a u64).
