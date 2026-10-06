@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticDamagedCaj, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, pageText, syntheticDamagedCaj, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -178,19 +178,23 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.ok(Buffer.from(result.type1Pdf).includes(syntheticType1Hn().jpeg));
   assert.deepEqual(result.remainingEntries, []);
   assert.deepEqual(result.fontFailures, ["missing-glyph", "read-error", "cancel"]);
+  const late = pageText(Buffer.from(result.latePdf));
+  assert.ok(late.includes("<0041> Tj"), "late HN-B failure keeps the finished first page");
+  assert.ok(!late.includes("%%EOF"), "late HN-B failure must not finalize the PDF");
   assert.equal(result.nativePdfs.length, 10);
   assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {
     const pdf = Buffer.from(bytes);
-    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, index === 3 || index === 5 || index >= 7 ? 2 : 1);
-    assert.equal(pdf.toString("latin1").match(/<0041> Tj/g).length, [1, 2, 2, 2, 2, 2, 2, 1, 1, 1][index]);
+    const text = pageText(pdf);
+    assert.equal(text.match(/\/FontFile2 /g).length, index === 3 || index === 5 || index >= 7 ? 2 : 1);
+    assert.equal(text.match(/<0041> Tj/g).length, [1, 2, 2, 2, 2, 2, 2, 1, 1, 1][index]);
     if (index === 3) {
-      assert.equal(pdf.toString("latin1").match(/<0020> Tj/g).length, 2);
-      assert.equal(pdf.toString("latin1").match(/<FF1A> Tj/g).length, 2);
+      assert.equal(text.match(/<0020> Tj/g).length, 2);
+      assert.equal(text.match(/<FF1A> Tj/g).length, 2);
     }
     if (index === 4) {
       assert.ok(pdf.includes(syntheticType1Hn().jpeg));
-      assert.ok(pdf.indexOf("/Im0 Do") >= 0 && pdf.indexOf("/Im0 Do") < pdf.indexOf("<0041> Tj"));
+      assert.ok(text.indexOf("/Im0 Do") >= 0 && text.indexOf("/Im0 Do") < text.indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, [1, 1, 2, 2, 1, 2, 2, 1, 1, 1][index]);
   }

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Breaking:** native C8/HN-B page content streams are Flate-compressed.
+  The six pinned corpus documents shrink further to 0.20–1.06 MB (from
+  6.0–7.1 MB in v0.4.0) with identical renders and text (#336).
+  `PdfDocument::begin_content_page` now needs the 512 KiB zlib reservation
+  (one compressor is reused by every page and font of a document), so
+  `max_allocation_bytes` below that refuses it. Draws are buffered in 4 KiB
+  chunks: an output failure is reported by a later draw or by `finish`, with
+  that location; the page and document are still refused.
+
 - **Breaking:** native C8/HN-B PDFs embed only the drawn glyphs of each font,
   as a Flate-compressed TrueType subset with a tagged `BaseFont`, and their
   `CIDToGIDMap`/ToUnicode streams are compressed. The six pinned corpus

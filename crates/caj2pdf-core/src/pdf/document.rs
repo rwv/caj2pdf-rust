@@ -198,17 +198,17 @@ pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
     stride: usize,
     column: usize,
     remaining: u64,
-    deflate: Deflate,
+    zlib: Zlib,
     failed: bool,
 }
 
 /// Fixed-size zlib state that compresses into the writer's open stream.
-pub(super) struct Deflate {
+pub(super) struct Zlib {
     encoder: Compress,
     encoded: Vec<u8>,
 }
 
-impl Deflate {
+impl Zlib {
     /// Reserve the compressor state and one output chunk.
     pub(super) fn new(limits: &Limits) -> Result<Self> {
         limits.check_allocation(DEFLATE_RESERVATION_BYTES)?;
@@ -221,11 +221,6 @@ impl Deflate {
             encoder: Compress::new(Compression::default(), true),
             encoded,
         })
-    }
-
-    /// Start a new zlib stream, reusing the reserved state.
-    pub(super) fn reset(&mut self) {
-        self.encoder.reset();
     }
 
     /// Compress `input`, and with `finish` end the zlib stream. Compression
@@ -303,6 +298,57 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
     }
 }
 
+const DEFLATE_PENDING_BYTES: usize = 4096;
+
+/// A [`Zlib`] stream that gathers small writes into fixed chunks first, so
+/// many tiny draws or table entries cost few compressor and sink calls.
+/// A document keeps one and resets it for each stream.
+pub(super) struct Deflate {
+    zlib: Zlib,
+    pending: Vec<u8>,
+}
+
+impl Deflate {
+    pub(super) fn new(limits: &Limits) -> Result<Self> {
+        let zlib = Zlib::new(limits)?;
+        let mut pending = Vec::new();
+        let refused = limits.allocation_refused("zlib input buffer", DEFLATE_PENDING_BYTES as u64);
+        reserve_exact(&mut pending, DEFLATE_PENDING_BYTES, refused)?;
+        Ok(Self { zlib, pending })
+    }
+
+    /// Gather `bytes`, compressing whenever the buffer fills. Output errors
+    /// are therefore reported by a later call, at the latest by `finish`.
+    pub(super) async fn put<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+        mut bytes: &[u8],
+    ) -> Result<()> {
+        while !bytes.is_empty() {
+            let count = bytes.len().min(DEFLATE_PENDING_BYTES - self.pending.len());
+            self.pending.extend_from_slice(&bytes[..count]);
+            bytes = &bytes[count..];
+            if self.pending.len() == DEFLATE_PENDING_BYTES {
+                self.zlib.write(writer, &self.pending, false).await?;
+                self.pending.clear();
+            }
+        }
+        Ok(())
+    }
+
+    /// Compress gathered bytes, end the zlib stream and reset for another.
+    pub(super) async fn finish<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+    ) -> Result<()> {
+        self.zlib.write(writer, &self.pending, true).await?;
+        // Ready for the next stream; a failed stream drops its Deflate.
+        self.zlib.encoder.reset();
+        self.pending.clear();
+        Ok(())
+    }
+}
+
 impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
     async fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
         if self.failed {
@@ -311,7 +357,7 @@ impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
             });
         }
         self.failed = true;
-        self.deflate
+        self.zlib
             .write(&mut self.document.writer, input, finish)
             .await?;
         self.failed = false;
@@ -387,6 +433,9 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     fonts: Vec<text::PendingFont>,
     /// Identity ToUnicode CMap shared by every embedded font.
     to_unicode: Option<ObjectId>,
+    /// Compressor reused by content pages and font streams; absent until
+    /// first needed, and while a content page holds it.
+    deflate: Option<Deflate>,
     /// Set while a bookmark insertion closes and links items, and left set
     /// when it fails there; see `super::ensure_outline_intact`.
     outline_failed: bool,
@@ -425,6 +474,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             image_buffer: Vec::new(),
             fonts: Vec::new(),
             to_unicode: None,
+            deflate: None,
             outline_failed: false,
             image_page_failed: false,
         })
@@ -530,7 +580,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
         self.ensure_image_page_intact()?;
         let (visible, remaining) = image.validate()?;
-        let deflate = Deflate::new(self.limits)?;
+        let zlib = Zlib::new(self.limits)?;
         let object = self.writer.reserve_object()?;
         let length_id = self.writer.reserve_object()?;
         let dictionary = format!(
@@ -547,7 +597,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             stride: image.row_stride,
             column: 0,
             remaining,
-            deflate,
+            zlib,
             failed: false,
         })
     }

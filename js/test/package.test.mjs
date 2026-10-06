@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { syntheticCaj, tempDirectory, validatePdf, wasmUrl } from "./helpers.mjs";
+import { pageText, syntheticCaj, tempDirectory, validatePdf, wasmUrl } from "./helpers.mjs";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
 
 import { syntheticC8, syntheticNativeC8 } from "./hnc8-fixtures.mjs";
@@ -108,9 +108,10 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     await validatePdf(t, await readFile(join(consumer, "c8.pdf")), 1);
     for (const state of [3, 28, 31]) {
       const pdf = await readFile(join(consumer, "native-" + state + ".pdf"));
+      const text = pageText(pdf);
       await validatePdf(t, pdf, 1);
-      assert.equal(pdf.toString("latin1").match(/<0041> Tj/g)?.length, 1);
-      assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g)?.length, 2);
+      assert.equal(text.match(/<0041> Tj/g)?.length, 1);
+      assert.equal(text.match(/\/FontFile2 /g)?.length, 2);
     }
 
     // The public Node example must work beside the unpacked package, without

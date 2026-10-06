@@ -110,7 +110,8 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
     images
 }
 
-/// Inflate one zlib stream, returning its bytes and the input consumed.
+/// Inflate one complete zlib stream, returning its bytes and the input
+/// consumed; an invalid or truncated stream fails the test.
 fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
     use std::io::Read;
     let mut decoder = flate2::read::ZlibDecoder::new(stream);
@@ -133,4 +134,25 @@ pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
             .unwrap()
         + 7;
     inflate(&pdf[data..]).0
+}
+
+/// Text of a small generated test PDF with every content-like Flate stream
+/// (one whose dictionary has only `/Length` and `/Filter`) inflated, so
+/// tests can search page operators.
+pub(crate) fn pdf_text(pdf: &[u8]) -> String {
+    const DICTIONARY: &[u8] = b" 0 R\n/Filter /FlateDecode\n>>\nstream\n";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = pdf[from..]
+        .windows(DICTIONARY.len())
+        .position(|part| part == DICTIONARY)
+    {
+        let data = from + at + DICTIONARY.len();
+        out.extend_from_slice(&pdf[from..data]);
+        let (bytes, consumed) = inflate(&pdf[data..]);
+        out.extend(bytes);
+        from = data + consumed;
+    }
+    out.extend_from_slice(&pdf[from..]);
+    String::from_utf8_lossy(&out).into_owned()
 }

@@ -81,8 +81,6 @@ try {
   } catch (error) {
     if (error.code !== "HNC8" || !/page 2/.test(error.message)) throw error;
   }
-  const latePdf = new TextDecoder().decode(new Uint8Array(lateParts));
-  if (!latePdf.includes("<0041> Tj") || latePdf.includes("%%EOF")) throw new Error("late HN-B failure did not preserve unfinished first-page output");
   if (!scratch.every((store) => store.size === 0n)) throw new Error("late HN-B failure left scratch data");
   const fontFailures = [];
   for (const mode of ["missing-glyph", "read-error", "cancel"]) {
@@ -110,7 +108,7 @@ try {
     }
     if (!scratch.every((store) => store.size === 0n)) throw new Error("font failure left scratch data");
   }
-  result = { fontFailures, nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
+  result = { fontFailures, latePdf: lateParts, nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

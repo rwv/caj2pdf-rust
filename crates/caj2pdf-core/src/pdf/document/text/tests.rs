@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     native::SeekableSource,
     pdf::font::tests::drawing_font,
-    test_support::{NEVER, inflated_stream, run},
+    test_support::{NEVER, inflated_stream, pdf_text, run},
 };
 use std::io::Cursor;
 
@@ -13,8 +13,6 @@ struct Sink {
     bytes: Vec<u8>,
     max_request: usize,
     fail_after: Option<usize>,
-    fail_on_restore: bool,
-    fail_on_mark_end: bool,
     fail_now: std::rc::Rc<std::cell::Cell<bool>>,
     pending: std::rc::Rc<std::cell::Cell<bool>>,
 }
@@ -24,9 +22,7 @@ impl SequentialSink for Sink {
             std::future::pending::<()>().await;
         }
         self.max_request = self.max_request.max(bytes.len());
-        if (self.fail_on_restore && bytes.starts_with(b"Q\n"))
-            || (self.fail_on_mark_end && bytes.starts_with(b"EMC\n"))
-            || self.fail_now.get()
+        if self.fail_now.get()
             || self
                 .fail_after
                 .is_some_and(|limit| self.bytes.len() >= limit)
@@ -157,7 +153,7 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
     assert_eq!(report.pages_converted, 2);
     assert_eq!(report.input_bytes_read, 3 + font.subset_bytes_read());
     assert!(sink.max_request <= 31);
-    let text = String::from_utf8_lossy(&sink.bytes);
+    let text = pdf_text(&sink.bytes);
     assert!(text.contains("/Subtype /CIDFontType2"));
     assert!(text.contains("/DW 1000 /W [ 65 [ 600 ] 20013 [ 1000 ] ]"));
     let tagged = text.split("/FontName /").nth(1).unwrap();
@@ -270,7 +266,7 @@ fn bounded_filled_polygons_preserve_concavity_and_close_paths() {
         document.finish().await.unwrap();
     });
     assert!(sink.max_request <= 31);
-    let text = String::from_utf8_lossy(&sink.bytes);
+    let text = pdf_text(&sink.bytes);
     assert!(text.contains("q 0 g\n10 10 m\n30 10 l\n45 25 l\n30 40 l\n10 40 l\n25 25 l\nh f Q\n"));
     assert_eq!(text.matches("h f Q").count(), 3);
     let mut source = SeekableSource::new(Cursor::new(sink.bytes.clone())).unwrap();
@@ -307,7 +303,10 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
                 5 => fail_now.set(true),
                 _ => content.failed = true,
             }
-            assert!(content.fill_polygon(&points).await.is_err());
+            // Output is compressed in chunks, so an output failure can
+            // surface when the page finishes instead of at this draw.
+            let drawn = content.fill_polygon(&points).await;
+            assert!(drawn.is_err() || case == 5);
             assert!(content.finish().await.is_err());
             assert!(document.finish().await.is_err());
         });
@@ -316,15 +315,15 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
 
 #[test]
 fn failed_or_abandoned_content_cannot_be_finished() {
-    for case in 0..16 {
+    for case in 0..14 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
         let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
-        let mut sink = Sink {
-            fail_on_restore: case == 8 || case == 9 || case == 14,
-            fail_on_mark_end: case == 15,
-            ..Sink::default()
-        };
+        let mut sink = Sink::default();
+        let fail = sink.fail_now.clone();
+        // Output is compressed in chunks: case 8's output failure during a
+        // valid draw surfaces only when the page finishes.
+        let late_failure = case == 8;
         run(async {
             let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
             let font = document.add_font(&font).unwrap();
@@ -333,6 +332,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 .begin_content_page(page(), &fonts, &[])
                 .await
                 .unwrap();
+            fail.set(late_failure);
             let result = match case {
                 0 => content.glyph(1, 'A', matrix(0.0)).await,
                 1 => content.glyph(0, 'B', matrix(0.0)).await,
@@ -345,19 +345,13 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 }
                 5 => content.segment([0.0, 0.0], [1.0, 1.0], -1.0).await,
                 6 => content.segment([f64::INFINITY, 0.0], [1.0, 1.0], 1.0).await,
-                14 | 15 => {
-                    content
-                        .decoration_glyph(0, 'A', matrix(0.0), [0.0, 0.0, 1.0, 1.0])
-                        .await
-                }
                 8 => content.glyph_with_gray(0, 'A', matrix(0.0), 68).await,
-                9..=13 => {
+                9..=12 => {
                     let clip = match case {
-                        10 => [0.0, 0.0, 0.0, 1.0],
-                        11 => [0.0, 0.0, 1.0, -1.0],
-                        12 => [f64::NAN, 0.0, 1.0, 1.0],
-                        13 => [MAX_PDF_INTEGER as f64, 0.0, 1.0, 1.0],
-                        _ => [0.0, 0.0, 1.0, 1.0],
+                        9 => [0.0, 0.0, 0.0, 1.0],
+                        10 => [0.0, 0.0, 1.0, -1.0],
+                        11 => [f64::NAN, 0.0, 1.0, 1.0],
+                        _ => [MAX_PDF_INTEGER as f64, 0.0, 1.0, 1.0],
                     };
                     content.glyph_with_clip(0, 'A', matrix(0.0), clip).await
                 }
@@ -366,7 +360,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                     content.glyph(0, 'A', matrix(0.0)).await
                 }
             };
-            assert!(result.is_err());
+            assert_eq!(result.is_ok(), late_failure);
             assert!(content.finish().await.is_err());
             assert!(document.finish().await.is_err());
         });
@@ -516,14 +510,20 @@ fn font_limits_and_invalid_glyphs_are_explicit_before_output() {
             let before = document.writer.position();
             assert!(document.add_font(&font).is_err());
             assert_eq!(document.writer.position(), before);
-            document
-                .begin_content_page(page(), &[], &[])
-                .await
-                .unwrap()
-                .finish()
-                .await
-                .unwrap();
-            document.finish().await.unwrap();
+            assert!(!document.image_page_failed);
+            if case == 1 {
+                // A refused font leaves the document able to finish. (A
+                // content page needs its compressor, which case 0's
+                // 4 KiB allocation limit refuses.)
+                document
+                    .begin_content_page(page(), &[], &[])
+                    .await
+                    .unwrap()
+                    .finish()
+                    .await
+                    .unwrap();
+                document.finish().await.unwrap();
+            }
         });
     }
 }
@@ -767,19 +767,16 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             self.0.get()
         }
     }
+    // Every draw kind observes cancellation; buffered draws then publish
+    // nothing until `finish`, which is abandoned once while pending.
     for (pending, kind) in [
         (false, 0),
         (true, 0),
         (false, 1),
-        (true, 1),
         (false, 2),
-        (true, 2),
         (false, 3),
-        (true, 3),
         (false, 4),
-        (true, 4),
         (false, 5),
-        (true, 5),
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
@@ -812,8 +809,11 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             }
         };
         if pending {
+            // Draws are buffered; the page's output is written, and here
+            // abandoned while pending, when it finishes.
             suspend.set(true);
-            let mut future = std::pin::pin!(draw);
+            run(draw).unwrap();
+            let mut future = std::pin::pin!(page.finish());
             assert!(matches!(
                 future
                     .as_mut()
@@ -823,10 +823,10 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         } else {
             cancelled.set(true);
             assert!(matches!(run(draw), Err(Error::Cancelled)));
+            cancelled.set(false);
+            assert!(run(page.finish()).is_err());
         }
         suspend.set(false);
-        cancelled.set(false);
-        assert!(run(page.finish()).is_err());
         assert!(run(document.finish()).is_err());
     }
 }
@@ -897,7 +897,7 @@ fn joined_stroke_preserves_vertices_gray_and_failure_state() {
         content.finish().await.unwrap();
         document.finish().await.unwrap();
     });
-    let text = String::from_utf8_lossy(&sink.bytes)
+    let text = pdf_text(&sink.bytes)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
@@ -921,9 +921,43 @@ fn joined_stroke_preserves_vertices_gray_and_failure_state() {
                 7 => content.failed = true,
                 _ => width = MAX_PDF_INTEGER as f64 + 1.0,
             }
-            assert!(content.stroke_polyline(&points, width, 0).await.is_err());
+            let drawn = content.stroke_polyline(&points, width, 0).await;
+            assert!(drawn.is_err() || case == 6);
             assert!(content.finish().await.is_err());
             assert!(document.finish().await.is_err());
         });
     }
+}
+
+#[test]
+fn a_draw_abandoned_while_flushing_cannot_publish_its_page() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    let limits = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+    let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    let mut sink = Sink::default();
+    let suspend = sink.pending.clone();
+    let mut document = run(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
+    let handle = document.add_font(&font).unwrap();
+    let fonts = [&handle];
+    let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
+    suspend.set(true);
+    // Buffered draws complete until one fills the buffer and must write.
+    let mut draws = 0;
+    loop {
+        draws += 1;
+        let mut draw = std::pin::pin!(page.glyph(0, 'A', matrix(10.0)));
+        match draw.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result.unwrap(),
+            Poll::Pending => break,
+        }
+    }
+    assert!(draws > 1);
+    suspend.set(false);
+    assert!(run(page.glyph(0, 'A', matrix(10.0))).is_err());
+    assert!(run(page.finish()).is_err());
+    assert!(run(document.finish()).is_err());
 }

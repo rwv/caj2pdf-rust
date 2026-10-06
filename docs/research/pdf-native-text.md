@@ -23,8 +23,11 @@ their statements about missing adapters or profiles describe that earlier stage.
    of the characters actually drawn.
 3. Begin a content page with borrowed font/image handles. There are at most
    128 fonts and 8192 images per page. Await `glyph`, `image` and `segment`
-   calls in source draw order, then `finish` the page. No page display list
-   or completed content stream is retained in memory. Existing page-tree,
+   calls in source draw order, then `finish` the page. Content is
+   Flate-compressed through a 4 KiB input buffer and the shared zlib state
+   (#336); no page display list or completed content stream is retained in
+   memory. Every draw still checks cancellation, but an output failure can
+   surface only when buffered bytes are written, at the latest in `finish`. Existing page-tree,
    output, cancellation and allocation limits continue to apply.
 4. After the last draw, call `PdfDocument::embed_font` once per font with the
    same, unchanged source. It writes a Flate-compressed TrueType subset of the
@@ -60,7 +63,8 @@ source changed after its metadata was read".
 On the six pinned C8/HN-B corpus inputs with Droid Sans Fallback and DejaVu
 Sans, MuPDF and Poppler renders and `pdftotext` output are identical to the
 previous complete-font PDFs; output size falls from 6.0–7.1 MB to
-0.85–1.95 MB. The remaining bytes are mostly page content streams.
+0.85–1.95 MB. Compressing page content streams (#336) brings them to
+0.20–1.06 MB; the rest is mostly page images.
 
 `glyph` takes a BMP character and a six-component text matrix. Its font size
 is one: `[12, 0, 0, 12, x, y]` draws at 12 points with baseline `(x, y)`.

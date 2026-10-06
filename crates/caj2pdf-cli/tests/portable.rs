@@ -175,7 +175,7 @@ fn native_c8_fonts_are_ranged_reused_and_protected() {
         String::from_utf8_lossy(&pdf).matches("/FontFile2 ").count(),
         1
     );
-    assert!(String::from_utf8_lossy(&pdf).contains("<0041> Tj"));
+    assert!(String::from_utf8_lossy(&page_content(&pdf)).contains("<0041> Tj"));
     for target in ["字体.ttf", "native.pdf"] {
         input[110..112].copy_from_slice(&0xa0c2u16.to_le_bytes());
         fs::write(dir.0.join("input.c8"), &input).unwrap();
@@ -233,4 +233,21 @@ fn late_hnb_error_preserves_destination_and_removes_staging() {
     assert!(String::from_utf8_lossy(&failed.stderr).contains("page 2"));
     assert_eq!(fs::read(dir.0.join("output.pdf")).unwrap(), original);
     dir.clean();
+}
+
+/// Inflate the first page's compressed content stream: the first stream
+/// whose dictionary holds only its indirect `/Length` and the filter. Image
+/// streams come earlier but have more entries.
+fn page_content(pdf: &[u8]) -> Vec<u8> {
+    use std::io::Read;
+    let marker = b" 0 R\n/Filter /FlateDecode\n>>\nstream\n";
+    let at = pdf
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
+    let mut content = Vec::new();
+    flate2::read::ZlibDecoder::new(&pdf[at + marker.len()..])
+        .read_to_end(&mut content)
+        .unwrap();
+    content
 }
