@@ -589,4 +589,9 @@ MuPDF black-box runs. This isolates the JBIG2 fix; it is not a claim of full
 rendering fidelity for every page or successful conversion of the ten refused
 documents. See [provenance](provenance.md#hnc8-empty-jbig2-content-389) for
 profile measurements, independently generated controls and guard coverage.
-External optional-corpus tests skipped by the normal suite remain NOT_RUN.
+Node and a real Chromium Worker reran all 25 documents with the same final
+WASM: the 15 successful PDF hashes/page counts match native, and the ten
+refusals match in reason and runtime output progress. OPFS cleanup leaves no
+entries. The normal suite passes 1,253 Rust tests (7 optional-corpus tests
+ignored) and 164 JavaScript tests (0 skipped), with Clippy clean. Ignored
+optional-corpus tests remain NOT_RUN compatibility evidence.
