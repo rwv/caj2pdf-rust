@@ -10,14 +10,14 @@ use crate::jbig2::{
         DictionaryStores, ImportedDictionary, SymbolDictionaryDecoder, coding_unit_contexts,
         symbol_code_length,
     },
-    generic::{GenericRegionDecoder, read_generic_region_header},
+    generic::{GenericRegionDecoder, GenericRegionHeader, read_generic_region_header},
     iaid::IAID_BASE,
     mq::{ContextBank, MqTable},
-    page_compose::{PageComposeReport, PageOrSink},
+    page_compose::PageOrSink,
     page_info::{PageInfo, read_page_info},
     page_profile::{PageProfile, validate_observed_page_profile},
     read_embedded_directory,
-    text::{TextHeaderPolicy, read_text_region_header_with_policy},
+    text::{TextHeaderAnomaly, TextHeaderPolicy, read_text_region_header_with_policy},
     text_composer::{TextComposeReport, TextComposer},
     text_instances::TextInstanceDecoder,
 };
@@ -61,28 +61,41 @@ fn work_stage<T>(result: Result<T>, at: At, stage: Type3Stage) -> Result<T> {
     result.map_err(|error| at.stage(stage, error))
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Type3Profile {
+    Text(PageProfile),
+    Generic {
+        page: PageInfo,
+        header: GenericRegionHeader,
+    },
+}
+
 /// Checked source metadata from one preflight pass. Geometry is exposed
 /// without decoding pixels; the directory and profile are reused for decode.
 #[derive(Debug)]
 pub(super) struct CheckedType3 {
     image: ImageRecord,
     directory: crate::jbig2::SegmentDirectory,
-    profile: PageProfile,
+    profile: Type3Profile,
     /// The text-header policy the preflight admitted, reapplied by decode.
     policy: TextHeaderPolicy,
 }
 
 impl CheckedType3 {
     pub(super) fn page(&self) -> PageInfo {
-        self.profile.page()
+        match self.profile {
+            Type3Profile::Text(profile) => profile.page(),
+            Type3Profile::Generic { page, .. } => page,
+        }
     }
 }
 
-/// Prepared text pixels, composed in the stores' text region. Symbol
-/// decoder contexts and catalogs have already been released.
+/// Prepared metadata and optional text pixels. Generic-only images need no
+/// symbol dictionaries or text bitmap. For text profiles, symbol contexts
+/// and catalogs have already been released.
 pub(super) struct PreparedType3 {
     checked: CheckedType3,
-    text_report: TextComposeReport,
+    text_report: Option<TextComposeReport>,
 }
 
 /// Check one type-3 record's DIB wrapper and JBIG2 metadata without decoding
@@ -133,7 +146,7 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     };
     let directory = read_embedded_directory(source, embedded, limits, cancellation)
         .map_err(|error| at.stage(Type3Stage::Directory, error))?;
-    if directory.segments.len() != 5 {
+    if !matches!(directory.segments.len(), 2 | 5) {
         return Err(at.stage(
             Type3Stage::Profile,
             Error::unsupported(embedded.offset, "segment count").in_jbig2(None),
@@ -145,6 +158,22 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
         return Err(at
             .with_offset(image.payload.offset + 4)
             .dib("type-3 DIB: DIB and JBIG2 page dimensions differ"));
+    }
+    if directory.segments.len() == 2 {
+        let generic =
+            read_generic_region_header(source, &directory.segments[1], limits, cancellation)
+                .map_err(|error| at.stage(Type3Stage::GenericHeader, error))?;
+        validate_generic_only(&directory, page, generic)
+            .map_err(|error| at.stage(Type3Stage::Profile, error))?;
+        return Ok(CheckedType3 {
+            image,
+            directory,
+            profile: Type3Profile::Generic {
+                page,
+                header: generic,
+            },
+            policy,
+        });
     }
     let text = read_text_region_header_with_policy(
         source,
@@ -178,9 +207,52 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     Ok(CheckedType3 {
         image,
         directory,
-        profile,
+        profile: Type3Profile::Text(profile),
         policy,
     })
+}
+
+/// The measured two-segment profile contains an actual coded full-page
+/// generic bitmap, even when a viewer page looks blank. No dictionary or
+/// text-region placeholder is synthesized.
+fn validate_generic_only(
+    directory: &crate::jbig2::SegmentDirectory,
+    page: PageInfo,
+    generic: GenericRegionHeader,
+) -> Result<()> {
+    for (segment, number, kind) in [
+        (&directory.segments[0], 0, 48),
+        (&directory.segments[1], 1, 38),
+    ] {
+        if segment.number != number
+            || segment.segment_type != kind
+            || segment.page_association != 1
+            || !segment.referred_to.is_empty()
+        {
+            return Err(
+                Error::unsupported(segment.data.offset, "generic-only segment topology")
+                    .in_jbig2(Some(segment.number)),
+            );
+        }
+    }
+    if page.flags_raw != 1 || page.striping_raw != 0 {
+        return Err(
+            Error::unsupported(page.data.offset, "page flags or striping").in_jbig2(Some(0)),
+        );
+    }
+    let region = generic.info;
+    if region.width != page.width
+        || region.height != page.height
+        || region.x != 0
+        || region.y != 0
+        || region.combination_operator != 0
+    {
+        return Err(
+            Error::unsupported(generic.data.offset, "generic-only full-page OR region")
+                .in_jbig2(Some(generic.segment)),
+        );
+    }
+    Ok(())
 }
 
 /// Decode one checked type-3 record from its `payload` into `document`,
@@ -193,7 +265,7 @@ pub(super) fn emit_type3<W: Write, C: Cancellation>(
     image_at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport)> {
+) -> Result<(ImageObject, Option<TextHeaderAnomaly>)> {
     for store in [
         &mut stores.first,
         &mut stores.second,
@@ -224,11 +296,17 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<PreparedType3> {
+    let Type3Profile::Text(profile) = checked.profile else {
+        return Ok(PreparedType3 {
+            checked,
+            text_report: None,
+        });
+    };
     let table = &MqTable::standard();
     let policy = checked.policy;
     let image = checked.image;
     let directory = &checked.directory;
-    let text = checked.profile.text_header();
+    let text = profile.text_header();
     let at = image_at.with_offset(image.payload.offset);
     let first_contexts = ContextBank::new(IAID_BASE, limits);
     let first_at = at.with_offset(directory.segments[1].data.offset);
@@ -329,7 +407,7 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
     let text_report = work_stage(composer.compose(), at, Type3Stage::TextCompose)?;
     Ok(PreparedType3 {
         checked,
-        text_report,
+        text_report: Some(text_report),
     })
 }
 
@@ -343,7 +421,7 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
     image_at: At,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport)> {
+) -> Result<(ImageObject, Option<TextHeaderAnomaly>)> {
     let PreparedType3 {
         checked,
         text_report,
@@ -351,7 +429,21 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
     let image = checked.image;
     let page = checked.page();
     let display_width = page.width;
-    let profile = checked.profile;
+    let profile = match checked.profile {
+        Type3Profile::Text(profile) => profile,
+        Type3Profile::Generic { header, .. } => {
+            return emit_generic_only(
+                payload,
+                document,
+                &checked.directory.segments[1],
+                header,
+                image_at.with_offset(image.payload.offset),
+                limits,
+                cancellation,
+            );
+        }
+    };
+    let text_report = text_report.expect("text profile was prepared with a text report");
     let directory = &checked.directory;
     let at = image_at.with_offset(image.payload.offset);
     // TextComposer proved the packed byte count; PageOrSink rechecks it
@@ -419,7 +511,54 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
         )
     })?;
     let object = rows.finish().map_err(at.pdf())?;
-    Ok((object, page_compose))
+    Ok((object, page_compose.text_header_anomaly))
+}
+
+/// Decode every generic row and its terminal marker into the sequential
+/// image writer. The bitmap may be nonblank; its dimensions alone never
+/// authorize a blank substitution.
+fn emit_generic_only<W: Write, C: Cancellation>(
+    payload: Payload<'_>,
+    document: &mut PdfDocument<'_, W, C>,
+    segment: &crate::jbig2::SegmentHeader,
+    expected: GenericRegionHeader,
+    at: At,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(ImageObject, Option<TextHeaderAnomaly>)> {
+    let mut rows = document
+        .begin_bilevel_image(BilevelImageSpec {
+            pixel_width: expected.info.width,
+            pixel_height: expected.info.height,
+            row_stride: expected.info.row_stride,
+        })
+        .map_err(at.pdf())?;
+    let table = MqTable::standard();
+    let mut contexts = work_stage(ContextBank::new(1024, limits), at, Type3Stage::Contexts)?;
+    let mut decoder = GenericRegionDecoder::new(
+        payload,
+        segment,
+        &table,
+        &mut contexts,
+        &mut rows,
+        limits,
+        cancellation,
+    )
+    .map_err(|error| at.stage(Type3Stage::GenericRegion, error))?;
+    if decoder.checked_header() != expected {
+        return Err(at.stage(
+            Type3Stage::GenericRegion,
+            Error::invalid("generic header differs from page preflight"),
+        ));
+    }
+    while decoder
+        .decode_next_row()
+        .map_err(|error| at.stage(Type3Stage::GenericRegion, error))?
+    {}
+    decoder
+        .finish()
+        .map_err(|error| at.stage(Type3Stage::GenericRegion, error))?;
+    Ok((rows.finish().map_err(at.pdf())?, None))
 }
 
 /// Decode the generic region into the armed page sink.
@@ -675,7 +814,7 @@ mod tests {
                 &NeverCancel,
             )
             .unwrap();
-            assert_eq!(report.text_header_anomaly, None);
+            assert_eq!(report, None);
             if number == 1 {
                 document.add_page(size, &[object]).unwrap();
             }

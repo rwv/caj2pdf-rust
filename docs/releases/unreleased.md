@@ -1,5 +1,15 @@
 # Unreleased
 
+## C8 generic-only JBIG2 images (#392)
+
+- HN/C8 type-3 images with the measured page-information plus full-page
+  generic-region profile now decode through the existing bounded row decoder.
+  Apparently blank images retain their actual pixels; unknown profiles and
+  corrupt bodies still fail.
+- All 9 affected documents (224 pages) convert. The [checkpoint](../conformance.md#c8-generic-only-jbig2-checkpoint-392)
+  records full image-pixel comparisons and neighboring-page checks. No native,
+  CLI or JavaScript API shapes or dependencies change.
+
 ## C8 uncompressed image records (#390)
 
 - C8 pages starting with the measured single unmarked image record now use

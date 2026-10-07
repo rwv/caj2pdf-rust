@@ -60,6 +60,18 @@ fn type3(width: u32, height: u32, text_flags: u16) -> Image {
     }
 }
 
+fn generic_only(width: u32, height: u32) -> Image {
+    let mut image = type3(width, height, 0x10);
+    image.payload = dib(width, height).to_vec();
+    image
+        .payload
+        .extend(segment(0, 48, &[], &page_data(width, height)));
+    image
+        .payload
+        .extend(segment(1, 38, &[], &generic_data(width, height)));
+    image
+}
+
 struct Source {
     bytes: Vec<u8>,
     max_read: usize,
@@ -542,6 +554,116 @@ fn located_stage_errors_cover_each_checked_metadata_boundary() {
     let (error, pdf) = run_error(built.bytes, ComposeOptions::default());
     assert!(no_image(&pdf));
     assert_eq!(type3_stage(&error), Some(Type3Stage::Profile), "{error}");
+}
+
+#[test]
+fn generic_only_images_preserve_nonblank_pixels_padding_and_adjacent_pages() {
+    for variant in LAYOUTS {
+        for width in [7, 8, 9, 31, 32, 33] {
+            let mut outputs = Vec::new();
+            for only_generic in [false, true] {
+                let middle = if only_generic {
+                    generic_only(width, 3)
+                } else {
+                    type3(width, 3, 0x10)
+                };
+                let built = document(
+                    variant,
+                    &[
+                        vec![type3(5, 2, 0x10)],
+                        vec![middle],
+                        vec![type3(17, 4, 0x10)],
+                    ],
+                );
+                let mut source = Source::new(built.bytes);
+                source.max_read = 3;
+                let mut sink = Sink::default();
+                let report = run(
+                    &mut source,
+                    &mut sink,
+                    ComposeOptions::default(),
+                    &Limits::default(),
+                    &NeverCancel,
+                )
+                .unwrap();
+                assert_eq!(report.output_pages, 3);
+                assert_eq!(report.type3_images, 3);
+                outputs.push(sink.bytes);
+            }
+            // The original MQ fixture codes a black top-left pixel, not an
+            // empty page. Removing only empty text/dictionaries must preserve
+            // the complete PDF, including both adjacent pages and ordering.
+            assert_eq!(outputs[0], outputs[1]);
+        }
+    }
+}
+
+#[test]
+fn generic_only_profile_rejects_unknown_topology_geometry_and_damaged_body() {
+    let original = generic_only(9, 2);
+    for (offset, value) in [
+        (48 + 6, 2),       // page association
+        (48 + 11 + 16, 0), // unmeasured page flags
+        (78 + 3, 2),       // segment number
+        (78 + 4, 6),       // not a generic region
+        (78 + 6, 2),       // generic page association
+        (89 + 3, 8),       // region width differs from page
+        (89 + 11, 1),      // nonzero x
+        (89 + 15, 1),      // nonzero y
+        (89 + 16, 1),      // non-OR combination
+        (89 + 17, 5),      // MMR rather than arithmetic
+        (89 + 18, 3),      // unmeasured adaptive pixel
+    ] {
+        let mut image = generic_only(9, 2);
+        image.payload[offset] = value;
+        let built = document(Variant::C8, &[vec![image]]);
+        let (error, pdf) = run_error(built.bytes, ComposeOptions::default());
+        assert!(no_image(&pdf), "{offset}: {error}");
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
+    }
+    for damage in 0..4 {
+        let mut image = generic_only(9, 2);
+        match damage {
+            0 => image
+                .payload
+                .extend(segment(2, 38, &[], &generic_data(9, 2))),
+            1 => {
+                image.payload.truncate(78);
+                image
+                    .payload
+                    .extend(segment(1, 38, &[0], &generic_data(9, 2)));
+            }
+            _ => {
+                let mut data = generic_data(9, 2);
+                if damage == 2 {
+                    data.pop();
+                } else {
+                    *data.last_mut().unwrap() = 0xad;
+                }
+                image.payload.truncate(78);
+                image.payload.extend(segment(1, 38, &[], &data));
+            }
+        }
+        let built = document(Variant::C8, &[vec![image]]);
+        let (error, _) = run_error(built.bytes, ComposeOptions::default());
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
+    }
+    let built = document(Variant::C8, &[vec![original]]);
+    let mut sink = Sink::default();
+    assert!(
+        run(
+            &mut Source::new(built.bytes),
+            &mut sink,
+            ComposeOptions::default(),
+            &Limits {
+                max_image_pixels: 17,
+                ..Limits::default()
+            },
+            &NeverCancel
+        )
+        .is_err()
+    );
+    assert!(no_image(&sink.bytes));
 }
 
 #[test]

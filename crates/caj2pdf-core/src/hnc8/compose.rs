@@ -478,7 +478,7 @@ where
                 cancellation,
             )
             .map_err(payload_at.locator(Hnc8Stage::Decode))?;
-            let (object, page) = emit_type3(
+            let (object, anomaly) = emit_type3(
                 payload,
                 document,
                 &mut buffers.type3,
@@ -487,7 +487,7 @@ where
                 limits,
                 cancellation,
             )?;
-            image.type3_text_header_anomaly = page.text_header_anomaly;
+            image.type3_text_header_anomaly = anomaly;
             report.type3_images += 1;
             object
         }
