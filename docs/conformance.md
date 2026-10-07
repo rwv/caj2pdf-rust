@@ -539,3 +539,34 @@ format is unsupported. TEB conversion and pure-text HN are known reference
 limitations. HN image output does not imply searchable text. Every release
 report must state which optional corpus cases were actually run, the tool
 versions, and the exact failures.
+
+## HN-A JPEG region checkpoint (#388)
+
+The 2026-10-07 GitHub sweep identified 12 HN-A documents whose first error was
+a non-16-byte glyph area. Complete inspection of their 1,610 pages found 177
+pages with one JPEG descriptor but two or three 28-byte image-tagged records.
+The first record covers the exact page dimensions; later records describe
+regions without placing additional images. Original geometric viewer controls
+show unchanged pixels when those regions move, and changed pixels when the
+first placement moves. Both measured values of an opaque placement flag (0
+and 1) retain the same rendering.
+
+Only this measured single-JPEG profile is admitted. A paired compressed header,
+the `801c/80ce` decoded prefix, complete 16-byte glyph records, full-page first
+placement, one or two sequentially numbered region records with checked
+reserved words, and the `8004` page-ordinal terminator are required. Region
+rectangles can extend outside the page and do not affect image placement.
+The full zlib length and checksum remain mandatory; truncated records, other
+flags, non-JPEG descriptors and unmeasured neighboring profiles fail. Reads and
+inflate chunks retain their existing bounds, with only constant parser state
+added. The existing image-based HN-A output does not add searchable OCR text.
+
+All 12 complete outputs pass qpdf 12.2.0. Independent source measurements and
+PyMuPDF 1.27.2.2 checks match the JPEG bytes, full-page geometry and 72-dpi
+reference rendering of all 177 affected pages. The reference PDFs embed the
+source JPEG with its measured geometry/orientation and declared grayscale/RGB
+profile; they do not reuse converted content streams. Other pages have no new
+pixel-parity claim. [Issue #388](https://github.com/rwv/caj2pdf-rust/issues/388)
+records the final revision, per-input runtime receipts and remaining limits.
+External documents and rendered images are not committed; ignored optional
+corpus tests are never counted as successful compatibility tests.

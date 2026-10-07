@@ -458,6 +458,53 @@ fn contains(bytes: &[u8], needle: &[u8]) -> bool {
     bytes.windows(needle.len()).any(|part| part == needle)
 }
 
+#[test]
+fn hna_region_metadata_keeps_the_single_jpeg_and_pdf_unchanged() {
+    fn region_text(records: &[Record]) -> Vec<u8> {
+        let mut plain = vec![0x1c, 0x80, 0, 0, 0xce, 0x80, 0, 0];
+        let placement = image_records(records);
+        plain.extend_from_slice(&placement[..placement.len() - 4]);
+        let mut region = [0; 28];
+        region[..2].copy_from_slice(&0x800a_u16.to_le_bytes());
+        region[4..6].copy_from_slice(&10_u16.to_le_bytes());
+        region[6..8].copy_from_slice(&30_u16.to_le_bytes());
+        region[8..10].copy_from_slice(&40_u16.to_le_bytes());
+        region[10..12].copy_from_slice(&50_u16.to_le_bytes());
+        plain.extend_from_slice(&region);
+        plain.extend_from_slice(&[4, 0x80, 0, 0]);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&plain).unwrap();
+        let mut text = PREFIX.to_vec();
+        text.extend_from_slice(&(plain.len() as u32).to_le_bytes());
+        text.extend(encoder.finish().unwrap());
+        text
+    }
+    let mut image = Record::jpeg(16, 32, 73, 0, 0);
+    image.coordinate.width = 100;
+    image.coordinate.height = 200;
+    let pages = [vec![image]];
+    let mut outputs = Vec::new();
+    for text in [text as fn(&[Record]) -> Vec<u8>, region_text] {
+        let built = fixture_with_text(Variant::HnA, &pages, text);
+        let mut source = Source::new(built.bytes);
+        let mut sink = Sink::default();
+        let mut visitor = Visitor::default();
+        let report = convert(
+            &mut source,
+            &mut sink,
+            None,
+            &mut visitor,
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(report.conversion.pages_converted, 1);
+        assert_eq!(visitor.images.len(), 1);
+        outputs.push(sink.bytes);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+}
+
 struct Harness {
     fixture: Fixture,
     source: Source,

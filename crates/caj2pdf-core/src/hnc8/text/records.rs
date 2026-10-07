@@ -39,6 +39,57 @@ enum Next {
     End,
 }
 
+/// Non-rendering regions following one full-page JPEG placement. The
+/// measured legacy HN-A frame has one or two sequentially numbered regions.
+#[derive(Clone, Copy)]
+pub(super) struct ImageRegions {
+    pub count: u8,
+    pub page_size: [u16; 2],
+    pub ordinal: u16,
+}
+
+impl ImageRegions {
+    fn check_byte(self, at: u64, glyph_end: u64, byte: u8, loc: Location) -> Result<()> {
+        let expected = if at < 8 {
+            Some([0x1c, 0x80, 0, 0, 0xce, 0x80, 0, 0][at as usize])
+        } else if at < glyph_end {
+            None // The fixed glyph parser checks its own markers.
+        } else {
+            let relative = at - glyph_end;
+            let record = relative / 28;
+            let within = (relative % 28) as usize;
+            if record == u64::from(self.count) + 1 {
+                let end = [4, 0x80, self.ordinal as u8, (self.ordinal >> 8) as u8];
+                end.get(within).copied()
+            } else if record == 0 {
+                let mut placement = [0; 28];
+                placement[0..2].copy_from_slice(&0x800a_u16.to_le_bytes());
+                placement[8..10].copy_from_slice(&self.page_size[0].to_le_bytes());
+                placement[10..12].copy_from_slice(&self.page_size[1].to_le_bytes());
+                // Both observed values of this opaque placement flag render
+                // identically in original viewer controls. Other bits fail.
+                if within == 12 && byte <= 1 {
+                    None
+                } else {
+                    Some(placement[within])
+                }
+            } else {
+                match within {
+                    0 => Some(0x0a),
+                    1 => Some(0x80),
+                    4..=11 => None, // Region coordinates do not place an image.
+                    12 => Some((record - 1) as u8),
+                    _ => Some(0),
+                }
+            }
+        };
+        if expected.is_some_and(|expected| expected != byte) {
+            return Err(loc.malformed("decoded image regions: invalid prefix, placement or record"));
+        }
+        Ok(())
+    }
+}
+
 pub(super) struct Records {
     grammar: Grammar,
     bytes: [u8; 28],
@@ -53,6 +104,7 @@ pub(super) struct Records {
     limit: u32,
     ended: bool,
     decode_markers: bool,
+    image_regions: Option<ImageRegions>,
 }
 
 impl Records {
@@ -69,6 +121,7 @@ impl Records {
             limit,
             ended: false,
             decode_markers: false,
+            image_regions: None,
         }
     }
 
@@ -101,6 +154,11 @@ impl Records {
     /// preserve raw words.
     pub(super) fn decode_markers(mut self, decode: bool) -> Self {
         self.decode_markers = decode;
+        self
+    }
+
+    pub(super) fn image_regions(mut self, regions: Option<ImageRegions>) -> Self {
+        self.image_regions = regions;
         self
     }
 
@@ -233,6 +291,12 @@ impl Records {
     ) -> Result<()> {
         for (index, byte) in bytes.iter().copied().enumerate() {
             let at = offset + len_u64(index);
+            if let Some(regions) = self.image_regions {
+                regions.check_byte(at, glyph_end, byte, loc)?;
+                if at >= glyph_end + 28 {
+                    continue; // Validated region metadata and terminator, no image placement.
+                }
+            }
             if at >= 8 && at < glyph_end {
                 let within = (at - 8) % 16;
                 let expected = match within {
