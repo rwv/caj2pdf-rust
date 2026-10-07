@@ -452,6 +452,7 @@ fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
             origin,
             [[4712, 4334], [4712 + length, 4334]],
             0x1084,
+            [None; 2],
         )
         .unwrap();
         // Counts independently observed at 486% and 993%, including partial tails.
@@ -465,10 +466,22 @@ fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
         assert_eq!(d.clip[1], 0.0);
         assert_eq!(d.clip[3], page.size.height_points);
     }
-    let a = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1048)
-        .unwrap();
-    let b = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1102)
-        .unwrap();
+    let a = empirical_c8_horizontal_decoration(
+        page,
+        origin,
+        [[4712, 4334], [5142, 4334]],
+        0x1048,
+        [None; 2],
+    )
+    .unwrap();
+    let b = empirical_c8_horizontal_decoration(
+        page,
+        origin,
+        [[4712, 4334], [5142, 4334]],
+        0x1102,
+        [None; 2],
+    )
+    .unwrap();
     assert!(a.first_glyph[0] < b.first_glyph[0]);
     assert!(a.first_glyph[3] > b.first_glyph[3]);
     assert!(a.glyph_count > b.glyph_count);
@@ -478,11 +491,18 @@ fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
         [4672, 4294],
         [[4732, 4354], [5162, 4354]],
         0x1048,
+        [None; 2],
     )
     .unwrap();
     assert_eq!(a, shifted);
-    let maximum =
-        empirical_c8_horizontal_decoration(page, origin, [[0, 0], [u16::MAX, 0]], 0x1042).unwrap();
+    let maximum = empirical_c8_horizontal_decoration(
+        page,
+        origin,
+        [[0, 0], [u16::MAX, 0]],
+        0x1042,
+        [None; 2],
+    )
+    .unwrap();
     assert!(maximum.first_glyph[4] < 0.0);
     assert!(maximum.glyph_count < 1000);
 }
@@ -495,12 +515,20 @@ fn c8_horizontal_decoration_rejects_unverified_geometry_and_styles() {
         [[1, 1], [1, 2]],
         [[1, 1], [2, 2]],
     ] {
-        assert!(empirical_c8_horizontal_decoration(page(), [0, 0], points, 0x1084).is_err());
+        assert!(
+            empirical_c8_horizontal_decoration(page(), [0, 0], points, 0x1084, [None; 2]).is_err()
+        );
     }
-    assert!(empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [1, 0]], 0x1080).is_err());
+    assert!(
+        empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [1, 0]], 0x1080, [None; 2])
+            .is_err()
+    );
     let mut invalid = page();
     invalid.size.width_points = f64::NAN;
-    assert!(empirical_c8_horizontal_decoration(invalid, [0, 0], [[0, 0], [1, 0]], 0x1084).is_err());
+    assert!(
+        empirical_c8_horizontal_decoration(invalid, [0, 0], [[0, 0], [1, 0]], 0x1084, [None; 2])
+            .is_err()
+    );
 }
 
 #[test]
@@ -566,7 +594,8 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
     }
     // The independent glyph controls do not admit these decoration states.
     assert!(
-        empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884).is_err()
+        empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884, [None; 2])
+            .is_err()
     );
 }
 
@@ -602,8 +631,14 @@ fn independently_controlled_variants_preserve_both_glyph_classes() {
                     close(actual, expected);
                 }
                 assert!(
-                    empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], style,)
-                        .is_err()
+                    empirical_c8_horizontal_decoration(
+                        page(),
+                        [0, 0],
+                        [[0, 0], [100, 0]],
+                        style,
+                        [None; 2]
+                    )
+                    .is_err()
                 );
             }
         }
@@ -820,6 +855,7 @@ fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
                 [4652, 4274],
                 [[4672, 4334], [4752, 4334]],
                 style,
+                [None; 2]
             )
             .is_err()
         );

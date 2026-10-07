@@ -3,7 +3,7 @@
 // HN/C8 conversion called from the caller's own Dedicated Worker, with fonts
 // from OPFS file handles and Blobs. Each convert() starts a nested Worker.
 import { convert, loadModule, spoolToOpfs } from "../browser.mjs";
-import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const fontSpools = [];
@@ -51,6 +51,18 @@ try {
     if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);
   }
+  let profilePdf;
+  for (const padded of [false, true]) {
+    const pdf = [];
+    const report = await convert(module, new Blob([syntheticNativeC8Profiles(padded)]), collect(pdf), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font } },
+    });
+    if (report.pagesConverted !== 1) throw new Error("new C8 profile lost its page");
+    if (profilePdf && (profilePdf.length !== pdf.length || pdf.some((byte, i) => byte !== profilePdf[i]))) {
+      throw new Error("optional aligned-name padding changed C8 output");
+    }
+    profilePdf = pdf;
+  }
   const lateInput = syntheticNativeHnb();
   const lateView = new DataView(lateInput.buffer);
   lateView.setUint16(lateView.getUint32(228, true), 0x8099, true);
@@ -95,7 +107,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { profilePdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

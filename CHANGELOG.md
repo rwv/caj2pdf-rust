@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed: two additional C8 profiles (#380, #382) convert all 10/5 pages
+  through CLI, Node and browser. Admit the independently controlled terminal
+  encoded NUL, aligned image names without NUL padding, explicit glyph sizes,
+  symbol placement and decoration variants. Selected viewer comparisons and
+  complete glyph/image counts are recorded in [conformance](docs/conformance.md#additional-c8-sample-checkpoint-380-382).
+  Substitute-font spacing and decoration differences remain; the separate
+  HN-B failure (#381) and unverified C8/HN-B outlines (#303) remain open.
+
 - CLI: staged output and the stdin spool use `tempfile`, and same-file
   checks use `same-file` (#378); the hand-written temporary-name scheme
   (`.NAME.PID-N.tmp`), its retry loop, the hard-link commit and the

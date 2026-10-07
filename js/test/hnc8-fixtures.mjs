@@ -247,3 +247,30 @@ export function syntheticNativeHnbAxes() {
   }
   return bytes;
 }
+
+/** Original C8 controls for terminated strings, explicit sizes and an aligned image name. */
+export function syntheticNativeC8Profiles(padded = false) {
+  const words = [
+    0x8001, 60, 0x8070, 38, 0x8071, 38, 30, 0xa0c1,
+    0x80cc, 0x0104, 0xe041, 0xe000,
+    0x8002, 0x094a, 40, 0xa0c1,
+    0x8070, 22, 0x8071, 22, 50, 0xa0c1,
+    0x8070, 34, 0x8071, 34, 60, 0xa0c1,
+    0x801c, 2, 0x8070, 40, 0x8071, 40, 70, 0xa0c1,
+    0x8002, 0xa4a5, 80, 0xa0c1,
+    0x810a, 0xd300, 20, 40, 80, 40, 0, 4, 0x4241, 0x4443,
+    ...(padded ? [0, 0] : []), 0x8004, 1,
+  ];
+  const jpeg = syntheticType1Hn().jpeg;
+  const end = 100 + words.length * 2;
+  const bytes = new Uint8Array(end + 12 + jpeg.length);
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes[0] = 0xc8; u32(8, 1); u32(12, 2);
+  view.setUint16(32, 600, true); view.setUint16(34, 600, true);
+  u32(80, 100); u32(84, words.length * 2); u32(88, 1); u32(96, bytes.length);
+  words.forEach((word, i) => view.setUint16(100 + i * 2, word, true));
+  u32(end, 2); u32(end + 4, end + 12); u32(end + 8, jpeg.length);
+  bytes.set(jpeg, end + 12);
+  return bytes;
+}

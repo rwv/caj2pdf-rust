@@ -185,6 +185,10 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   const late = pageText(Buffer.from(result.latePdf));
   assert.ok(late.includes("<0041> Tj"), "late HN-B failure keeps the finished first page");
   assert.ok(!late.includes("%%EOF"), "late HN-B failure must not finalize the PDF");
+  const profile = Buffer.from(result.profilePdf);
+  assert.equal(pageText(profile).match(/<0041> Tj/g).length, 6);
+  assert.ok(profile.includes(syntheticType1Hn().jpeg));
+  await validatePdf(t, profile, 1);
   assert.equal(result.nativePdfs.length, 10);
   for (const [index, bytes] of result.nativePdfs.entries()) {
     const pdf = Buffer.from(bytes);

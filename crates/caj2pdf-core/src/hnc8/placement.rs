@@ -183,7 +183,7 @@ pub enum C8GlyphClass {
 
 /// Evaluate the empirical C8 text matrix for the measured native style subset.
 ///
-/// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
+/// Size fields 2 through 8 and 10 with observed high bits `0x0800`, `0x0c00` or
 /// `0x1000` share the measured glyph geometry. Independently controlled
 /// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484`, `0x1484` and `0x9c84`
 /// share field-4 geometry. `0x04c6` and `0x14c6` share field-6 geometry;
@@ -210,7 +210,11 @@ pub(super) fn native_glyph_transform(
     let (width, height, latin_offset) = if axes != [None; 2] {
         let (width, height, baseline) = match axes {
             [Some(4), Some(4)] => (4.0, 4.0, 15.0),
+            [Some(22), Some(22)] => (22.0, 22.0, 11.0),
+            [Some(34), Some(34)] => (34.0, 34.0, 8.0),
             [Some(36), Some(36)] => (36.0, 36.0, 8.0),
+            [Some(38), Some(38)] => (38.0, 38.0, 7.0),
+            [Some(40), Some(40)] => (40.0, 40.0, 7.0),
             [Some(width @ (28 | 43)), Some(height @ (28 | 43))] => (
                 f64::from(width),
                 f64::from(height),
@@ -245,7 +249,7 @@ pub(super) fn native_glyph_transform(
         if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000)
             && !matches!(
                 style,
-                0x04e7 | 0x14e7 | 0x0484 | 0x1484 | 0x9c84 | 0x04c6 | 0x14c6 | 0x14a5
+                0x04e7 | 0x14e7 | 0x0484 | 0x1484 | 0x9c84 | 0x04c6 | 0x14c6 | 0x14a5 | 0xa4a5
             )
         {
             return Err(Error::invalid("unverified C8 glyph style flags"));
@@ -359,8 +363,9 @@ pub struct EmpiricalC8HorizontalDecoration {
     pub glyph_count: u16,
 }
 
-/// Nominal placement for the observed forward horizontal `8010/1` form.
-/// The caller must establish record identity and provide the active text style.
+/// Nominal placement for the observed forward horizontal `8010/1`, `/2` and `/46` forms.
+/// The caller must establish record identity and provide the active text style
+/// or the independently controlled explicit 34/40 axis pair.
 /// Reversed, zero-length, vertical and diagonal spans are not admitted here.
 ///
 /// Repetition uses one nominal em, not font advance or integer screen pixels.
@@ -374,9 +379,22 @@ pub fn empirical_c8_horizontal_decoration(
     source_origin: [u16; 2],
     points: [[u16; 2]; 2],
     style: u16,
+    axes: [Option<u16>; 2],
 ) -> Result<EmpiricalC8HorizontalDecoration> {
     let [left, bottom, _, top] = page.media_box()?;
-    let (width, height, _) = c8_style_metrics(style)?;
+    let (width, height) = match axes {
+        [None, None]
+            if (2..=8).contains(&((style >> 5) & 31)) && (2..=8).contains(&(style & 31)) =>
+        {
+            let (width, height, _) = c8_style_metrics(style)?;
+            (width, height)
+        }
+        [Some(size @ (34 | 40)), Some(height)] if size == height => {
+            let em = f64::from(size) * 75.0 / 301.0;
+            (em, em)
+        }
+        _ => return Err(Error::invalid("unverified C8 decoration dimensions")),
+    };
     let [[x1, y1], [x2, y2]] = points;
     if x2 <= x1 || y1 != y2 {
         return Err(Error::invalid(
@@ -443,6 +461,7 @@ fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
             6 => (48, 5),
             7 => (56, 3),
             8 => (63, 1),
+            10 => (84, -4),
             _ => {
                 return Err(Error::invalid("unverified C8 glyph size field"));
             }
