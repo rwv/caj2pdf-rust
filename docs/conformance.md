@@ -617,3 +617,24 @@ All 13 affected documents also pass Node and a real Chromium Worker using the
 same final WASM: PDF hashes/page counts match native, and OPFS cleanup leaves
 no entries. The workspace passes 1,255 Rust tests (7 optional-corpus tests
 ignored/NOT_RUN) and 164 JavaScript tests (0 skipped), with Clippy clean.
+
+## C8 generic-only JBIG2 checkpoint (#392)
+
+The original #392 document plus eight later #389 refusals now convert:
+9 documents, 224 pages. Both CLI bookmark modes pass qpdf with source page
+count/order preserved. The combined #389/#390/#392 run now passes all 37
+inputs (811 pages); these are executed corpus runs, separate from skipped
+optional-corpus tests. C8 bookmarks remain unverified under #303.
+
+All nine new generic-only image bitmaps match full pixels from both Poppler
+and MuPDF. They contain 19–123 black pixels and are not replaced by blanks.
+All 27 page-1/page-2/page-3 bitmaps match Poppler decoding of the original
+payloads, including both neighboring pages. Original nonblank three-page
+controls preserve complete PDF bytes and retain malformed-neighbor refusals.
+The [provenance note](provenance.md#c8-generic-only-jbig2-pages-392) records the
+narrow segment/geometry profile and comparison limits.
+
+All nine affected documents also pass Node and real Chromium with the same
+final WASM; their PDF hashes/page counts match native and OPFS cleanup is
+empty. The workspace passes 1,257 Rust tests (7 optional-corpus tests ignored,
+NOT_RUN) and 164 JavaScript tests (0 skipped), with Clippy clean.

@@ -527,3 +527,38 @@ compressed rendering, not original-font fidelity. Real source documents,
 reference containers, PDFs, screenshots and fonts stay outside Git; no foreign
 converter implementation was read or migrated. All implementation and controls
 are independently authored MIT code. See the [checkpoint](conformance.md#c8-uncompressed-image-record-checkpoint-390).
+
+## C8 generic-only JBIG2 pages (#392)
+
+The original #392 input and eight later #389 failures contain a two-segment
+profile: page information 0/type 48 followed by generic region 1/type 38,
+both associated with page 1 and neither referencing other segments. Page
+flags are 1 (zero default, OR, eventually lossless), unstriped; the arithmetic
+template-2 generic region covers the exact page at (0,0) with OR and the
+already supported adaptive pixel (2,-1). The DIB and page dimensions agree.
+There is no dictionary or text region to decode. This is a complete measured
+profile, not permission to ignore arbitrary unknown segments.
+
+The nine apparently blank source pages contain **19, 32, 46, 48, 55, 60, 63,
+87 and 123 black pixels**. Poppler 25.03.0 and MuPDF 1.25.1
+agree on every decoded pixel, and native output matches both. Each page is
+fully decoded through the existing bounded generic-region decoder and exact
+MQ terminal checks. The HN/C8 adapter validates the two-segment topology,
+full-page geometry and page flags, then compares the decoder's actual header
+with preflight before emitting rows. It never synthesizes a blank page or a
+fake text/dictionary report. Existing five-segment decoding stays intact.
+Generic-only output needs three generic rows and the existing bounded image
+payload, with no new text bitmap or symbol dictionary allocation.
+
+Original MIT controls remove only the empty dictionaries/text layer from a
+nonblank synthetic five-segment image. Complete three-page PDFs remain
+byte-identical, including adjacent pages and order, at widths 7/8/9/31/32/33
+with short reads. Unknown segment types/numbers/associations/references,
+extra segments, non-full-page geometry/operators, page flags, coding/adaptive
+modes, damaged terminal bytes and pixel limits remain errors. All 27 actual
+page-1/page-2/page-3 image bitmaps from the nine documents match independently
+decoded Poppler source payloads, confirming both new and adjacent image
+identity/order. These are bitmap comparisons, not universal document-layout
+claims. All document/PDF/image/oracle bytes remain external; implementation
+and fixtures are independently authored MIT, with no other converter source
+read or migrated. See [conformance](conformance.md#c8-generic-only-jbig2-checkpoint-392).
