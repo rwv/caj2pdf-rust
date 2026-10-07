@@ -28,3 +28,7 @@ Notes and harnesses are pinned to the last caj2pdf-rust commit that carried
 them, `0abee3862f01756ee15f69a1b174a35208fc1e41`. A new investigation goes to
 caj2pdf-samples; a format fact that the code depends on is summarized in
 [provenance](../provenance.md) with a link to its note.
+
+The [2026-10-07 GitHub corpus validation](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.md)
+records all 1,277 post-fix native results, 50 remaining refusal classifications,
+scoped runtime/fidelity evidence and explicit collection/test limits (#385).

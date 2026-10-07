@@ -1,5 +1,17 @@
 # Unreleased
 
+## GitHub corpus validation (#385)
+
+- The full 1,277-document native rerun after #386–#394 adds 99 conversion
+  passes, with zero conversion regressions: 1,227 converted, 39 failed/strict
+  refusals and 11 explicitly unsupported. Qpdf reports 1,226 clean outputs
+  and one retained source-content warning.
+- The [checkpoint](../conformance.md#github-corpus-post-fix-checkpoint-385)
+  links the pinned per-input results, all 50 refusal classifications and
+  remaining fidelity limits. Full-corpus JavaScript/visual parity is NOT_RUN;
+  26 ancillary image-order failures remain visible. These are unreleased
+  source results and do not change existing v0.4.0 artifacts.
+
 ## C8 native article records (#391)
 
 - The measured decoration, unequal CJK title, style-5 book-title marks and

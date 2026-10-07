@@ -663,4 +663,54 @@ controls and exact admitted/refused profiles are recorded in
 
 Validation on the final source passes 1,261 Rust tests (7 optional-corpus tests
 ignored/NOT_RUN), 164 JavaScript tests (0 skipped), Clippy and locked native/WASM
-builds. The full 1,277-document rerun is tracked separately by #385.
+builds. The full 1,277-document rerun is recorded below.
+
+## GitHub corpus post-fix checkpoint (#385)
+
+The full rerun after #386–#394 covers **1,277 distinct original inputs** and
+2,126 native attempts, including both bookmark modes for C8/HN-B. All source
+hashes/sizes pass before and after; no timeout, missing-input or harness error
+is counted as a pass. The [pinned report](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.md)
+and [per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.json)
+preserve acquisition identities, diagnostics, PDF hashes and ancillary checks.
+The catalog SHA-256 is `effede2cab4c1f04aac79d46517b10224ec7f65da0dda60464ed782c45bd2ed9`.
+
+| Native outcome | Baseline `df6d023` | Post-fix |
+| --- | ---: | ---: |
+| Converted | 1,128 | 1,227 |
+| Failed / strict refusal | 123 | 39 |
+| Explicitly unsupported | 26 | 11 |
+| qpdf clean outputs | 1,127 | 1,226 |
+| qpdf warning outputs | 1 | 1 |
+
+There are **99 new conversion passes and zero conversion regressions**.
+All converted inputs pass page-count checks; no refused conversion publishes
+a PDF. The tested CLI commit is `18417d88a5896fc13d13c13be4964cb6434c4bd0`,
+binary SHA-256 `b59cf2ba80492eb702307528b86cf4baa4d0988b4ab8e6b9e2cf3a0c611513f0`.
+Its complete Git tree is identical to merged `a19953921914b7cc794c1f58e5b5d33e6c1cd570`.
+The existing runner used 180-second, 1-GiB address-space and 512-MiB output-file
+limits per child. Tool/font versions and hashes are recorded in the receipt.
+
+All 50 remaining refusals are classified: 16 encrypted PDFs (14 also have
+HTML debris), nine encrypted TEB containers, and 25 PDF repair/profile/limit
+or CAJ-span cases. These are not 50 proven implementation defects. A valid
+xref Predictor 12 profile remains explicitly unsupported under
+[#402](https://github.com/rwv/caj2pdf-rust/issues/402). The existing qpdf warning
+comes from byte-identical source content stream 142; it is never counted as
+a clean structural pass. Partial conversions with substituted blank pages
+are diagnostic evidence only, not compatibility passes.
+
+Ancillary image-order checks retain **265 PASS, 26 FAIL and 936 NOT_RUN** among
+converted documents. Twenty-five failures predate the fixes; the added
+text-only #391 case has the separate complete glyph-order evidence above.
+The other failures are not waived; follow-up is
+[samples #12](https://github.com/rwv/caj2pdf-samples/issues/12).
+Source-outline checks are 281 PASS and 946 NOT_RUN. Full-corpus Node/browser
+execution and whole-document visual fidelity remain **NOT_RUN**. The affected
+profile groups' actual native/Node/Chromium and scoped pixel/text/outline checks
+are linked from the report and the individual checkpoints above. Unverified
+C8/HN-B outlines (#303), caller fonts and decoration substitutes remain limits.
+
+The collection still has 1,000 unscanned/rate-limited repositories and one
+truncated tree; it is not exhaustive GitHub coverage. Seven synthetic fixtures
+are excluded. Corpus/document/PDF/image/font bytes remain external.
