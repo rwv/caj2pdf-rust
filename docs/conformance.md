@@ -310,11 +310,11 @@ and its warning remain unchanged.
 ### HN-B magnesium article checkpoint (#381)
 
 The unchanged 12-page article now converts through CLI, Node and a real Chromium
-Worker with identical output: 726,141 bytes, SHA-256
-`24cddad85ed48f6af74eec6c5dadfb18d95e6a9ecf31c22d3ef127e60564981b`.
+Worker with identical output: 726,143 bytes, SHA-256
+`11cadd7d1857a26a929d5d74be4da53facef1215f5a2e43f9104706c26bb7b88`.
 qpdf validation and the page count pass; per-page inventories retain all 20,693
 glyphs and all 12 type-3 images. Browser OPFS cleanup passes. The
-[pinned research note](https://github.com/rwv/caj2pdf-samples/blob/d76bef1708803aee99090994772a5ceac425860b/research/notes/hnb-magnesium-profile.md) records source identity, original controls,
+[pinned research note](https://github.com/rwv/caj2pdf-samples/blob/7dbdd623388521bea65111e3cbe4284f2afc8e37/research/notes/hnb-magnesium-profile.md) records source identity, original controls,
 selected page comparisons, resource resets and geometry measurements.
 
 This profile admits size field 9, square `1000`, measured small brackets and
