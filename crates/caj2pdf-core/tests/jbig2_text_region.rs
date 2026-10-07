@@ -369,47 +369,51 @@ fn measured_refinement_template_conflict_is_located_with_raw_flags() {
 
 #[test]
 fn explicit_hn_c8_policy_retains_raw_anomaly_and_canonical_body() {
-    let malformed = Region {
-        flags: 0xa40c,
-        ..Region::default()
-    };
-    let accepted =
-        parse_policy(&malformed, TextHeaderPolicy::HnC8UnusedRefinementTemplate).unwrap();
-    let canonical = parse(&Region {
-        flags: 0x240c,
-        ..Region::default()
-    })
-    .unwrap();
-    assert_eq!(accepted.flags.raw, 0xa40c);
-    assert_eq!(
-        accepted.anomaly,
-        Some(TextHeaderAnomaly::UnusedRefinementTemplate)
-    );
-    assert_eq!(canonical.anomaly, None);
-    assert!(!accepted.flags.refine && !canonical.flags.refine);
-    assert_eq!(
-        (accepted.header_bytes, accepted.body, accepted.instances),
-        (canonical.header_bytes, canonical.body, canonical.instances)
-    );
-    assert_eq!(accepted.flags.ds_offset, canonical.flags.ds_offset);
-    assert_eq!(accepted.flags.strips(), canonical.flags.strips());
-    assert_eq!(
-        accepted.flags.reference_corner,
-        canonical.flags.reference_corner
-    );
-    assert_eq!(accepted.flags.combination, canonical.flags.combination);
-    assert!(matches!(
-        parse_policy(&malformed, TextHeaderPolicy::Strict).unwrap_err(),
-        Error {
-            kind: ErrorKind::Malformed,
-            ..
-        }
-    ));
+    for offset_bits in 0..32_u16 {
+        let canonical_flags = 0x000c | (offset_bits << 10);
+        let anomaly_flags = canonical_flags | 0x8000;
+        let malformed = Region {
+            flags: anomaly_flags,
+            ..Region::default()
+        };
+        let accepted =
+            parse_policy(&malformed, TextHeaderPolicy::HnC8UnusedRefinementTemplate).unwrap();
+        let canonical = parse(&Region {
+            flags: canonical_flags,
+            ..Region::default()
+        })
+        .unwrap();
+        assert_eq!(accepted.flags.raw, anomaly_flags);
+        assert_eq!(
+            accepted.anomaly,
+            Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+        );
+        assert_eq!(canonical.anomaly, None);
+        assert!(!accepted.flags.refine && !canonical.flags.refine);
+        assert_eq!(
+            (accepted.header_bytes, accepted.body, accepted.instances),
+            (canonical.header_bytes, canonical.body, canonical.instances)
+        );
+        assert_eq!(accepted.flags.ds_offset, canonical.flags.ds_offset);
+        assert_eq!(accepted.flags.strips(), canonical.flags.strips());
+        assert_eq!(
+            accepted.flags.reference_corner,
+            canonical.flags.reference_corner
+        );
+        assert_eq!(accepted.flags.combination, canonical.flags.combination);
+        assert!(matches!(
+            parse_policy(&malformed, TextHeaderPolicy::Strict).unwrap_err(),
+            Error {
+                kind: ErrorKind::Malformed,
+                ..
+            }
+        ));
+    }
 }
 
 #[test]
 fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
-    for raw in [0xa40d, 0xa408, 0xa44c, 0x840c, 0xa00c] {
+    for raw in [0xa40d, 0xa408, 0xa44c, 0xa41c, 0xa48c, 0xa60c] {
         let error = parse_policy(
             &Region {
                 flags: raw,

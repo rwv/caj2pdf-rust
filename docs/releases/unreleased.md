@@ -1,5 +1,17 @@
 # Unreleased
 
+## C8 JBIG2 empty content (#389)
+
+- The explicit HN/C8 text-header policy now permits ordinary signed
+  displacement values with the measured unused refinement-template bit.
+  HN/C8 composition also accepts a terminal-only empty symbol dictionary
+  after validating zero counts and the exact marker. Strict standalone
+  JBIG2 decoding keeps its existing requirements.
+- Fifteen of the 25 affected documents now convert; ten reach separate
+  page-2 refusals tracked by #390/#392. All 28 affected image pixel comparisons
+  pass. See the [checkpoint](../conformance.md#c8-jbig2-empty-content-checkpoint-389).
+  No native, CLI or JavaScript API shape changes.
+
 ## HN-A full-page JPEG regions (#388)
 
 - HN-A pages containing one full-page JPEG and one or two additional region

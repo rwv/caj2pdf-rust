@@ -28,7 +28,7 @@ links to `research/…` notes below point into the same repository.
 | T.88 direct-coded arithmetic symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5, 6.5.1–6.5.10, 7.4.2.1–7.4.2.2, Tables 16 and 28, Annex A.2 and E.3.7–E.3.8; [repository-owned header inventory](https://github.com/rwv/caj2pdf-samples/tree/main/research/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded direct path of the one symbol-dictionary decoder. The [dictionary note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-symbol-dictionary-direct.md) records classification, MQ/context ownership, store contract, limits, and optional evidence. The same decoder refines the observed second dictionary (below). Exact Table E.1 rows remain external under #44; metadata checks do not establish symbol pixel parity. |
 | T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded single-reference bitmap primitive. The [refinement note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, reference store, row memory, error contract, and synthetic tests; since #355 the reference store is an in-memory bitmap. The bitmap primitive alone does not decode a `0x1802` dictionary; #66 integrates its one-reference path. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
 | T.88 arithmetic single-reference symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.10–6.4.11, 6.5.5–6.5.10, 7.4.2.1–7.4.2.2, Tables 17–18, Annex A; [repository-owned header inventory](https://github.com/rwv/caj2pdf-samples/tree/main/research/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded refinement path of the same symbol-dictionary decoder for the observed `0x1802` second dictionary when every IAAI is one. The [integration note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-refinement-dictionary.md) records imported/new stores, ordered export handles, MQ state, limits, typed zero/aggregate refusals, and synthetic tests. The private 546-case trace is diagnostic; independent symbol-pixel compatibility remains `NOT_RUN`, zero proven cases. Exact Table E.1 rows remain external under #44. |
-| T.88 text-region data headers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.3.1–7.4.3.1.4, Figures 28–29 and 35–38; committed #43 oracle text flags | Original MIT, bounded header parser with no body reads. The [text-region note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-region-header.md) records validation order and optional metadata inventory. Strict parsing remains the default; the [#88 policy note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-header-compatibility.md) documents one explicitly opted-in `0xa40c` HN/C8 exception and the preserved anomaly marker. Metadata alone establishes neither placement nor pixel compatibility. |
+| T.88 text-region data headers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.3.1–7.4.3.1.4, Figures 28–29 and 35–38; committed #43 oracle text flags | Original MIT, bounded header parser with no body reads. The [text-region note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-region-header.md) records validation order and optional metadata inventory. Strict parsing remains the default; the [#88 policy note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-header-compatibility.md) documents the initial explicitly opted-in `0xa40c` HN/C8 exception and the preserved anomaly marker; [#389 extends only the standard displacement bits](#hnc8-empty-jbig2-content-389). Metadata alone establishes neither placement nor pixel compatibility. |
 | T.88 arithmetic text instances | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.5–6.4.11, 7.4.3.1–7.4.3.2, Table 12, Annex A and E.3.7; [#85 hash-only text oracle](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/jbig2-text-oracle.md) | Original MIT, bounded pull decoder and optional SHA-pinned control-flow diagnostic. The [instance note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-instances.md) records context ownership, strip/RI decisions, store handles, limits, failure contract, 545 complete strict-region traces, and one strict anomaly refusal. Its event fingerprint is not independent pixel evidence; #87 supplies a separate text-only pixel comparison. #44 governs exact Table E.1 rights. |
 | T.88 text-region composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.1–6.4.5 and 7.4.3.2, Tables 9–11; [#85 hash-only text oracle](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/jbig2-text-oracle.md) | Original MIT composition of checked #86 instances into a bounded page bitmap (caller-owned random-access scratch until #355, in memory since), followed by sequential packed-row output. The [composer note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-text-composer.md) records clipping, combination, adapter ownership, limits, and optional private pixel comparison. No external decoder code, document bytes, decoded bitmap, or exact Table E.1 states are committed. |
 | Observed HN/C8 type-3 JBIG2 page composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.8, and 8.2; [#43 full-image oracle](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/jbig2-oracle.md) | Original MIT parser/preflight and bounded OR row output for only the five-segment profile observed in 546 external records. The [page note](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-observed-page-composition.md) records segment and region constraints, the text bitmap (caller-owned scratch until #355, in memory since), budgets, and failure semantics. The later [#95 private comparison](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/jbig2-page-parity.md) matched the observed full-page pixels; clean-clone corpus parity remains `NOT_RUN`/zero. Exact MQ state rows remain external under #44. |
@@ -458,3 +458,38 @@ SHA-256 in `scripts/install-windows-test-tools.ps1`. They are independent test
 programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
 dependencies or release contents. Their own upstream licenses remain distinct
 from the MIT converter. Windows render tests remain enabled.
+
+## HN/C8 empty JBIG2 content (#389)
+
+The [GitHub sweep](https://github.com/rwv/caj2pdf-samples/blob/054e082e65e956ce3e90e464e5bb926b846b360d/research/notes/github-sample-sweep-20261007.md)
+identified 25 C8 documents with an unused refinement-template flag. Bounded
+segment inventories found 619 type-3 images, including 28 affected text headers:
+`800c` (18), `840c` (4), `bc0c` (2), `880c`, `8c0c`, and `900c` (2).
+Only the standard signed five-bit `SBDSOFFSET` differs from the previously
+admitted `a40c` profile. T.88 §§7.4.3.1.1 and 6.4.11 still require strict
+parsing to reject the unused template bit. The explicit HN/C8 policy preserves
+raw flags and the anomaly, admits those displacement bits, and retains every
+other profile/framing guard. Original MIT controls exercise all 32 offset
+values with a nonzero symbol instance and compare canonical/policy decoding.
+
+Ten documents then exposed empty direct and refinement dictionaries with
+zero imported, new and exported symbols and only `ff ac` in their coded body.
+T.88 §6.5.10 describes a zero IAEX run even for the empty dictionary. This
+measured omission is accepted only by the internal HN/C8 composition entry
+point, after ordinary header checks and only for an exact two-byte terminal
+body with all three counts zero. The public strict dictionary decoder retains
+its IAEX requirement. Original generated dictionaries test either/both empty
+bodies with a nonblank generic region; wrong/truncated markers and nonzero
+counts remain errors before an image is emitted. Three-byte source reads are
+covered. No error is converted into a blank image.
+
+All 28 source image payloads were wrapped externally for black-box decoding by
+Poppler 25.03.0 (`libpoppler`, no `libjbig2dec`) and MuPDF 1.25.1
+(`libmupdf`/`libjbig2dec`). Their full bilevel pixels agree. Native output from
+original one-page C8 wrappers around those payloads agrees with both oracles
+for all 28 images. The whole-document run is separately scoped in
+[conformance](conformance.md#c8-jbig2-empty-content-checkpoint-389).
+No other converter implementation was read, copied or transliterated. Document,
+PDF, bitmap, font and oracle bytes remain outside Git. All committed controls
+and changes are independently authored MIT source; dependencies, API shapes
+and memory allocation bounds are unchanged.
