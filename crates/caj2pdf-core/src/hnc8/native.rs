@@ -40,7 +40,7 @@ pub enum NativeRecord {
     Image { words: [u16; 13] },
     /// The observed `810a/d300` image form with zero flags. Coordinates are
     /// absolute source units without the older image form's high-bit markers.
-    /// `reference` locates the raw name bytes, excluding NUL and padding.
+    /// `reference` locates the raw name bytes, excluding optional NUL padding.
     /// It is not a filesystem resource request. Match embedded descriptors in
     /// record order; image orientation remains codec-specific.
     ImageReference {
@@ -49,7 +49,8 @@ pub enum NativeRecord {
     },
     /// The observed `80cc/01xx` encoded-string record. The low byte of
     /// `value` counts all words, including the two-word header. `payload`
-    /// locates 0..=253 validated `e020..=e07e` words in the original source.
+    /// locates 0..=253 validated `e020..=e07e` words, optionally followed by
+    /// an encoded NUL (`e000`), in the original source.
     /// Its role is deliberately uninterpreted; this is not visible page text
     /// or permission to discard a required resource reference.
     EncodedString { value: u16, payload: super::Span },
@@ -270,8 +271,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 {
                     NativeRecord::Control { tag, value }
                 }
-                0x8070 | 0x8071 if value == 36 => NativeRecord::Control { tag, value },
-                0x801c | 0x8070 | 0x8071 if value == 4 => NativeRecord::Control { tag, value },
+                0x8070 | 0x8071 if matches!(value, 4 | 22 | 34 | 36 | 38 | 40) => {
+                    NativeRecord::Control { tag, value }
+                }
+                0x801c if matches!(value, 2..=4) => NativeRecord::Control { tag, value },
                 0x80ce if value <= 1 => NativeRecord::Control { tag, value },
                 0x8024
                     if matches!(value, 0x2800 | 0x281c | 0x281d)
@@ -316,7 +319,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             at,
                         )?;
                         for (index, pair) in bytes[..count].as_chunks::<2>().0.iter().enumerate() {
-                            if !(0xe020..=0xe07e).contains(&word(pair)) {
+                            let terminal_nul =
+                                word(pair) == 0xe000 && consumed + index * 2 + 2 == length;
+                            if !(0xe020..=0xe07e).contains(&word(pair)) && !terminal_nul {
                                 return Err(at
                                     .at(position + (consumed + index * 2) as u64)
                                     .unsupported("native encoded-string word"));
@@ -336,7 +341,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 0xffff if value == 5 => NativeRecord::Control { tag, value },
                 _ if matches!(
                     (tag, value),
-                    (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b) | (0x8010, 1) | (0x8090, _)
+                    (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b)
+                        | (0x8010, 1 | 2 | 46)
+                        | (0x8090, _)
                 ) =>
                 {
                     length = 12;
@@ -380,10 +387,11 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         height: word(&bytes[10..12]),
                     };
                     let name_bytes = usize::from(word(&bytes[14..16]));
-                    // The length excludes NUL; the complete record has
-                    // zero padding to a four-byte boundary. Preserve a
-                    // source span instead of allocating or opening a name.
-                    length = (16 + name_bytes + 1).next_multiple_of(4);
+                    // Names are length-delimited and word-aligned. A name
+                    // already aligned to four bytes need not have a NUL;
+                    // independently controlled older forms add four zero bytes.
+                    // Preserve a span instead of allocating or opening a name.
+                    length = (16 + name_bytes).next_multiple_of(4);
                     let mut consumed = 16;
                     while consumed < length {
                         let count = (length - consumed).min(bytes.len());
@@ -401,6 +409,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             }
                         }
                         consumed += count;
+                    }
+                    if name_bytes.is_multiple_of(4) && end - position >= length as u64 + 4 {
+                        self.native_bytes(position + length as u64, end, &mut bytes[..4], at)?;
+                        if bytes[..4] == [0; 4] {
+                            length += 4;
+                        }
                     }
                     if images == page.image_count {
                         return Err(
@@ -432,12 +446,16 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                 }
                 x if x < 0x8000 => {
-                    // Paired verified HN-B axes fully specify the glyph
-                    // matrix even when no style record precedes this run.
-                    let style = style.or_else(|| {
-                        (self.header.variant == Variant::HnB
-                            && matches!(explicit_axes, [Some(28 | 43), Some(28 | 43)]))
-                        .then_some(0)
+                    // Verified axis pairs establish the initial run without
+                    // inventing a default size when either axis is missing.
+                    let style = style.or(match (self.header.variant, explicit_axes) {
+                        (Variant::HnB, [Some(28 | 43), Some(28 | 43)]) => Some(0),
+                        (Variant::C8, [Some(width @ (22 | 34 | 38 | 40)), Some(height)])
+                            if width == height =>
+                        {
+                            Some(0)
+                        }
+                        _ => None,
                     });
                     if self.header.variant == Variant::HnB && style.is_none() {
                         return Err(at.unsupported("HN-B implicit native glyph style"));

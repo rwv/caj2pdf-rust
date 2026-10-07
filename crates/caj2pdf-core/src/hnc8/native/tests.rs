@@ -786,7 +786,7 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         ));
         assert_eq!(visitor.events.len(), 2);
     }
-    for word in [0xe01f_u16, 0xe07f, 0xe080, 0x8004, 0x8001, 0xffff] {
+    for word in [0xe000_u16, 0xe01f, 0xe07f, 0xe080, 0x8004, 0x8001, 0xffff] {
         let mut source = encoded_string_fixture(28);
         source.bytes[140..142].copy_from_slice(&word.to_le_bytes());
         let limits = Limits::default();
@@ -805,6 +805,26 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
             }
         ));
         assert_eq!(visitor.events.len(), 2);
+    }
+}
+
+#[test]
+fn terminated_encoded_strings_preserve_the_following_glyph() {
+    // Include a terminator crossing the 28-byte read boundary and the maximum
+    // record length. A NUL does not shorten the declared source span.
+    for characters in [1, 14, 15, 30, 253] {
+        let mut source = encoded_string_fixture(characters);
+        let end = 112 + characters * 2;
+        source.bytes[end - 2..end].copy_from_slice(&0xe000_u16.to_le_bytes());
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
+        assert_eq!(visitor.events[3].0, end as u64);
+        assert!(matches!(
+            visitor.events[3].1,
+            NativeRecord::Glyph { code: 0xcec4, .. }
+        ));
+        assert!(source.max_request <= 28);
     }
 }
 
@@ -1031,8 +1051,8 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
         ));
         assert!(visitor.events.is_empty());
     }
-    for offset in 120..124 {
-        let mut source = image_reference_fixture(b"abcd", 1);
+    for offset in 117..120 {
+        let mut source = image_reference_fixture(b"a", 1);
         source.bytes[offset] = 1;
         let mut visitor = Visitor::default();
         let error = parse(&mut source, &mut visitor).unwrap_err();
@@ -1060,6 +1080,27 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
             ) && field_of(&parse(&mut source, &mut Visitor::default()).unwrap_err())
                 == "native image records")
         );
+    }
+}
+
+#[test]
+fn aligned_image_names_need_no_nul_and_preserve_following_records() {
+    for length in [0, 4, 24, 260] {
+        for short in [1, 7, 28] {
+            let mut source = image_reference_fixture(&vec![b'x'; length], 1);
+            let next = 116 + length;
+            source.bytes.drain(next..next + 4);
+            source.short = short;
+            let text_length = source.bytes.len() as u32 - 100;
+            source.bytes[84..88].copy_from_slice(&text_length.to_le_bytes());
+            let mut visitor = Visitor::default();
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 2);
+            assert_eq!(
+                visitor.events[1],
+                (next as u64, NativeRecord::End { value: Some(1) })
+            );
+            assert!(source.max_request <= 28);
+        }
     }
 }
 
@@ -1929,7 +1970,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
             assert!(source.max_request <= 28);
         }
     }
-    for (tag, value) in [(0x808f, 0xa3e6), (0x8091, 0xa3e6), (0x8006, 0), (0x8010, 2)] {
+    for (tag, value) in [(0x808f, 0xa3e6), (0x8091, 0xa3e6), (0x8006, 0), (0x8010, 3)] {
         let mut source = fixture(&[[tag, value], [1, 2], [3, 4]], 0);
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, &mut visitor).is_err());

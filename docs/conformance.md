@@ -26,7 +26,7 @@ The same conversion core serves all three interfaces.
 | CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Source page order and valid bookmarks are preserved; legacy Python ordering is not planned (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
-| C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require fonts: explicit, or installed ones the CLI finds. Requested bookmarks are omitted with a warning (no outline is written from unverified metadata); #303 tracks the missing outline evidence. Font/raster differences remain explicit. |
+| C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint); the unreleased [additional 10/5-page profiles](#additional-c8-sample-checkpoint-380-382) also complete. Native pages require fonts: explicit, or installed ones the CLI finds. Requested bookmarks are omitted with a warning (no outline is written from unverified metadata); #303 tracks the missing outline evidence. Font/raster differences remain explicit. |
 | HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
@@ -280,6 +280,33 @@ in [CLI usage](cli.md#native-c8-font-resources) and [JavaScript usage](../js/REA
 External documents, fonts and rendered evidence are not distributed. #242 owns
 additional-profile final acceptance; #222 owns packaged release/corpus and
 peak-memory acceptance.
+
+### Additional C8 sample checkpoint (#380, #382)
+
+The expanded #303 sample search found two independent C8 failures. With these
+unreleased fixes, the unchanged restructured C8 and xue8 KVM originals convert
+all 10/5 pages through CLI, Node and a real Chromium Worker. Each document has
+identical output hashes across the three interfaces; both PDFs pass qpdf and
+page-count checks. Per-page native/PDF inventories retain all 1,977/10,277
+glyphs and 17/4 image draws. Browser OPFS cleanup succeeds. The
+[pinned research note](https://github.com/rwv/caj2pdf-samples/blob/4f262c5e2ff44bd2f52131fe449668cb131e36da/research/notes/c8-additional-profiles.md)
+records source hashes, original MIT controls, selected viewer/marker comparisons
+and complete output receipts.
+
+The new rules cover terminal encoded NULs, aligned image names with optional
+padding, measured explicit sizes and punctuation, title size field 10 and
+horizontal-decoration forms. Parsing retains bounded 28-byte reads and no
+allocation proportional to name or document size. Native regressions cover
+truncation, malformed padding and unknown geometry; Node and real browser
+controls exercise both name forms and retain embedded JPEG bytes.
+
+This is a two-document checkpoint, not a rerun of the optional full corpus
+(`NOT_RUN`) or original-font pixel parity. Substitute fonts still differ in
+weight, English spacing and decoration appearance; some Latin runs overlap.
+The separately discovered 12-page HN-B article (#381) still needs verified
+symbol/control semantics and image-after-text composition. Its private-use
+character is unresolved. #303 still lacks a positive C8/HN-B stored-outline
+sample; bookmark omission and its warning remain unchanged.
 
 ### Packaged HN-B regression repeat
 

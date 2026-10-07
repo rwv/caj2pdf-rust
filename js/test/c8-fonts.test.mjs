@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -234,4 +234,24 @@ test("CFF-flavoured OpenType fonts embed CID-keyed subsets", async (t) => {
   assert.ok(!text.includes("/CIDToGIDMap"));
   assert.equal(text.match(/<0041> Tj/g).length, 2);
   await validatePdf(t, pdf, 1);
+});
+
+test("native C8 new profiles retain six glyphs and the aligned-name JPEG", async (t) => {
+  let baseline;
+  for (const padded of [false, true]) {
+    const record = {};
+    const font = trackedBlob(new Blob([fontBytes]), record);
+    const parts = [];
+    const result = await convert(await wasmModule(), source(syntheticNativeC8Profiles(padded)), sink(parts), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: roles(font) },
+    });
+    assert.equal(result.pagesConverted, 1);
+    assert.ok(record.maxRead > 0 && record.maxRead <= 32);
+    const pdf = Buffer.concat(parts);
+    assert.equal(pageText(pdf).match(/<0041> Tj/g).length, 6);
+    assert.ok(pdf.includes(syntheticType1Hn().jpeg));
+    if (baseline) assert.deepEqual(pdf, baseline);
+    baseline = pdf;
+    await validatePdf(t, pdf, 1);
+  }
 });

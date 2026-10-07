@@ -258,32 +258,18 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             }
             NativeRecord::Control {
                 tag: 0x801c,
-                value: 4,
+                value: 2..=4,
             } => (),
             NativeRecord::Control {
-                tag: 0x8070,
-                value: 4,
-            } if self.variant == Variant::C8 => self.axes[0] = Some(4),
-            NativeRecord::Control {
-                tag: 0x8071,
-                value: 4,
-            } if self.variant == Variant::C8 => self.axes[1] = Some(4),
-            NativeRecord::Control {
-                tag: 0x8070,
-                value: value @ (28 | 43),
-            } if self.variant == Variant::HnB => self.axes[0] = Some(value),
-            NativeRecord::Control {
-                tag: 0x8071,
-                value: value @ (28 | 43),
-            } if self.variant == Variant::HnB => self.axes[1] = Some(value),
-            NativeRecord::Control {
-                tag: 0x8070,
-                value: 36,
-            } => self.axes[0] = Some(36),
-            NativeRecord::Control {
-                tag: 0x8071,
-                value: 36,
-            } => self.axes[1] = Some(36),
+                tag: tag @ (0x8070 | 0x8071),
+                value,
+            } if matches!(
+                (self.variant, value),
+                (Variant::C8, 4 | 22 | 34 | 36 | 38 | 40) | (Variant::HnB, 28 | 36 | 43)
+            ) =>
+            {
+                self.axes[usize::from(tag - 0x8070)] = Some(value)
+            }
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 0,
@@ -418,6 +404,23 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         ([Some(28), Some(28)], 0xa1b2 | 0xa1b3) => Some((16.0, 8.0)),
                         _ => None,
                     }
+                } else if let [Some(width), Some(height)] = self.axes
+                    && width == height
+                {
+                    // Original full-em controls, including distinct opening,
+                    // closing and square marks at each observed explicit size.
+                    let offsets = match width {
+                        22 => Some([14.0, 13.0, 6.0, 19.0, 4.0]),
+                        34 => Some([21.0, 20.0, 0.0, 29.0, -3.0]),
+                        40 => Some([25.0, 23.0, -2.0, 34.0, -5.0]),
+                        _ => None,
+                    };
+                    offsets.and_then(|[open, close, down, square, square_down]| match code {
+                        0xa3a8 => Some((open, down)),
+                        0xa3a9 => Some((close, down)),
+                        0xa3db | 0xa3dd => Some((square, square_down)),
+                        _ => None,
+                    })
                 } else {
                     None
                 };
@@ -472,17 +475,18 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     | 0xaab1
                     | 0xaab2
                     | 0xa1aa
+                    | 0xa1ab
                     | 0xa1ad
                     | 0xa1ae
                     | 0xa1af
                     | 0xa2d9..=0xa2df
                     | 0xa3a3
                     | 0xa3a5
+                    | 0xa3a7
                     | 0xa3ab..=0xa3b9
                     | 0xa3bb..=0xa3c0
                     | 0xa3dc
-                    | 0xa3fb
-                    | 0xa3fd => (C8GlyphClass::Cjk, latin, Some(0.0)),
+                    | 0xa3fb..=0xa3fd => (C8GlyphClass::Cjk, latin, Some(0.0)),
                     // These symbols retain the ordinary Latin resource even
                     // under the alternate-resource state.
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
@@ -504,12 +508,11 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         (C8GlyphClass::Cjk, latin, None)
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, Some(self.roles.latin), None),
-                    0xa1a1 => (C8GlyphClass::Cjk, Some(self.roles.cjk), None),
+                    0xa1a1 | 0xa3a6 => (C8GlyphClass::Cjk, Some(self.roles.cjk), None),
                     0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
                         (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
                     }
-                    0xa1a2 => (C8GlyphClass::Latin, latin, None),
-                    0xa1a3 if self.variant == Variant::HnB => (C8GlyphClass::Latin, latin, None),
+                    0xa1a2 | 0xa1a3 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
                         (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
@@ -654,12 +657,9 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             }
             NativeRecord::Drawing {
                 tag: 0x8010,
-                style: 1,
+                style: 1 | 2 | 46,
                 points,
             } => {
-                if self.axes != [None; 2] {
-                    return Err(invalid("unverified explicit-axis decoration"));
-                }
                 let (font, alias) = self
                     .roles
                     .decoration
@@ -669,9 +669,15 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 let font = self.font(font, alias);
                 let style = self
                     .style
+                    .or_else(|| (self.axes != [None; 2]).then_some(0))
                     .ok_or_else(|| invalid("missing C8 decoration style"))?;
-                let decoration =
-                    empirical_c8_horizontal_decoration(self.geometry, self.origin, points, style)?;
+                let decoration = empirical_c8_horizontal_decoration(
+                    self.geometry,
+                    self.origin,
+                    points,
+                    style,
+                    self.axes,
+                )?;
                 for index in 0..decoration.glyph_count {
                     let mut transform = decoration.first_glyph;
                     transform[4] += f64::from(index) * transform[0];

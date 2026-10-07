@@ -2307,3 +2307,142 @@ fn mode_zero_absent_alternate_and_symbol_roles_fall_back_by_character_class() {
     assert!(is_cjk_coded('\u{3000}') && is_cjk_coded('\u{ff1a}') && is_cjk_coded('\u{fe10}'));
     assert!(!is_cjk_coded('A') && !is_cjk_coded('\u{2217}') && !is_cjk_coded('\u{25ba}'));
 }
+
+#[test]
+fn c8_new_explicit_axes_preserve_implicit_runs_and_style_resets() {
+    for size in [22, 34, 38, 40] {
+        let words = [
+            [0x8001, 4394],
+            [0x8070, size],
+            [0x8071, size],
+            [4902, 0xd6d0],
+            [5072, 0xa0c1],
+            [0x8002, 0x1084],
+            [5072, 0xa0c1],
+            [0x8004, 1],
+        ];
+        let (result, implicit, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let mut explicit = words.to_vec();
+        explicit.insert(1, [0x8002, 0]);
+        let (result, pdf, _) = convert(&explicit, 0, &[], roles(), 0);
+        result.unwrap();
+        assert_eq!(implicit, pdf);
+        let text = crate::test_support::pdf_text(&pdf);
+        assert_eq!(text.matches(" Tj ET").count(), 3);
+        let last = text.lines().rfind(|line| line.contains(" Tm ")).unwrap();
+        let baseline = convert(
+            &[
+                [0x8001, 4394],
+                [0x8002, 0x1084],
+                [5072, 0xa0c1],
+                [0x8004, 1],
+            ],
+            0,
+            &[],
+            roles(),
+            0,
+        )
+        .1;
+        assert!(
+            crate::test_support::pdf_text(&baseline)
+                .lines()
+                .any(|line| line == last)
+        );
+        for missing in [1, 2] {
+            let mut partial = words.to_vec();
+            partial.remove(missing);
+            assert!(convert(&partial, 0, &[], roles(), 0).0.is_err());
+        }
+    }
+}
+
+#[test]
+fn c8_explicit_parentheses_and_brackets_keep_the_following_glyph() {
+    for size in [22, 34, 40] {
+        for code in [0xa3a8, 0xa3a9, 0xa3db, 0xa3dd] {
+            let words = [
+                [0x8001, 4394],
+                [0x8070, size],
+                [0x8071, size],
+                [4902, code],
+                [5072, 0xa0c1],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            assert_eq!(text.matches(" Tj ET").count(), 2);
+            assert!(text.contains("<0041> Tj"));
+            let mut unequal = words;
+            unequal[2][1] = if size == 22 { 34 } else { 22 };
+            assert!(convert(&unequal, 0, &[], roles(), 11).0.is_err());
+        }
+    }
+}
+
+#[test]
+fn c8_decoration_values_keep_glyph_replay_and_explicit_sizes() {
+    for axis in [None, Some(34), Some(40)] {
+        let mut words = ordinary();
+        if let Some(size) = axis {
+            words.extend([[0x8070, size], [0x8071, size]]);
+        }
+        let at = words.len();
+        words.extend([
+            [0x8010, 1],
+            [4682, 4524],
+            [4932, 4524],
+            [5072, 0xa0c1],
+            [0x8004, 1],
+        ]);
+        let (result, baseline, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        assert!(crate::test_support::pdf_text(&baseline).contains("/Artifact BMC"));
+        for value in [2, 46] {
+            words[at][1] = value;
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, baseline);
+        }
+        // A diagonal cannot be silently treated as a horizontal decoration.
+        words[at + 2][1] += 1;
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    }
+}
+
+#[test]
+fn c8_added_symbol_roles_match_independent_reference_glyphs() {
+    for (code, reference) in [
+        (0xa1a3, 0xa1a2),
+        (0xa1ab, 0xa3ac),
+        (0xa3a7, 0xa3ac),
+        (0xa3fc, 0xa3ac),
+        (0xa3a6, 0xd6d0),
+    ] {
+        let mut matrices = Vec::new();
+        for code in [code, reference] {
+            let (result, pdf, finished) = convert(
+                &[[0x8001, 4394], [0x8002, 0x1084], [4902, code], [0x8004, 1]],
+                0,
+                &[],
+                roles(),
+                11,
+            );
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            let matrix = text
+                .lines()
+                .find_map(|line| line.split_once(" Tm "))
+                .unwrap()
+                .0;
+            matrices.push(matrix.to_owned());
+        }
+        assert_eq!(matrices[0], matrices[1]);
+    }
+}
