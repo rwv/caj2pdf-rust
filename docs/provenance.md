@@ -562,3 +562,54 @@ identity/order. These are bitmap comparisons, not universal document-layout
 claims. All document/PDF/image/oracle bytes remain external; implementation
 and fixtures are independently authored MIT, with no other converter source
 read or migrated. See [conformance](conformance.md#c8-generic-only-jbig2-checkpoint-392).
+
+## C8 four-page article records (#391)
+
+The external SHA-256 `b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b`
+([pinned locator and issue](https://github.com/rwv/caj2pdf-rust/issues/391))
+contains six independently controlled native profiles. Clearing the initial
+page-1 refusal exposed later title, punctuation, table and page-4 metadata
+refusals; the final check uses the unchanged original, not a patched input.
+
+Original mode-2 controls use origin `(4652,4274)`, a 700-by-450 page, invented
+records, and original full-em geometric fonts with distinct resource markers.
+These reuse the MIT `c8_additional_profiles_fixture.py` and
+`c8_geometric_font.py` generators from caj2pdf-samples; geometric fonts replace
+the viewer's bundled resource paths during the isolated control experiment.
+System-font installation alone does not replace those bundled resources. No
+vendor glyph outline or other converter implementation was read or copied.
+The observations are:
+
+- `8010/117` has the existing repeated-glyph geometry and endpoint clipping.
+  With all aliases mapped to an original shape, its page pixels equal `/1`
+  and `/46` at styles `1084`/`10a5` and lengths 200/600. Only those implicit
+  style states are admitted for `/117`. The actual vendor ornaments differ:
+  the existing default decorative alias remains an explicit substitute, not
+  a claim of vendor-outline fidelity.
+- CJK style `b94c` exactly matches explicit 84-by-109 axes in the viewer.
+  Adjacent 84-square and 109-square controls distinguish the dimensions;
+  ordinary Latin and punctuation classes remain unsupported for this style.
+- At style `10a5`, `a1b6`/`a1b7` book-title marks match the opening-parenthesis
+  control shifted by +4/-6 source units, respectively, in ordinary and
+  alternate Latin resources. They therefore use total offsets `(30,-4)`
+  and `(20,-4)` relative to the regular CJK origin. Other sizes stay refused.
+- Style-`10a5` `a1fa` (right arrow) shares the symbol baseline and resets the
+  Latin resource for itself and the following letter. Both initial resource
+  states match the ordinary-resource comma control; subsequent explicit
+  resource selection still takes effect. Explicit axes remain unsupported.
+- Twelve-byte `8007/a380` and `/a382` records retain both endpoints and draw
+  the same hairline as the existing `8006/a381` control, including shifted,
+  reversed and diagonal pairs. Unknown neighboring values remain errors.
+- `8072/d2e5` leaves glyph, line and decoration painting unchanged at both
+  tested styles and resource states. Only that added metadata value is
+  admitted; neighboring values remain refused.
+
+The production change reuses bounded record reads, character decoding,
+placement, clipping, font selection and sequential PDF painting. Original
+Rust regressions cover short/truncated drawing records, atomic payloads,
+complete PDF equivalence, subsequent text/resource state, title transforms
+and refused neighbors. All new source is independently authored MIT; no
+private-source migration, new dependency or document/font byte import occurs.
+Control screenshots, source documents, PDFs and generated font files remain
+external. The [conformance checkpoint](conformance.md#c8-native-article-checkpoint-391)
+separates these observations from general document/ornament fidelity.

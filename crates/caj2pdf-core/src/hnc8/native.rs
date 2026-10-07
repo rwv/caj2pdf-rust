@@ -334,9 +334,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 _ if matches!(
                     (tag, value),
                     (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b)
-                        | (0x8010, 1 | 2 | 46)
+                        | (0x8010, 1 | 2 | 46 | 117)
                         | (0x8090, _)
-                ) =>
+                ) || (self.header.variant == Variant::C8
+                    && matches!((tag, value), (0x8007, 0xa380 | 0xa382))) =>
                 {
                     length = 12;
                     self.native_bytes(position + 4, end, &mut bytes[4..length], at)?;

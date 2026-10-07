@@ -189,6 +189,7 @@ pub enum C8GlyphClass {
 /// share field-4 geometry. `0x04c6` and `0x14c6` share field-6 geometry;
 /// `0x14a5` shares field-5 geometry. The observed `0xe58c` and `0x154a` CJK forms use
 /// measured sizes 109 and 84 respectively; their Latin baselines are unknown.
+/// `0xb94c` CJK uses unequal 84-by-109 axes.
 /// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
@@ -239,12 +240,16 @@ pub(super) fn native_glyph_transform(
             _ => (28.0, 9.0),
         };
         (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
-    } else if matches!(style, 0xe58c | 0x114a | 0x154a) && class == C8GlyphClass::Cjk {
+    } else if matches!(style, 0xe58c | 0x114a | 0x154a | 0xb94c) && class == C8GlyphClass::Cjk {
         // Original controls distinguish explicit 109 and 84 from adjacent
         // sizes. Latin baselines and other size-field flags remain unverified.
-        let size = if style == 0xe58c { 109.0 } else { 84.0 };
-        let em = size * 75.0 / 301.0;
-        (em, em, 0.0)
+        let width = if style == 0xe58c { 109.0 } else { 84.0 };
+        let height = if matches!(style, 0xe58c | 0xb94c) {
+            109.0
+        } else {
+            84.0
+        };
+        (width * 75.0 / 301.0, height * 75.0 / 301.0, 0.0)
     } else {
         if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000)
             && !matches!(
@@ -363,7 +368,7 @@ pub struct EmpiricalC8HorizontalDecoration {
     pub glyph_count: u16,
 }
 
-/// Nominal placement for the observed forward horizontal `8010/1`, `/2` and `/46` forms.
+/// Nominal placement for the observed forward horizontal `8010/1`, `/2`, `/46` and `/117` forms.
 /// The caller must establish record identity and provide the active text style
 /// or the independently controlled explicit 34/40 axis pair.
 /// Reversed, zero-length, vertical and diagonal spans are not admitted here.
@@ -432,7 +437,7 @@ pub fn empirical_c8_segment(
     style: u16,
 ) -> Result<[[f64; 2]; 2]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style, 0xa381 | 0xa383 | 0xa385 | 0xa38b) {
+    if !matches!(style, 0xa380 | 0xa381 | 0xa382 | 0xa383 | 0xa385 | 0xa38b) {
         return Err(Error::invalid("unverified C8 segment style"));
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;

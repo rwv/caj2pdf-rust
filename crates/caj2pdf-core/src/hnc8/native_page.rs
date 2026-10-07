@@ -316,7 +316,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } => (),
             NativeRecord::Control {
                 tag: 0x8072,
-                value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
+                value: 0 | 0x1042 | 0xa3a8 | 0xa0f2 | 0xd2e5,
             }
             | NativeRecord::Control {
                 tag: 0xc053 | 0xc054,
@@ -368,10 +368,12 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     _ => decode_native_character(code)
                         .ok_or_else(|| invalid("unsupported C8 native character"))?,
                 };
-                if style == 0x114a && self.variant != Variant::HnB {
+                if (style == 0x114a && self.variant != Variant::HnB)
+                    || (style == 0xb94c && self.variant != Variant::C8)
+                {
                     return Err(invalid("unverified C8 title style"));
                 }
-                if matches!(style, 0xe58c | 0x114a | 0x154a)
+                if matches!(style, 0xe58c | 0x114a | 0x154a | 0xb94c)
                     && self.axes == [None; 2]
                     && !('㐀'..='鿿').contains(&character)
                 {
@@ -385,6 +387,12 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         0x1021 => Some((21.0, 3.0)),
                         0x1022 => Some((21.0, 1.0)),
                         0x1041 => Some((24.0, 3.0)),
+                        _ => None,
+                    }
+                } else if self.variant == Variant::C8 && style == 0x10a5 && self.axes == [None; 2] {
+                    match code {
+                        0xa1b6 => Some((30.0, -4.0)),
+                        0xa1b7 => Some((20.0, -4.0)),
                         _ => None,
                     }
                 } else if self.variant == Variant::HnB {
@@ -485,7 +493,10 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, Some(self.roles.latin), Some(0.0))
                     }
-                    0xa1ce if self.variant == Variant::C8 => {
+                    0xa1ce | 0xa1fa
+                        if self.variant == Variant::C8
+                            && (code == 0xa1ce || (style == 0x10a5 && self.axes == [None; 2])) =>
+                    {
                         // Original following-glyph controls confirm this persistent reset.
                         self.latin = Some(self.roles.latin);
                         (C8GlyphClass::Cjk, self.latin, Some(0.0))
@@ -680,7 +691,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 self.page.stroke_polyline(&path, 4.0 * unit, self.gray)?;
             }
             NativeRecord::Drawing {
-                tag: 0x8006,
+                tag: 0x8006 | 0x8007,
                 style,
                 points,
             } => {
@@ -689,9 +700,16 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             }
             NativeRecord::Drawing {
                 tag: 0x8010,
-                style: 1 | 2 | 46,
+                style: value @ (1 | 2 | 46 | 117),
                 points,
             } => {
+                if value == 117
+                    && (self.variant != Variant::C8
+                        || self.axes != [None; 2]
+                        || !matches!(self.style, Some(0x1084 | 0x10a5)))
+                {
+                    return Err(invalid("unverified C8 decoration 117 state"));
+                }
                 let (font, alias) = self
                     .roles
                     .decoration
