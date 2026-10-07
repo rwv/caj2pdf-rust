@@ -873,3 +873,56 @@ fn cff_fonts_embed_cid_keyed_subsets_without_a_glyph_map() {
         std::fs::write(root.join("cff.pdf"), &sink.bytes).unwrap();
     }
 }
+
+#[test]
+fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
+    let limits = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+    let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
+    let mut sink = Sink::default();
+    let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+    let handle = document.add_font(&font).unwrap();
+    let fonts = [&handle];
+    let mut content = document.begin_content_page(page(), &fonts, &[]).unwrap();
+    for (index, character) in ['\u{e6c7}', '\u{f0000}'].into_iter().enumerate() {
+        content
+            .glyph_with_replacement_text(0, 'A', matrix(10.0 + 25.0 * index as f64), 68, character)
+            .unwrap();
+    }
+    content.glyph(0, 'A', matrix(70.0)).unwrap();
+    content.finish().unwrap();
+    document.embed_font(&handle, &mut font).unwrap();
+    assert_eq!(document.finish().unwrap().substituted_glyphs, 2);
+    let text = pdf_text(&sink.bytes);
+    assert!(text.contains("/ActualText <FEFFE6C7>"));
+    assert!(text.contains("/ActualText <FEFFDB80DC00>"));
+    assert_eq!(text.matches("BDC\n").count(), 2);
+    assert_eq!(text.matches("EMC\n").count(), 2);
+    assert_eq!(text.matches("<0041> Tj").count(), 3);
+}
+
+#[test]
+fn bilevel_overlay_refuses_color_resources_and_poisoned_pages() {
+    let limits = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(vec![255_u8, 0, 0])).unwrap();
+    let mut sink = Sink::default();
+    let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+    let image = document
+        .add_image(
+            &mut source,
+            0,
+            3,
+            ImageSpec {
+                pixel_width: 1,
+                pixel_height: 1,
+                encoding: ImageEncoding::Rgb8,
+            },
+        )
+        .unwrap();
+    let images = [image];
+    let mut content = document.begin_content_page(page(), &[], &images).unwrap();
+    assert!(content.bilevel_overlay(0, matrix(0.0)).is_err());
+    assert!(content.image(0, matrix(0.0)).is_err());
+    assert!(content.finish().is_err());
+    assert!(document.finish().is_err());
+}

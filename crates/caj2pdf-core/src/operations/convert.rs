@@ -90,6 +90,10 @@ pub struct ConversionReport {
     pub input_bytes_read: u64,
     pub output_bytes_written: u64,
     pub pages_converted: u32,
+    /// Private-use glyphs drawn with a visual substitute from the caller's
+    /// font. Original private-use codes are retained in PDF ActualText; this
+    /// count does not imply a standard Unicode identity for their shapes.
+    pub substituted_glyphs: u64,
     pub bookmarks_written: u32,
     /// Blank substitutions in source page order; indices are zero-based.
     pub omitted_pages: Vec<OmittedPage>,

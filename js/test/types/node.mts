@@ -13,6 +13,7 @@ export async function useNode(inputPath: string, outputPath: string) {
   const count: bigint = report.outputBytesWritten;
   const skippedBookmarks: number = report.outlineWarnings;
   const omittedOutline: boolean = report.outlineOmitted;
+  const substitutions: bigint = report.substitutedGlyphs;
   void skippedBookmarks;
   void omittedOutline;
   const input = await openHandle(inputPath, 'r');

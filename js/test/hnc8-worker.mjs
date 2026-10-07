@@ -3,7 +3,7 @@
 // HN/C8 conversion called from the caller's own Dedicated Worker, with fonts
 // from OPFS file handles and Blobs. Each convert() starts a nested Worker.
 import { convert, loadModule, spoolToOpfs } from "../browser.mjs";
-import { syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const fontSpools = [];
@@ -63,6 +63,14 @@ try {
     }
     profilePdf = pdf;
   }
+  const hnbProfilePdf = [];
+  const aliasFont = new Blob([privateAliasFont(await fontBlob.arrayBuffer())]);
+  const hnbProfile = await convert(module, new Blob([syntheticNativeHnbProfile()]), collect(hnbProfilePdf), {
+    includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: aliasFont, latin: aliasFont } },
+  });
+  if (hnbProfile.substitutedGlyphs !== 1n || hnbProfile.pagesConverted !== 1) {
+    throw new Error("HN-B private-use substitution was not reported");
+  }
   const lateInput = syntheticNativeHnb();
   const lateView = new DataView(lateInput.buffer);
   lateView.setUint16(lateView.getUint32(228, true), 0x8099, true);
@@ -107,7 +115,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { profilePdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { hnbProfilePdf, profilePdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

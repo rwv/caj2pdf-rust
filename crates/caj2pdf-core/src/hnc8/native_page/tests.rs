@@ -1341,7 +1341,7 @@ fn mode_zero_controlled_states_preserve_fonts_and_explicit_axes() {
 }
 
 #[test]
-fn hnb_leading_images_preserve_order_and_reject_later_raster_operations() {
+fn hnb_first_image_selects_persistent_bilevel_composition() {
     let (result, _, finished) = convert(&image(), 1, &[false], roles(), 18);
     assert!(result.is_err());
     assert!(!finished);
@@ -1365,10 +1365,17 @@ fn hnb_leading_images_preserve_order_and_reject_later_raster_operations() {
         words.extend(image());
         words.push([0x8004, 1]);
         let count = if leading_image { 2 } else { 1 };
-        let (result, _, finished) =
+        let (result, pdf, finished) =
             convert(&words, count, &vec![false; count as usize], roles(), 21);
-        assert!(result.is_err());
-        assert!(!finished);
+        result.unwrap();
+        assert!(finished);
+        let text = crate::test_support::pdf_text(&pdf);
+        assert_eq!(text.contains("/BM /Multiply"), !leading_image);
+        assert_eq!(
+            text.matches("/BilevelOverlay gs").count(),
+            usize::from(!leading_image)
+        );
+        assert!(text.find("<4E2D> Tj").unwrap() < text.rfind(" Do").unwrap());
     }
 }
 
@@ -1978,7 +1985,10 @@ fn c8_required_symbols_follow_latin_state_and_symbol_baseline() {
                 assert!(text.contains(&format!("/F{font} 1 Tf")));
                 if raw == code {
                     assert!(text.contains(&format!("<{unicode}> Tj")));
-                    assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
+                    assert_eq!(
+                        convert(&words, 0, &[], fonts, 13).0.is_ok(),
+                        matches!(code, 0xa1c1 | 0xa1e4 | 0xa6b8 | 0xa6c4)
+                    );
                 }
                 matrices.push(
                     text.lines()
@@ -2088,7 +2098,7 @@ fn c8_image_references_reuse_descriptor_order_and_legacy_geometry() {
 }
 
 #[test]
-fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
+fn zero_field_styles_admit_only_the_controlled_hnb_square_profile() {
     for style in [0x1000, 0x1001, 0x1020] {
         for (code, unicode, mode) in [(0xa0c1, "0041", 0), (0xa3b1, "FF11", 11)] {
             let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
@@ -2099,21 +2109,22 @@ fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
             assert!(
                 convert(&words, 0, &[], roles(), if mode == 0 { 12 } else { 13 })
                     .0
-                    .is_err()
+                    .is_ok()
+                    == (style == 0x1000)
             );
         }
     }
 }
 
 #[test]
-fn opaque_c8_controls_do_not_broaden_hnb_admission() {
+fn opaque_controls_preserve_both_mode_two_profiles() {
     for control in [[0x8073, 8], [0x8074, 0xffff]] {
         let mut words = ordinary();
         words.extend([control, [0x8004, 1]]);
         assert!(convert(&words, 0, &[], roles(), 0).0.is_ok());
         let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
-        assert!(result.is_err());
-        assert!(!finished);
+        result.unwrap();
+        assert!(finished);
     }
 }
 
@@ -2147,7 +2158,7 @@ fn c8_parallel_resets_latin_until_an_explicit_resource_selection() {
                     format!("BT /F{selected} 1 Tf")
                 ]
             );
-            assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
+            assert_eq!(convert(&words, 0, &[], fonts, 13).0.is_ok(), code == 0xa1e4);
         }
     }
 }
@@ -2446,3 +2457,5 @@ fn c8_added_symbol_roles_match_independent_reference_glyphs() {
         assert_eq!(matrices[0], matrices[1]);
     }
 }
+
+mod hnb_extended;

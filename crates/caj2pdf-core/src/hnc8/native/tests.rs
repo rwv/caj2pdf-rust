@@ -1419,6 +1419,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8070, 0x001c],
         [0x801c, 4],
         [0x8067, 7],
+        [0x8067, 18],
+        [0x8072, 1],
+        [0x8072, 0x8004],
+        [0x8073, 278],
+        [0x8073, 0x8004],
         [0x8067, 9],
         [0x8069, 0x1084],
         [0x8070, 0x0024],
@@ -1569,9 +1574,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8070, 0x0023],
         [0x8070, 0x002c],
         [0x80ce, 2],
-        [0x8072, 1],
         [0x8071, 0x0025],
-        [0x8073, 0x0028],
         [0x8024, 0x281c],
         [0xc054, 0x00e9],
         [0x8006, 0xa384],
@@ -2021,5 +2024,27 @@ fn c8_80d3_requires_a_complete_verified_value() {
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
+    }
+}
+
+#[test]
+fn hnb_opaque_metadata_never_reads_a_truncated_value_as_the_next_page() {
+    for width in [12, 20] {
+        for tag in 0x8072..=0x8074 {
+            for length in [2_u32, 3] {
+                let mut source = hnb_source(width, &[&[[tag, 0x8004]], &[[0x8004, 1]]]);
+                source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
+                let limits = Limits::default();
+                let cancel = Cancel::default();
+                let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
+                reader.next_page().unwrap();
+                let mut visitor = Visitor::default();
+                let error = reader.visit_native_records(&mut visitor).unwrap_err();
+                assert_eq!(page_image(&error).0, Some(1));
+                assert!(visitor.events.is_empty());
+                reader.next_page().unwrap();
+                assert_eq!(reader.visit_native_records(&mut visitor).unwrap(), 1);
+            }
+        }
     }
 }

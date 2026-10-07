@@ -1624,3 +1624,15 @@ fn progress_without_a_terminal_or_reads_writes_nothing() {
     progress.input_read(4, 4);
     progress.finish();
 }
+
+#[test]
+fn private_use_substitution_warning_is_explicit_and_zero_is_quiet() {
+    let mut out = Vec::new();
+    crate::report::write_glyph_warning(&mut out, 0).unwrap();
+    assert!(out.is_empty());
+    crate::report::write_glyph_warning(&mut out, 1).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("1 private-use glyph(s)"));
+    assert!(text.contains("visual substitute"));
+    assert!(text.contains("original private-use codes retained in PDF ActualText"));
+}

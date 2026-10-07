@@ -183,7 +183,7 @@ pub enum C8GlyphClass {
 
 /// Evaluate the empirical C8 text matrix for the measured native style subset.
 ///
-/// Size fields 2 through 8 and 10 with observed high bits `0x0800`, `0x0c00` or
+/// Size fields 2 through 10 with observed high bits `0x0800`, `0x0c00` or
 /// `0x1000` share the measured glyph geometry. Independently controlled
 /// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484`, `0x1484` and `0x9c84`
 /// share field-4 geometry. `0x04c6` and `0x14c6` share field-6 geometry;
@@ -461,6 +461,7 @@ fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
             6 => (48, 5),
             7 => (56, 3),
             8 => (63, 1),
+            9 => (72, -1),
             10 => (84, -4),
             _ => {
                 return Err(Error::invalid("unverified C8 glyph size field"));

@@ -182,6 +182,7 @@ function report(exports, format) {
     inputBytesRead: exports.caj2pdf_input_bytes_read(),
     outputBytesWritten: exports.caj2pdf_output_bytes_written(),
     pagesConverted: exports.caj2pdf_pages_converted(),
+    substitutedGlyphs: exports.caj2pdf_substituted_glyphs(),
     bookmarksWritten: exports.caj2pdf_bookmarks_written(),
     omittedPages: Array.from({ length: exports.caj2pdf_omitted_pages_count() }, (_, index) => ({
       pageIndex: exports.caj2pdf_omitted_page_index(index),
