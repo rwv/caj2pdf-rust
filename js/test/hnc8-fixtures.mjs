@@ -274,3 +274,37 @@ export function syntheticNativeC8Profiles(padded = false) {
   bytes.set(jpeg, end + 12);
   return bytes;
 }
+
+/** Original mode-2 HN-B title, metadata, zero-size and private-code controls. */
+export function syntheticNativeHnbProfile() {
+  const words = [
+    0x8001, 100, 0x8002, 0x0929, 30, 0xa0c1,
+    0x8067, 18, 0x8072, 0x8004, 0x8073, 278, 0x8074, 0xffff,
+    0x8002, 0x1000, 50, 0xa0c1,
+    0x8002, 0x1084, 70, 0xa661, 0x8004, 1,
+  ];
+  const bytes = new Uint8Array(228 + words.length * 2);
+  bytes.set(syntheticNativeHnb().subarray(0, 216));
+  const view = new DataView(bytes.buffer);
+  view.setUint32(144, 1, true);
+  view.setUint32(216, 228, true);
+  view.setUint32(220, words.length * 2, true);
+  words.forEach((word, i) => view.setUint16(228 + i * 2, word, true));
+  return bytes;
+}
+
+/** Relabel the MIT geometric font's second shape; no external outline bytes. */
+export function privateAliasFont(original, code = 0x0403) {
+  const bytes = new Uint8Array(original);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < view.getUint16(4); i++) {
+    const entry = 12 + i * 16;
+    if (view.getUint32(entry) === 0x636d6170) {
+      const cmap = view.getUint32(entry + 8);
+      view.setUint32(cmap + 40, code);
+      view.setUint32(cmap + 44, code);
+      return bytes;
+    }
+  }
+  throw new Error("original geometric font has no cmap");
+}

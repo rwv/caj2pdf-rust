@@ -595,3 +595,14 @@ pub fn write_warnings<W: Write>(out: &mut W, outline: &OutlineReport) -> io::Res
     }
     Ok(())
 }
+
+/// Report visible substitutes without assigning semantics to private-use text.
+pub fn write_glyph_warning<W: Write>(out: &mut W, count: u64) -> io::Result<()> {
+    if count != 0 {
+        writeln!(
+            out,
+            "caj2pdf: warning: {count} private-use glyph(s) rendered with a visual substitute; original private-use codes retained in PDF ActualText"
+        )?;
+    }
+    Ok(())
+}

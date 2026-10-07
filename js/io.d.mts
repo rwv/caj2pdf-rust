@@ -99,6 +99,8 @@ export interface ConversionReport {
   inputBytesRead: bigint;
   outputBytesWritten: bigint;
   pagesConverted: number;
+  /** Private-use glyphs rendered with visual substitutes; codes retained in PDF ActualText. */
+  substitutedGlyphs: bigint;
   bookmarksWritten: number;
   omittedPages: Array<{ pageIndex: number; offset: bigint }>;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */

@@ -10,6 +10,13 @@ use std::io::Write;
 const BMP_BITMAP_BYTES: usize = 8192;
 const MAX_PAGE_FONTS: usize = 128;
 
+#[derive(Clone, Copy)]
+enum GlyphText {
+    Character,
+    Decoration,
+    Replacement(char),
+}
+
 /// A font added to a document, usable only in the document that created it.
 ///
 /// A fixed 8 KiB bitmap records which BMP Unicode characters can be drawn.
@@ -359,6 +366,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             height,
             content,
             page,
+            multiply_images: false,
             failed: false,
         })
     }
@@ -395,6 +403,7 @@ pub struct ContentPageWriter<'d, 'a, 'r, W: Write, C: Cancellation> {
     content: ObjectId,
     page: ObjectId,
     deflate: Deflate,
+    multiply_images: bool,
     failed: bool,
 }
 
@@ -420,7 +429,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Font size is one; matrix scales are in PDF points per em. For example,
     /// `[12, 0, 0, 12, x, y]` draws an upright 12-point glyph at its baseline.
     pub fn glyph(&mut self, font: usize, character: char, transform: [f64; 6]) -> Result<()> {
-        self.draw_glyph(font, character, transform, None, None, false)
+        self.draw_glyph(font, character, transform, None, None, GlyphText::Character)
     }
 
     /// Draw a glyph in DeviceGray: zero is black and 255 is white.
@@ -432,7 +441,34 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         transform: [f64; 6],
         gray: u8,
     ) -> Result<()> {
-        self.draw_glyph(font, character, transform, Some(gray), None, false)
+        self.draw_glyph(
+            font,
+            character,
+            transform,
+            Some(gray),
+            None,
+            GlyphText::Character,
+        )
+    }
+
+    /// Draw a visual alias while retaining the source character for extraction.
+    /// ActualText is UTF-16BE with a BOM, including for supplementary values.
+    pub(crate) fn glyph_with_replacement_text(
+        &mut self,
+        font: usize,
+        alias: char,
+        transform: [f64; 6],
+        gray: u8,
+        character: char,
+    ) -> Result<()> {
+        self.draw_glyph(
+            font,
+            alias,
+            transform,
+            Some(gray),
+            None,
+            GlyphText::Replacement(character),
+        )
     }
 
     /// Draw one glyph clipped to `[left, bottom, width, height]` in PDF points.
@@ -446,7 +482,14 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         transform: [f64; 6],
         clip: [f64; 4],
     ) -> Result<()> {
-        self.draw_glyph(font, character, transform, None, Some(clip), false)
+        self.draw_glyph(
+            font,
+            character,
+            transform,
+            None,
+            Some(clip),
+            GlyphText::Character,
+        )
     }
 
     /// Draw a clipped decorative font glyph without semantic replacement text.
@@ -461,7 +504,14 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         transform: [f64; 6],
         clip: [f64; 4],
     ) -> Result<()> {
-        self.draw_glyph(font, character, transform, None, Some(clip), true)
+        self.draw_glyph(
+            font,
+            character,
+            transform,
+            None,
+            Some(clip),
+            GlyphText::Decoration,
+        )
     }
 
     fn draw_glyph(
@@ -471,7 +521,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         transform: [f64; 6],
         gray: Option<u8>,
         clip: Option<[f64; 4]>,
-        decorative: bool,
+        text: GlyphText,
     ) -> Result<()> {
         self.start_draw()?;
         let resource = self
@@ -503,14 +553,29 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         if let Some(gray) = gray {
             self.emit(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())?;
         }
-        if decorative {
-            self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?;
+        match text {
+            GlyphText::Character => (),
+            GlyphText::Decoration => {
+                self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?
+            }
+            GlyphText::Replacement(character) => {
+                self.emit(b"/Span << /ActualText <FEFF")?;
+                for unit in character.encode_utf16(&mut [0; 2]) {
+                    self.emit(format!("{unit:04X}").as_bytes())?;
+                }
+                self.emit(b"> >> BDC\n")?;
+            }
         }
         self.emit(format!("BT /F{font} 1 Tf\n").as_bytes())?;
         self.emit(matrix.as_bytes())?;
         self.emit(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())?;
-        if decorative {
-            self.emit(b"EMC\nEMC\n")?;
+        match text {
+            GlyphText::Character => (),
+            GlyphText::Decoration => self.emit(b"EMC\nEMC\n")?,
+            GlyphText::Replacement(_) => {
+                self.emit(b"EMC\n")?;
+                self.document.substituted_glyphs += 1;
+            }
         }
         if gray.is_some() || clip.is_some() {
             self.emit(b"Q\n")?;
@@ -520,12 +585,36 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     }
 
     pub fn image(&mut self, index: usize, transform: [f64; 6]) -> Result<()> {
+        self.draw_image(index, transform, false)
+    }
+
+    pub(crate) fn image_is_bilevel(&self, index: usize) -> bool {
+        self.images.get(index).is_some_and(|image| image.bilevel)
+    }
+
+    /// Black samples cover prior content; white samples preserve it. This
+    /// models AND on binary image samples without applying that raster rule
+    /// to color images, where PDF Multiply would produce different colors.
+    pub(crate) fn bilevel_overlay(&mut self, index: usize, transform: [f64; 6]) -> Result<()> {
+        self.draw_image(index, transform, true)
+    }
+
+    fn draw_image(&mut self, index: usize, transform: [f64; 6], overlay: bool) -> Result<()> {
         self.start_draw()?;
         if index >= self.images.len() {
             return Err(Error::invalid("PDF page image index is out of range"));
         }
+        if overlay && !self.image_is_bilevel(index) {
+            return Err(Error::invalid(
+                "PDF image overlay requires a bilevel resource",
+            ));
+        }
         let matrix = decimals(&transform)?;
         self.emit(b"q\n")?;
+        if overlay {
+            self.multiply_images = true;
+            self.emit(b"/BilevelOverlay gs\n")?;
+        }
         self.emit(matrix.as_bytes())?;
         self.emit(format!(" cm /Im{index} Do Q\n").as_bytes())?;
         self.failed = false;
@@ -635,6 +724,11 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             document
                 .writer
                 .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())?;
+        }
+        if self.multiply_images {
+            document.writer.write_bytes(
+                b" >> /ExtGState << /BilevelOverlay << /Type /ExtGState /BM /Multiply >>",
+            )?;
         }
         document
             .writer

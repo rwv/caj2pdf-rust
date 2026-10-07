@@ -79,6 +79,8 @@ rule. Node and the browser take fonts only as explicit options.
   prints a warning. `--no-bookmarks` silences it.
 - HN-A pages are images. Run an OCR tool such as `ocrmypdf` for search.
 - Substitute fonts do not reproduce the CAJViewer typography pixel for pixel.
+  A measured HN-B private-use glyph may use a visual approximation with an
+  explicit warning; its private-use code is retained in PDF ActualText.
 - TEB files cannot be converted.
 
 ## Library

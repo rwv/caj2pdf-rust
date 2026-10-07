@@ -229,19 +229,11 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     (0x8001 | 0x8002 | 0x8004, _)
                         | (0x801d, 0 | 3 | 4)
                         | (0x801c, 4)
-                        | (0x8067, 5 | 6 | 7 | 9)
+                        | (0x8067, 5 | 6 | 7 | 9 | 18)
                         | (0x8069, 0x1084)
                         | (0x80ce, 0 | 1)
                         | (0x8070 | 0x8071, 0x001c | 0x0024 | 0x002b)
-                        | (
-                            0x8072,
-                            0 | 0x1084 | 0xc2c7 | 0xcdc1 | 0xa0f3 | 0xa0e7 | 0xc2db | 0xd2f2
-                        )
-                        | (0x8074, _)
-                        | (
-                            0x8073,
-                            0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a | 0x002b | 79..=83
-                        )
+                        | (0x8072..=0x8074, _)
                         | (0x8024, 0x2800 | 0x2815 | 0x281d)
                         | (0xc053, _)
                         | (0xffff, 5)
@@ -267,7 +259,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 }
                 0x8067
                     if matches!(value, 5 | 6 | 8 | 9)
-                        || (self.header.variant == Variant::HnB && value == 7) =>
+                        || (self.header.variant == Variant::HnB && matches!(value, 7 | 18)) =>
                 {
                     NativeRecord::Control { tag, value }
                 }

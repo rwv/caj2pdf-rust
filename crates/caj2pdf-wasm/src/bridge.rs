@@ -284,6 +284,12 @@ pub extern "C" fn caj2pdf_pages_converted() -> u32 {
     with_outcome(0, |outcome| outcome.report.pages_converted)
 }
 
+/// Private-use glyphs drawn using an explicitly reported visual substitute.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_substituted_glyphs() -> u64 {
+    with_outcome(0, |outcome| outcome.report.substituted_glyphs)
+}
+
 /// Bookmarks written by a successful operation; zero when unavailable.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_bookmarks_written() -> u32 {

@@ -152,6 +152,10 @@ mod cli {
                 )?;
                 output.commit()?;
                 warn(&report.outline, report.application_info);
+                let _ = report::write_glyph_warning(
+                    &mut io::stderr().lock(),
+                    report.substituted_glyphs,
+                );
                 let mut stderr = io::stderr().lock();
                 for page in &report.omitted_pages {
                     let _ = writeln!(

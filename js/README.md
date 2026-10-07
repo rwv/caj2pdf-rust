@@ -93,7 +93,7 @@ to the file you choose.
   leading bytes, or 1,024 when looking for a displaced `%PDF-` header
   ([header offset rule](../docs/pdf-input.md#header-offset)), or uses
   `options.format`, and resolves with
-  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten, omittedPages, outlineWarnings, outlineOmitted }`.
+  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, substitutedGlyphs, bookmarksWritten, omittedPages, outlineWarnings, outlineOmitted }`.
 - `inspect(wasm, source, options)` resolves with
   `{ format, pageCount, bookmarkCount, outlineWarnings, applicationInfo, inputBytesRead }` without output.
   `bookmarkCount` is validated/countable for CAJ and HN-A; it is `null`
@@ -575,3 +575,14 @@ resolves with the report when it produces a partial PDF; I/O, cancellation,
 resource-limit, unsupported-feature, and unavailable-geometry errors still
 reject. Shared damaged resources may affect multiple pages. The default is
 strict conversion. This option applies to CAJ, not every recognized format.
+
+### Private-use glyph substitutions
+
+For the measured HN-B A661 profile, `report.substitutedGlyphs` counts glyphs
+rendered with a visual approximation because the supplied font lacks U+E6C7.
+The PDF retains U+E6C7 in ActualText, without guessing a standard Unicode
+identity. Supply an appropriate U+E6C7 glyph to avoid the substitute; missing
+both that glyph and its documented display alias remains an error. Extractors
+that ignore ActualText can return the display alias. Use the JavaScript package
+with its matching WASM build. See the
+[conformance limits](../docs/conformance.md#hn-b-magnesium-article-checkpoint-381).

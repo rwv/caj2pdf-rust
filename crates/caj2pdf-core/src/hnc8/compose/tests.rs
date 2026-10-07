@@ -112,7 +112,15 @@ fn direct_text(records: &[Record]) -> Vec<u8> {
 }
 
 fn fixture(variant: Variant, pages: &[Vec<Record>]) -> Fixture {
-    fixture_with_text(variant, pages, text)
+    fixture_with_text(
+        variant,
+        pages,
+        if variant == Variant::HnB {
+            |_| b"original opaque HN-B text".to_vec()
+        } else {
+            text
+        },
+    )
 }
 
 fn fixture_with_text(
@@ -152,11 +160,7 @@ fn fixture_with_text(
     };
     for (number, records) in pages.iter().enumerate() {
         let offset = result.bytes.len();
-        let page_text = if variant == Variant::HnB {
-            b"original opaque HN-B text".to_vec()
-        } else {
-            text(records)
-        };
+        let page_text = text(records);
         result.bytes.extend(&page_text);
         let row = index + number * 20;
         result.bytes[row..row + 4].copy_from_slice(&(offset as i32).to_le_bytes());
@@ -758,7 +762,7 @@ fn pure_text_refusals_are_explicit_and_hnb_no_image_rows_are_observed() {
 }
 
 #[test]
-fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
+fn hnb_image_only_rows_validate_counts_codecs_and_type3_headers() {
     let mut many = Harness::new(Variant::HnB, &[vec![Record::jpeg(8, 8, 100, 0, 0); 2]]);
     let error = many
         .run(None, ComposeOptions::default(), &Limits::default())
@@ -785,9 +789,13 @@ fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
             .unwrap_err();
         located(&error, Variant::HnB, Some(1), Some(1));
         assert_eq!(stage_of(&error), Some(Hnc8Stage::Headers));
-        assert!(matches!(error.kind, ErrorKind::UnsupportedFormat));
-        assert_eq!(error.reason, "image record type");
-        assert_eq!(error.offset, Some(case.fixture.descriptors[0][0]));
+        if kind == 3 {
+            assert!(error.reason.starts_with("type-3 DIB:"));
+        } else {
+            assert!(matches!(error.kind, ErrorKind::UnsupportedFormat));
+            assert_eq!(error.reason, "image record type");
+            assert_eq!(error.offset, Some(case.fixture.descriptors[0][0]));
+        }
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     }
 }

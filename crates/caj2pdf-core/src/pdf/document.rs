@@ -96,6 +96,7 @@ pub struct BilevelImageSpec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageObject {
     object: ObjectId,
+    bilevel: bool,
 }
 
 /// One image draw with the PDF affine matrix `[a, b, c, d, e, f]`.
@@ -319,6 +320,7 @@ impl<W: Write, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
         self.document.writer.end_stream()?;
         Ok(ImageObject {
             object: self.object,
+            bilevel: true,
         })
     }
 }
@@ -343,6 +345,7 @@ pub struct PdfDocument<'a, W: Write, C: Cancellation> {
     leaf: Option<PageNode>,
     page_ids: Vec<ObjectId>,
     pages_written: u32,
+    substituted_glyphs: u64,
     outline: OutlineBuilder<ObjectId>,
     input_bytes_read: u64,
     image_buffer: Vec<u8>,
@@ -375,6 +378,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             leaf: None,
             page_ids: Vec::new(),
             pages_written: 0,
+            substituted_glyphs: 0,
             outline: OutlineBuilder::new(),
             input_bytes_read: 0,
             image_buffer: Vec::new(),
@@ -417,7 +421,10 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         self.push_page(
             &width,
             &height,
-            PageImages::Full(&[ImageObject { object: image_id }]),
+            PageImages::Full(&[ImageObject {
+                object: image_id,
+                bilevel: false,
+            }]),
         )
     }
 
@@ -458,7 +465,10 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         self.image_page_failed = true;
         let object = self.emit_image_xobject(source, offset, length, image)?;
         self.image_page_failed = false;
-        Ok(ImageObject { object })
+        Ok(ImageObject {
+            object,
+            bilevel: false,
+        })
     }
 
     /// Start a 1 bpp image XObject whose rows the caller streams.
@@ -738,6 +748,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written,
             pages_converted: self.pages_written,
+            substituted_glyphs: self.substituted_glyphs,
             bookmarks_written: self.outline.written(),
             ..ConversionReport::default()
         })

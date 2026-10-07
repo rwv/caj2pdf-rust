@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -160,7 +160,7 @@ test("HN-B symbols missing from the fallback font fail", async () => {
   }
 });
 
-test("HN-B image after text fails explicitly", async () => {
+test("HN-B JPEG after text remains explicitly unsupported", async () => {
   const bytes = syntheticNativeHnbMixed();
   const image = bytes.slice(236, 264);
   bytes.copyWithin(236, 264, 276);
@@ -252,6 +252,24 @@ test("native C8 new profiles retain six glyphs and the aligned-name JPEG", async
     assert.ok(pdf.includes(syntheticType1Hn().jpeg));
     if (baseline) assert.deepEqual(pdf, baseline);
     baseline = pdf;
+    await validatePdf(t, pdf, 1);
+  }
+});
+
+
+test("HN-B profile retains private codes and reports visual substitution", async (t) => {
+  for (const [code, substitutions, shown] of [[0x0403, 1n, "0403"], [0xe6c7, 0n, "E6C7"]]) {
+    const parts = [];
+    const font = source(privateAliasFont(fontBytes, code));
+    const result = await convert(await wasmModule(), source(syntheticNativeHnbProfile()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: required(font) },
+    });
+    assert.equal(result.substitutedGlyphs, substitutions);
+    assert.equal(result.pagesConverted, 1);
+    const pdf = Buffer.concat(parts), text = pageText(pdf);
+    assert.equal(text.match(/<0041> Tj/g).length, 2);
+    assert.ok(text.includes(`<${shown}> Tj`));
+    assert.equal(text.includes("/ActualText <FEFFE6C7>"), substitutions === 1n);
     await validatePdf(t, pdf, 1);
   }
 });

@@ -27,7 +27,7 @@ The same conversion core serves all three interfaces.
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
 | C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint); the unreleased [additional 10/5-page profiles](#additional-c8-sample-checkpoint-380-382) also complete. Native pages require fonts: explicit, or installed ones the CLI finds. Requested bookmarks are omitted with a warning (no outline is written from unverified metadata); #303 tracks the missing outline evidence. Font/raster differences remain explicit. |
-| HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnb-compact-index.md) do not establish original-font pixel parity. |
+| HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images and the measured [type-3 bilevel overlay profile](#hn-b-magnesium-article-checkpoint-381); colored/JPEG images after text and mode-0 images remain errors. [Independent controls and scoped layout checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
 This table describes current main, which v0.4.0 released. Earlier published
@@ -303,10 +303,35 @@ controls exercise both name forms and retain embedded JPEG bytes.
 This is a two-document checkpoint, not a rerun of the optional full corpus
 (`NOT_RUN`) or original-font pixel parity. Substitute fonts still differ in
 weight, English spacing and decoration appearance; some Latin runs overlap.
-The separately discovered 12-page HN-B article (#381) still needs verified
-symbol/control semantics and image-after-text composition. Its private-use
-character is unresolved. #303 still lacks a positive C8/HN-B stored-outline
-sample; bookmark omission and its warning remain unchanged.
+The separately discovered HN-B article is covered by the following checkpoint.
+#303 still lacks a positive C8/HN-B stored-outline sample; bookmark omission
+and its warning remain unchanged.
+
+### HN-B magnesium article checkpoint (#381)
+
+The unchanged 12-page article now converts through CLI, Node and a real Chromium
+Worker with identical output: 726,143 bytes, SHA-256
+`11cadd7d1857a26a929d5d74be4da53facef1215f5a2e43f9104706c26bb7b88`.
+qpdf validation and the page count pass; per-page inventories retain all 20,693
+glyphs and all 12 type-3 images. Browser OPFS cleanup passes. The
+[pinned research note](https://github.com/rwv/caj2pdf-samples/blob/7dbdd623388521bea65111e3cbe4284f2afc8e37/research/notes/hnb-magnesium-profile.md) records source identity, original controls,
+selected page comparisons, resource resets and geometry measurements.
+
+This profile admits size field 9, square `1000`, measured small brackets and
+symbols, opaque metadata words, and type-3 images with the independently tested
+first-image composition rule. Unknown glyph styles, colored/JPEG images after
+text, and mode-0 images remain explicit errors. I/O stays ranged/sequential;
+there is no page-content buffer or new image-payload allocation.
+
+One raw A661 character remains semantically unidentified. Its GB18030 private-use
+code U+E6C7 is retained. If the supplied Latin font lacks it, U+0403 is used only
+as a visual approximation, with U+E6C7 in PDF ActualText and an explicit
+CLI/report warning. Poppler extracts one U+E6C7 and no display alias. Extractors
+that ignore ActualText can expose the alias. Other private-use codes remain
+unsupported. This does not establish original-font pixel parity or PDF/UA.
+Selected pages 1, 2, 9 and 10 retain the observed layout; font weight, Latin
+spacing and some punctuation/overlaps differ. Optional full-corpus validation
+is **NOT_RUN**. #303 and its outline warning remain unchanged.
 
 ### Packaged HN-B regression repeat
 

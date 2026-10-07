@@ -420,7 +420,7 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     for style in [
-        0x0485, 0x9c85, 0x1485, 0x04c5, 0x14c5, 0x14a4, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
+        0x0485, 0x9c85, 0x1485, 0x04c5, 0x14c5, 0x14a4, 0x9084, 0x1004, 0x1080, 0x1024, 0x108b,
     ] {
         assert!(
             native_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk, [None; 2])
@@ -821,6 +821,7 @@ fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
         (0x1001, 21.0, 24.0, 10.0),
         (0x1020, 24.0, 21.0, 11.0),
         (0x1021, 24.0, 24.0, 10.0),
+        (0x1129, 72.0, 72.0, -1.0),
         (0x1022, 24.0, 28.0, 9.0),
         (0x1041, 28.0, 24.0, 10.0),
     ] {

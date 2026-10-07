@@ -152,6 +152,7 @@ where
         top_first,
         image: 0,
         non_image_painted: false,
+        image_overlay: None,
         style: None,
         axes: [None; 2],
         latin: Some(roles.latin),
@@ -178,6 +179,9 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     top_first: &'r [bool],
     image: usize,
     non_image_painted: bool,
+    /// HN-B fixes its image raster operation at the first image: text or
+    /// drawing before that image selects binary AND; leading images replace.
+    image_overlay: Option<bool>,
     style: Option<u16>,
     axes: [Option<u16>; 2],
     /// Current Latin resource state; `None` selects the role fallback.
@@ -309,18 +313,10 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             NativeRecord::Control {
                 tag: 0x8073 | 0x8074,
                 ..
-            } if self.variant == Variant::C8 => (),
+            } => (),
             NativeRecord::Control {
                 tag: 0x8072,
                 value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
-            }
-            | NativeRecord::Control {
-                tag: 0x8073,
-                value: 38..=42,
-            }
-            | NativeRecord::Control {
-                tag: 0x8074,
-                value: 0 | 0xb4a2 | 0xd4b4 | 0x24a7 | 0xa1a1 | 0xa3a9,
             }
             | NativeRecord::Control {
                 tag: 0xc053 | 0xc054,
@@ -328,23 +324,17 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } => (),
             NativeRecord::Control {
                 tag: 0x8067,
-                value: 7,
+                value: 7 | 18,
             }
             | NativeRecord::Control {
                 tag: 0x8069,
                 value: 0x1084,
             }
             | NativeRecord::Control {
+                // Independently varied metadata words preserve glyph state,
+                // including values that resemble record tags and coordinates.
                 tag: 0x8072,
-                value: 0x1084 | 0xa0f3 | 0xa0e7 | 0xc2db | 0xd2f2 | 0xcdc1,
-            }
-            | NativeRecord::Control {
-                tag: 0x8073,
-                value: 30..=32 | 79..=83,
-            }
-            | NativeRecord::Control {
-                tag: 0x8074,
-                value: 0xb7bd | 0xcfc8 | 0xc8cb | 0x2815 | 0xa0ec | 0xd3c9 | 0xb0d7 | 0xd1e9,
+                ..
             }
             | NativeRecord::ExtendedControl {
                 tag: 0xc052,
@@ -365,13 +355,16 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 };
                 if self.variant == Variant::HnB
                     && self.axes == [None; 2]
-                    && matches!(style, 0x1000 | 0x1001 | 0x1020)
+                    && matches!(style, 0x1001 | 0x1020)
                 {
                     return Err(invalid("unverified HN-B mode-2 zero-field glyph style"));
                 }
                 let character = match (self.variant, code) {
                     (Variant::C8, 0x006c) => 'l',
                     (Variant::C8, 0x0070) => 'p',
+                    // Keep the source's private-use identity; its display alias
+                    // below does not establish a standard Unicode character.
+                    (Variant::HnB, 0xa661) => '\u{e6c7}',
                     _ => decode_native_character(code)
                         .ok_or_else(|| invalid("unsupported C8 native character"))?,
                 };
@@ -384,7 +377,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
-                let axis_offset = if self.variant == Variant::C8
+                let axis_offset = if (self.variant == Variant::C8 || style == 0x1021)
                     && self.axes == [None; 2]
                     && matches!(code, 0xa3db | 0xa3dd)
                 {
@@ -502,7 +495,25 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     {
                         (C8GlyphClass::Cjk, latin, Some(0.0))
                     }
-                    0xa0ad if self.variant == Variant::HnB => (C8GlyphClass::Cjk, latin, Some(0.0)),
+                    0xa0ad | 0xa1b4 | 0xa1b5 | 0xa1c0 | 0xa1c1 | 0xa1c3 | 0xa1e4 | 0xa2f2
+                    | 0xa6b8 | 0xa6c4 | 0xa6cc | 0xa6d2 | 0xa661
+                        if self.variant == Variant::HnB =>
+                    {
+                        (C8GlyphClass::Cjk, latin, Some(0.0))
+                    }
+                    0xa1d6 | 0xa1dd if self.variant == Variant::HnB => {
+                        // Single-symbol controls establish a persistent reset,
+                        // including the following ordinary Latin glyph.
+                        self.latin = Some(self.roles.latin);
+                        (C8GlyphClass::Cjk, self.latin, Some(0.0))
+                    }
+                    0xa6c2
+                        if self.variant == Variant::HnB
+                            && style == 0x10a5
+                            && self.axes == [None; 2] =>
+                    {
+                        (C8GlyphClass::Cjk, latin, Some(0.0))
+                    }
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
                     0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
                         (C8GlyphClass::Cjk, latin, None)
@@ -537,6 +548,11 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     // Verified ideographic punctuation shares the Latin baseline,
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
+                }
+                if self.variant == Variant::HnB && code == 0xa6c2 {
+                    // Independently paired style-5 controls match a comma
+                    // shifted down by 25 source units in both Latin resources.
+                    transform[5] -= 25.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
                 if let Some((dx, dy)) = axis_offset {
                     let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
@@ -603,8 +619,24 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 }
                 // Keep the verified current gray local to each glyph draw.
                 let font = self.font(font, character);
-                self.page
-                    .glyph_with_gray(font, character, transform, self.gray)?;
+                if character == '\u{e6c7}'
+                    && self
+                        .fonts
+                        .get(font)
+                        .is_some_and(|font| !font.supports(character))
+                {
+                    // The viewer paints an acute-accented Gamma-like shape for
+                    // A661, but Copy yields a bullet. Use a visual substitute
+                    // from the caller's font and retain the PUA in ActualText.
+                    let alias = '\u{0403}';
+                    let font = self.font(Some(self.roles.latin), alias);
+                    self.page.glyph_with_replacement_text(
+                        font, alias, transform, self.gray, character,
+                    )?;
+                } else {
+                    self.page
+                        .glyph_with_gray(font, character, transform, self.gray)?;
+                }
             }
             NativeRecord::Drawing { .. }
             | NativeRecord::Image { .. }
@@ -686,9 +718,12 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 }
             }
             NativeRecord::Image { words } => {
-                // HN-B controls establish opaque leading images. Images after
-                // text can use a different raster operation and remain explicit.
-                if self.variant == Variant::HnB && self.non_image_painted {
+                // Only bilevel image samples have independently controlled
+                // overlay semantics. Color raster operations remain unverified.
+                if self.variant == Variant::HnB
+                    && self.non_image_painted
+                    && !self.page.image_is_bilevel(self.image)
+                {
                     return Err(invalid("unverified HN-B image after text or drawing"));
                 }
                 let coordinate = decode_native_image_coordinate(&words)
@@ -744,7 +779,13 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
             transform[3] = height;
             transform[5] -= height;
         }
-        self.page.image(self.image, transform)?;
+        let overlay = self.variant == Variant::HnB
+            && *self.image_overlay.get_or_insert(self.non_image_painted);
+        if overlay {
+            self.page.bilevel_overlay(self.image, transform)?;
+        } else {
+            self.page.image(self.image, transform)?;
+        }
         self.image += 1;
         Ok(())
     }

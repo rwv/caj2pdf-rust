@@ -380,7 +380,7 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
                 info.height,
             )
         }
-        3 if variant != Variant::HnB => {
+        3 => {
             let checked = preflight_type3(
                 source,
                 record,
@@ -400,7 +400,7 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
             )
         }
         // Type 1 reuses the validated JPEG path in the measured
-        // HN-A/C8 composition profile; HN-B remains type-2 only.
+        // HN-A/C8 composition profile; HN-B JPEGs remain type-2 only.
         1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
             let info = read_type2_jpeg_info(source, record, limits, cancellation)
                 .map_err(image_at.locator(Hnc8Stage::Headers))?;

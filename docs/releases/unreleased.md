@@ -20,3 +20,20 @@
 See [partial conversion behavior](../pdf-input.md#explicit-partial-conversion-of-damaged-caj-inputs)
 for remaining hard errors and shared-resource limitations. This is an unstable
 feature intended for the next minor release, not a change to v0.4.0 artifacts.
+
+## HN-B magnesium article conversion (#381)
+
+- The measured 12-page HN-B profile now converts with all native glyphs and
+  type-3 images. Additional size/symbol/metadata rules and bilevel composition
+  preserve source order; unknown profiles remain errors.
+- One observed private-use code retains U+E6C7. If the caller's Latin font lacks
+  it, a documented visual substitute is drawn with the original code in PDF
+  ActualText. The CLI warns; Rust `substituted_glyphs` and JavaScript
+  `substitutedGlyphs` report the count. This does not identify its semantics.
+- Rust breaking change: `ConversionReport` adds `substituted_glyphs: u64`.
+  Migrate complete report literals by adding `substituted_glyphs: 0` or using
+  `..ConversionReport::default()`. JavaScript reports add a `bigint` property;
+  use the JS package with its matching rebuilt WASM module.
+- See the [conformance checkpoint](../conformance.md#hn-b-magnesium-article-checkpoint-381)
+  for selected comparisons, font limitations and NOT_RUN optional-corpus status.
+  This changes unreleased builds, not existing v0.4.0 artifacts.
