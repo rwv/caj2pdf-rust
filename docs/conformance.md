@@ -638,3 +638,29 @@ All nine affected documents also pass Node and real Chromium with the same
 final WASM; their PDF hashes/page counts match native and OPFS cleanup is
 empty. The workspace passes 1,257 Rust tests (7 optional-corpus tests ignored,
 NOT_RUN) and 164 JavaScript tests (0 skipped), with Clippy clean.
+
+## C8 native article checkpoint (#391)
+
+The unchanged four-page article in [#391](https://github.com/rwv/caj2pdf-rust/issues/391)
+passes both CLI bookmark modes and qpdf. Native, Node and a real Chromium
+Worker produce the same 305,034-byte PDF (SHA-256
+`185a14fd1155782ed691c450f4b63e15213c61914cd362f3a6ee380dbb8e4a42`);
+OPFS cleanup is empty. All 7,565 source glyphs retain their per-page Unicode
+identity and source order, using the established C8 character aliases. All
+5,870 checked CJK/title/book-mark/arrow matrices and all 40 line segments
+match the source-derived measured geometry. All four page extents match.
+There are no source images; image-pixel comparison is not applicable.
+
+The older bitmap-only page-order harness reports FAIL for this text-only
+input because it expects source images on each page. The per-page complete
+glyph-sequence check above supplies the applicable page identity/order
+evidence; that harness result is not silently counted as passing. Fonts are
+caller substitutes, and the default decoration remains a substitute alias.
+The existing C8 outline limitation (#303) and annotation limitations remain;
+these results are not a universal visual-fidelity claim. Original viewer
+controls and exact admitted/refused profiles are recorded in
+[provenance](provenance.md#c8-four-page-article-records-391).
+
+Validation on the final source passes 1,261 Rust tests (7 optional-corpus tests
+ignored/NOT_RUN), 164 JavaScript tests (0 skipped), Clippy and locked native/WASM
+builds. The full 1,277-document rerun is tracked separately by #385.

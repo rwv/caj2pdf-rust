@@ -207,6 +207,11 @@ fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
         [0x8006, 0xa384],
         [0x8010, 0],
         [0x8010, 0xa381],
+        [0x8010, 116],
+        [0x8010, 118],
+        [0x8007, 0xa37f],
+        [0x8007, 0xa381],
+        [0x8007, 0xa383],
         [0xc052, 7],
         [0xc055, 8],
         [0x8071, 0],
@@ -276,6 +281,9 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
         vec![[0x8006, 0xa385], [1, 2], [3, 4]],
         vec![[0x8010, 1], [1, 2], [3, 4]],
+        vec![[0x8010, 117], [1, 2], [3, 4]],
+        vec![[0x8007, 0xa380], [1, 2], [3, 4]],
+        vec![[0x8007, 0xa382], [1, 2], [3, 4]],
         vec![[0x8090, 0xa3e6], [0xd2c6, 4364], [0xc08f, 125]],
         vec![[0x8090, 0xa3b2], [0xd2c6, 4364], [0xc08f, 125]],
         vec![[0xc053, 0xffff]],
@@ -660,6 +668,9 @@ fn drawing_boundary_preserves_independent_y_end_and_control_records() {
         (0x8006, 0xa385),
         (0x8006, 0xa38b),
         (0x8010, 1),
+        (0x8010, 117),
+        (0x8007, 0xa380),
+        (0x8007, 0xa382),
     ] {
         for short in [1, 3, 7, 28] {
             let mut source = fixture(

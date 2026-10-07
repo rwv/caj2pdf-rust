@@ -534,7 +534,7 @@ fn c8_horizontal_decoration_rejects_unverified_geometry_and_styles() {
 #[test]
 fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
     let page = source_page_geometry([600, 600]).unwrap();
-    for style in [0xa381, 0xa383, 0xa38b] {
+    for style in [0xa380, 0xa381, 0xa382, 0xa383, 0xa38b] {
         let horizontal =
             empirical_c8_segment(page, [4652, 4274], [[4682, 4304], [4832, 4304]], style).unwrap();
         // Original segment-axes control: relative endpoints (30,30)/(180,30).
@@ -557,7 +557,7 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
         empirical_c8_segment(page, [100, 100], [[0, 0], [u16::MAX, u16::MAX]], 0xa381).unwrap();
     assert!(off_page[0][0] < 0.0);
     assert!(off_page[1][1] < 0.0);
-    for style in [0xa384, 0xa382, 1] {
+    for style in [0xa384, 0xa386, 1] {
         assert!(empirical_c8_segment(page, [0, 0], [[0, 0], [1, 1]], style).is_err());
     }
     let mut invalid = page;

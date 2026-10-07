@@ -1,5 +1,15 @@
 # Unreleased
 
+## C8 native article records (#391)
+
+- The measured decoration, unequal CJK title, style-5 book-title marks and
+  arrow, table-line records and metadata value now preserve the complete
+  four-page article. Unknown neighboring profiles remain explicit errors.
+- Native, Node and Chromium outputs match. The [checkpoint](../conformance.md#c8-native-article-checkpoint-391)
+  records full glyph-order and scoped geometry checks, including the default
+  decoration substitution limit. No API shape, dependency or memory-allocation
+  class changes.
+
 ## C8 generic-only JBIG2 images (#392)
 
 - HN/C8 type-3 images with the measured page-information plus full-page

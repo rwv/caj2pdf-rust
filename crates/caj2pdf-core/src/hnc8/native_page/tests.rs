@@ -381,6 +381,8 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x8072, 1]],
+        vec![[0x8072, 0xd2e4]],
+        vec![[0x8072, 0xd2e6]],
         vec![[0x80ce, 0], [4800, 0xa1a1]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
         vec![[0x8004, 0]],
@@ -770,7 +772,7 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         (0x80d3, &[0, 1, 2][..]),
         (0x80d5, &[0][..]),
         (0x9002, &[0][..]),
-        (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
+        (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2, 0xd2e5][..]),
         (0x8073, &[0, 8, 38, 39, 40, 41, 42, 43, 0x8004, 0xffff][..]),
         (
             0x8074,
@@ -1031,35 +1033,36 @@ fn hnb_native_text_and_controlled_state_reuse_sequential_page_output() {
 }
 
 #[test]
-fn hnb_book_title_marks_preserve_verified_style_five_offsets_and_resources() {
-    for (code, unicode, x) in [(0xa1b6, 0x300a, 30.0), (0xa1b7, 0x300b, 20.0)] {
-        let words = [
-            [0x8001, 4394],
-            [0x8002, 0x10a5],
-            [4902, code],
-            [0x801d, 4],
-            [4902, code],
-            [0x8004, 1],
-        ];
-        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 13);
-        result.unwrap();
-        assert!(finished);
-        let text = crate::test_support::pdf_text(&pdf);
-        assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
-        assert!(text.contains("/F1 1 Tf") && text.contains("/F2 1 Tf"));
-        for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
-            let m: Vec<f64> = matrix
-                .split_whitespace()
-                .map(|v| v.parse().unwrap())
-                .collect();
-            let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-            assert!((m[4] - (270.0 + x) * unit).abs() < 0.000001);
-            assert!((m[5] - (499.0 * unit - m[3])).abs() < 0.000002);
+fn native_book_title_marks_preserve_verified_style_five_offsets_and_resources() {
+    for mode in [11, 13] {
+        for (code, unicode, x) in [(0xa1b6, 0x300a, 30.0), (0xa1b7, 0x300b, 20.0)] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, 0x10a5],
+                [4902, code],
+                [0x801d, 4],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            assert!(text.contains("/F1 1 Tf") && text.contains("/F2 1 Tf"));
+            for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let m: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|v| v.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                assert!((m[4] - (270.0 + x) * unit).abs() < 0.000001);
+                assert!((m[5] - (499.0 * unit - m[3])).abs() < 0.000002);
+            }
+            let mut other = words;
+            other[1][1] = 0x1084;
+            assert!(convert(&other, 0, &[], roles(), mode).0.is_err());
         }
-        assert!(convert(&words, 0, &[], roles(), 11).0.is_err());
-        let mut other = words;
-        other[1][1] = 0x1084;
-        assert!(convert(&other, 0, &[], roles(), 13).0.is_err());
     }
 }
 
@@ -2459,3 +2462,182 @@ fn c8_added_symbol_roles_match_independent_reference_glyphs() {
 }
 
 mod hnb_extended;
+
+#[test]
+fn c8_decoration_117_keeps_clipping_and_following_text_in_measured_states() {
+    for style in [0x1084, 0x10a5] {
+        for length in [200, 600] {
+            let mut words = ordinary();
+            words.extend([
+                [0x8002, style],
+                [0x8010, 1],
+                [4672, 4500],
+                [4672 + length, 4500],
+                [0xffff, 5],
+                [4772, 0xa0c1],
+                [0x8004, 1],
+            ]);
+            let (result, reference, finished) = convert(&words, 0, &[], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            words[5][1] = 117;
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            // Identical caller-supplied aliases give identical PDF painting,
+            // including partial final tiles, clipping, and text after the line.
+            assert_eq!(pdf, reference);
+            for value in [116, 118] {
+                words[5][1] = value;
+                assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+            }
+            words[5][1] = 117;
+            for other in [0x1063, 0x10c6] {
+                words[4][1] = other;
+                assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+            }
+            words[4][1] = style;
+            assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+            let mut explicit = words.clone();
+            explicit.splice(5..5, [[0x8070, 34], [0x8071, 34]]);
+            assert!(convert(&explicit, 0, &[], roles(), 0).0.is_err());
+            words[7][1] += 1;
+            assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+        }
+    }
+}
+
+#[test]
+fn c8_b94c_title_uses_unequal_cjk_axes_without_expanding_other_classes() {
+    let mut words = vec![[0x8001, 4350], [0x8002, 0xb94c], [4682, 0xd6d0]];
+    words.extend(ordinary());
+    words.push([0x8004, 1]);
+    let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+    result.unwrap();
+    assert!(finished);
+    let text = crate::test_support::pdf_text(&pdf);
+    let (matrix, glyph) = text
+        .lines()
+        .find_map(|line| line.split_once(" Tm "))
+        .unwrap();
+    assert!(glyph.contains("<4E2D> Tj"));
+    let m: Vec<f64> = matrix
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let expected = [
+        84.0 * 75.0 / 301.0,
+        0.0,
+        0.0,
+        109.0 * 75.0 / 301.0,
+        50.0 * unit,
+        539.0 * unit - 109.0 * 75.0 / 301.0,
+    ];
+    for (actual, expected) in m.iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.000001);
+    }
+    assert_eq!(text.matches("<4E2D> Tj").count(), 2);
+    assert!(text.contains("<0041> Tj"));
+    assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+    for code in [0xa0c1, 0xa1a4, 0xa3a8, 0xa3db] {
+        words[2][1] = code;
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    }
+    words[2][1] = 0xd6d0;
+    for style in [0xb94b, 0xb94d, 0xb92c, 0xb96c] {
+        words[1][1] = style;
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    }
+}
+
+#[test]
+fn c8_style_five_arrow_resets_latin_for_itself_and_following_text() {
+    for state in [0, 4] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x10a5],
+            [0x801d, state],
+            [4682, 0xa1fa],
+            [4772, 0xa0c1],
+            [0x801d, state],
+            [4772, 0xa0c1],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+        result.unwrap();
+        assert!(finished);
+        let text = crate::test_support::pdf_text(&pdf);
+        assert!(text.contains("<2192> Tj"));
+        let resources: Vec<_> = text.lines().filter(|line| line.contains(" 1 Tf")).collect();
+        assert_eq!(
+            resources,
+            [
+                "BT /F1 1 Tf",
+                "BT /F1 1 Tf",
+                if state == 4 {
+                    "BT /F2 1 Tf"
+                } else {
+                    "BT /F1 1 Tf"
+                }
+            ]
+        );
+        let mut reference = words;
+        reference[2][1] = 0;
+        reference[3][1] = 0xa3ac;
+        let (result, reference_pdf, _) = convert(&reference, 0, &[], roles(), 11);
+        result.unwrap();
+        let reference_text = crate::test_support::pdf_text(&reference_pdf);
+        let matrices = |s: &str| {
+            s.lines()
+                .filter_map(|line| line.split_once(" Tm "))
+                .map(|(m, _)| m.to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(matrices(&text), matrices(&reference_text));
+        for style in [0x1084, 0x10c6] {
+            let mut other = words;
+            other[1][1] = style;
+            assert!(convert(&other, 0, &[], roles(), 11).0.is_err());
+        }
+        let mut explicit = words.to_vec();
+        explicit.splice(2..2, [[0x8070, 34], [0x8071, 34]]);
+        assert!(convert(&explicit, 0, &[], roles(), 11).0.is_err());
+        assert!(convert(&words, 0, &[], roles(), 13).0.is_err());
+    }
+}
+
+#[test]
+fn c8_8007_segments_match_controlled_strokes_without_consuming_following_text() {
+    for points in [
+        [[4772, 4374], [4772, 4574]],
+        [[4802, 4404], [4802, 4604]],
+        [[4772, 4374], [4972, 4574]],
+        [[4772, 4574], [4772, 4374]],
+    ] {
+        let mut words = ordinary();
+        words.extend([
+            [0x8006, 0xa381],
+            points[0],
+            points[1],
+            [0xffff, 5],
+            [4772, 0xa0c1],
+            [0x8004, 1],
+        ]);
+        let (result, reference, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        for value in [0xa380, 0xa382] {
+            words[4] = [0x8007, value];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, reference);
+            assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        }
+        for value in [0xa37f, 0xa381, 0xa383] {
+            words[4] = [0x8007, value];
+            assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+        }
+    }
+}
