@@ -1477,29 +1477,32 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
         bytes.extend([0; 2]);
         bytes
     }
-    let pages = [vec![
-        Record::jpeg(16, 16, 50, 0, 0),
-        Record::jpeg(8, 8, 210, 17, 3),
-    ]];
-    let mut compressed = Harness::new(Variant::HnA, &pages);
-    compressed
-        .run(None, ComposeOptions::default(), &Limits::default())
+    for variant in [Variant::HnA, Variant::C8] {
+        let mut records = vec![Record::jpeg(16, 16, 50, 7, 11)];
+        if variant == Variant::HnA {
+            records.push(Record::jpeg(8, 8, 210, 17, 3));
+        }
+        let pages = [records];
+        let mut compressed = Harness::new(variant, &pages);
+        compressed
+            .run(None, ComposeOptions::default(), &Limits::default())
+            .unwrap();
+        let fixture = fixture_with_text(variant, &pages, raw);
+        let mut source = Source::new(fixture.bytes);
+        let mut sink = Sink::default();
+        let report = convert(
+            &mut source,
+            &mut sink,
+            None,
+            &mut Visitor::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
         .unwrap();
-    let fixture = fixture_with_text(Variant::HnA, &pages, raw);
-    let mut source = Source::new(fixture.bytes);
-    let mut sink = Sink::default();
-    let report = convert(
-        &mut source,
-        &mut sink,
-        None,
-        &mut Visitor::default(),
-        ComposeOptions::default(),
-        &Limits::default(),
-    )
-    .unwrap();
-    assert_eq!(report.output_pages, 1);
-    assert_eq!(report.jpeg_images, 2);
-    assert_eq!(sink.bytes, compressed.sink.bytes);
+        assert_eq!(report.output_pages, 1);
+        assert_eq!(report.jpeg_images, pages[0].len() as u64);
+        assert_eq!(sink.bytes, compressed.sink.bytes);
+    }
 }
 
 use crate::Context;

@@ -595,3 +595,25 @@ refusals match in reason and runtime output progress. OPFS cleanup leaves no
 entries. The normal suite passes 1,253 Rust tests (7 optional-corpus tests
 ignored) and 164 JavaScript tests (0 skipped), with Clippy clean. Ignored
 optional-corpus tests remain NOT_RUN compatibility evidence.
+
+## C8 uncompressed image-record checkpoint (#390)
+
+All 11 original #390 inputs and the two later prefix refusals from #389
+(`220aa2f5c641`, `8da7e7ccfda1`) now convert: 13 documents, 227 pages.
+Both CLI bookmark modes pass with qpdf clean and source page counts/order
+preserved. The combined 36-document #389/#390 rerun has 28 successful inputs;
+the eight remaining generic-only image refusals are still tracked by #392.
+No failed CLI attempt publishes a PDF. C8 outlines remain unverified (#303).
+
+The 19 affected pages match the geometry and full 72-dpi renders of external
+reference containers using the established direct compressed record format;
+all seven affected JPEG payloads are byte-identical to the source. Original
+viewer controls independently establish raw/compressed equivalence, unchanged
+opaque-word variants and the measured placement/extent effects. See
+[provenance](provenance.md#c8-uncompressed-image-records-390). These comparisons
+are scoped to the changed framing, not every page's visual fidelity.
+
+All 13 affected documents also pass Node and a real Chromium Worker using the
+same final WASM: PDF hashes/page counts match native, and OPFS cleanup leaves
+no entries. The workspace passes 1,255 Rust tests (7 optional-corpus tests
+ignored/NOT_RUN) and 164 JavaScript tests (0 skipped), with Clippy clean.

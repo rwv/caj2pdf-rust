@@ -1,5 +1,14 @@
 # Unreleased
 
+## C8 uncompressed image records (#390)
+
+- C8 pages starting with the measured single unmarked image record now use
+  the existing bounded tagged-record parser. Compressed frame validation and
+  the separate native-text path keep their existing requirements.
+- All 13 affected documents (227 pages) convert. The [checkpoint](../conformance.md#c8-uncompressed-image-record-checkpoint-390)
+  records source-image, page geometry and scoped rendering evidence. No native,
+  CLI or JavaScript API changes or new dependencies.
+
 ## C8 JBIG2 empty content (#389)
 
 - The explicit HN/C8 text-header policy now permits ordinary signed

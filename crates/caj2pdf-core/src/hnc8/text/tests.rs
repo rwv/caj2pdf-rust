@@ -952,6 +952,75 @@ fn direct_image(coordinate: RawTextCoordinate) -> Vec<u8> {
     bytes
 }
 
+fn c8_raw_image_fixture(plain: &[u8]) -> Fixture {
+    let mut fixture = Fixture::new(0, &[point(0, 0)]);
+    fixture.source.bytes.truncate(512);
+    fixture.source.bytes.extend_from_slice(plain);
+    fixture.source.size = fixture.source.bytes.len() as u64;
+    fixture.page.text.length = plain.len() as u64;
+    fixture
+}
+
+#[test]
+fn c8_raw_image_records_match_direct_compression_across_chunk_boundaries() {
+    let coordinate = RawTextCoordinate {
+        x: 123,
+        y: 456,
+        width: 2300,
+        height: 3100,
+    };
+    let mut plain = direct_image(coordinate);
+    plain[2..4].fill(0);
+    // Opaque words inside the image must not be parsed as control tags.
+    plain.extend(direct_record(0x8001, 0));
+    plain.extend(direct_record(0x801c, 0));
+    plain.extend(direct_record(0x801d, 0));
+    plain.extend(direct_record(0x80ff, 0));
+    plain.extend(direct_record(0x8070, 42));
+    plain.extend(direct_record(0x8071, 42));
+    plain.extend(direct_record(0x8004, 7));
+    for chunk in [1, 2, 3, 11, 28, 65_536] {
+        let mut raw = c8_raw_image_fixture(&plain);
+        raw.source.short = 3;
+        let parsed = raw
+            .parse(
+                Limits {
+                    io_chunk_bytes: chunk,
+                    ..Limits::default()
+                },
+                &NeverCancel,
+            )
+            .unwrap();
+        let compressed = direct_fixture(plain.clone(), 1).normal().unwrap();
+        assert_eq!(parsed.coordinates, [coordinate]);
+        assert_eq!(parsed.coordinates, compressed.coordinates);
+        assert_eq!(parsed.record_count, compressed.record_count);
+        assert_eq!(parsed.zlib_frame, None);
+        assert_eq!(parsed.max_decoder_output_chunk_bytes, 0);
+        assert!(parsed.max_source_request_bytes <= chunk);
+    }
+}
+
+#[test]
+fn c8_raw_image_profile_rejects_truncation_and_unknown_neighbors() {
+    let mut plain = direct_image(point(10, 20));
+    plain[2..4].fill(0);
+    plain.extend(direct_record(0x8004, 0));
+    for length in [24, 27, 28, 30, 31] {
+        assert!(c8_raw_image_fixture(&plain[..length]).normal().is_err());
+    }
+    for (offset, value) in [(0, 0x800b_u16), (2, 1), (2, 0xd300), (28, 0x80cd)] {
+        let mut altered = plain.clone();
+        altered[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        assert!(c8_raw_image_fixture(&altered).normal().is_err());
+    }
+    for count in [0, 2] {
+        let mut fixture = c8_raw_image_fixture(&plain);
+        fixture.page.image_count = count;
+        assert!(fixture.normal().is_err());
+    }
+}
+
 #[test]
 fn direct_compressed_records_cross_chunks_without_scanning_image_or_tail_payloads() {
     let expected = [point(0x8004, 0xffff), point(17, 39)];
