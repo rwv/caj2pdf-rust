@@ -1,5 +1,15 @@
 # Unreleased
 
+## HN-A full-page JPEG regions (#388)
+
+- HN-A pages containing one full-page JPEG and one or two additional region
+  records now convert with the image, page dimensions and ordering preserved.
+  The parser validates the complete measured record profile and zlib frame;
+  it does not substitute blank pages or drop unknown decoder failures.
+- No native, CLI or JavaScript API changes. See the
+  [conformance checkpoint](../conformance.md#hn-a-jpeg-region-checkpoint-388)
+  for the 12-document run and scoped fidelity evidence.
+
 ## Explicit damaged CAJ conversion (#297)
 
 - CLI: opt in with `caj2pdf damaged.caj --allow-damaged -o partial.pdf`.

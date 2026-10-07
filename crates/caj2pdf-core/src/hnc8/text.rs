@@ -12,7 +12,7 @@ use crate::{Cancellation, Error, ErrorKind, Limits, RangedSource, Result, read_e
 mod raw;
 mod records;
 
-use records::Records;
+use records::{ImageRegions, Records};
 
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -356,11 +356,50 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
             decoded_bytes,
         ));
     }
-    let tail_bytes = u64::from(page.image_count) * 28;
+    let mut tail_bytes = u64::from(page.image_count) * 28;
+    let mut image_regions = None;
     let (glyph_bytes, record_count) = if header_bytes == HEADER_BYTES {
-        let glyph_bytes = decoded_bytes.checked_sub(12 + tail_bytes).ok_or_else(|| {
+        let mut glyph_bytes = decoded_bytes.checked_sub(12 + tail_bytes).ok_or_else(|| {
             loc.malformed("decoded text layout: too short for declared image records")
         })?;
+        // The measured HN-A full-page JPEG profile has one or two additional
+        // 28-byte region records. Their count is uniquely framed by the
+        // 16-byte glyph area; every marker and reserved word is checked below.
+        let regions = match (header.variant, page.image_count, glyph_bytes % 16) {
+            (Variant::HnA, 1, 12) => 1,
+            (Variant::HnA, 1, 8) => 2,
+            _ => 0,
+        };
+        if regions != 0 {
+            let region_bytes = u64::from(regions) * 28;
+            glyph_bytes = glyph_bytes
+                .checked_sub(region_bytes)
+                .ok_or_else(|| loc.malformed("decoded text layout: too short for image regions"))?;
+            let mut kind = [0; 4];
+            read_chunks(
+                source,
+                page.text.offset + page.text.length,
+                &mut kind,
+                limits,
+                cancellation,
+                loc,
+                &mut max_source_request_bytes,
+            )?;
+            if u32::from_le_bytes(kind) != 2 {
+                return Err(loc.malformed("decoded image regions require one JPEG descriptor"));
+            }
+            let ordinal = u16::try_from(page.page_number - 1)
+                .map_err(|_| loc.unsupported("image region page ordinal"))?;
+            image_regions = Some(ImageRegions {
+                count: regions,
+                page_size: [
+                    u16::from_le_bytes([fixed[2], fixed[3]]),
+                    u16::from_le_bytes([fixed[6], fixed[7]]),
+                ],
+                ordinal,
+            });
+            tail_bytes += region_bytes;
+        }
         if glyph_bytes % 16 != 0 {
             return Err(loc.malformed("decoded text layout: record area is not a multiple of 16"));
         }
@@ -402,6 +441,7 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
             record_count,
         )
         .decode_markers(header.variant == Variant::HnA)
+        .image_regions(image_regions)
     };
     let frame_loc = loc.at(zlib_frame.offset);
     let owned_buffer_bytes = len_u64(input.capacity())

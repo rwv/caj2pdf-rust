@@ -169,6 +169,114 @@ fn ordinary() -> Fixture {
     Fixture::new(3, &[point(10, 20), point(0x8123, 0xffff), point(10, 20)])
 }
 
+fn hna_region_frame(regions: u8) -> Fixture {
+    let placement = RawTextCoordinate {
+        x: 0,
+        y: 0,
+        width: 1500,
+        height: 2100,
+    };
+    let mut fixture = Fixture::new(2, &[placement]);
+    fixture.header.variant = Variant::HnA;
+    fixture.header.page_index.offset = 0x15c;
+    fixture.page.row_offset = 0x15c;
+    fixture.plain[..8].copy_from_slice(&[0x1c, 0x80, 0, 0, 0xce, 0x80, 0, 0]);
+    fixture.plain.truncate(40);
+    for record in 0..=regions {
+        let mut bytes = [0; 28];
+        bytes[..2].copy_from_slice(&0x800a_u16.to_le_bytes());
+        let words = if record == 0 {
+            [0, 0, 1500, 2100]
+        } else {
+            // Region coordinates are opaque metadata, including an extent
+            // beyond the page. They must not create or resize another image.
+            [100, 200, 1800, 700]
+        };
+        for (at, word) in words.into_iter().enumerate() {
+            bytes[4 + at * 2..6 + at * 2].copy_from_slice(&(word as u16).to_le_bytes());
+        }
+        bytes[12] = if record == 0 { regions - 1 } else { record - 1 };
+        fixture.plain.extend_from_slice(&bytes);
+    }
+    fixture.plain.extend_from_slice(&[4, 0x80, 0, 0]);
+    frame_with_jpeg_descriptor(&mut fixture);
+    fixture
+}
+
+fn frame_with_jpeg_descriptor(fixture: &mut Fixture) {
+    fixture.recompress();
+    fixture.source.bytes[514..516].copy_from_slice(&1500_u16.to_le_bytes());
+    fixture.source.bytes[518..520].copy_from_slice(&2100_u16.to_le_bytes());
+    // This coordinate-reader test needs only the descriptor type. Complete
+    // descriptor/payload validation belongs to the container/composer tests.
+    fixture.source.bytes.extend_from_slice(&2_u32.to_le_bytes());
+    fixture.source.size = fixture.source.bytes.len() as u64;
+}
+
+#[test]
+fn hna_full_page_jpeg_regions_do_not_add_image_placements() {
+    for regions in [1, 2] {
+        for chunk in [1, 2, 3, 11, 28, 65_536] {
+            let mut fixture = hna_region_frame(regions);
+            fixture.source.short = 3;
+            let result = fixture
+                .parse(
+                    Limits {
+                        io_chunk_bytes: chunk,
+                        ..Limits::default()
+                    },
+                    &NeverCancel,
+                )
+                .unwrap();
+            assert_eq!(result.page_size, Some([1500, 2100]));
+            assert_eq!(result.record_count, 2);
+            assert_eq!(
+                result.coordinates,
+                [RawTextCoordinate {
+                    x: 0,
+                    y: 0,
+                    width: 1500,
+                    height: 2100,
+                }]
+            );
+            assert!(fixture.source.max_request <= chunk);
+        }
+    }
+}
+
+#[test]
+fn hna_image_regions_require_complete_records_and_the_measured_profile() {
+    for at in [0, 4, 8, 40, 44, 48, 68, 70, 80, 84, 96, 108, 124, 126] {
+        let mut fixture = hna_region_frame(2);
+        fixture.plain[at] ^= 1;
+        frame_with_jpeg_descriptor(&mut fixture);
+        assert_eq!(kind_name(&fixture.normal().unwrap_err()), "malformed");
+    }
+    let mut fixture = hna_region_frame(1);
+    fixture.plain[52] = 2;
+    frame_with_jpeg_descriptor(&mut fixture);
+    assert!(fixture.normal().is_err());
+    for removed in [1, 4, 12, 27] {
+        let mut fixture = hna_region_frame(2);
+        fixture.plain.truncate(fixture.plain.len() - removed);
+        frame_with_jpeg_descriptor(&mut fixture);
+        assert!(fixture.normal().is_err());
+    }
+    let mut fixture = hna_region_frame(1);
+    let at = (fixture.page.text.offset + fixture.page.text.length) as usize;
+    fixture.source.bytes[at] = 0; // A type-0 image is outside this JPEG profile.
+    assert_eq!(kind_name(&fixture.normal().unwrap_err()), "malformed");
+    let mut fixture = hna_region_frame(1);
+    fixture.source.bytes.pop();
+    fixture.source.size -= 1;
+    assert!(fixture.normal().is_err());
+    let mut fixture = hna_region_frame(1);
+    fixture.header.variant = Variant::C8;
+    fixture.header.page_index.offset = 0x50;
+    fixture.page.row_offset = 0x50;
+    assert_eq!(kind_name(&fixture.normal().unwrap_err()), "malformed");
+}
+
 #[test]
 fn invented_frames_preserve_raw_words_order_and_repeats() {
     let expected = [point(10, 20), point(0x8123, 0xffff), point(10, 20)];
