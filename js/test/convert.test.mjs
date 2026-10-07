@@ -42,7 +42,10 @@ import {
 
 async function inputs() {
   const { wrapped } = await syntheticKdh();
+  const pdf = await fixture("valid_out_of_order_objects.pdf");
+  const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   return [
+    { name: "PDF download footer", format: "pdf", bytes: new Uint8Array([...pdf, ...footer]), expected: pdf, pages: 2, bookmarks: 0 },
     { name: "adjacent Flate CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: null }), pages: 2, bookmarks: 1 },
     { name: "array-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }), pages: 2, bookmarks: 1 },
     { name: "scalar-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj(), pages: 2, bookmarks: 1 },
@@ -71,6 +74,7 @@ test("Blob sources and Web WritableStream sinks convert CAJ, KDH, and PDF", asyn
       );
       await writer.close();
       const output = bytes();
+      if (input.expected) assert.deepEqual(output, input.expected);
       assert.equal(report.format, input.format);
       assert.equal(report.pagesConverted, input.pages);
       assert.equal(report.bookmarksWritten, input.bookmarks);

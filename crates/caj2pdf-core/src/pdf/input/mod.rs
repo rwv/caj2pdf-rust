@@ -6,6 +6,7 @@
 //! stream payloads. All offsets in `PdfIndex` are relative to `PdfRange`;
 //! diagnostics use absolute source offsets.
 
+mod footer;
 mod link_repair;
 mod parser;
 
@@ -525,18 +526,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             if logical_end < self.range.length {
                 let suffix = &tail[(logical_end - start) as usize..];
-                let known_caj_footer = (suffix.starts_with(b"WebFastLoadP")
-                    || suffix.starts_with(b"WebFastLoadW"))
-                    && ![
-                        b"startxref".as_slice(),
-                        b"%%EOF",
-                        b"xref",
-                        b"trailer",
-                        b"obj",
-                    ]
-                    .iter()
-                    .any(|marker| suffix.windows(marker.len()).any(|window| window == *marker));
-                if !known_caj_footer {
+                if !footer::recognized(suffix) {
                     return Err(self
                         .problem(
                             logical_end,
