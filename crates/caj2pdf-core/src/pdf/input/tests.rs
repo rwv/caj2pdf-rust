@@ -82,6 +82,36 @@ fn base_pdf(page: &str, pages: &str, catalog: &str) -> Vec<u8> {
     build_pdf(&[(1, catalog), (2, pages), (3, page)], "")
 }
 
+#[test]
+fn stream_crlf_across_object_head_reads_preserves_payload_extent() {
+    for boundary in [512, 1024] {
+        for separator in ["\r\n", "\r"] {
+            let prefix = "<< /Length 3 >>";
+            let padding = boundary - "4 0 obj\n".len() - prefix.len() - "stream\r".len();
+            let stream = format!(
+                "{prefix}{}stream{separator}abc\nendstream",
+                " ".repeat(padding)
+            );
+            let bytes = build_pdf(
+                &[
+                    (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+                    (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+                    (
+                        3,
+                        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>",
+                    ),
+                    (4, &stream),
+                ],
+                "",
+            );
+            assert_eq!(open(bytes.clone()).unwrap().pages.len(), 1);
+            let mut invalid = bytes;
+            replace_once(&mut invalid, b"/Length 3", b"/Length 2");
+            expect_pdf_error(invalid, "malformed");
+        }
+    }
+}
+
 fn expect_pdf_error(bytes: Vec<u8>, kind: &str) {
     let error = pdf_error(open(bytes));
     assert!(pdf_class(&error) == Some(kind), "{error:?}");
@@ -956,7 +986,7 @@ fn outline_sibling_links_and_destinations_are_checked() {
         (
             root,
             first,
-            "<< /Title (B) /Parent 4 0 R /Dest [3 0 R /Fit] >>",
+            "<< /Title (B) /Parent 4 0 R /Prev 4 0 R /Dest [3 0 R /Fit] >>",
             "malformed",
         ),
         (
@@ -974,6 +1004,178 @@ fn outline_sibling_links_and_destinations_are_checked() {
     ] {
         expect_pdf_error(make(root, first, second), kind);
     }
+}
+
+#[test]
+fn missing_outline_backlinks_and_descendant_last_are_repaired_together() {
+    let objects = [
+        (1, "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>"),
+        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        (3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] >>"),
+        // Both root and item 6 point to their final descendant, rather than
+        // their direct last child. Item 6 also lacks Prev.
+        (4, "<< /Type /Outlines /First 5 0 R /Last 9 0 R >>"),
+        (
+            5,
+            "<< /Title (First) /Parent 4 0 R /Next 6 0 R /Dest [3 0 R /Fit] >>",
+        ),
+        (
+            6,
+            "<< /Title (Second) /Parent 4 0 R /First 7 0 R /Last 9 0 R >>",
+        ),
+        (7, "<< /Title (Child A) /Parent 6 0 R /Next 8 0 R >>"),
+        (
+            8,
+            "<< /Title (Child B) /Parent 6 0 R /First 9 0 R /Last 9 0 R >>",
+        ),
+        (
+            9,
+            "<< /Title (Grandchild) /Parent 8 0 R /Dest [3 0 R /XYZ 0 80 null] >>",
+        ),
+    ];
+    let input = build_pdf(&objects, "");
+    let index = open(input.clone()).unwrap();
+    assert_eq!(index.repair_objects().len(), 3);
+    let repaired = index
+        .repair_objects()
+        .iter()
+        .find(|r| r.reference.number == 6)
+        .unwrap();
+    let text = std::str::from_utf8(&repaired.body).unwrap();
+    assert!(text.contains("/Prev 5 0 R") && text.contains("/Last 8 0 R"));
+    assert!(!text.contains("/Last 9 0 R"));
+    let mut source = SeekableSource::new(Cursor::new(input.clone())).unwrap();
+    let mut output = Vec::new();
+    crate::pdf::copy_pdf(&mut source, &mut output, &Limits::default(), &NEVER).unwrap();
+    assert!(output.starts_with(&input));
+    let reopened = open(output).unwrap();
+    assert!(reopened.has_outlines());
+    assert!(reopened.repair_objects().is_empty());
+
+    for (at, replacement) in [
+        (4, "<< /Type /Outlines /First 5 0 R /Last 7 0 R >>"),
+        (
+            6,
+            "<< /Title (Second) /Parent 4 0 R /Prev null /First 7 0 R /Last 9 0 R >>",
+        ),
+        (8, "<< /Title (Child B) /Parent 6 0 R /Next 7 0 R >>"),
+        (8, "<< /Title (Child B) /Parent 4 0 R >>"),
+        (8, "<< /Type /Pages /Title (Child B) /Parent 6 0 R >>"),
+    ] {
+        let mut invalid = objects;
+        invalid.iter_mut().find(|(n, _)| *n == at).unwrap().1 = replacement;
+        expect_pdf_error(build_pdf(&invalid, ""), "malformed");
+    }
+}
+
+#[test]
+fn outline_local_goto_actions_preserve_destinations_without_executing_actions() {
+    let make = |item: &str| {
+        build_pdf(
+            &[
+                (1, "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>"),
+                (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+                (3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] >>"),
+                (4, "<< /First 5 0 R /Last 5 0 R >>"),
+                (5, item),
+            ],
+            "",
+        )
+    };
+    for action in [
+        "<< /S /GoTo /D [3 0 R /FitH 150] >>",
+        "<< /Type /Action /D [3 0 R /XYZ 0 150 null] /S /GoTo >>",
+    ] {
+        let input = make(&format!("<< /Title (Local) /Parent 4 0 R /A {action} >>"));
+        let mut source = SeekableSource::new(Cursor::new(input.clone())).unwrap();
+        let mut output = Vec::new();
+        crate::pdf::copy_pdf(&mut source, &mut output, &Limits::default(), &NEVER).unwrap();
+        assert_eq!(output, input);
+    }
+    for action in [
+        "<< /S /URI /URI (https://example.invalid) >>",
+        "<< /S /GoToR /D [3 0 R /Fit] >>",
+        "<< /S /GoTo /D [3 0 R /Fit] /Next << /S /JavaScript /JS (test) >> >>",
+        "<< /S /GoTo /D /named >>",
+        "<< /Type /Wrong /S /GoTo /D [3 0 R /Fit] >>",
+        "<< /S /GoTo >>",
+        "<< /D [3 0 R /Fit] >>",
+        "4 0 R",
+    ] {
+        expect_pdf_error(
+            make(&format!("<< /Title (Local) /Parent 4 0 R /A {action} >>")),
+            "unsupported",
+        );
+    }
+    for item in [
+        "<< /Title (Local) /Parent 4 0 R /A << /S /GoTo /D [2 0 R /Fit] >> >>",
+        "<< /Title (Local) /Parent 4 0 R /Dest [3 0 R /Fit] /A << /S /GoTo /D [3 0 R /Fit] >> >>",
+    ] {
+        expect_pdf_error(make(item), "malformed");
+    }
+}
+
+fn forward_xref_pdf() -> (Vec<u8>, u64, u64) {
+    let base = build_pdf(&minimal_objects(), "");
+    let first_at = find(&base, b"xref\n");
+    let page_at = find(&base, b"3 0 obj");
+    let mut first = format!(
+        "xref\n3 1\n{page_at:010} 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R /Prev 0000000000 >>\n"
+    )
+    .into_bytes();
+    let main_at = first_at + first.len() as u64;
+    replace_once(
+        &mut first,
+        b"/Prev 0000000000",
+        format!("/Prev {main_at:010}").as_bytes(),
+    );
+    let mut main = base[first_at as usize..].to_vec();
+    replace_once(&mut main, b"/Root 1 0 R", b"");
+    // An older entry must not replace the logically newer first-table entry.
+    replace_once(
+        &mut main,
+        format!("{page_at:010} 00000 n").as_bytes(),
+        b"0000000001 00000 n",
+    );
+    let mut doc = base[..first_at as usize].to_vec();
+    doc.extend_from_slice(&first);
+    doc.extend_from_slice(&main);
+    (doc, first_at, main_at)
+}
+
+#[test]
+fn forward_xref_links_follow_logical_precedence_with_cycle_and_extent_checks() {
+    let (doc, first_at, main_at) = forward_xref_pdf();
+    assert_eq!(open(doc.clone()).unwrap().pages().len(), 1);
+    let mut source = SeekableSource::new(Cursor::new(doc.clone())).unwrap();
+    let mut output = Vec::new();
+    crate::pdf::copy_pdf(&mut source, &mut output, &Limits::default(), &NEVER).unwrap();
+    assert!(output.starts_with(&doc));
+    assert!(output.len() > doc.len());
+    assert!(open(output).unwrap().repair_objects().is_empty());
+    for previous in [first_at, doc.len() as u64, u64::MAX] {
+        let mut invalid = doc.clone();
+        replace_once(
+            &mut invalid,
+            format!("/Prev {main_at:010}").as_bytes(),
+            format!("/Prev {previous}").as_bytes(),
+        );
+        let error = pdf_error(open(invalid));
+        assert!(matches!(
+            error.reason,
+            "PDF xref chain contains a cycle" | "xref Prev exceeds PDF range"
+        ));
+    }
+    let mut cycle = doc;
+    let trailer = main_at as usize + find(&cycle[main_at as usize..], b"trailer\n<<") as usize;
+    cycle.splice(
+        trailer + 10..trailer + 10,
+        format!(" /Prev {first_at}").bytes(),
+    );
+    assert_eq!(
+        pdf_error(open(cycle)).reason,
+        "PDF xref chain contains a cycle"
+    );
 }
 
 #[test]

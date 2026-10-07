@@ -58,6 +58,7 @@ before(async () => {
     "/fixtures/broken-later-copy.caj": syntheticLaterCopyCaj(true),
     "/fixtures/broken-recovery.caj": syntheticRecoveredCaj(true),
     "/fixtures/input.kdh": (await syntheticKdh()).wrapped,
+    "/fixtures/profile1.kdh": (await syntheticKdh([1, 0, 0, 0])).wrapped,
     "/fixtures/input.pdf": await fixture("valid_nested_outline.pdf"),
     "/fixtures/input.hn": await fixture("truncated_hn.hn"),
     "/fixtures/input.c8": await fixture("truncated_c8.c8"),
@@ -100,6 +101,7 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
     ["input.caj", "caj", 2, 1],
     ["recovered.caj", "caj", 2, 1],
     ["input.kdh", "kdh", 2, 0],
+    ["profile1.kdh", "kdh", 2, 0],
     ["input.pdf", "pdf", 2, 0],
   ]) {
     await t.test(format, async (t) => {
@@ -111,7 +113,7 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
       assert.equal(result.report.outputBytesWritten, String(result.output.length));
       assert.ok(result.progress.length > 0 && result.progress.at(-1) === 1, JSON.stringify(result.progress));
       assert.ok(result.maxWrite > 0 && result.maxWrite <= 4096, `max write ${result.maxWrite}`);
-      if (name === "footer.pdf") assert.deepEqual(decode(result.output), await fixture("valid_out_of_order_objects.pdf"));
+      if (name === "footer.pdf" || name === "profile1.kdh") assert.deepEqual(decode(result.output), await fixture("valid_out_of_order_objects.pdf"));
       await validatePdf(t, decode(result.output), pages);
     });
   }

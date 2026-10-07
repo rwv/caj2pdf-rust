@@ -23,11 +23,11 @@ export async function fixture(name) {
 }
 
 /** A KDH wrapper (docs/research/kdh-format.md) around a repository-owned PDF fixture. */
-export async function syntheticKdh() {
+export async function syntheticKdh(versionField = [0, 0, 2, 0]) {
   const pdf = await fixture("valid_out_of_order_objects.pdf");
   const wrapped = new Uint8Array(254 + pdf.length);
   wrapped.set(new TextEncoder().encode("KDH 2.00 Copyright(C) 2000 CAJCD"));
-  wrapped.set([0, 0, 2, 0], 0x28);
+  wrapped.set(versionField, 0x28);
   const key = new TextEncoder().encode("FZHMEI");
   for (let index = 0; index < pdf.length; index += 1) {
     wrapped[254 + index] = pdf[index] ^ key[index % key.length];

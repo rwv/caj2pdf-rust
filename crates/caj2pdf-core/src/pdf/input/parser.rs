@@ -534,7 +534,9 @@ pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
             b'\n' => parser.pos += 1,
             b'\r' => {
                 parser.pos += 1;
-                if bytes.get(parser.pos) == Some(&b'\n') {
+                // A read ending in CR cannot yet distinguish CR from CRLF.
+                // Request lookahead before fixing the binary payload offset.
+                if parser.peek()? == b'\n' {
                     parser.pos += 1;
                 }
             }
@@ -678,6 +680,35 @@ pub(super) fn reference_array(bytes: &[u8], max_items: usize) -> Option<Vec<PdfR
     parser.at_end().then_some(result)
 }
 
+/// A direct local GoTo action with no chained action or unobserved keys.
+/// Return the borrowed destination so the caller can validate its page target.
+pub(super) fn goto_destination(bytes: &[u8]) -> Option<&[u8]> {
+    let mut parser = Syntax::new(bytes);
+    parser.skip_space();
+    let entries = parser.dictionary(0).ok()?;
+    if !parser.at_end() || entries.len() > 3 {
+        return None;
+    }
+    let mut destination = None;
+    let mut goto = false;
+    let mut action_type = false;
+    for entry in &entries {
+        match entry.name.as_slice() {
+            b"Type"
+                if !action_type && exact_name(entry.value(bytes)).as_deref() == Some(b"Action") =>
+            {
+                action_type = true
+            }
+            b"S" if !goto && exact_name(entry.value(bytes)).as_deref() == Some(b"GoTo") => {
+                goto = true
+            }
+            b"D" if destination.is_none() => destination = Some(entry.value(bytes)),
+            _ => return None,
+        }
+    }
+    goto.then_some(destination).flatten()
+}
+
 pub(super) fn destination_page(bytes: &[u8]) -> Option<PdfRef> {
     let mut parser = Syntax::new(bytes);
     parser.skip_space();
@@ -803,6 +834,8 @@ mod tests {
                 if &lone_cr.bytes[data_start..data_start + 1] == b"X"
         ));
         assert!(parse_object_head(b"5 0 obj << /Length 0 >> stream X".to_vec()).is_err());
+        let split = parse_object_head(b"5 0 obj << /Length 1 >> stream\r".to_vec()).unwrap_err();
+        assert!(split.incomplete);
     }
 
     #[test]

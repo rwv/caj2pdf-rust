@@ -636,16 +636,14 @@ fn comments_in_xref_are_accepted_but_unindexed_object_bytes_are_not() {
 }
 
 #[test]
-fn previous_xref_must_move_backward_and_revision_chain_is_bounded() {
+fn previous_xref_must_be_acyclic_and_revision_chain_is_bounded() {
     let original = ordinary_fixture();
     let mut self_reference = original.bytes.clone();
     let xref = self_reference.len();
     append_revision(&mut self_reference, xref);
     let error = assert_pdf_error(self_reference, "malformed");
     assert!(
-        error
-            .to_string()
-            .contains("Prev must point to an earlier section"),
+        error.to_string().contains("xref chain contains a cycle"),
         "{error}"
     );
 
