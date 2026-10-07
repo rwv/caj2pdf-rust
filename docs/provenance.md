@@ -14,6 +14,29 @@ version of this file is kept verbatim there as the
 [provenance archive](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/provenance-archive.md);
 links to `research/…` notes below point into the same repository.
 
+## GitHub corpus validation (#385)
+
+The [reviewed post-fix report](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.md),
+[receipt](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.json) and
+[catalog](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/catalog.json) are pinned to samples merge
+`043e52cd37389b3f903426cd0b8c6d7564aedf43`. The catalog SHA-256 is
+`effede2cab4c1f04aac79d46517b10224ec7f65da0dda60464ed782c45bd2ed9`;
+the catalog runner pins its identical content at `51417794ee80f60dc92335ece91e4160adf5ddb1`.
+Source identities, sizes, download/archive locators and redistribution fields
+are unchanged. The prior receipt is retained as historical evidence.
+
+All 1,277 original candidates were actually attempted after the independently
+authored fixes below: 1,227 convert, 39 fail and 11 remain unsupported. The
+receipt separates qpdf warnings, strict-policy/limit refusals, proven damage,
+encrypted containers, the valid unsupported xref predictor, and unresolved
+ancillary order checks. It does not turn oracle recovery or blank substitution
+into compatibility evidence. KDH oracle checks reuse the already measured
+wrapper profile; no foreign converter implementation was consulted or copied.
+No private module migration, new dependency, external document/derived content
+or font bytes are introduced. [Conformance](conformance.md#github-corpus-post-fix-checkpoint-385)
+records exact validation and untested scope; the report preserves every refusal
+and the source-identical warning stream hash.
+
 ## Format references
 
 | Format or feature | Reference | Status and permitted use |
