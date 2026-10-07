@@ -27,7 +27,10 @@ let page;
 // so a late-starting server or browser is still closed.
 before(async () => {
   if (skip) return;
+  const pdf = await fixture("valid_out_of_order_objects.pdf");
+  const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   const fixtures = {
+    "/fixtures/footer.pdf": new Uint8Array([...pdf, ...footer]),
     "/fixtures/symbols.ttf": await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url)),
     "/fixtures/geometric.ttf": await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url)),
     "/fixtures/input.caj": syntheticCaj(),
@@ -93,6 +96,7 @@ const options = { skip, timeout: 60_000 };
 
 test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF", options, async (t) => {
   for (const [name, format, pages, bookmarks] of [
+    ["footer.pdf", "pdf", 2, 0],
     ["input.caj", "caj", 2, 1],
     ["recovered.caj", "caj", 2, 1],
     ["input.kdh", "kdh", 2, 0],
@@ -107,6 +111,7 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
       assert.equal(result.report.outputBytesWritten, String(result.output.length));
       assert.ok(result.progress.length > 0 && result.progress.at(-1) === 1, JSON.stringify(result.progress));
       assert.ok(result.maxWrite > 0 && result.maxWrite <= 4096, `max write ${result.maxWrite}`);
+      if (name === "footer.pdf") assert.deepEqual(decode(result.output), await fixture("valid_out_of_order_objects.pdf"));
       await validatePdf(t, decode(result.output), pages);
     });
   }

@@ -1896,6 +1896,64 @@ fn incomplete_trailing_eof_markers_are_not_the_document_end() {
 }
 
 #[test]
+fn download_footers_preserve_the_pdf_logical_end() {
+    let property = "\u{feff}<FileProperty><Doi /><FileName>original-test</FileName>\
+                    <TableName>TEST</TableName><Type>1</Type></FileProperty>";
+    for suffix in [
+        "WebFastLoad".to_owned(),
+        property.to_owned(),
+        format!("WebFastLoad{property}"),
+        format!(
+            "WebFastLoad{}",
+            property.replace("<Doi />", "<Doi>10.test/example</Doi>")
+        ),
+    ] {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        let logical_end = doc.len() as u64;
+        doc.extend_from_slice(suffix.as_bytes());
+        let index = open(doc).unwrap();
+        assert_eq!(index.logical_end(), logical_end);
+        assert_eq!(index.pages().len(), 1);
+    }
+}
+
+#[test]
+fn download_footers_reject_unknown_or_ambiguous_neighbors() {
+    let property = "\u{feff}<FileProperty><Doi /><FileName>test</FileName>\
+                    <TableName>TEST</TableName><Type>1</Type></FileProperty>";
+    for suffix in [
+        "WebFastLoadgarbage".to_owned(),
+        "WebFastLoad\0".to_owned(),
+        "WebFastLoad\0<right-meta></right-meta>startrights 12,25".to_owned(),
+        "WebFastLoad\n4 0 obj null endobj".to_owned(),
+        format!("{property}junk"),
+        format!("{property}{property}"),
+        property.replace("<Doi />", "<DoiX />"),
+        property.replace("</Type>", "</Other>"),
+        property.replace("<Doi />", ""),
+        property.replace("<Doi />", "<Doi /><Doi />"),
+        property.replace("<Doi />", "<!DOCTYPE Doi><Doi />"),
+        property.replace("<Doi />", "<Doi>&external;</Doi>"),
+        property.replace("<Doi />", "<Doi><Nested /></Doi>"),
+        property.replace("test", "startxref"),
+        property.replace("test", "\0"),
+        property.replace('\u{feff}', ""),
+    ] {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        doc.extend_from_slice(suffix.as_bytes());
+        let error = pdf_error(open(doc));
+        assert!(
+            matches!(error.context, Context::Pdf { repair: true, .. }),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.reason,
+            "bytes after PDF EOF are not a recognized CAJ footer"
+        );
+    }
+}
+
+#[test]
 fn xref_subsection_tokens_must_be_bounded_integers() {
     for (replacement, reason) in [
         (b"xref\n<0 4\n".as_slice(), "expected PDF token"),

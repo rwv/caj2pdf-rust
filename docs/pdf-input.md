@@ -36,7 +36,7 @@ and available corpus outputs exercised by tests; callers needing full payload
 validation must use a PDF validator outside this conversion layer.
 
 The reader recognizes two narrowly observed repair cases: a complete PDF
-followed by a `WebFastLoadP` or `WebFastLoadW` footer, and identical duplicate
+followed by a recognized CAJ download footer, and identical duplicate
 `/MediaBox` values in one `/Pages` dictionary. It verifies the original xref and object
 graph before omitting the recognized footer. Unknown non-whitespace bytes
 after EOF fail, including a truncated later incremental revision. It removes
@@ -44,6 +44,16 @@ the duplicate key by appending a replacement of that same indirect object
 with one value. Conflicting values
 or other duplicate keys are ambiguous and fail. The original page content
 streams are not decoded or rewritten.
+
+Recognized footers include the existing `WebFastLoadP` and `WebFastLoadW`
+profiles, exact `WebFastLoad`, and UTF-8 BOM plus `FileProperty` metadata,
+optionally preceded by `WebFastLoad`. The metadata profile requires the four
+plain-text leaves `Doi`, `FileName`, `TableName`, and `Type` in that order;
+entities, declarations, nested fields and trailing data are not admitted.
+All recognition uses the existing 64 KiB tail bound and retains the guard
+against embedded PDF syntax. The encrypted `right-meta` samples and tails
+containing HTML debris remain rejected. See #386 for the measured identities
+and classification; accepting a footer does not waive PDF validation.
 
 The KDH PDF-body profile also normalizes a `stream` keyword followed by one
 carriage return. After validating the referenced object and its declared
