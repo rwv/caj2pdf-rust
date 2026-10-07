@@ -15,6 +15,12 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   subset accepts direct `/Size`, `/W`, `/Index`, and `/Length`, unfiltered or
   `/FlateDecode` data, and ordinary free or uncompressed in-use entries. A
   later classic table may point back to an xref stream through `/Prev`.
+  Linearized PDFs may link forward to the main xref section. Precedence follows
+  the chain, not physical offsets; cycles, out-of-range links and chains longer
+  than 64 sections fail. Only older trailers may omit `/Root`. A forward-linked
+  input receives an ordinary incremental revision so stale linearization hints
+  no longer describe the output; a validated Catalog copy suffices when no
+  other object needs repair. Content streams are preserved.
 - Direct or indirect stream `/Length`. In a complete PDF the xref resolves
   an indirect length, and `endstream` must follow the declared extent. A
   headerless CAJ fragment has no xref; its extent rule is described under
@@ -35,7 +41,7 @@ payloads decompress correctly. The independent validator checks the generated
 and available corpus outputs exercised by tests; callers needing full payload
 validation must use a PDF validator outside this conversion layer.
 
-The reader recognizes two narrowly observed repair cases: a complete PDF
+The reader recognizes narrowly observed repair cases: a complete PDF
 followed by a recognized CAJ download footer, and identical duplicate
 `/MediaBox` values in one `/Pages` dictionary. It verifies the original xref and object
 graph before omitting the recognized footer. Unknown non-whitespace bytes
@@ -67,6 +73,25 @@ when the named object is free or is the immediately following live object.
 Their exact bytes are checked during copying and replaced by the same number
 of spaces. Other gap content remains an error. These repairs do not accept
 unrelated dangling references, duplicate page-tree children, or cycles.
+
+Existing outlines accept direct `/Dest` arrays and direct local
+`/A << /S /GoTo /D [...] >>` dictionaries, optionally with `/Type /Action`.
+The destination must identify a page in the validated page tree. Actions are
+preserved without execution; named destinations, indirect action dictionaries,
+other action types, extra/chained action fields and simultaneous `/Dest` and
+`/A` remain unsupported or malformed. A missing sibling `/Prev` is derived
+from the validated `/Next` chain. A `/Last` that points to the final descendant
+instead of the final direct child is corrected after the subtree is checked.
+Both links are combined in one incremental replacement per affected dictionary;
+titles, ordering and destinations stay unchanged. Explicit contradictory links,
+other `/Last` mismatches, cycles and repeated nodes fail. The bounded outline
+walk retains references rather than all subtree dictionaries.
+
+The KDH wrapper admits the measured `01 00 00 00` field at offset `0x28` as
+well as `00 00 02 00`, retaining the signature, offset-254 XOR and complete PDF
+framing checks. Stream-head reads request lookahead when a CR is the last byte
+of a buffer, so a split CRLF does not shift the declared payload extent. See
+#387, #393 and #394 for the external sample identities and validation scope.
 
 CAJ files that contain indirect object fragments but lack a complete PDF
 header/xref use `FragmentPlan`: the CAJ format handler supplies complete,

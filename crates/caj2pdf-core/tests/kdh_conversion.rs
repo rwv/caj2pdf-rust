@@ -170,6 +170,31 @@ fn bounded_kdh_source_discards_a_large_tail_and_false_eof() {
 }
 
 #[test]
+fn profile_one_uses_the_same_bounded_pdf_range_and_normalizer() {
+    let pdf = fixture_pdf();
+    let mut bytes = kdh_bytes(&pdf, b"opaque wrapper metadata");
+    bytes[0x28..0x2c].copy_from_slice(&[1, 0, 0, 0]);
+    let mut source = MeasuredSource::new(bytes);
+    source.max_return = 11;
+    let limits = Limits {
+        io_chunk_bytes: 37,
+        ..Limits::default()
+    };
+    {
+        let mut decoded = KdhPdfSource::open(&mut source, &limits, &NeverCancel).unwrap();
+        assert_eq!(decoded.pdf_len(), pdf.len() as u64);
+        let mut magic = [0; 8];
+        assert_eq!(decoded.read_at(0, &mut magic).unwrap(), 8);
+        assert_eq!(magic, pdf[..8]);
+    }
+    let mut output = Vec::new();
+    let report = convert_kdh(&mut source, &mut output, &limits, &NeverCancel).unwrap();
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(output, pdf);
+    assert!(source.max_request <= 37);
+}
+
+#[test]
 fn a_second_plausible_xref_end_is_rejected_as_ambiguous() {
     let pdf = fixture_pdf();
     let tail = format!(

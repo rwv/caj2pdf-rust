@@ -2,8 +2,8 @@
 
 //! Ranged KDH decoding over the PDF input and repair layer.
 //!
-//! The wrapper offset and XOR cycle are observations from the three pinned
-//! CAJSamples KDH files recorded in `docs/provenance.md`. This module keeps
+//! The wrapper profiles, offset and XOR cycle are independently measured
+//! observations recorded in `docs/provenance.md`. This module keeps
 //! only a bounded scan buffer and exposes decrypted bytes on demand.
 
 use crate::pdf::copy_pdf;
@@ -49,7 +49,9 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
         if &header[..HEADER_SIGNATURE.len()] != HEADER_SIGNATURE {
             return Err(Error::malformed(0, "KDH signature is invalid").within(crate::Context::Kdh));
         }
-        if header[0x28..0x2c] != [0, 0, 2, 0] {
+        // Both measured field values use the same offset and XOR phase.
+        // The payload still has to pass the complete EOF/xref and PDF checks.
+        if !matches!(&header[0x28..0x2c], [0, 0, 2, 0] | [1, 0, 0, 0]) {
             return Err(
                 Error::malformed(0x28, "KDH version field is invalid").within(crate::Context::Kdh)
             );

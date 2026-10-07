@@ -26,8 +26,8 @@ use crate::{Context, ErrorKind};
 use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
     Dictionary, ObjectHead, ObjectTail, Syntax, destination_page, exact_name, exact_reference,
-    exact_unsigned, first_id_string, media_box, parse_object_head, reference_array, unsigned_array,
-    valid_text_string,
+    exact_unsigned, first_id_string, goto_destination, media_box, parse_object_head,
+    reference_array, unsigned_array, valid_text_string,
 };
 use std::cmp::min;
 
@@ -193,6 +193,9 @@ impl PdfIndex {
         reader.check_header()?;
         let (xref_offset, logical_end) = reader.find_tail()?;
         let (slots, trailer) = reader.read_xref_chain(xref_offset)?;
+        let catalog = trailer
+            .root
+            .ok_or_else(|| reader.malformed(xref_offset, None, "PDF trailer lacks Root"))?;
         let location_bytes = slots
             .len()
             .checked_mul(std::mem::size_of::<Option<(u16, ObjectLocation)>>())
@@ -223,7 +226,7 @@ impl PdfIndex {
             trailer_size: trailer.size,
             trailer_info: trailer.info,
             trailer_id: trailer.id,
-            catalog: trailer.root,
+            catalog,
             catalog_dict: Dictionary {
                 bytes: Vec::new(),
                 entries: Vec::new(),
@@ -242,6 +245,24 @@ impl PdfIndex {
         reader.validate_objects(&slots, &mut index)?;
         index.stream_separator_patches.sort_unstable();
         reader.read_structure(&slots, &mut index)?;
+        if trailer.prev.is_some_and(|previous| previous > xref_offset)
+            && index.repair_objects.is_empty()
+        {
+            // A new ordinary revision retires the original linearization hint
+            // tables, which describe the original file length and layout.
+            // Reuse the validated Catalog entries; pages and streams stay
+            // untouched. An already updated PDF needs no further revision.
+            let catalog_at = index.object_location(index.catalog)?.offset;
+            reader.push_repair_body(
+                &index.catalog_dict,
+                index.catalog,
+                catalog_at,
+                |_, _| true,
+                b"",
+                &mut index.repair_objects,
+                &mut index.retained_repair_bytes,
+            )?;
+        }
         if let Some((reference, _)) = index.stale_page_parents.first() {
             let location = index.object_location(*reference)?;
             return Err(reader.malformed(
@@ -278,13 +299,21 @@ struct OutlineVisit {
     reference: PdfRef,
     parent: PdfRef,
     previous: Option<PdfRef>,
-    expected_last: PdfRef,
+}
+
+enum OutlineStep {
+    Visit(OutlineVisit),
+    Finish {
+        reference: PdfRef,
+        missing_previous: Option<PdfRef>,
+        expected_last: Option<PdfRef>,
+    },
 }
 
 #[derive(Debug)]
 struct Trailer {
     size: u32,
-    root: PdfRef,
+    root: Option<PdfRef>,
     info: Option<PdfRef>,
     id: Option<Vec<u8>>,
     prev: Option<u64>,
@@ -669,9 +698,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut cursor = latest;
         let mut slots: Vec<Option<XrefSlot>> = Vec::new();
         let mut latest_trailer = None;
-        // Each Prev must point strictly before its section, so the chain
-        // cannot revisit a section and needs no cycle check.
-        for _ in 0..MAX_XREF_SECTIONS {
+        // Linearized PDFs link the first-page table to a physically later
+        // main table. Precedence follows the chain, not byte-offset order.
+        let mut visited = [0_u64; MAX_XREF_SECTIONS];
+        for depth in 0..MAX_XREF_SECTIONS {
+            if visited[..depth].contains(&cursor) {
+                return Err(self.malformed(cursor, None, "PDF xref chain contains a cycle"));
+            }
+            visited[depth] = cursor;
             let (records, trailer) = self.read_xref_section(cursor)?;
             if slots.is_empty() {
                 let slots_len = trailer.size as usize;
@@ -701,12 +735,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
             }
             if let Some(previous) = trailer.prev {
-                if previous >= cursor {
-                    return Err(self.malformed(
-                        previous,
-                        None,
-                        "xref Prev must point to an earlier section",
-                    ));
+                if previous >= self.range.length {
+                    return Err(self.malformed(previous, None, "xref Prev exceeds PDF range"));
                 }
                 cursor = previous;
             } else {
@@ -1038,7 +1068,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ));
         }
         let size = size_raw as u32;
-        let root = exact_reference(required(b"Root", "PDF trailer lacks Root")?)
+        let root = optional_entry(dictionary.value(b"Root").map(exact_reference))
             .ok_or(self.malformed(at, None, "invalid PDF trailer Root"))?;
         let info = optional_entry(dictionary.value(b"Info").map(exact_reference))
             .ok_or(self.malformed(at, None, "invalid PDF trailer Info"))?;
@@ -1748,7 +1778,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         root_ref: PdfRef,
         root_offset: u64,
         slots: &[Option<XrefSlot>],
-        index: &PdfIndex,
+        index: &mut PdfIndex,
     ) -> Result<bool> {
         if root
             .value(b"Type")
@@ -1831,18 +1861,58 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut stack = Vec::new();
         push_bounded(
             &mut stack,
-            OutlineVisit {
+            OutlineStep::Visit(OutlineVisit {
                 reference: first,
                 parent: root_ref,
                 previous: None,
-                expected_last: last,
-            },
+            }),
             self.limits.max_allocation_bytes,
             "PDF outline stack",
         )
         .map_err(self.locator(root_offset, Some(root_ref)))?;
         let mut item_count = 0_u32;
-        while let Some(task) = stack.pop() {
+        // A Finish step runs after all children. These two references then
+        // identify its last direct child and its last descendant respectively.
+        let mut completed = root_ref;
+        let mut last_visited = root_ref;
+        while let Some(step) = stack.pop() {
+            let task = match step {
+                OutlineStep::Visit(task) => task,
+                OutlineStep::Finish {
+                    reference,
+                    missing_previous,
+                    expected_last,
+                } => {
+                    let location = index.object_location(reference)?;
+                    let replacement_last = self.outline_last_repair(
+                        expected_last,
+                        completed,
+                        last_visited,
+                        location.offset,
+                        reference,
+                    )?;
+                    if missing_previous.is_some() || replacement_last.is_some() {
+                        let (head, _) = self.load_object(location.offset, reference, slots)?;
+                        let dictionary = head.dictionary.ok_or_else(|| {
+                            self.malformed(
+                                location.offset,
+                                Some(reference),
+                                "outline item is not a dictionary",
+                            )
+                        })?;
+                        self.repair_outline_links(
+                            &dictionary,
+                            reference,
+                            location.offset,
+                            missing_previous,
+                            replacement_last,
+                            index,
+                        )?;
+                    }
+                    completed = reference;
+                    continue;
+                }
+            };
             let location = index.object_location(task.reference)?;
             // A resolved reference has a slot, and `visited` has one entry
             // per slot.
@@ -1855,6 +1925,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             *seen = true;
+            last_visited = task.reference;
             item_count = item_count.checked_add(1).ok_or(Error::limit(
                 "PDF outline items",
                 u64::from(self.limits.max_bookmarks),
@@ -1870,6 +1941,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "outline item is not a dictionary",
             );
             let item = head.dictionary.ok_or(failure)?;
+            if matches!(
+                item.value(b"Type").and_then(exact_name).as_deref(),
+                Some(b"Page" | b"Pages")
+            ) {
+                return Err(self.malformed(
+                    location.offset,
+                    Some(task.reference),
+                    "page-tree dictionary cannot be an outline item",
+                ));
+            }
             if !item.value(b"Title").is_some_and(valid_text_string) {
                 return Err(self.malformed(
                     location.offset,
@@ -1885,22 +1966,32 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             let previous = item.value(b"Prev").map(exact_reference);
-            if previous == Some(None) || previous.flatten() != task.previous {
+            if previous == Some(None) || previous.is_some_and(|found| found != task.previous) {
                 return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
                     "outline item Prev link is invalid",
                 ));
             }
-            if item.value(b"A").is_some() {
-                return Err(self.problem(
-                    location.offset,
-                    Some(task.reference),
-                    ErrorKind::UnsupportedFormat,
-                    "outline actions are outside the supported input profile",
-                ));
-            }
-            if let Some(value) = item.value(b"Dest") {
+            let destination = match (item.value(b"Dest"), item.value(b"A")) {
+                (Some(_), Some(_)) => {
+                    return Err(self.malformed(
+                        location.offset,
+                        Some(task.reference),
+                        "outline item has both Dest and A",
+                    ));
+                }
+                (destination, None) => destination,
+                (None, Some(action)) => Some(goto_destination(action).ok_or_else(|| {
+                    self.problem(
+                        location.offset,
+                        Some(task.reference),
+                        ErrorKind::UnsupportedFormat,
+                        "outline action must be a direct local GoTo without chained actions",
+                    )
+                })?),
+            };
+            if let Some(value) = destination {
                 let page = destination_page(value).ok_or_else(|| {
                     self.problem(
                         location.offset,
@@ -1934,36 +2025,39 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             if let Some(next) = next {
                 push_bounded(
                     &mut stack,
-                    OutlineVisit {
+                    OutlineStep::Visit(OutlineVisit {
                         reference: next,
                         parent: task.parent,
                         previous: Some(task.reference),
-                        expected_last: task.expected_last,
-                    },
+                    }),
                     self.limits.max_allocation_bytes,
                     "PDF outline stack",
                 )
                 .map_err(self.locator(location.offset, Some(task.reference)))?;
-            } else if task.reference != task.expected_last {
-                return Err(self.malformed(
-                    location.offset,
-                    Some(task.reference),
-                    "outline Last link disagrees with sibling chain",
-                ));
             }
             let child_first = item.value(b"First").map(exact_reference);
             let child_last = item.value(b"Last").map(exact_reference);
+            push_bounded(
+                &mut stack,
+                OutlineStep::Finish {
+                    reference: task.reference,
+                    missing_previous: previous.is_none().then_some(task.previous).flatten(),
+                    expected_last: child_last.flatten(),
+                },
+                self.limits.max_allocation_bytes,
+                "PDF outline stack",
+            )
+            .map_err(self.locator(location.offset, Some(task.reference)))?;
             match (child_first, child_last) {
                 (None, None) => {}
-                (Some(Some(first)), Some(Some(last))) => {
+                (Some(Some(first)), Some(Some(_))) => {
                     push_bounded(
                         &mut stack,
-                        OutlineVisit {
+                        OutlineStep::Visit(OutlineVisit {
                             reference: first,
                             parent: task.reference,
                             previous: None,
-                            expected_last: last,
-                        },
+                        }),
                         self.limits.max_allocation_bytes,
                         "PDF outline stack",
                     )
@@ -1978,7 +2072,63 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
             }
         }
+        if let Some(last) =
+            self.outline_last_repair(Some(last), completed, last_visited, root_offset, root_ref)?
+        {
+            self.repair_outline_links(root, root_ref, root_offset, None, Some(last), index)?;
+        }
         Ok(true)
+    }
+
+    fn outline_last_repair(
+        &self,
+        expected: Option<PdfRef>,
+        last_child: PdfRef,
+        last_descendant: PdfRef,
+        at: u64,
+        owner: PdfRef,
+    ) -> Result<Option<PdfRef>> {
+        match expected {
+            None => Ok(None),
+            Some(last) if last == last_child => Ok(None),
+            Some(last) if last == last_descendant => Ok(Some(last_child)),
+            Some(_) => Err(self.malformed(
+                at,
+                Some(owner),
+                "outline Last link disagrees with sibling chain",
+            )),
+        }
+    }
+
+    // Complete the tree validation before combining both uniquely derived
+    // links in one replacement. Each outline dictionary is repaired once.
+    fn repair_outline_links(
+        &self,
+        dictionary: &Dictionary,
+        reference: PdfRef,
+        at: u64,
+        previous: Option<PdfRef>,
+        last: Option<PdfRef>,
+        index: &mut PdfIndex,
+    ) -> Result<()> {
+        let mut appended = String::new();
+        for (name, target) in [("Prev", previous), ("Last", last)] {
+            if let Some(target) = target {
+                appended.push_str(&format!(
+                    "/{name} {} {} R\n",
+                    target.number, target.generation
+                ));
+            }
+        }
+        self.push_repair_body(
+            dictionary,
+            reference,
+            at,
+            |_, entry| last.is_none() || entry.name != b"Last",
+            appended.as_bytes(),
+            &mut index.repair_objects,
+            &mut index.retained_repair_bytes,
+        )
     }
 
     fn check_dictionary_duplicates(

@@ -54,6 +54,7 @@ async function inputs() {
     { name: "later-copy CAJ", format: "caj", bytes: syntheticLaterCopyCaj(), pages: 2, bookmarks: 1 },
     { name: "recovered CAJ", format: "caj", bytes: syntheticRecoveredCaj(), pages: 2, bookmarks: 1 },
     { name: "KDH", format: "kdh", bytes: wrapped, pages: 2, bookmarks: 0 },
+    { name: "KDH profile 1", format: "kdh", bytes: (await syntheticKdh([1, 0, 0, 0])).wrapped, expected: pdf, pages: 2, bookmarks: 0 },
     { name: "PDF", format: "pdf", bytes: await fixture("valid_nested_outline.pdf"), pages: 2, bookmarks: 0 },
   ];
 }
