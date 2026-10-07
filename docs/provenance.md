@@ -493,3 +493,37 @@ No other converter implementation was read, copied or transliterated. Document,
 PDF, bitmap, font and oracle bytes remain outside Git. All committed controls
 and changes are independently authored MIT source; dependencies, API shapes
 and memory allocation bounds are unchanged.
+
+## C8 uncompressed image records (#390)
+
+The [GitHub sweep](https://github.com/rwv/caj2pdf-samples/blob/054e082e65e956ce3e90e464e5bb926b846b360d/research/notes/github-sweep-20261007.json)
+reported 11 documents under an unsupported compressed-prefix diagnostic;
+#389 exposed two more. Bounded page-index measurements found 19 affected
+pages. Each has exactly one descriptor and starts with a 28-byte `800a/0000`
+image record: four little-endian position/extent words at +4/+6/+8/+10,
+followed by eight opaque words. Seven spans contain only that image record
+and `8004`; the other twelve also contain the already supported tagged
+records before `8004`. This is uncompressed direct framing, not a new zlib
+prefix or permission to accept an empty/corrupt compressed stream. Descriptor
+codecs are the existing JPEG (1), CAJ bilevel (0) and JBIG2 (3) profiles.
+
+Independently authored geometric controls compared raw records with the same
+records in a direct `COMPRESSTEXT` frame. Linux CAJViewer renders identical
+page pixels for both. Changing the opaque image words from invented `10'`
+to `79'` does not change those pixels; changing x/y/width/height moves and
+scales the original colored shapes. The converter's raw/compressed PDF
+regression is byte-identical, with a nonzero placement. Bounded streaming
+record parsing is reused only for C8 with one descriptor and an initial
+`800a/0000`. Native `800a/d300` stays on its existing native path. Other
+initial values, counts, unknown subsequent tags and truncated records refuse.
+No zlib validation rule changes. Chunk sizes 1, 2, 3, 11, 28 and 65,536 with
+three-byte source reads are tested.
+
+All 19 actual page renders and geometries match external one-page reference
+containers that preserve source headers, image payloads and records, changing
+only raw framing to the already supported direct compressed framing. All seven
+JPEG payloads remain byte-identical. This confirms equivalence with existing
+compressed rendering, not original-font fidelity. Real source documents,
+reference containers, PDFs, screenshots and fonts stay outside Git; no foreign
+converter implementation was read or migrated. All implementation and controls
+are independently authored MIT code. See the [checkpoint](conformance.md#c8-uncompressed-image-record-checkpoint-390).

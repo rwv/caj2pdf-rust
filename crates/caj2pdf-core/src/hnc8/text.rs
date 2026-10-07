@@ -154,11 +154,19 @@ pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
                 0x800a | 0x801c
             );
     }
-    let mut text = if header.variant == Variant::HnA
-        && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004))
+    // C8 also carries the direct tagged grammar without compression: the
+    // measured profile starts with one unmarked image record. Native C8's
+    // 800a/d300 image records remain on their separate rendering path.
+    let raw_c8_image = header.variant == Variant::C8
+        && page.image_count == 1
+        && tag == 0x800a
+        && prefix[2..4] == [0, 0];
+    let mut text = if raw_c8_image
+        || (header.variant == Variant::HnA
+            && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004)))
     {
         let records = if prefixed_raw || tag == 0x800a {
-            Records::tagged(prefixed_raw).decode_markers(true)
+            Records::tagged(prefixed_raw).decode_markers(header.variant == Variant::HnA)
         } else {
             Records::ordered()
         };
