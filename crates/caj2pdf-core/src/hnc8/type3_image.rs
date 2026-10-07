@@ -250,7 +250,7 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         cancellation,
     )
     .map_err(|error| at.stage(Type3Stage::FirstDictionary, error))?;
-    let first_report = work_stage(first_decoder.decode(), at, Type3Stage::FirstDictionary)?;
+    let first_report = work_stage(first_decoder.decode_hnc8(), at, Type3Stage::FirstDictionary)?;
     let imported_count = u64::from(first_report.header.exported_symbols);
     let second_count = u64::from(read_second_new_symbol_count(
         directory,
@@ -281,7 +281,11 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         cancellation,
     )
     .map_err(|error| at.stage(Type3Stage::SecondDictionary, error))?;
-    let second_report = work_stage(second_decoder.decode(), at, Type3Stage::SecondDictionary)?;
+    let second_report = work_stage(
+        second_decoder.decode_hnc8(),
+        at,
+        Type3Stage::SecondDictionary,
+    )?;
     let text_contexts = context_bank(
         symbol_code_length(second_report.catalog.exported_symbols.len() as u64),
         limits,

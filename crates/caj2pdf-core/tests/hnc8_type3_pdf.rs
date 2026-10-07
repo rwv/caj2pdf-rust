@@ -780,31 +780,96 @@ fn located_payload_read_and_decoder_input_failures_cover_each_stage() {
 
 #[test]
 fn strict_text_header_refuses_anomaly_but_named_opt_in_records_it() {
-    let built = document(Variant::C8, &[vec![type3(9, 2, 0xa40c)]]);
-    let (strict, pdf) = run_error(built.bytes.clone(), ComposeOptions::default());
-    assert!(no_image(&pdf));
-    assert_eq!(page_image(&strict), (Some(1), Some(1)));
-    assert!(stage_of(&strict).is_some(), "{strict}");
+    for flags in [0x800c, 0x840c, 0x880c, 0x8c0c, 0x900c, 0xa40c, 0xbc0c] {
+        let built = document(Variant::C8, &[vec![type3(9, 2, flags)]]);
+        let (strict, pdf) = run_error(built.bytes.clone(), ComposeOptions::default());
+        assert!(no_image(&pdf));
+        assert_eq!(page_image(&strict), (Some(1), Some(1)));
+        assert!(stage_of(&strict).is_some(), "{strict}");
 
-    let mut sink = Sink::default();
-    let mut anomalies = Anomalies::default();
-    run_with(
-        &mut Source::new(built.bytes),
-        &mut sink,
-        &mut anomalies,
-        ComposeOptions {
-            text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-            ..Default::default()
-        },
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    assert_eq!(
-        anomalies.0,
-        [Some(TextHeaderAnomaly::UnusedRefinementTemplate)]
-    );
-    validate_one_image_pdf(&sink.bytes, 9, 2);
+        let mut sink = Sink::default();
+        let mut anomalies = Anomalies::default();
+        run_with(
+            &mut Source::new(built.bytes),
+            &mut sink,
+            &mut anomalies,
+            ComposeOptions {
+                text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+                ..Default::default()
+            },
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(
+            anomalies.0,
+            [Some(TextHeaderAnomaly::UnusedRefinementTemplate)]
+        );
+        validate_one_image_pdf(&sink.bytes, 9, 2);
+    }
+}
+
+#[test]
+fn hnc8_terminal_only_empty_dictionaries_preserve_pixels_and_reject_damage() {
+    for changed in 1..=3 {
+        for damage in 0..=4 {
+            let mut dictionaries = [dictionary_data(0x0800), dictionary_data(0x1802)];
+            for (index, data) in dictionaries.iter_mut().enumerate() {
+                if changed & (1 << index) == 0 {
+                    continue;
+                }
+                data.truncate(12);
+                data.extend_from_slice(&[0xff, 0xac]);
+                match damage {
+                    1 => data[13] = 0xad, // wrong terminal marker
+                    2 => {
+                        data.pop();
+                    } // truncated marker
+                    3 => data[7] = 1,     // advertised export from an empty dictionary
+                    4 => data[11] = 1,    // advertised symbol without its coded body
+                    _ => {}
+                }
+            }
+            let mut image = type3(9, 2, 0x0c);
+            image.payload = dib(9, 2).to_vec();
+            image.payload.extend(
+                [
+                    segment(0, 48, &[], &page_data(9, 2)),
+                    segment(1, 0, &[], &dictionaries[0]),
+                    segment(2, 0, &[1], &dictionaries[1]),
+                    segment(3, 6, &[2], &text_data(9, 2, 0x0c)),
+                    segment(4, 38, &[], &generic_data(9, 2)),
+                ]
+                .concat(),
+            );
+            let built = document(Variant::C8, &[vec![image]]);
+            let mut source = Source::new(built.bytes);
+            source.max_read = 3;
+            let mut sink = Sink::default();
+            let result = run(
+                &mut source,
+                &mut sink,
+                ComposeOptions::default(),
+                &Limits::default(),
+                &NeverCancel,
+            );
+            if damage == 0 {
+                result.unwrap();
+                validate_one_image_pdf(&sink.bytes, 9, 2);
+                assert_eq!(embedded_image(&sink.bytes), [0x80, 0, 0, 0]);
+            } else {
+                let error = result.unwrap_err();
+                assert!(
+                    matches!(
+                        type3_stage(&error),
+                        Some(Type3Stage::FirstDictionary | Type3Stage::SecondDictionary)
+                    ),
+                    "{error}"
+                );
+                assert!(no_image(&sink.bytes));
+            }
+        }
+    }
 }
 
 #[test]

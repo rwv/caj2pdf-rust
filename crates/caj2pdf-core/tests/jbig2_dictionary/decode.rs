@@ -139,6 +139,12 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
 }
 
 #[test]
+fn strict_empty_dictionary_still_requires_its_iaex_run() {
+    let error = decode_error(&[0xff, 0xac], 0, Limits::default());
+    assert_eq!(error.reason, "negative export run");
+}
+
+#[test]
 fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
     // This byte stream codes the IADH=1, IADW=1, pixel=0, IADW=OOB, IAEX=1
     // control sequence. No external document byte is embedded here.

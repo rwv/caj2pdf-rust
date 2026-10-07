@@ -730,7 +730,19 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
     /// Decode all new symbols, ordered exports, and the exact MQ terminal
     /// sequence. `Ok` is the only state in which the catalog and the new
     /// store are valid.
-    pub fn decode(mut self) -> Result<DictionaryReport> {
+    pub fn decode(self) -> Result<DictionaryReport> {
+        self.decode_inner(false)
+    }
+
+    /// HN/C8 empty dictionaries may contain only the MQ terminal marker,
+    /// omitting the zero IAEX run required by the strict T.88 procedure.
+    /// Header validation, zero symbol counts and the exact marker are still
+    /// required; an ordinary dictionary never takes this path.
+    pub(crate) fn decode_hnc8(self) -> Result<DictionaryReport> {
+        self.decode_inner(true)
+    }
+
+    fn decode_inner(mut self, allow_empty_body: bool) -> Result<DictionaryReport> {
         let site = Site {
             segment: self.segment,
             offset: self.mq.snapshot().input_offset,
@@ -764,7 +776,16 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
                 store: &mut *self.stores.new,
             }
         };
-        let decoded = session.decode_all(&mut unit);
+        let empty_body = allow_empty_body
+            && session.imported.is_empty()
+            && session.header.new_symbols == 0
+            && session.header.exported_symbols == 0
+            && session.header.body.length == 2;
+        let decoded = if empty_body {
+            session.check_cancelled(&unit)
+        } else {
+            session.decode_all(&mut unit)
+        };
         if let Unit::Refined(host) = &unit {
             self.progress.refinement = host.progress();
         }

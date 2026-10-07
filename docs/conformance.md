@@ -570,3 +570,23 @@ pixel-parity claim. [Issue #388](https://github.com/rwv/caj2pdf-rust/issues/388)
 records the final revision, per-input runtime receipts and remaining limits.
 External documents and rendered images are not committed; ignored optional
 corpus tests are never counted as successful compatibility tests.
+
+## C8 JBIG2 empty-content checkpoint (#389)
+
+The 25 SHA-pinned inputs in the [sweep manifest](https://github.com/rwv/caj2pdf-samples/blob/054e082e65e956ce3e90e464e5bb926b846b360d/research/notes/github-sweep-20261007.json)
+were rerun in both CLI bookmark modes. Fifteen inputs (360 pages) convert,
+pass qpdf and retain source page count/order. Both modes omit unverified C8
+outlines; this does not resolve #303. Ten inputs still refuse on page 2:
+
+| Remaining profile | Input SHA-256 prefixes | Tracking |
+| --- | --- | --- |
+| Unframed text prefix | `220aa2f5c641`, `8da7e7ccfda1` | #390 |
+| Two-segment generic-only image | `1314eced2fc1`, `38e76b2bb7bc`, `4bb20441f550`, `5f3683be4519`, `89d337946088`, `99554ac43493`, `a16718282ceb`, `c9f26582cc32` | #392 |
+
+The 28 affected image payloads, including those in documents with later
+failures, decode to exactly the same full pixels as independent Poppler and
+MuPDF black-box runs. This isolates the JBIG2 fix; it is not a claim of full
+rendering fidelity for every page or successful conversion of the ten refused
+documents. See [provenance](provenance.md#hnc8-empty-jbig2-content-389) for
+profile measurements, independently generated controls and guard coverage.
+External optional-corpus tests skipped by the normal suite remain NOT_RUN.

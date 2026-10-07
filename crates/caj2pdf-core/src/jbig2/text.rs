@@ -91,8 +91,10 @@ impl TextRegionFlags {
 pub enum TextHeaderPolicy {
     #[default]
     Strict,
-    /// Accept only raw flags `0xa40c`: an unused `SBRTEMPLATE` bit with
-    /// `SBREFINE=0`. All other header validation remains strict.
+    /// Accept an unused `SBRTEMPLATE` bit in the measured arithmetic,
+    /// eight-strip, bottom-left, non-transposed OR profile with default
+    /// pixel zero and `SBREFINE=0`. Only `SBDSOFFSET` varies; it retains
+    /// its standard signed five-bit meaning. Other validation stays strict.
     HnC8UnusedRefinementTemplate,
 }
 
@@ -208,7 +210,7 @@ pub fn read_text_region_header<S: RangedSource, C: Cancellation>(
 }
 
 /// Parse a text-region header with an explicit interoperability policy.
-/// `HnC8UnusedRefinementTemplate` accepts only raw `0xa40c`; it does not
+/// `HnC8UnusedRefinementTemplate` admits its documented profile; it does not
 /// normalize the returned flags or skip any framing, size, or body checks.
 pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     source: &mut S,
@@ -405,7 +407,9 @@ fn parse_flags(
     let refine = raw & 2 != 0;
     let refinement_template = (raw >> 15) as u8;
     let anomaly = if !refine && refinement_template != 0 {
-        if policy == TextHeaderPolicy::HnC8UnusedRefinementTemplate && raw == 0xa40c {
+        // Bits 10..14 are the ordinary signed SBDSOFFSET, not part of the
+        // unused-template anomaly. Preserve them for instance placement.
+        if policy == TextHeaderPolicy::HnC8UnusedRefinementTemplate && raw & !0x7c00 == 0x800c {
             Some(TextHeaderAnomaly::UnusedRefinementTemplate)
         } else {
             return Err(Error::invalid("SBRTEMPLATE without SBREFINE"));
