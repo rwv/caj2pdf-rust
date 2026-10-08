@@ -8,7 +8,8 @@ and signature facts recorded in the public
 The `target_descriptor.caa` fixture uses independently measured CAA field
 names/order from the [pinned discovery](https://github.com/rwv/caj2pdf-samples/blob/d9b42808e6a8d6ed7814d6970ac8253a590f513d/research/notes/caa-nh-discovery-20261008.md),
 with invented numeric and base64-alphabet values. It contains no document
-pages or real target values.
+pages or real target values. Git line-ending conversion is disabled for this
+byte fixture so its manifest hash stays the same on Windows.
 No CAJSamples document, reference-converter output, or legacy converter source
 was used.
 
