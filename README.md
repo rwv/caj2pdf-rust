@@ -18,14 +18,19 @@ caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf inspect paper.caj --json   # format, page count, bookmarks
 ```
 
-Or build it with Rust 1.88 or newer:
+Or install it from crates.io with Rust 1.88 or newer:
 
 ```sh
-cargo install --locked --git https://github.com/rwv/caj2pdf-rust caj2pdf-cli
+cargo install --locked caj2pdf-cli
 ```
 
 Releases also carry a container image ([Docker usage](docs/docker.md)) and a
 JavaScript tarball for Node.js 22+ and browsers ([JS API](js/README.md)).
+The JavaScript package is also on npm:
+
+```sh
+npm install caj2pdf-rust
+```
 Supported operating systems and CPUs are listed in the
 [platform matrix](docs/platforms.md).
 
@@ -50,7 +55,7 @@ await writer.close();
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
 | C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
-| CAA | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
+| CAA (unreleased) | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
 | TEB | Rejected: a DRM-encrypted container. |
 
 The [support matrix](docs/conformance.md#current-support-and-release-status)
@@ -91,6 +96,8 @@ rule. Node and the browser take fonts only as explicit options.
 - TEB files cannot be converted.
 
 ## Library
+
+Add the Rust library with `cargo add caj2pdf-core`.
 
 The `caj2pdf-core` crate is the engine behind the CLI and the WASM build. It
 reads any `RangedSource` (`SeekableSource` over a `File`, or a byte slice)

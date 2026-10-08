@@ -151,3 +151,27 @@ trust when the next publication is ready rather than long in advance.
 The first manual uploads are bootstrap evidence, not proof of a tagged OIDC
 publication. Keep #293's tagged-publication criterion open until an actual
 trusted-publisher release and clean registry installations are verified.
+
+### v0.5.0 bootstrap receipt (2026-10-08)
+
+Core and CLI 0.5.0 were uploaded from release commit
+`aa11e81205e1c03b1ea52ddf00e1f94e3a126a7a`. npm 0.5.0 uses the unmodified
+`release-assets` tarball from tag run
+[37737401209](https://github.com/rwv/caj2pdf-rust/actions/runs/37737401209),
+SHA-256 `35ee02276c3f4d17897064c628bf9f3e20efa330c06e0ca00de40092442d459a`.
+The npm registry integrity matches those bytes and `latest` points to 0.5.0.
+
+Fresh `cargo install caj2pdf-cli --version 0.5.0 --locked --root ...` and
+`npm install --ignore-scripts --save-exact caj2pdf-rust@0.5.0` installations
+both converted the two-page `js/test/helpers.mjs::syntheticCaj` fixture
+(SHA-256 `0d9ff4d560b2ec21ed0e0667def23d2adf0cb2311d0f8077f39ffe1c0dca6dc1`).
+Qpdf accepted both two-page PDFs and their bytes matched. This is synthetic
+registry-install evidence, not an external-corpus compatibility run.
+
+All three trusted-publisher configurations were saved for
+`rwv/caj2pdf-rust` / `release.yml`. The first uploads used owner authentication,
+so no successful registry OIDC publication or npm OIDC provenance is claimed.
+The temporary crates.io bootstrap token was revoked and removed locally.
+The npm binding remains pending its first OIDC publish, with the initial
+validation deadline 2026-10-10 06:30 UTC; recreate it if it expires before
+another release. Do not republish or modify immutable v0.5.0 packages to test it.
