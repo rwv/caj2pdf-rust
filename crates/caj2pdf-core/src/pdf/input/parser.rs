@@ -107,6 +107,9 @@ pub(super) struct Syntax<'a> {
     pub pos: usize,
     pub max_reference: u32,
     pub references: Vec<PdfRef>,
+    resource_path: u8,
+    collect_resource_duplicate: bool,
+    resource_duplicate: Option<ResourceDuplicate>,
 }
 
 impl<'a> Syntax<'a> {
@@ -116,6 +119,9 @@ impl<'a> Syntax<'a> {
             pos: 0,
             max_reference: 0,
             references: Vec::new(),
+            resource_path: 0,
+            collect_resource_duplicate: false,
+            resource_duplicate: None,
         }
     }
 
@@ -446,7 +452,14 @@ impl<'a> Syntax<'a> {
             let name = self.name()?;
             self.skip_space();
             let value_start = self.pos;
+            let parent_path = self.resource_path;
+            self.resource_path = match (parent_path, depth, name.as_slice()) {
+                (0, 0, b"Resources") => 1,
+                (1, 2, b"ExtGState") => 2,
+                _ => 0,
+            };
             self.skip_value(depth + 1)?;
+            self.resource_path = parent_path;
             entries.push(DictEntry {
                 name,
                 pair: start..self.pos,
@@ -462,14 +475,28 @@ impl<'a> Syntax<'a> {
             reserve_exact(&mut order, entries.len(), refused)?;
             order.extend(0..entries.len());
             order.sort_unstable_by(|left, right| entries[*left].name.cmp(&entries[*right].name));
-            if let Some(pair) = order
+            for pair in order
                 .windows(2)
-                .find(|pair| entries[pair[0]].name == entries[pair[1]].name)
+                .filter(|pair| entries[pair[0]].name == entries[pair[1]].name)
             {
-                return Err(ambiguous(
+                let error = ambiguous(
                     entries[pair[1]].pair.start,
                     "duplicate nested PDF dictionary keys have undefined value",
-                ));
+                );
+                if !self.collect_resource_duplicate
+                    || self.resource_path != 2
+                    || depth != 4
+                    || self.resource_duplicate.is_some()
+                {
+                    return Err(error);
+                }
+                let first = &entries[pair[0].min(pair[1])];
+                let second = &entries[pair[0].max(pair[1])];
+                self.resource_duplicate = Some(ResourceDuplicate {
+                    first: exact_reference(first.value(self.bytes)).ok_or(error)?,
+                    second: exact_reference(second.value(self.bytes)).ok_or(error)?,
+                    blank: second.pair.clone(),
+                });
             }
         }
         Ok(entries)
@@ -498,10 +525,29 @@ pub(super) struct ObjectHead {
     pub tail: ObjectTail,
     pub max_reference: u32,
     pub references: Vec<PdfRef>,
+    /// A single measured Resources/ExtGState duplicate; indexed input must
+    /// prove target equivalence before using or emitting this candidate.
+    pub resource_duplicate: Option<ResourceDuplicate>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ResourceDuplicate {
+    pub first: PdfRef,
+    pub second: PdfRef,
+    pub blank: Range<usize>,
 }
 
 pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
+    parse_object_head_mode(bytes, false)
+}
+
+pub(super) fn parse_resource_repair_candidate(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
+    parse_object_head_mode(bytes, true)
+}
+
+fn parse_object_head_mode(bytes: Vec<u8>, resource_repair: bool) -> ParseResult<ObjectHead> {
     let mut parser = Syntax::new(&bytes);
+    parser.collect_resource_duplicate = resource_repair;
     let number = parser.unsigned()?;
     let generation = parser.unsigned()?;
     parser.skip_space();
@@ -566,6 +612,7 @@ pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
     }
     let max_reference = parser.max_reference;
     let references = std::mem::take(&mut parser.references);
+    let resource_duplicate = parser.resource_duplicate.take();
     drop(parser);
     Ok(ObjectHead {
         reference,
@@ -582,6 +629,7 @@ pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
         tail,
         max_reference,
         references,
+        resource_duplicate,
     })
 }
 

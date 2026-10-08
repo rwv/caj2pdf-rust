@@ -816,3 +816,23 @@ new gap repair preserves source positions and object data while blanking these
 inactive bytes. Existing lone-CR stream separators are normalized and seven
 stale Page parents are independently validated against Kids before replacement;
 those existing repairs do not change the measured page content or geometry.
+
+
+## Equivalent opacity resource checkpoint (#412)
+
+Both unchanged KDH originals in [#412](https://github.com/rwv/caj2pdf-rust/issues/412)
+convert with matching native, Node.js and Chromium PDF hashes and clean browser
+OPFS storage. All **14 pages and 151 raw streams** match an independent decoded
+source PDF in page identity, stream identity/bytes, text, MediaBox/CropBox,
+rectangle, rotation and RGB pixels at 72 dpi (PyMuPDF 1.27.2.2). Neither source
+has outlines, and both output outline inventories remain empty.
+
+All reference bytes are independently checked against the documented KDH XOR
+transformation through the actual EOF whitespace. Original body bytes remain
+verbatim except existing lone-CR stream-separator normalization. Only 13 Page
+resource dictionaries change through incremental revisions. Source hashes stay
+unchanged. Qpdf reports the original duplicate-resource warnings (exit 3) for
+both independent sources; both converted outputs pass without warnings. The
+source warnings are retained rather than counted as clean source checks.
+These are scoped source-PDF comparisons, not CAJViewer or every-resolution/font
+fidelity claims, and they do not close the broader #406/#409 acceptance work.

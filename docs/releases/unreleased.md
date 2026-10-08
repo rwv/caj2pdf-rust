@@ -1,5 +1,16 @@
 # Unreleased
 
+## Equivalent PDF opacity resources (#412)
+
+- Two KDH originals now convert after proving duplicate ExtGState references
+  carry exactly equal direct CA/ca values. Unknown or conflicting resources
+  remain errors; equal-looking rounded numbers are never used as proof.
+- All 14 pages and 151 streams match independent source decoding, and output
+  bytes agree across native, Node.js and Chromium. See the
+  [checkpoint](../conformance.md#equivalent-opacity-resource-checkpoint-412).
+  No public API or dependency changes; target reads, metadata and incremental
+  repairs remain bounded. Existing v0.4.0 artifacts are unchanged.
+
 ## Interrupted live PDF prefixes (#410)
 
 - A measured seven-page KDH file now converts after bounded validation and
