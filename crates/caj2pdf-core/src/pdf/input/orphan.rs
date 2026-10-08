@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! Measured unused interruptions. Every proposed omission is deferred
-//! until the complete scan proves that no object references the missing ID.
+//! Measured unused interruptions and payload-free parent openers. Omission
+//! requires a complete-graph proof of absence or an independent leaf-page role.
 
-use super::fragment_scan::{Pass, StreamFailure};
+use super::fragment_scan::{Pass, ScannedObject, StreamFailure};
 use super::parser::{Syntax, exact_name, exact_reference, exact_unsigned};
 use super::recovery::shared_prefix;
-use super::{ObjectTail, Reader};
+use super::{FragmentKind, ObjectTail, Reader, media_box};
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, RangedSource, Result};
 
@@ -14,6 +14,166 @@ const MAX_HEADER: usize = 256;
 const MIN_IMAGE_PREFIX: u64 = 256;
 const MAX_IMAGE_PREFIX: u64 = 64 * 1024;
 const MAX_IMAGE_CANDIDATES: usize = 64;
+
+/// Only the measured XML packet opener, followed immediately by the integer
+/// resolving a previously framed stream. The complete graph must still prove
+/// the metadata ID absent and unreferenced; no XML body is searched or parsed.
+pub(super) fn metadata_prefix<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    pass: &Pass<'_>,
+    start: u64,
+    stream: &StreamFailure,
+) -> Result<Option<(u64, FragmentObject)>> {
+    const PACKET: &[u8] = b"<?xpac\r\n";
+    if stream.reference.generation != 0
+        || stream.direct.is_none()
+        || stream.data_start > MAX_HEADER as u64
+        || stream.length.is_none_or(|n| n <= PACKET.len() as u64)
+    {
+        return Ok(None);
+    }
+    let head = reader.load_head(start, Some(stream.reference))?;
+    let Some(dictionary) = head.dictionary.as_ref() else {
+        return Ok(None);
+    };
+    if !matches!(head.tail, ObjectTail::Stream { data_start } if data_start as u64 == stream.data_start)
+        || dictionary.entries.len() != 3
+        || dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"Metadata")
+        || dictionary.value(b"Subtype").and_then(exact_name).as_deref() != Some(b"XML")
+        || dictionary.value(b"Length").and_then(exact_unsigned) != stream.length
+    {
+        return Ok(None);
+    }
+    let prefix_len = stream.data_start as usize + PACKET.len();
+    if prefix_len as u64 > reader.range.length - start {
+        return Ok(None);
+    }
+    let bytes = reader.bytes(start, prefix_len)?;
+    if &bytes[stream.data_start as usize..] != PACKET {
+        return Ok(None);
+    }
+    let next = start + prefix_len as u64;
+    let integer = match reader.load_head(next, None) {
+        Ok(head) => head,
+        Err(error) if error.is_malformed_pdf() => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let value = integer
+        .scalar
+        .as_ref()
+        .and_then(|span| exact_unsigned(&integer.bytes[span.clone()]));
+    if !value.is_some_and(|n| n > 0)
+        || integer.reference == stream.reference
+        || integer.reference.generation != 0
+        || !matches!(integer.tail, ObjectTail::EndObject { end } if end <= MAX_HEADER)
+        || !pass
+            .pending_lengths
+            .iter()
+            .any(|pending| pending.target == integer.reference && Some(pending.length) == value)
+    {
+        return Ok(None);
+    }
+    if reader.bytes(start, prefix_len)? != bytes {
+        return Err(reader.malformed(
+            start,
+            Some(stream.reference),
+            "unused metadata prefix changed while reading",
+        ));
+    }
+    Ok(Some((
+        next,
+        FragmentObject {
+            reference: stream.reference,
+            range: PdfRange {
+                offset: reader.range.offset + start,
+                length: prefix_len as u64,
+            },
+        },
+    )))
+}
+
+/// These two measured openers contain no dictionary key or value. A complete
+/// following page fixes their boundary; the graph check below proves the role.
+pub(super) fn parent_opener<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    objects: &[ScannedObject],
+    prefix: FragmentObject,
+) -> Result<bool> {
+    if prefix.reference.number == 0 || prefix.reference.generation != 0 || prefix.range.length > 64
+    {
+        return Ok(false);
+    }
+    let start = prefix.range.offset - reader.range.offset;
+    let length = prefix.range.length as usize + 2;
+    if length as u64 > reader.range.length - start {
+        return Ok(false);
+    }
+    let bytes = reader.bytes(start, length)?;
+    let number = prefix.reference.number;
+    if bytes != format!("{number} 0\r\n").as_bytes()
+        && bytes != format!("{number} 0 obj<<\r\n").as_bytes()
+    {
+        return Ok(false);
+    }
+    let framed = objects.iter().any(|scanned| {
+        scanned.object.range.offset == prefix.range.offset + length as u64
+            && scanned
+                .inspection
+                .as_ref()
+                .is_ok_and(|i| !i.is_stream && matches!(i.kind, FragmentKind::Page { .. }))
+    });
+    if framed && reader.bytes(start, length)? != bytes {
+        return Err(reader.malformed(
+            start,
+            Some(prefix.reference),
+            "interrupted parent opener changed while reading",
+        ));
+    }
+    Ok(framed)
+}
+
+/// An incoming edge to an interrupted parent must be the sole Parent field of
+/// a leaf page with all four inheritable properties explicitly supplied. The
+/// CAJ converter then validates table membership and builds the existing tree.
+pub(super) fn independent_child<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    scanned: &ScannedObject,
+    parent: PdfRef,
+) -> Result<bool> {
+    let inspection = scanned.inspection.as_ref().expect("complete graph checked");
+    if inspection.is_stream
+        || !matches!(inspection.kind, FragmentKind::Page { parent: p, has_media_box: true } if p == parent)
+        || inspection
+            .references
+            .iter()
+            .filter(|r| **r == parent)
+            .count()
+            != 1
+    {
+        return Ok(false);
+    }
+    let head = reader.load_head(
+        scanned.object.range.offset - reader.range.offset,
+        Some(scanned.object.reference),
+    )?;
+    let Some(d) = head.dictionary.as_ref() else {
+        return Ok(false);
+    };
+    Ok(
+        matches!(head.tail, ObjectTail::EndObject { end } if end as u64 == scanned.object.range.length)
+            && head.references == inspection.references
+            && d.value(b"Type").and_then(exact_name).as_deref() == Some(b"Page")
+            && d.value(b"Parent").and_then(exact_reference) == Some(parent)
+            && d.value(b"MediaBox").and_then(media_box).is_some()
+            && d.value(b"CropBox").and_then(media_box).is_some()
+            && matches!(
+                d.value(b"Rotate").and_then(exact_unsigned),
+                Some(0 | 90 | 180 | 270)
+            )
+            && d.value(b"Resources")
+                .is_some_and(|v| exact_reference(v).is_some() || v.starts_with(b"<<")),
+    )
+}
 
 pub(super) fn opener<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
@@ -304,3 +464,6 @@ pub(super) fn image_prefix<S: RangedSource, C: Cancellation>(
         },
     )))
 }
+
+#[cfg(test)]
+mod tests;

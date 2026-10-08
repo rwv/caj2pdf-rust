@@ -1012,3 +1012,22 @@ from page 1 to page 2 in the reader. This is not a vendor-viewer fidelity claim.
 External actions are inventoried without execution. The original 134-page CAJ
 in #448 remains a distinct missing-data exception, and baseline counts must
 not silently absorb this new source identity.
+
+## Interrupted metadata and parent openers (#452)
+
+The unchanged 53-page CAJ in [provenance](provenance.md#interrupted-metadata-and-missing-parent-openers-452)
+converts to identical native, Node and Chromium output with qpdf exit zero.
+All 247 complete original object values, 84 raw streams, 53 page references,
+geometry/text/link inventories and Poppler RGB renders agree with independent
+source framing. All 56 CAJ bookmark titles, depths, order and page targets
+agree. The separately cataloged #449 archived PDF remains byte-identical on
+all three runtimes. Source integrity and browser temporary-file cleanup pass.
+
+Original-viewer comparisons cover pages 1, 20 and 53 against the independent
+source-body PDF, with a detected painted-content negative. These selected
+checks do not establish vendor fidelity for every page or resolve #441.
+Diagnostic omissions and the initial interrupted debug-build regression run
+are retained separately from unchanged-original release-build evidence.
+The complete regression and exact reviewed-build receipts are tracked in
+[#452](https://github.com/rwv/caj2pdf-rust/issues/452); optional-corpus skips
+remain distinct from compatibility passes. No release is performed.

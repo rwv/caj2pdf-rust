@@ -594,3 +594,29 @@ anchored candidates and complete duplicates remain errors. The distance is a
 search bound, never a buffer size: comparison uses the existing two bounded
 256-byte buffers. Candidate-row scans, partial conversion, codecs and ordinary
 indexed PDFs retain their existing scope. See [source evidence](provenance.md#indirect-length-ordering-and-same-row-replays-444).
+
+## Interrupted metadata and missing parents
+
+The measured CAJ profile in #452 admits an unused XML metadata stream that
+ends after the exact `<?xpac` plus CRLF opener. Its generation-zero dictionary
+contains only a direct positive Length, Type Metadata and Subtype XML, within
+256 header bytes. The immediately following complete generation-zero integer
+must resolve a previously framed stream's pending indirect Length. The full
+scan verifies that constraint and proves the metadata ID absent and
+unreferenced. This is not a general rule for dropping malformed XML or streams.
+
+Two payload-free parent openers (`number 0` or `number 0 obj<<`, then CRLF)
+may precede a complete Page object. Only absent IDs with incoming references
+exclusively in leaf Page Parent fields qualify. Every affected page must
+explicitly supply valid direct MediaBox/CropBox, a Resources dictionary or
+reference, and direct Rotate 0/90/180/270. The existing converter checks table
+membership and reconstructs parent groups in CAJ page order. No inherited
+property is guessed and no dictionary key/value is discarded.
+
+Both rules require a complete inspected graph without opaque ObjStm/XRef
+metadata streams. Referenced metadata, other incoming parent edges, missing
+page properties, ambiguous copies and unmeasured boundaries remain errors.
+Parent openers are at most 64 bytes, with at most 64 pending parent records;
+unused metadata uses the existing 64-record interruption bound. Existing
+allocation limits, ranged reads, cancellation and sequential output apply.
+Clean indexed PDFs and public APIs are unchanged.

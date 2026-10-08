@@ -2274,3 +2274,32 @@ fn measured_pattern_matrix_preserves_identity_rendering_and_streams() {
     let different = tiling_pattern_caj("[0.72 0 0 -0.719999 -5e+001 842]", false);
     rejected_without_output(&different, &limits);
 }
+
+#[test]
+fn interrupted_parents_use_table_order_without_inherited_page_values() {
+    let mut body = b"1 0 obj << /Length 2 0 R >> stream\nq Q\nendstream\nendobj\n7 0 obj << /Length 1234 /Type /Metadata /Subtype /XML >> stream\r\n<?xpac\r\n2 0 obj 3 endobj\n8 0\r\n".to_vec();
+    let page = |parent| {
+        format!(
+            "<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 100 80] /CropBox [0 0 90 70] /Rotate 0 /Resources << >> /Contents 1 0 R >>"
+        )
+    };
+    object(&mut body, 3, &page(8));
+    body.extend_from_slice(b"9 0 obj<<\r\n");
+    object(&mut body, 4, &page(9));
+    let input = fragment_caj(&body, &[4, 3]);
+    let (output, report) =
+        convert(&input, ConversionOptions::default(), &Limits::default()).unwrap();
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(page_numbers(&output), [4, 3]);
+    assert!(output.windows(b"q Q".len()).any(|v| v == b"q Q"));
+    // Missing table membership cannot be inferred from the Parent-only role.
+    let extra_page = fragment_caj(&body, &[3]);
+    assert!(
+        convert(
+            &extra_page,
+            ConversionOptions::default(),
+            &Limits::default()
+        )
+        .is_err()
+    );
+}

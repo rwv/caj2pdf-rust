@@ -151,6 +151,9 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     if let Some((resume, prefix)) = super::orphan::image_prefix(reader, pass, start, stream)? {
         return Ok(Some(Recovery::Orphan { resume, prefix }));
     }
+    if let Some((resume, prefix)) = super::orphan::metadata_prefix(reader, pass, start, stream)? {
+        return Ok(Some(Recovery::Orphan { resume, prefix }));
+    }
     if let Some(end) =
         candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
     {
