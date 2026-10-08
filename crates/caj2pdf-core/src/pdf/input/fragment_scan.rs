@@ -11,6 +11,7 @@
 use super::pattern_matrix;
 use super::recovery::{self, FragmentPatch, Recovery, find_endstream};
 use super::source_path::{self, SourcePathRepair};
+use super::stream_substitution::Candidate as StreamSubstitution;
 use super::{
     FragmentInspection, ObjectTail, Reader, exact_reference, exact_unsigned, inspect_head,
 };
@@ -41,6 +42,7 @@ pub(crate) struct FragmentScan {
     pub objects: Vec<ScannedObject>,
     pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
+    pub substitutions: Vec<StreamSubstitution>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
 }
 
@@ -137,6 +139,7 @@ pub(super) struct StreamFailure {
     /// For a direct `/Length`: the absolute offset and bytes of its digits.
     pub direct: Option<(u64, Vec<u8>)>,
     pub inspection: Result<FragmentInspection>,
+    pub simple_flate: bool,
 }
 
 /// An indirect stream `/Length`, checked against its integer object once the
@@ -173,17 +176,46 @@ pub(super) struct Pass<'p> {
     pending_orphans: Vec<FragmentObject>,
     pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
+    pub substitutions: Vec<StreamSubstitution>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
     pub candidates: &'p mut [FragmentCandidate],
     pub rows: Option<&'p [CajPageRow]>,
     /// Whether a failure may repeat the pass with another stream end; only
     /// a complete scan does, so row candidates and partial scans stay linear.
-    retries: bool,
+    pub(super) retries: bool,
     source_path_bytes: usize,
     patch_bytes: usize,
+    substitution_bytes: usize,
 }
 
 impl Pass<'_> {
+    pub(super) fn push_substitution(
+        &mut self,
+        candidate: StreamSubstitution,
+        limits: &Limits,
+    ) -> Result<()> {
+        let count = self.substitutions.len() + 1;
+        if count > super::stream_substitution::MAX_CANDIDATES {
+            return Err(Error::limit(
+                "CAJ stream substitution candidates",
+                super::stream_substitution::MAX_CANDIDATES as u64,
+                count as u64,
+            ));
+        }
+        let retained = self
+            .substitution_bytes
+            .checked_add(candidate.retained_bytes())
+            .ok_or_else(|| Error::invalid("CAJ substitution budget overflows"))?;
+        limits.check_allocation(retained as u64)?;
+        push_counted(
+            &mut self.substitutions,
+            candidate,
+            "CAJ stream substitution candidates",
+        )?;
+        self.substitution_bytes = retained;
+        Ok(())
+    }
+
     fn push_patch(&mut self, patch: FragmentPatch, limits: &Limits) -> Result<()> {
         let retained = self
             .patch_bytes
@@ -278,6 +310,8 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
             pending_orphans: Vec::new(),
             patches: Vec::new(),
             source_paths: Vec::new(),
+            substitutions: Vec::new(),
+            substitution_bytes: 0,
             source_path_bytes: 0,
             patch_bytes: 0,
             damaged: Vec::new(),
@@ -633,6 +667,15 @@ fn frame_object<S: RangedSource, C: Cancellation>(
                 length,
                 direct,
                 inspection,
+                simple_flate: dictionary
+                    .value(b"Filter")
+                    .and_then(super::exact_name)
+                    .as_deref()
+                    == Some(b"FlateDecode")
+                    && dictionary.value(b"DecodeParms").is_none()
+                    && dictionary.value(b"F").is_none()
+                    && dictionary.value(b"FFilter").is_none()
+                    && dictionary.value(b"FDecodeParms").is_none(),
             }),
         )))
     };
@@ -861,6 +904,7 @@ fn finish<S: RangedSource, C: Cancellation>(
         objects: pass.objects,
         patches: pass.patches,
         source_paths: pass.source_paths,
+        substitutions: pass.substitutions,
         damaged: pass.damaged,
     }))
 }

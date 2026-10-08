@@ -164,6 +164,12 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
             Err(error) => return Err(error),
         };
     let replacement = corrected.to_string().into_bytes();
+    if pass.retries
+        && let Some(candidate) =
+            super::stream_substitution::candidate(reader, start, stream, corrected, end)?
+    {
+        pass.push_substitution(candidate, reader.limits)?;
+    }
     if original.len() != replacement.len() {
         return Err(reader.problem(
             data_at + length,

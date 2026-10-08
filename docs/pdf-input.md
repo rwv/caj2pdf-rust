@@ -222,6 +222,44 @@ With `--allow-damaged` (below), a failure no rule recovers is recorded and
 the scan resumes after an independently framed stream or at the page
 table's next page dictionary.
 
+### Checksum-confirmed CAJ stream substitution
+
+The measured #436 profile additionally recovers `ca a7 c2 e4` expanded from
+`b5 f4` inside a damaged zlib frame. This is restricted to a complete CAJ
+scan, an understated direct Length with the unique nearby terminator above,
+and exactly `/Filter /FlateDecode` without DecodeParms or external-stream
+keys. The measured extent must end in LF. Every candidate position lies
+after the zlib header and before its checksum; removing two bytes per site
+must restore the original Length, including LF. A checksum-valid original
+stream, even with trailing bytes, forbids substitution. The candidate must
+reach checksum-valid EOF at exactly the original frame length.
+
+All candidate objects must survive the complete scan without unresolved
+damage. Every original page-table object/offset must agree with the sparse
+substituted view, and at least one page offset must move. Only then does the
+converter rescan that view and perform the ordinary graph reconstruction.
+It does not rewrite metadata, page tables, Lengths or checksums to manufacture
+this evidence. Identical byte sequences outside admitted streams stay intact.
+Failed admission retains the existing framing outcome; it does not promise
+to reject every damaged codec payload.
+
+The profile bounds each encoded extent to 256 KiB, each decoded probe to
+4 MiB, and the document to 64 candidate streams; the existing 64-byte Length
+repair bounds substitutions per stream. Decoder state requires a 64 KiB
+allocation allowance, and decoded work also respects `max_allocation_bytes`.
+Inflation and hashing use fixed 4 KiB buffers with reads clipped to the
+caller's I/O chunk. Only positions and original SHA-256 digests are retained.
+Original encoded ranges are rechecked after recognition, before conversion
+and after successful emission; marker bytes are rechecked whenever read.
+Cancellation and source errors propagate, and diagnostics use original input
+offsets. As with other reconstruction, the source must stay stable throughout
+the operation and callers must discard partial output on error.
+
+This is an independently measured corruption profile, not a general byte
+replacement, text encoding conversion, or validation of all content streams.
+See [provenance](provenance.md#bounded-production-recovery) for the original
+synthetic controls, external measurements and remaining viewer limitation.
+
 ## Redundant CAJ framing
 
 The measured #434 profile additionally recognizes an obsolete classic

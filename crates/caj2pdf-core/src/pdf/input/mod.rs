@@ -13,6 +13,7 @@ mod parser;
 mod pattern_matrix;
 mod resource_repair;
 mod source_path;
+pub(crate) mod stream_substitution;
 pub(crate) use source_path::validate as validate_source_path_repair;
 
 pub(crate) use link_repair::{
