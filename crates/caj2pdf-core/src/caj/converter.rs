@@ -446,6 +446,10 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     )?;
     let mut report = if let Some(plan) = SubstitutionPlan::from_scan(&mut scan, &metadata, limits)?
     {
+        // The plan owns only selected positions and hashes. Release the first
+        // indexes before building the ordinary graph over its sparse view.
+        drop(scan);
+        drop(metadata);
         plan.verify(&mut counted, limits, cancellation)?;
         let result = {
             let mut recovered = plan.source(&mut counted, limits, cancellation)?;
