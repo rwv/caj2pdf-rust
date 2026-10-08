@@ -1049,3 +1049,21 @@ open. Earlier framing errors and modified-source diagnostics remain separate
 from original compatibility evidence. Full regression and reviewed-build/CI
 receipts are tracked in [#456](https://github.com/rwv/caj2pdf-rust/issues/456).
 Skipped optional-corpus tests are not compatibility passes. No release occurs.
+
+## TTKN wrapper research (#415)
+
+The [16-original inventory](https://github.com/rwv/caj2pdf-samples/blob/270aab219cad2dff00161915cbef1e7cea3e12c4/research/notes/ttkn-wrapper-inventory-20261008.md)
+pins live encryption dictionaries and distinguishes 14 certificate/opaque-PFX
+wrappers from two server/authentication wrappers. All remain conversion FAIL.
+The fixed `AppendCA` recipient marker and custom `TTKN.PubSec.s1` profile do
+not establish standard PKCS#7/PFX processing or available decryption keys.
+
+Fresh logical-PDF probes retain the unsupported-filter error. Three offline
+viewer originals show open errors and a separate unencrypted control opens;
+the other 13 TTKN originals are viewer NOT_RUN. These checks do not prove
+irrecoverability or whole-document correctness. The inventory criterion is
+complete, but [#415](https://github.com/rwv/caj2pdf-rust/issues/415) remains open
+for actual wrapper/credential semantics and validated recovery or exception
+evidence. The [provenance record](provenance.md#ttkn-encrypted-pdf-wrapper-inventory-415)
+documents the original MIT research tools, public specifications and limits.
+Production behavior, supported formats and releases are unchanged.

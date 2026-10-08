@@ -1583,3 +1583,48 @@ External CAJ/PDF/text/render/font bytes remain outside Git. The
 [issue](https://github.com/rwv/caj2pdf-rust/issues/456) record the strict scope,
 reviewed build, runtime and regression evidence. There is no API, dependency,
 license or publication change.
+
+## TTKN encrypted PDF wrapper inventory (#415)
+
+The [pinned 16-original inventory](https://github.com/rwv/caj2pdf-samples/blob/270aab219cad2dff00161915cbef1e7cea3e12c4/research/notes/ttkn-wrapper-inventory-20261008.md)
+and linked JSON verify unchanged source hashes, logical PDF boundaries and
+the actual xref-selected encryption dictionaries. All use `TTKN.PubSec` /
+`TTKN.PubSec.s1`, `CFM=AESV2`, and a fixed eight-byte `AppendCA` recipient
+marker instead of a standard PKCS#7 envelope. The earlier reconstructed
+Standard R2 footer diagnostic is not evidence of an available empty password.
+
+Fourteen XML wrappers contain a parsable PEM X.509 RSA public certificate,
+a 128-byte base64-decoded password field and opaque PFX fields (12 at 2,248
+bytes, two at 2,252). Two wrappers contain server/authentication fields with
+no certificate or PFX and a 48-byte decoded password field. Neither the
+public certificate nor field lengths establish a usable private key or
+plaintext password. Declared XML lengths differ from observed extents in
+14 sources; the inventory records both without modifying source bytes.
+
+The permissible specification basis is ISO 32000-1:2008 §§7.6.2, 7.6.4–7.6.5
+and Tables 20/23/25/27, [RFC 2315](https://www.rfc-editor.org/rfc/rfc2315.html)
+for PKCS#7 structure and [RFC 7292 §4](https://www.rfc-editor.org/rfc/rfc7292.html#section-4)
+for PFX structure. These do not define TTKN's custom wrapper or key derivation.
+Single base64 decoding does not yield a standard PFX, and a narrow public-key
+signature interpretation of the password field fails for all 14 certificate
+wrappers. Original signature/mutation controls and previous failed structural
+probes are retained; no secret-bearing value is published.
+
+The new bounded inventory and six synthetic test groups are original MIT work
+in the samples repository. pikepdf 10.5.1 and cryptography 44.0.3 are external
+research tools, not added converter dependencies; no library implementation
+was copied. Fresh qpdf checks of all logical prefixes retain the unsupported
+filter diagnostic. Three scoped offline viewer opens fail, while a separate
+unencrypted control opens; the available fonts do not expose readable error
+messages, so the cause is not inferred. All four sessions have stable final
+captures, unchanged inputs, no OOM and verified container removal. The other
+13 originals are viewer NOT_RUN and #441 remains open.
+
+No foreign converter, vendor implementation or private HN/JBIG source was
+read or migrated. Documents, XML values, certificates, PFX/password/key data,
+pixels and fonts remain external. The inventory acceptance criterion is
+satisfied; actual wrapper semantics, credential availability and validated
+recovery or unavoidable-exception proof remain unresolved in
+[#415](https://github.com/rwv/caj2pdf-rust/issues/415). No recovery implementation,
+support/API change, release-note entry or publication is justified by this
+research-only change.
