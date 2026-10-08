@@ -50,3 +50,9 @@ incomplete and unmeasured profiles remain errors. Native, CLI, Node and browser
 share the rule, with no API or dependency change. See the
 [admission bounds](../pdf-input.md#nested-duplicate-empty-forms) and
 [provenance](../provenance.md#nested-duplicate-empty-forms-439).
+
+All three unchanged originals produce identical native/Node/Chromium PDFs;
+211 independently framed page renders, 754 raw streams and 166 bookmarks
+agree. Scoped source-viewer checks retain one initial cold-session raster
+disagreement despite three matching retries; its cause remains open in #441.
+No full-document vendor-render fidelity is claimed.

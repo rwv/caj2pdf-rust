@@ -1184,9 +1184,9 @@ contain an empty Form inside a redundant same-number empty Form wrapper:
 
 | Source SHA-256 | Pages / bookmarks | Form | Complete objects / streams |
 | --- | --- | --- | --- |
-| `0374e70b8fe016b8b28932d2d4824744c7cd16155262b8be6f8d26f79275ae0e` | 66 / 54 | 9418 | 640 / 262 |
-| `76e306d87586e3f28efcb4d6c7093b5cb002b69c1da609c6dde1a817a506f581` | 81 / 90 | 182 | 736 / 373 |
-| `7797fd3c7d6ce8b1ae8203ff9957d6a52ef76c4290a8a777da66297f30c8fa78` | 64 / 22 | 29 | 348 / 119 |
+| [`0374e70b8fe016b8b28932d2d4824744c7cd16155262b8be6f8d26f79275ae0e`](https://github.com/CatTalk2/Face-recognition/blob/9d9e9ab77e7703c10b53fdae140ef283c2d9a3d0/source/%E5%9F%BA%E4%BA%8E%E4%BA%91%E8%AE%A1%E7%AE%97%E7%9A%84%E4%BA%BA%E8%84%B8%E8%AF%86%E5%88%AB%E7%B3%BB%E7%BB%9F%E7%A0%94%E7%A9%B6%E4%B8%8E%E5%AE%9E%E7%8E%B0_%E6%9D%8E%E4%BB%95%E9%92%8A.caj) | 66 / 54 | 9418 | 640 / 262 |
+| [`76e306d87586e3f28efcb4d6c7093b5cb002b69c1da609c6dde1a817a506f581`](https://github.com/CatTalk2/Face-recognition/blob/9d9e9ab77e7703c10b53fdae140ef283c2d9a3d0/source/%E7%A7%BB%E5%8A%A8%E8%AE%A1%E7%AE%97%E7%8E%AF%E5%A2%83%E4%B8%8B%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%BA%E8%84%B8%E6%A3%80%E6%B5%8B%E4%B8%8E%E8%AF%86%E5%88%AB%E7%B3%BB%E7%BB%9F%E7%9A%84%E7%A0%94%E7%A9%B6%E4%B8%8E%E5%AE%9E%E7%8E%B0_%E5%88%98%E8%80%80%E6%98%9F.caj) | 81 / 90 | 182 | 736 / 373 |
+| [`7797fd3c7d6ce8b1ae8203ff9957d6a52ef76c4290a8a777da66297f30c8fa78`](https://github.com/CatTalk2/Face-recognition/blob/9d9e9ab77e7703c10b53fdae140ef283c2d9a3d0/source/%E5%9F%BA%E4%BA%8E%E4%BA%91%E8%AE%A1%E7%AE%97%E7%9A%84%E6%89%8B%E6%9C%BA%E7%A7%BB%E5%8A%A8%E7%AB%AF%E4%BA%BA%E8%84%B8%E5%9B%BE%E5%83%8F%E8%A7%A3%E6%9E%90%E7%B3%BB%E7%BB%9F_%E6%9D%8E%E4%BA%8C%E9%83%8E.caj) | 64 / 22 | 29 | 348 / 119 |
 
 Both dictionaries have exactly Type, Subtype, Length, BBox and Matrix. Their
 numeric tokens are identical despite whitespace differences, and both Lengths
@@ -1208,7 +1208,12 @@ page identities, geometry, text, links and Poppler RGB72 renders agree, and
 independent framings. Source-viewer comparisons cover affected pages 30, 31
 and 3 respectively, with a painted Form negative control for each; this is
 scoped viewer evidence, not a whole-document vendor-render claim. The first
-two selected pages match exactly; the third has a retained pixel disagreement
-under investigation. The 66-page source also produces a MuPDF warning for a
-non-embedded SimSun font using identity encoding. Document
+two selected pages match exactly. The third initially differs by 5,169 pixels;
+three fresh sessions of the identical PDF then match exactly, including one
+observed at 3/4/10/20 seconds. The initial disagreement is retained and its
+cause remains unestablished under [#441](https://github.com/rwv/caj2pdf-rust/issues/441).
+No bookmark/order-specific workaround is inferred from confounded controls.
+The 66-page source also produces a MuPDF warning for a non-embedded SimSun
+font using identity encoding. Native, Node and Chromium outputs agree byte
+for byte for all three originals. Document
 bytes, diagnostic PDFs and screenshots remain external.
