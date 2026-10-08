@@ -939,10 +939,17 @@ fn finish<S: RangedSource, C: Cancellation>(
         }
     }
     compact_replays(reader, &mut pass.objects)?;
+    let mut pending_parents = Vec::new();
     if verify {
         for (prefix, _) in std::mem::take(&mut pass.pending_prefixes) {
             match proves_prefix(reader, &pass.objects, prefix)? {
                 Some(true) => {}
+                None if super::orphan::parent_opener(reader, &pass.objects, prefix)? => {
+                    reader.limits.check_allocation(
+                        (pending_parents.len() as u64 + 1) * size_of::<FragmentObject>() as u64,
+                    )?;
+                    push_capped(&mut pending_parents, prefix, 64, "CAJ interrupted parents")?;
+                }
                 None if pass.rows.is_some() => {
                     pass.push_damaged(Some(prefix.reference), prefix.range.offset)?;
                 }
@@ -990,7 +997,7 @@ fn finish<S: RangedSource, C: Cancellation>(
             return Err(error);
         }
     }
-    if verify && !pass.pending_orphans.is_empty() {
+    if verify && (!pass.pending_orphans.is_empty() || !pending_parents.is_empty()) {
         if !pass.damaged.is_empty() {
             return Err(reader.malformed(
                 0,
@@ -1020,21 +1027,46 @@ fn finish<S: RangedSource, C: Cancellation>(
                 }
             }
         }
-        for orphan in &pass.pending_orphans {
+        for (orphan, parent) in pass
+            .pending_orphans
+            .iter()
+            .map(|o| (o, false))
+            .chain(pending_parents.iter().map(|o| (o, true)))
+        {
+            let mut incoming = false;
             for scanned in &pass.objects {
                 if reader.cancellation.is_cancelled() {
                     return Err(crate::ErrorKind::Cancelled.into());
                 }
                 let inspection = scanned.inspection.as_ref().unwrap();
+                let referenced = inspection.references.contains(&orphan.reference);
+                incoming |= referenced;
                 if scanned.object.reference == orphan.reference
-                    || inspection.references.contains(&orphan.reference)
+                    || (referenced
+                        && (!parent
+                            || !super::orphan::independent_child(
+                                reader,
+                                scanned,
+                                orphan.reference,
+                            )?))
                 {
                     return Err(reader.malformed(
                         orphan.range.offset - body_start,
                         Some(orphan.reference),
-                        "interrupted orphan has a complete object or incoming reference",
+                        if parent {
+                            "interrupted parent is live or has a dependent incoming reference"
+                        } else {
+                            "interrupted orphan has a complete object or incoming reference"
+                        },
                     ));
                 }
+            }
+            if parent && !incoming {
+                return Err(reader.malformed(
+                    orphan.range.offset - body_start,
+                    Some(orphan.reference),
+                    "interrupted parent has no child page",
+                ));
             }
         }
     }

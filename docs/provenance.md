@@ -1476,3 +1476,57 @@ and awaited cleanup. No vendor code, external document, private migration,
 dependency or native conversion change is involved. The conversion wrapper's
 new AggregateError behavior is documented as a breaking edge case; no release
 is performed by this change.
+
+## Interrupted metadata and missing parent openers (#452)
+
+The original [public CAJ](https://github.com/yizhihong1206/caj2pdf-actions/blob/10bd169615ef5cf7f3b9fcdbab9cdda108246184/file.caj),
+SHA-256 `50c8c55b978aedce644fc2fba6246c0cb5babee3389e2b59fda7d4e7efdbf89c`,
+is 795,662 bytes with 53 pages and 56 CAJ bookmarks. Its pinned Git blob is
+`292b9f09f86a14833552acd63112535e8c595f7b`. Independent ranged framing and
+pikepdf/MuPDF inspection identify 247 distinct complete original objects,
+84 streams, nine duplicate complete objects and 19 interrupted full-header
+candidates. Sixteen candidates are exact proper prefixes of complete copies.
+Of 27 separate non-whitespace gaps, 24 repeat complete-object header prefixes.
+Synthetic diagnostic page-tree/root/catalog objects are excluded from counts.
+
+The remaining measured spans are unused metadata 318 at `[216886,216953)`,
+payload-free dictionary openers 183 at `[732633,732646)` and 161 at
+`[785721,785734)`, and bare headers 263 at `[599216,599223)`, 215 at
+`[637433,637440)` and 199 at `[709970,709977)`. Metadata 318 declares Length
+3243, Type Metadata and Subtype XML, but contains only `<?xpac` and CRLF before
+complete integer 316, value 23799. That integer resolves the preceding stream.
+There is no parsed incoming reference to 318 or complete counterpart.
+
+The only missing references in all selected original values are 53 Parent
+links to ten absent page-tree IDs. All 53 pages explicitly supply MediaBox,
+CropBox, Resources and Rotate, the four inheritable page properties in
+ISO 32000-1:2008 Table 30. No original ObjStm/XRef stream can hide an incoming
+edge. Rebuilding parent groups from CAJ table order therefore needs no guessed
+inherited property. Production admission remains narrower than arbitrary
+missing-parent reconstruction; see the [bounds](pdf-input.md#interrupted-metadata-and-missing-parents).
+
+The independently framed source-body PDF preserves original body bytes and
+uses fresh synthetic IDs above every observed original ID. An earlier
+framing attempt reused omitted ID 318; that attempt is retained and excluded
+from authoritative evidence. Omitting only the metadata in a diagnostic copy
+still fails at parent 263. Omitting all six measured spans yields a diagnostic
+whose 247 original values, 84 raw streams, all 53 page renders/geometry/text/
+links and 56 CAJ bookmark titles/depth/order/targets agree with independent
+source evidence. Diagnostic copies are not original compatibility passes.
+
+Fresh isolated vendor-viewer processes compare original CAJ and independent
+PDF pages 1, 20 and 53. Complete selected page crops match at 50% zoom; a
+painted page-20 negative differs by 3,568 pixels. Three captures per session
+are retained, source hashes stay unchanged and all seven containers are
+removed without OOM. Other vendor pages are NOT_RUN and #441's general
+readiness limitation remains open. The last page's viewport position is
+explicitly recorded rather than reusing the earlier-page crop.
+
+Implementation and synthetic controls are original MIT work derived from
+these byte/graph observations and public PDF semantics. No foreign converter,
+vendor implementation, private module or differently licensed code was read
+or migrated. External source/PDF/text/pixel/font bytes remain outside Git;
+only metadata receipts are published through [#452](https://github.com/rwv/caj2pdf-rust/issues/452).
+Native, CLI, Node and browser share the bounded core rules without API,
+dependency, license or release changes. Related unresolved `eacbcd…` is not
+covered by this accepted evidence profile.

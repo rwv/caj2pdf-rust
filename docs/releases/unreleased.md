@@ -115,3 +115,12 @@ check and wait, allowing the Worker to close its input before spool removal.
 The fix preserves bounded writes and cancellation; no timeout, cleanup retry
 budget or empty-directory assertion is relaxed. A deterministic real-Chromium
 control reproduces the previous lost wakeup and verifies closure after repair.
+
+Recover the measured 53-page CAJ with one unused interrupted XML metadata
+opener and five payload-free missing-parent openers (#452). Require exact
+boundaries, complete-graph role proofs and explicit inheritable page properties
+before using existing CAJ page-tree reconstruction. Preserve complete objects,
+streams and bookmarks; referenced, ambiguous and unmeasured cases remain
+errors. Native, CLI, Node and browser share the bounded core change without
+API or dependency changes. See [bounds](../pdf-input.md#interrupted-metadata-and-missing-parents)
+and [provenance](../provenance.md#interrupted-metadata-and-missing-parent-openers-452).
