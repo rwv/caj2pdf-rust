@@ -66,3 +66,12 @@ stream bytes, and retain strict ambiguity and indexed-PDF behavior. Native,
 CLI, browser and Node share the core implementation; no API or dependency
 changes. See [bounds](../pdf-input.md#proved-interrupted-copies-across-caj-page-rows)
 and [source evidence](../provenance.md#proved-interrupted-caj-copies-442).
+
+Recover the measured 141-page Lambertian CAJ with indirect-Length constraints
+hidden by provisional stream spans and distant interrupted copies in the same
+page row (#444). Resolve known constraints in bounded batches before checking
+duplicates and missing targets; require exact complete-scan proof for every
+marker-derived counterpart. Complete objects, stream bytes and bookmarks are
+preserved. Native, CLI, Node and browser share the core rule without API or
+dependency changes. See [bounds](../pdf-input.md#indirect-lengths-and-distant-same-row-replays)
+and [provenance](../provenance.md#indirect-length-ordering-and-same-row-replays-444).

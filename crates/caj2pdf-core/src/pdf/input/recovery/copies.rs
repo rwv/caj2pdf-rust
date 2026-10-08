@@ -120,7 +120,8 @@ fn probe(
         limits,
         cancel,
     )?;
-    copy_prefix_end(&mut reader, f.start, f.original, f.header)
+    copy_prefix(&mut reader, f.start, f.original, f.header)
+        .map(|found| found.map(|(resume, _)| resume))
 }
 
 #[test]
@@ -582,4 +583,81 @@ fn indexed_pdf_does_not_admit_the_new_long_copy_gap() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn same_row_replays_have_a_finite_distance_and_bounded_reads() {
+    for distance in [600_000, MAX_REPLAY_DISTANCE, MAX_REPLAY_DISTANCE + 1] {
+        let mut gap = distance as usize;
+        let f = loop {
+            let f = fixture(false, 500, gap);
+            let actual = f.original.range.offset - f.start;
+            if actual == distance {
+                break f;
+            }
+            gap = (gap as i64 + distance as i64 - actual as i64) as usize;
+        };
+        let mut source = Source::new(f.bytes.clone());
+        source.maximum = 4096;
+        let size = source.size();
+        let limits = Limits {
+            io_chunk_bytes: 8192,
+            max_allocation_bytes: 128 * 1024,
+            ..Limits::default()
+        };
+        let result = scan_fragment_with_candidates(&mut source, 0, size, &limits, &NEVER, &mut []);
+        if distance <= MAX_REPLAY_DISTANCE {
+            let result = result.unwrap();
+            assert_eq!(result.objects.len(), 3);
+            assert!(result.objects.iter().any(|s| s.object == f.original));
+            assert!(result.patches.is_empty() && result.damaged.is_empty());
+        } else {
+            assert!(result.is_err());
+        }
+        assert!(source.largest <= 8192, "{} byte read", source.largest);
+    }
+}
+
+#[test]
+fn a_marker_derived_copy_must_be_reached_even_with_another_matching_prefix() {
+    let mut f = fixture(false, 500, 75000);
+    let at = f.original.range.offset as usize;
+    let complete = f.bytes.split_off(at);
+    // The first apparent same-ID frame is inside an opaque stream. A real
+    // later same-ID frame does not validate that marker-derived candidate.
+    f.bytes
+        .extend_from_slice(format!("10 0 obj<</Length {}>>stream\n", complete.len()).as_bytes());
+    f.bytes.extend_from_slice(&complete);
+    f.bytes.extend_from_slice(b"\nendstream\nendobj\n");
+    f.bytes.extend_from_slice(&complete);
+    let error = scan(f.bytes, &mut [], &Limits::default(), &NEVER)
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.reason,
+        "recovery candidate is not a complete fragment object"
+    );
+}
+
+#[test]
+fn distant_marker_recovery_keeps_strict_prefix_header_and_tail_proofs() {
+    let f = fixture(false, 500, 75000);
+    for offset in [
+        100,
+        499,
+        500,
+        f.original.range.offset as usize,
+        f.bytes.len() - 3,
+    ] {
+        let mut bytes = f.bytes.clone();
+        bytes[offset] = b'?';
+        assert!(
+            scan(bytes, &mut [], &Limits::default(), &NEVER).is_err(),
+            "mutation {offset}"
+        );
+    }
+    for prefix in [31, 65537] {
+        let f = fixture(false, prefix, 75000);
+        assert!(scan(f.bytes, &mut [], &Limits::default(), &NEVER).is_err());
+    }
 }

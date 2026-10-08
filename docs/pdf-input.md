@@ -521,3 +521,22 @@ same-ID complete object or incoming reference, no damaged/uninspectable object
 and no opaque metadata stream. Additional keys, content and unmeasured endings
 remain errors; this is not general malformed-object deletion or parent repair.
 Ordinary indexed PDFs keep their existing strict rules.
+
+### Indirect lengths and distant same-row replays
+
+The #444 profile resolves known indirect stream Length constraints before a
+provisional stream span can establish a duplicate, anchored candidate or
+missing Length error. One bounded batch updates sorted per-object hints; each
+subsequent pass still requires the final integer objects to agree. Unknown
+constraints remain unproved. The existing limit of 16 rescans is unchanged;
+there is no retry for each independent known constraint.
+
+When a Length is known, an `endstream` can propose a complete copy starting
+within 1 MiB of an interrupted stream, including inside the same page-table
+row. The proposed copy must repeat the header, have an exact declared tail,
+and satisfy the existing 64 KiB proper-prefix and 64-byte adjacent-boundary
+rules. The full forward scan must reach that exact copy range. Conflicting
+anchored candidates and complete duplicates remain errors. The distance is a
+search bound, never a buffer size: comparison uses the existing two bounded
+256-byte buffers. Candidate-row scans, partial conversion, codecs and ordinary
+indexed PDFs retain their existing scope. See [source evidence](provenance.md#indirect-length-ordering-and-same-row-replays-444).
