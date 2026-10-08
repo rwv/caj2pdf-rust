@@ -62,12 +62,12 @@ pub struct ObjectLocation {
 #[derive(Clone, Debug)]
 pub struct RepairObject {
     pub reference: PdfRef,
-    /// A complete direct PDF value, excluding `n g obj` and `endobj`.
+    /// A complete body (including any empty stream), excluding `n g obj` and `endobj`.
     pub body: Vec<u8>,
 }
 
-/// A short inactive object prefix, retained for source-stability checking
-/// before its bytes are replaced with equal-length whitespace.
+/// A short original source span retained for stability checking. Inactive
+/// gap patches are blanked; empty-Form proofs keep their original bytes.
 pub struct GapPatch {
     pub offset: u64,
     pub original: Vec<u8>,
@@ -93,6 +93,8 @@ pub struct PdfIndex {
     stream_separator_patches: Vec<u64>,
     gap_patches: Vec<GapPatch>,
     retained_gap_bytes: u64,
+    empty_form_checks: Vec<GapPatch>,
+    retained_empty_form_bytes: u64,
     max_referenced_object: u32,
 }
 
@@ -142,6 +144,9 @@ impl PdfIndex {
     }
     pub fn gap_patches(&self) -> &[GapPatch] {
         &self.gap_patches
+    }
+    pub(super) fn empty_form_checks(&self) -> &[GapPatch] {
+        &self.empty_form_checks
     }
     pub fn max_referenced_object(&self) -> u32 {
         self.max_referenced_object
@@ -261,11 +266,16 @@ impl PdfIndex {
             stream_separator_patches: Vec::new(),
             gap_patches: Vec::new(),
             retained_gap_bytes: 0,
+            empty_form_checks: Vec::new(),
+            retained_empty_form_bytes: 0,
             max_referenced_object: 0,
         };
         reader.read_compressed_objects(&slots, &mut index)?;
         reader.validate_objects(&slots, &mut index)?;
         index.stream_separator_patches.sort_unstable();
+        index
+            .empty_form_checks
+            .sort_unstable_by_key(|check| check.offset);
         reader.read_structure(&slots, &mut index)?;
         if trailer.prev.is_some_and(|previous| previous > xref_offset)
             && index.repair_objects.is_empty()
@@ -1397,7 +1407,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "live PDF object begins after logical EOF",
                 ));
             }
-            let (head, location) = self.load_indexed_object(offset, reference, slots, index)?;
+            let (head, location) = match self.load_indexed_object(offset, reference, slots, index) {
+                Err(error)
+                    if error.is_malformed_pdf()
+                        && error.reason == "stream Length does not end at endstream"
+                        && matches!(slot.kind, XrefKind::InUse(_)) =>
+                {
+                    self.recover_indexed_empty_form(offset, reference, slots, index)?
+                        .ok_or(error)?
+                }
+                result => result?,
+            };
             check_live_object_end(self.range, offset, reference, location, index.logical_end)?;
             if let ObjectTail::Stream { data_start } = &head.tail
                 && *data_start > 0

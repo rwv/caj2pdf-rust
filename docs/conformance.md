@@ -964,3 +964,21 @@ network-disabled probe, while its PDF control opened. Historical target
 resolution is unverified. CAS is named in the 2002 vendor manual, but no
 authentic bytes were found; [sample research #28](https://github.com/rwv/caj2pdf-samples/issues/28)
 remains open, with no invented signature or conversion claim.
+
+## Indexed empty-Form checkpoint (#446)
+
+The unchanged 66-page KDH in [provenance](provenance.md#indexed-nested-empty-form-446)
+converts with identical native, Node and Chromium PDFs, clean qpdf validation
+and browser OPFS cleanup. All 960 canonical object values, the other 304 raw
+streams, and all 66 page IDs, geometry, text, links and Poppler RGB72 renders
+agree with independent decoding of the original KDH wrapper. Both documents
+have zero outlines. Only the malformed nested payload of Form 485 becomes its
+declared empty content; the live object numbered 754 stays intact.
+
+Fresh contained original-viewer checks cover page 47 at 50%, with an exact
+whole-page crop match and a 76-pixel difference from a deliberately painted
+Form 485. Other vendor-viewer pages were not run; #441 remains unresolved.
+Qpdf and MuPDF disagree on the original malformed stream's inferred extent
+(112 versus 110 bytes), and original parser warnings remain in the receipt.
+These are scoped measured-profile checks, not proof that arbitrary nested
+objects can be discarded or other refused sources are irrecoverable.

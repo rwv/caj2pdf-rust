@@ -238,9 +238,36 @@ It rechecks both headers and tails before selection, then uses the existing
 object index, duplicate checks, graph validation and sequential reconstruction.
 Only redundant framing is omitted; no content stream is edited. Additional
 keys, differing geometry or IDs, indirect/nonzero Lengths, nonempty content,
-incomplete tails and nested repeats do not qualify. Ordinary indexed-PDF
-validation remains unchanged. Header/tail probes use bounded ranged reads and
-existing allocation, cancellation and I/O limits.
+incomplete tails and nested repeats do not qualify. Header/tail probes use
+bounded ranged reads and existing allocation, cancellation and I/O limits.
+Indexed PDFs use only the separate profile below; this CAJ rule is unchanged.
+
+### Indexed nested empty Forms
+
+The measured #446 indexed-PDF profile has the same five-key empty-Form
+dictionaries, generation-zero objects, immediate nesting, 256-byte header
+bounds and two bounded complete tails. The inner ID must differ from the
+outer ID and have its own generation-zero, standalone live xref elsewhere.
+The ordinary sorted span validation rejects any live object overlapping the
+outer frame. Geometry comparison strips only redundant trailing fractional
+zeros and their decimal point; signs and integer digits remain exact. It
+never rounds floating-point values or combines adjacent tokens.
+
+Recovery appends an empty stream revision under the **outer** object ID,
+retaining its dictionary and every reference. The actual live inner ID is
+unmodified. The old nested serialization remains in the original PDF prefix;
+existing stream-separator normalization may still apply. Both parsed headers
+and tails are checked against a fresh read of the complete bounded frame,
+then every retained byte is checked again during sequential copying, before
+separator normalization. Proof bytes and their index are each limited to
+64 KiB or one eighth of the caller's allocation limit, whichever is smaller;
+replacement bodies share the existing repair budget. There is no payload
+search, full-file buffer or per-candidate scan of the object index.
+
+Same-ID nesting, nonempty/indirect Lengths, extra or duplicate keys, conflicting
+geometry, missing/free/compressed/different-generation inner xrefs, recursive
+nesting and incomplete tails remain errors. This does not establish a general
+nested-object deletion rule. See [source evidence](provenance.md#indexed-nested-empty-form-446).
 
 ### Checksum-confirmed CAJ stream substitution
 
