@@ -10,6 +10,7 @@ mod footer;
 mod link_repair;
 mod object_stream;
 mod parser;
+mod resource_repair;
 
 pub(crate) use link_repair::{
     LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, inspect_link_destination_candidate,
@@ -1173,11 +1174,25 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     }
 
     fn load_head(&mut self, at: u64, expected: Option<PdfRef>) -> Result<ObjectHead> {
+        self.load_head_mode(at, expected, false)
+    }
+
+    fn load_head_mode(
+        &mut self,
+        at: u64,
+        expected: Option<PdfRef>,
+        resource_repair: bool,
+    ) -> Result<ObjectHead> {
         let maximum = min(self.syntax_limit(), self.range.length.saturating_sub(at));
         let mut amount = first_head_read(self.range, at, expected, maximum)?;
         loop {
             let bytes = self.bytes(at, amount)?;
-            match parse_object_head(bytes) {
+            let parsed = if resource_repair {
+                parser::parse_resource_repair_candidate(bytes)
+            } else {
+                parse_object_head(bytes)
+            };
+            match parsed {
                 Ok(head) => {
                     if expected.is_some_and(|reference| reference != head.reference) {
                         return Err(self.malformed(
@@ -1234,7 +1249,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         expected: PdfRef,
         slots: &[Option<XrefSlot>],
     ) -> Result<(ObjectHead, ObjectLocation)> {
-        let head = self.load_head(at, Some(expected))?;
+        let head = match self.load_head(at, Some(expected)) {
+            Err(error)
+                if error.reason == "duplicate nested PDF dictionary keys have undefined value" =>
+            {
+                self.repair_resource_duplicate(at, expected, slots)?
+            }
+            result => result?,
+        };
         // `load_head` parsed at most `range.length - at` bytes, so offsets
         // within the head stay inside the range, and `check_stream_tail`
         // reads its `endobj` there too.
@@ -1377,6 +1399,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .map_err(self.locator(patch_at, Some(reference)))?;
             }
             if let Some(dictionary) = &head.dictionary {
+                if head.resource_duplicate.is_some() {
+                    self.push_repair_body(
+                        dictionary,
+                        reference,
+                        offset,
+                        |_, _| true,
+                        b"",
+                        &mut index.repair_objects,
+                        &mut index.retained_repair_bytes,
+                    )?;
+                }
                 let kind = dictionary
                     .value(b"Type")
                     .and_then(exact_name)
@@ -2343,7 +2376,15 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let needed = kept().fold(5_usize.saturating_add(appended.len()), |size, pair| {
             size.saturating_add(pair.len() + 1)
         });
-        let next_retained = retained_repair_bytes.saturating_add(needed as u64);
+        // A later structural repair (such as a stale Parent) rebuilds the
+        // already normalized dictionary. Keep one final revision per object.
+        let existing = repairs
+            .iter()
+            .position(|object| object.reference == reference);
+        let replaced = existing.map_or(0, |position| repairs[position].body.len() as u64);
+        let next_retained = retained_repair_bytes
+            .saturating_sub(replaced)
+            .saturating_add(needed as u64);
         let cap = self.limits.max_allocation_bytes / 2;
         if next_retained > cap {
             return Err(self.locate_limit(
@@ -2366,13 +2407,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         body.extend_from_slice(appended);
         body.extend_from_slice(b">>");
-        push_bounded(
-            repairs,
-            RepairObject { reference, body },
-            cap,
-            "PDF repair index",
-        )
-        .map_err(self.locator(at, Some(reference)))?;
+        let object = RepairObject { reference, body };
+        if let Some(position) = existing {
+            repairs[position] = object;
+        } else {
+            push_bounded(repairs, object, cap, "PDF repair index")
+                .map_err(self.locator(at, Some(reference)))?;
+        }
         *retained_repair_bytes = next_retained;
         Ok(())
     }
@@ -2457,7 +2498,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                     })
                                 ) || next_live == Some(number)
                             });
-                        if orphan || self.matches_live_object_prefix(&original, index)? {
+                        if orphan || self.matches_live_object_prefix(&original, slots, index)? {
                             let failure =
                                 self.malformed(start, None, "orphan gap repair size overflows");
                             let retained = index
@@ -2500,7 +2541,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     /// A short interrupted dictionary/integer may refer to a live object
     /// elsewhere. Only that xref-selected object's exact bytes justify a patch.
-    fn matches_live_object_prefix(&mut self, bytes: &[u8], index: &PdfIndex) -> Result<bool> {
+    fn matches_live_object_prefix(
+        &mut self,
+        bytes: &[u8],
+        slots: &[Option<XrefSlot>],
+        index: &PdfIndex,
+    ) -> Result<bool> {
         let start = bytes
             .iter()
             .position(|&byte| !parser::is_space(byte))
@@ -2525,12 +2571,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         // Reuse the bounded object parser: stream headers/payloads and other
         // scalar profiles are excluded even when their leading bytes match.
-        let head = self.load_head(
+        let (head, _) = self.load_object(
             location.offset,
-            Some(PdfRef {
+            PdfRef {
                 number: number as u32,
                 generation: 0,
-            }),
+            },
+            slots,
         )?;
         let ObjectTail::EndObject { end } = head.tail else {
             return Ok(false);
@@ -2540,7 +2587,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .scalar
                 .as_ref()
                 .is_some_and(|span| exact_unsigned(&head.bytes[span.clone()]).is_some());
-        Ok(supported && prefix.len() < end && head.bytes.starts_with(prefix))
+        // The dictionary may have a proven semantic repair. Compare the gap
+        // against its original source bytes, never a normalized replacement.
+        Ok(supported && prefix.len() < end && self.bytes(location.offset, prefix.len())? == prefix)
     }
 }
 

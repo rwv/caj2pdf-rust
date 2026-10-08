@@ -1013,6 +1013,85 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
     );
 }
 
+fn duplicate_opacity_pdf() -> Vec<u8> {
+    let content = "q /Fade gs 0 0 1 rg 5 5 20 20 re f Q\n";
+    let stream = format!(
+        "<< /Length {} >>\nstream\n{content}endstream",
+        content.len()
+    );
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 2 /Kids [3 0 R 7 0 R] /MediaBox [0 0 40 40] >>",
+        "<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources << /ExtGState << /Fade 4 0 R /Fade 5 0 R >> >> >>",
+        "<< /CA 0.08 /ca 0.08 >>",
+        "<< /ca 0.08000 /CA 0.08000 >>",
+        &stream,
+        "<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources << /ExtGState << /Fade 8 0 R >> >> >>",
+        "<< /CA 1 /ca 1 >>",
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (position, body) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", position + 1).as_bytes());
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(b"xref\n0 9\n0000000000 65535 f \n");
+    for offset in offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!("trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    bytes
+}
+
+#[test]
+fn equivalent_opacity_repair_preserves_streams_and_distinct_rendered_pages() {
+    let bytes = duplicate_opacity_pdf();
+    let mut original = TempPdf::new("duplicate-opacity-source");
+    original.file.write_all(&bytes).unwrap();
+    original.file.flush().unwrap();
+    let before = [
+        render_page(&original.path, 1),
+        render_page(&original.path, 2),
+    ];
+    assert_ne!(
+        before[0], before[1],
+        "opacity control must change visible pixels"
+    );
+    let mut source = OneBytePdfSource(bytes.clone());
+    let mut output = TempPdf::new("duplicate-opacity-output");
+    let report = copy_pdf(
+        &mut source,
+        &mut &mut output.file,
+        &Limits::default(),
+        &CancelAfter::Never,
+    )
+    .unwrap();
+    assert_eq!(report.pages_converted, 2);
+    output.file.flush().unwrap();
+    check_pdf(&output.path, 2);
+    for page in 1..=2 {
+        assert_eq!(before[page - 1], render_page(&output.path, page as u32));
+    }
+    let output_bytes = read(&output.path).unwrap();
+    assert!(
+        output_bytes.starts_with(&bytes),
+        "source body and raw stream must stay verbatim"
+    );
+    let index = inspect_bytes(output_bytes).unwrap();
+    assert!(index.repair_objects().is_empty());
+    assert_eq!(
+        index
+            .pages()
+            .iter()
+            .map(|page| page.number)
+            .collect::<Vec<_>>(),
+        [3, 7]
+    );
+}
+
 #[test]
 fn interrupted_live_objects_require_an_exact_indexed_prefix() {
     for number in [1, 2, 4, 5] {

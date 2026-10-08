@@ -99,6 +99,17 @@ budget and copy-time source checks. Other gap content remains an error.
 These repairs do not accept
 unrelated dangling references, duplicate page-tree children, or cycles.
 
+A Page's direct Resources/ExtGState dictionary may contain the measured single
+pair of duplicate resource names when both references resolve through the live
+xref to equivalent opacity-only dictionaries (#412). Both generation-zero target
+objects must fit within 256 bytes and contain exactly direct CA/ca values in
+[0, 1], using nonnegative decimal spellings (optional `+`, no minus/exponent,
+at most 64 fractional places). Exact decimal comparison prevents rounded unequal
+values from being treated as equivalent. The later resource pair is omitted in
+an incremental Page revision; raw streams are unchanged. Additional duplicates,
+other resource paths/fields, streams and unresolved/compressed targets stay
+errors. Existing repair budgets and sequential copying apply.
+
 Existing outlines accept direct `/Dest` arrays and direct local
 `/A << /S /GoTo /D [...] >>` dictionaries, optionally with `/Type /Action`.
 The destination must identify a page in the validated page tree. Actions are

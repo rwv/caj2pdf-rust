@@ -2537,6 +2537,136 @@ fn duplicate_nested_page_keys_are_not_guessed() {
     expect_pdf_error(bytes, "ambiguous");
 }
 
+fn opacity_resource_pdf(resources: &str, second: &str, parent: u32) -> Vec<u8> {
+    let [catalog, pages, _] = minimal_objects();
+    let page = format!(
+        "<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 10 10] /Resources {resources} >>"
+    );
+    build_pdf(
+        &[
+            catalog,
+            pages,
+            (3, &page),
+            (4, "<< /CA 0.08 /ca 0.08 >>"),
+            (5, second),
+        ],
+        "",
+    )
+}
+
+#[test]
+fn duplicate_opacity_resources_require_exact_live_target_equivalence() {
+    let resources = "<< /ExtGState << /GSP1 4 0 R /GSP1 5 0 R >> >>";
+    let input = opacity_resource_pdf(resources, "<< /ca .08000 /CA +00.08 >>", 2);
+    let index = open(input.clone()).unwrap();
+    assert_eq!(index.repair_objects().len(), 1);
+    assert_eq!(index.repair_objects()[0].reference.number, 3);
+    let body = &index.repair_objects()[0].body;
+    assert_eq!(body.windows(5).filter(|part| *part == b"/GSP1").count(), 1);
+    assert!(body.windows(5).any(|part| part == b"4 0 R"));
+    for target in [
+        "<< /CA 0.08 /ca 0.080000000000000001 >>",
+        "<< /CA 0.08 /ca 0.09 >>",
+        "<< /CA 0.08 >>",
+        "<< /CA 0.08 /CA 0.08 >>",
+        "<< /CA 0.08 /ca 0.08 /BM /Normal >>",
+        "<< /CA 4 0 R /ca 0.08 >>",
+        "<< /CA 5 0 R /ca 0.08 >>",
+        "<< /CA 0.08 /ca 0.08 /Length 0 >>\nstream\n\nendstream",
+        "1",
+        "[0.08 0.08]",
+    ] {
+        assert!(
+            open(opacity_resource_pdf(resources, target, 2)).is_err(),
+            "{target}"
+        );
+    }
+    for bad in [
+        "<< /ExtGState << /GSP1 4 0 R /GSP1 9 0 R >> >>",
+        "<< /ExtGState << /GSP1 4 0 R /GSP1 5 1 R >> >>",
+        "<< /ExtGState << /GSP1 4 0 R /GSP1 5 0 R /GSP1 4 0 R >> >>",
+        "<< /ExtGState << /A 4 0 R /A 5 0 R /B 4 0 R /B 5 0 R >> >>",
+        "<< /ExtGState << /A 4 0 R /A << /CA .08 /ca .08 >> >> >>",
+        "<< /Font << /A 4 0 R /A 5 0 R >> >>",
+        "<< /Other << /ExtGState << /A 4 0 R /A 5 0 R >> >> >>",
+        "[ << /ExtGState << /A 4 0 R /A 5 0 R >> >> ]",
+    ] {
+        assert!(
+            open(opacity_resource_pdf(bad, "<< /CA .08 /ca .08 >>", 2)).is_err(),
+            "{bad}"
+        );
+    }
+    let oversized = format!("<< {} /CA .08 /ca .08 >>", " ".repeat(256));
+    assert!(open(opacity_resource_pdf(resources, &oversized, 2)).is_err());
+    let mut cancelled = 0;
+    for allowed in 0..10_000 {
+        match open_cancellable(
+            input.clone(),
+            &Limits::default(),
+            &CancelAfter::new(allowed),
+        ) {
+            Ok(_) => break,
+            Err(Error {
+                kind: ErrorKind::Cancelled,
+                ..
+            }) => cancelled += 1,
+            Err(other) => panic!("{other}"),
+        }
+    }
+    assert!(cancelled > 3 && cancelled < 10_000);
+}
+
+#[test]
+fn resource_and_stale_parent_repairs_keep_one_combined_revision() {
+    let resources = "<< /ExtGState << /GSP1 4 0 R /GSP1 5 0 R >> >>";
+    // Object 1 is live, so it cannot be mistaken for a proven stale Parent.
+    assert!(open(opacity_resource_pdf(resources, "<< /CA .08 /ca .08 >>", 1)).is_err());
+    // Add a free object slot by rebuilding with an inert object 7.
+    let [catalog, pages, _] = minimal_objects();
+    let page =
+        format!("<< /Type /Page /Parent 6 0 R /MediaBox [0 0 10 10] /Resources {resources} >>");
+    let input = build_pdf(
+        &[
+            catalog,
+            pages,
+            (3, &page),
+            (4, "<< /CA .08 /ca .08 >>"),
+            (5, "<< /CA .08 /ca .08 >>"),
+            (7, "null"),
+        ],
+        "",
+    );
+    let index = open(input).unwrap();
+    assert_eq!(index.repair_objects().len(), 1);
+    let body = &index.repair_objects()[0].body;
+    assert_eq!(body.windows(5).filter(|part| *part == b"/GSP1").count(), 1);
+    assert!(body.windows(14).any(|part| part == b"/Parent 2 0 R\n"));
+    assert_eq!(index.retained_repair_bytes, body.len() as u64);
+}
+
+#[test]
+fn live_prefix_can_match_the_original_of_a_normalized_resource_page() {
+    let [catalog, pages, _] = minimal_objects();
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1] /Resources << /ExtGState << /GSP1 4 0 R /GSP1 5 0 R >> >> >>";
+    let head = format!("3 0 obj\n{page}");
+    let gap = format!("{}\n", &head[..head.rfind("/GSP1").unwrap() + 3]);
+    assert!(gap.len() < MAX_LIVE_PREFIX_GAP_BYTES as usize);
+    let doc = assemble_pdf(
+        &[
+            (catalog.0, "", catalog.1),
+            (pages.0, "", pages.1),
+            (3, "", page),
+            (4, "", "<< /CA .08 /ca .08 >>"),
+            (5, "", "<< /CA .08000 /ca .08000 >>"),
+            (6, &gap, "null"),
+        ],
+        "<< /Size 7 /Root 1 0 R >>",
+    );
+    let index = open(doc).unwrap();
+    assert_eq!(index.repair_objects().len(), 1);
+    assert_eq!(index.gap_patches().len(), 1);
+}
+
 /// Objects 1-3 form a one-page tree, object 4 is free, and objects 5.. are
 /// inert fillers, each preceded by `gap`.
 fn gapped_pdf(fillers: u32, gap: &str) -> Vec<u8> {

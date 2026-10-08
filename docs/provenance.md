@@ -737,3 +737,41 @@ Existing CR stream-separator normalization and validated stale-parent repair
 also apply to this document; these are separate, previously supported repairs.
 No new dependency, foreign converter source, private-source migration, external
 document, derived PDF, font or render bytes are included.
+
+
+## Equivalent opacity resource references (#412)
+
+Two original KDH files repeat a resource name inside a Page's direct
+Resources/ExtGState dictionary. The different xref-selected references resolve
+to the same direct CA/ca values:
+
+| Source SHA-256 | Pages | Duplicate targets | Values |
+| --- | ---: | --- | --- |
+| `1673e115322421095a4463172335f98e0d71017307cf00ebb7fc258701044fa1` | 9 | 3 and 43, on 8 pages | both 0.08 / 0.08 |
+| `ef0d77b2cdb2b9eeea105312bef7eef7727e7d8a055e7828d51fbd9a571cb17a` | 5 | 3 and 9, on 5 pages | 0.08 / 0.08 and 0.08000 / 0.08000 |
+
+[Adobe's ExtGState documentation](https://opensource.adobe.com/dc-acrobat-sdk-docs/acrobatsdk/apireference/PDFEdit_Layer/PDEExtGState.html)
+identifies CA/ca as the stroke/fill alpha values in the inclusive unit range.
+The equivalence proof compares decimal digits exactly, with no float rounding.
+It accepts only the measured opacity-only target dictionaries, bounded to 256
+source bytes and 64 fractional decimal places; negative/exponent spellings,
+other fields, indirect values and compressed/missing targets do not qualify.
+
+The ordinary parser stays strict. An indexed-input retry collects at most one
+pair of reference-valued duplicate names at the exact direct Resources/ExtGState
+path. A non-stream Page and both live generation-zero targets must pass the
+proof before the later pair is blanked in bounded metadata and reparsed strictly.
+The copy appends a normalized Page revision through the existing repair path;
+original source objects and streams remain present. Combined resource/stale-parent
+repairs keep one final revision per object with the retained-byte budget adjusted.
+An interrupted live prefix is compared against original source bytes even when
+its complete counterpart has a proven resource repair.
+
+Original MIT controls cover distinct visible opacity pages, exact decimal
+neighbors, invalid references, wrong resource paths/types, extra duplicate
+pairs, excluded target profiles, target bounds, cancellation, one-byte I/O and
+combined repairs. All code is independently authored; there is no foreign
+converter implementation, private-source migration or new dependency.
+External documents, PDFs, fonts and pixels remain outside Git. The
+[conformance checkpoint](conformance.md#equivalent-opacity-resource-checkpoint-412)
+records independent decoding and source-content verification.
