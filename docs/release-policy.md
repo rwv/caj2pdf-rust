@@ -175,3 +175,21 @@ The temporary crates.io bootstrap token was revoked and removed locally.
 The npm binding remains pending its first OIDC publish, with the initial
 validation deadline 2026-10-10 06:30 UTC; recreate it if it expires before
 another release. Do not republish or modify immutable v0.5.0 packages to test it.
+
+
+### Recovering a missing npm upload
+
+An already published GitHub release and crates.io version are immutable. If npm
+publication alone fails, fix the workflow on main, then manually dispatch
+`release.yml` on main with `npm_recovery_tag` set to the existing version tag.
+The recovery job downloads the original public GitHub tarball, checksum manifest
+and Sigstore bundle; verifies the tag, source commit, workflow and artifact
+attestations; and uploads only that exact npm package through OIDC. It neither
+rebuilds artifacts nor republishes Rust crates. An existing npm version is never
+overwritten. Always spell the local tarball path with `./` or an absolute path;
+otherwise npm can interpret `dist/name.tgz` as a GitHub repository shorthand.
+
+npm recovery provenance identifies the manual publishing workflow run on main.
+The original release's GitHub artifact attestation independently identifies the
+build tag and source commit; do not describe the recovery run as the original
+build. Record both runs and verify the registry integrity and installation.

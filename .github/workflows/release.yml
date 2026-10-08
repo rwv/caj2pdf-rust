@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      npm_recovery_tag:
+        description: 'Published GitHub release tag whose missing npm upload should be recovered'
+        required: true
+        type: string
   pull_request:
     paths:
       - '.github/workflows/release.yml'
@@ -20,12 +26,12 @@ concurrency:
 
 jobs:
   quality:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/ci.yml
 
   platforms:
     needs: quality
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/platforms.yml
 
   assets:
@@ -81,7 +87,7 @@ jobs:
 
   publish:
     needs: [assets, platforms]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -202,7 +208,7 @@ jobs:
     needs: publish
     # Enable only after the owner has published the first versions and bound
     # all three packages to this workflow. No registry secrets are used.
-    if: startsWith(github.ref, 'refs/tags/') && vars.REGISTRY_TRUSTED_PUBLISHING == 'true'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && vars.REGISTRY_TRUSTED_PUBLISHING == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -247,4 +253,59 @@ jobs:
       - name: Publish the tested npm tarball with provenance
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: npm publish "dist/caj2pdf-rust-${RELEASE_TAG#v}.tgz" --access public --provenance --ignore-scripts
+        run: npm publish "./dist/caj2pdf-rust-${RELEASE_TAG#v}.tgz" --access public --provenance --ignore-scripts
+
+  recover-npm:
+    name: Recover verified npm release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.REGISTRY_TRUSTED_PUBLISHING == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.npm_recovery_tag }}
+    steps:
+      - name: Validate release tag
+        run: '[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.npm_recovery_tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Download and verify original release tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          mkdir dist
+          gh release download "$RELEASE_TAG" --dir dist \
+            --pattern "caj2pdf-rust-${RELEASE_TAG#v}.tgz" \
+            --pattern SHA256SUMS --pattern RELEASE-PROVENANCE.sigstore.json
+          commit=$(git rev-parse HEAD)
+          policy=(--repo "$GITHUB_REPOSITORY"
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+            --source-ref "refs/tags/$RELEASE_TAG" --source-digest "$commit"
+            --signer-digest "$commit" --deny-self-hosted-runners)
+          for file in dist/*.tgz dist/SHA256SUMS; do
+            gh attestation verify "$file" --bundle dist/RELEASE-PROVENANCE.sigstore.json "${policy[@]}"
+          done
+          python3 - <<'PYCODE'
+          import hashlib, json, os, tarfile
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          archive = Path(f'dist/caj2pdf-rust-{version}.tgz')
+          expected = {name: digest for digest, name in
+                      (line.split() for line in Path('dist/SHA256SUMS').read_text().splitlines())}
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected[archive.name]
+          with tarfile.open(archive) as package:
+              manifest = json.load(package.extractfile('package/package.json'))
+          assert manifest['name'] == 'caj2pdf-rust' and manifest['version'] == version
+          assert not manifest.get('private', False)
+          assert manifest['repository']['url'] == 'git+https://github.com/rwv/caj2pdf-rust.git'
+          assert json.loads(Path('js/package.json').read_text())['version'] == version
+          PYCODE
+      - name: Publish original npm tarball with provenance
+        run: npm publish "./dist/caj2pdf-rust-${RELEASE_TAG#v}.tgz" --access public --provenance --ignore-scripts
