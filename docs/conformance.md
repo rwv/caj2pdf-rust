@@ -870,3 +870,22 @@ geometry, native font appearance, vectors, source outlines or complete rendered
 fidelity. Native conversion totals remain **1,235 PASS / 32 FAIL / 10 UNSUPPORTED**
 across 1,277 originals. Refusal recovery and the broader #406 criteria remain
 open. No product API, conversion behavior, dependency or release changes here.
+
+## Absent optional link appearance checkpoint (#417)
+
+The unchanged 109-page CAJ original in #417 is compared against an independently
+framed, byte-preserved source PDF body. All page object IDs, MediaBoxes,
+CropBoxes, rectangles, rotations, extracted text and 72 dpi RGB renders match
+in PyMuPDF 1.27.2.2. All **574 raw streams** retain their IDs and bytes, all
+**75 link destinations** match, and the native output retains all **70 source
+bookmarks** under the separate CAJ source-outline check. Only annotation
+objects 82/518 lose their proven missing AP pairs; source streams and valid
+appearance references remain intact. The synthesized Catalog is separately
+distinguished from source-object changes.
+
+Qpdf checks the converted output cleanly. Source-body reconstruction warnings
+are retained, and the separate qpdf-normalized PDF is not substituted for the
+source rendering baseline. These scoped source-body comparisons do not claim
+CAJViewer or every-renderer/font/resolution fidelity. Source integrity and
+failed-output controls remain required; this checkpoint does not resolve the
+other #406 recovery or correctness criteria.

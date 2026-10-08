@@ -164,6 +164,17 @@ place. Its memory is bounded by the object, page and bookmark counts
 (`MAX_PDF_OBJECTS`, `Limits::max_pages`, `Limits::max_bookmarks`) and by
 `Limits::max_allocation_bytes` on each buffer, not by a summed byte budget.
 
+CAJ link repair also handles one measured absent optional appearance (#417).
+A complete non-stream Link with a direct destination to a retained page may
+drop its `/AP << /N absent 0 R >>` pair only when that is its sole missing
+reference, the reference occurs only there, and `/BS << /W 0 >>` is the complete
+border-style dictionary. The destination and all other bytes survive. Live
+appearances, named states, rollover/down entries, indirect appearance maps,
+other border profiles, actions, nonzero generations and unrelated missing
+references do not qualify. Ordinary indexed-PDF validation remains unchanged.
+The existing bounded object reads, source recheck, retained-repair budget and
+sequential CAJ reconstruction apply to this narrow normalization.
+
 ## Stream extents in CAJ fragments
 
 The fragment scanner never decodes a stream payload to frame it:

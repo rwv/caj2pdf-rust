@@ -1,5 +1,15 @@
 # Unreleased
 
+## Absent optional CAJ link appearances (#417)
+
+- A measured 109-page CAJ original now converts after proving two optional
+  Link appearance targets absent. Its live destinations, 574 source streams
+  and 70 source bookmarks remain intact. Required references and unmeasured
+  appearance/border profiles remain strict errors.
+- Existing bounded metadata reads, retained repair budgets and sequential
+  reconstruction apply. No public API or product dependency changes. See the
+  [scoped source comparison](../conformance.md#absent-optional-link-appearance-checkpoint-417).
+
 ## Equivalent PDF opacity resources (#412)
 
 - Two KDH originals now convert after proving duplicate ExtGState references

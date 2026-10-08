@@ -848,6 +848,132 @@ fn unrelated_missing_resource_reference_fails_before_sink_output() {
 }
 
 #[test]
+fn missing_optional_appearance_preserves_destination_and_live_appearance() {
+    let link = "<< /Subtype /Link /Rect [0 0 20 20] /BS << /W 0 >> /F 4 /Dest [9 0 R /Fit]";
+    let baseline = fragment_caj(&one_page_body(Some(&format!("{link} >>")), None), &[9]);
+    let (expected, _) =
+        convert(&baseline, ConversionOptions::default(), &Limits::default()).unwrap();
+    let expected_file = TempPdf::write("appearance-baseline", &expected);
+    let pixels = rendered_page(&expected_file.0);
+    let input = fragment_caj(
+        &one_page_body(Some(&format!("{link} /AP << /N 99 0 R >> >>")), None),
+        &[9],
+    );
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let (output, report) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(report.pages_converted, 1);
+    let pdf = String::from_utf8_lossy(&output);
+    assert!(pdf.contains("/Dest [9 0 R /Fit]"));
+    assert!(!pdf.contains("/AP"));
+    assert!(pdf.contains("0 0 0 rg 10 10 30 30 re f"));
+    let repaired = TempPdf::write("appearance-repaired", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&repaired.0), "qpdf");
+    assert_eq!(rendered_page(&repaired.0), pixels);
+    assert_eq!(inspect(&output).pages()[0].number, 9);
+
+    // Keep a live Link appearance reference and its complete stream.
+    let mut body = one_page_body(Some(&format!("{link} /AP << /N 13 0 R >> >>")), None);
+    let green = "0 1 0 rg 0 0 20 20 re f";
+    object(
+        &mut body,
+        13,
+        &format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Resources << >> /Length {} >>\nstream\n{green}\nendstream",
+            green.len(),
+        ),
+    );
+    let input = fragment_caj(&body, &[9]);
+    let (live, _) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    assert!(String::from_utf8_lossy(&live).contains("/AP << /N 13 0 R >>"));
+    let visible = TempPdf::write("appearance-live", &live);
+    checked_command(Command::new("qpdf").arg("--check").arg(&visible.0), "qpdf");
+    assert!(String::from_utf8_lossy(&live).contains(green));
+    // MuPDF does not paint Link appearances in this control. A Square uses
+    // the same live Form and provides a visible neighboring appearance test.
+    let square = String::from_utf8(body)
+        .unwrap()
+        .replace("/Subtype /Link", "/Subtype /Square");
+    let input = fragment_caj(square.as_bytes(), &[9]);
+    let (output, _) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    let visible = TempPdf::write("appearance-square", &output);
+    assert!(String::from_utf8_lossy(&output).contains("/AP << /N 13 0 R >>"));
+    assert!(
+        rendered_page(&visible.0) != pixels,
+        "visible appearance control must change pixels"
+    );
+}
+
+#[test]
+fn missing_appearance_does_not_waive_required_or_unmeasured_references() {
+    let link = "<< /Subtype /Link /Rect [0 0 20 20] /BS << /W 0 >> /Dest [9 0 R /Fit]";
+    for (label, annotation) in [
+        (
+            "rollover",
+            format!("{link} /AP << /N 99 0 R /R 11 0 R >> >>"),
+        ),
+        (
+            "named state",
+            format!("{link} /AP << /N << /On 99 0 R >> >> >>"),
+        ),
+        (
+            "indirect appearance dictionary",
+            format!("{link} /AP 99 0 R >>"),
+        ),
+        (
+            "nonzero generation",
+            format!("{link} /AP << /N 99 1 R >> >>"),
+        ),
+        (
+            "shared reference",
+            format!("{link} /AP << /N 99 0 R >> /P 99 0 R >>"),
+        ),
+        (
+            "other missing reference",
+            format!("{link} /AP << /N 99 0 R >> /P 98 0 R >>"),
+        ),
+        (
+            "missing destination",
+            "<< /Subtype /Link /BS << /W 0 >> /Dest [98 0 R /Fit] /AP << /N 99 0 R >> >>"
+                .to_owned(),
+        ),
+        (
+            "destination is not a page",
+            "<< /Subtype /Link /BS << /W 0 >> /Dest [11 0 R /Fit] /AP << /N 99 0 R >> >>"
+                .to_owned(),
+        ),
+        (
+            "other subtype",
+            "<< /Subtype /Text /BS << /W 0 >> /Dest [9 0 R /Fit] /AP << /N 99 0 R >> >>".to_owned(),
+        ),
+        (
+            "visible border",
+            "<< /Subtype /Link /BS << /W 1 >> /Dest [9 0 R /Fit] /AP << /N 99 0 R >> >>".to_owned(),
+        ),
+        (
+            "unknown border profile",
+            "<< /Subtype /Link /BS << /W 0 /S /D >> /Dest [9 0 R /Fit] /AP << /N 99 0 R >> >>"
+                .to_owned(),
+        ),
+        (
+            "action together",
+            format!(
+                "{link} /AP << /N 99 0 R >> /A << /S /URI /URI (https://example.invalid) >> >>"
+            ),
+        ),
+    ] {
+        let input = fragment_caj(&one_page_body(Some(&annotation), None), &[9]);
+        let error = rejected_without_output(&input, &Limits::default());
+        assert!(
+            matches!(error.kind, ErrorKind::Malformed),
+            "{label}: {error}"
+        );
+    }
+}
+
+#[test]
 fn repairs_nearby_stream_length_without_changing_page_render() {
     const CONTENT_LEN: usize = "0 0 0 rg 10 10 30 30 re f".len();
     let valid_input = fragment_caj(&one_page_body(None, None), &[9]);
