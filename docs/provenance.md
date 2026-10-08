@@ -948,3 +948,34 @@ ordinary indexed PDF parsing stay unchanged. Existing ranged patch output is
 reused, with source rechecks, cancellation and retained-allocation limits;
 stream content is never rewritten or buffered for this repair. No dependency
 or external document, PDF, font or pixel data is added to the repository.
+
+## Unresolved Indexed palette boundary (#420)
+
+The [pinned investigation](https://github.com/rwv/caj2pdf-samples/blob/f139330/research/notes/indexed-palette-boundary-20261008.md)
+and its measurement receipt cover the unchanged 80-page CAJSamples `issue-39`
+original, SHA-256
+`5e1ea482a56a2df02a2a452ac97949824c726471c88157e78441a1201b3d8697`.
+All 110 Indexed palettes and incoming references are inventoried; executed
+page/Form/pattern paths reach 109. All 64 raw-short CMYK tables are used.
+Palette 397 additionally decodes to 661 bytes instead of the required 663,
+while malformed palette 471 terminates its first literal after 18 of 708
+apparent raw bytes. These measurements follow the
+[PDF reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)
+literal-string and Indexed lookup definitions.
+
+Original MIT palette grids and 16 fresh isolated CAJViewer sessions distinguish
+missing-image tolerance from color reconstruction. Raw-to-hex diagnostics
+change source-viewer pixels on pages 25 and 27; short-table handling also
+differs between Poppler and MuPDF. The 80-page diagnostic preserves 615 raw
+streams, page identities/geometry and 72 source bookmarks, but retains
+renderer warnings and fails complete raw-to-hex pixel/text agreement.
+The unchanged original still fails strict conversion; explicit partial recovery
+blanks pages 24, 25, 27 and 31. No diagnostic is counted as a new corpus pass.
+
+This records an unresolved missing-color boundary, not a production repair or
+proof that every reconstruction is impossible. Fix-specific full-regression,
+Node and Chromium checks remain unrun. Only original observations and external
+tool behavior were used; no foreign converter, private HN/JBIG or vendor
+implementation was inspected or migrated. No document, PDF, palette, font,
+pixel or vendor binary data is committed. APIs, dependencies, support claims
+and release behavior remain unchanged.
