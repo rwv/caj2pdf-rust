@@ -1086,3 +1086,43 @@ checks pass; those are not conversion compatibility passes. The
 [provenance record](provenance.md#unresolved-indexed-palette-boundary-420)
 retains the source-history search, earlier viewer/whole-document limits and
 unmet recovery criteria. #420 and #406 remain open; no release is performed.
+
+## Complete current-build runtime checkpoint (#406)
+
+The [current per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/current-corpus-runtime-20261008.md)
+covers all 1,297 catalog identities: 1,252 conversion PASS, 18 FAIL and
+27 UNSUPPORTED. Fresh Node v24.13.0 and Chromium 154.0.8037.92 runs match
+all 1,252 accepted native PDF hashes, sizes and page counts (35,587 pages).
+The native references are the frozen reviewed #457 results; this is a fresh
+full JavaScript sweep, not another native sweep. Package, WASM, executable,
+font and source identities remain unchanged.
+
+All 45 remaining originals receive fresh native/Node/Chromium refusal checks:
+expected errors, zero published native PDFs or JavaScript sink bytes, and
+empty final browser OPFS. The full accepted and refused manifests are checked
+for exact source sets, uniqueness, order and result mapping. These checks
+satisfy #406's runtime-parity/integrity/cleanup criterion; refusals are not
+compatibility passes or blanket irrecoverability evidence.
+
+The known private-use visual substitution in one HN-B original remains.
+Generic native image-order FAIL/NOT_RUN statuses and separate applicable
+independent evidence keep their original scope. Source-content, outline,
+viewer-readiness and remaining-recovery limits do not disappear with byte
+parity. #406 stays open; no release or support change follows.
+
+## Expanded C8/HN-B source-outline evidence (#303)
+
+The [expanded inventory](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/hnc8-outline-inventory-20261008.md)
+checks 845 C8 and four HN-B originals, totaling 2,855 pages. Every first text
+starts at the page-index end; five explicit final application-info packages
+contain measured links, with no outline-named structure observed. These are
+bounded structural observations, not proof that outlines are absent elsewhere.
+
+Four selected long C8 originals have visibly empty contents panels in fresh
+isolated viewer sessions; two HN-A controls have populated panels. One control,
+the 132-page `issue-90/5-[4].caj`, corrects an old #303 claim: it is HN-A with
+81 bookmarks, not HN-B without contents. Other viewer panels and complete
+viewer title/destination enumeration were not checked in this follow-up.
+The auxiliary HN-A control is outside the 1,297-input conversion ledger.
+C8/HN-B outline metadata remains unknown, omission warnings remain, and
+#303 and #441 stay open. No synthetic outline or zero-count inference is added.
