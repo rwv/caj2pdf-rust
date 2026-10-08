@@ -2506,10 +2506,10 @@ fn comments_between_objects_are_not_orphan_repairs() {
 
 #[test]
 fn gaps_that_are_not_free_object_prefixes_stay_unindexed() {
-    // Neither arbitrary bytes, a prefix of a live, non-adjacent object, nor
-    // a gap longer than any orphan prefix is a repairable orphan.
+    // Arbitrary bytes, a conflicting live-object prefix, and an oversized
+    // free-object prefix remain errors under both gap recovery rules.
     let long = format!("{}4 0 obj\n", " ".repeat(64));
-    for gap in ["junk\n", "2 0 obj\n", &long] {
+    for gap in ["junk\n", "2 0 obj << /Wrong\n", &long] {
         let error = pdf_error(open(gapped_pdf(2, gap)));
         assert!(
             matches!(

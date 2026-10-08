@@ -779,14 +779,15 @@ fn xref_stream_rows_without_a_type_field_are_in_use() {
 }
 
 #[test]
-fn cancellation_at_every_flate_xref_stream_checkpoint_is_reported() {
-    let input = synthetic_xref_stream_pdf(false, false, false, b"");
+fn cancellation_at_every_flate_xref_and_live_gap_checkpoint_is_reported() {
+    let input = synthetic_xref_stream_pdf(false, false, false, b"2 0 obj\n<< /Ty\n");
     let mut cancelled = 0;
     for allowed in 0.. {
         assert!(allowed < 10_000, "cancellation checkpoints never ended");
         match inspect_bytes_with(input.clone(), &CancelAfter::new(allowed)) {
             Ok(index) => {
                 assert_eq!(index.pages().len(), 1);
+                assert_eq!(index.gap_patches().len(), 1);
                 break;
             }
             Err(Error {
@@ -1013,6 +1014,103 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
 }
 
 #[test]
+fn interrupted_live_objects_require_an_exact_indexed_prefix() {
+    for number in [1, 2, 4, 5] {
+        // Live counterparts precede and follow the gap. Generation and all
+        // header/key bytes must match; the prefix ends before the key's value.
+        let gap = format!("{number} 0 obj\n<< /Ty\r\n");
+        let input = synthetic_stale_parent_pdf_with_tree(
+            b"<< /Type /Page /Parent 1 0 R >>",
+            b"2 0 R",
+            b"<< /Type /Unused >>",
+            gap.as_bytes(),
+        );
+        let index = inspect_bytes(input.clone()).unwrap();
+        assert_eq!(index.gap_patches().len(), 1);
+        let patch = &index.gap_patches()[0];
+        let mut expected = input.clone();
+        expected[patch.offset as usize..patch.offset as usize + patch.original.len()].fill(b' ');
+        let mut source = OneBytePdfSource(input);
+        let mut output = TempPdf::new("dictionary-key-gap");
+        copy_pdf(
+            &mut source,
+            &mut &mut output.file,
+            &Limits::default(),
+            &CancelAfter::Never,
+        )
+        .unwrap();
+        output.file.flush().unwrap();
+        assert_eq!(read(&output.path).unwrap(), expected);
+        check_pdf(&output.path, 1);
+    }
+    for gap in [
+        "2 0 obj\n<< /Tx\n",   // conflicting key
+        "2 0 obj\r<< /Ty\n",   // different header whitespace
+        "2 1 obj\n<< /Ty\n",   // different generation
+        "3 0 obj\n<< /Ty\n",   // free target
+        "8 0 obj\n<< /Ty\n",   // unknown target
+        "2 0 obj\n<< /Ty#7\n", // partial escape
+        "2 0 obj\n<< /Type /Page /Parent 1 0 R >>\nendobj\n",
+    ] {
+        let input = synthetic_stale_parent_pdf_with_tree(
+            b"<< /Type /Page /Parent 1 0 R >>",
+            b"2 0 R",
+            b"null",
+            gap.as_bytes(),
+        );
+        let error = inspect_bytes(input).err().unwrap();
+        assert_eq!(
+            error.reason, "unindexed bytes between PDF objects",
+            "{gap:?}"
+        );
+    }
+    for (body, gap, accepted) in [
+        ("7253", "5 0 obj\n7253\ne\n", true),
+        ("7253", "5 0 obj\n7\n", true),
+        ("7253", "5 0 obj\n8\n", false),
+        ("7253", "5 0 obj\n7253\nendobj\n", false),
+        ("7253", "5 0 obj\n7253\nendobj\njunk\n", false),
+        (
+            "<< /Resources << /Font 4 0 R >> >>",
+            "5 0 obj\n<< /Resources << /Font 4\n",
+            true,
+        ),
+        (
+            "<< /Resources << /Font 4 0 R >> >>",
+            "5 0 obj\n<< /Resources << /Font 3\n",
+            false,
+        ),
+        (
+            "<< /Length 3 >>\nstream\nabc\nendstream",
+            "5 0 obj\n<< /Len\n",
+            false,
+        ),
+        ("(text)", "5 0 obj\n(te\n", false),
+        ("[1 2]", "5 0 obj\n[1\n", false),
+        ("null", "5 0 obj\nn\n", false),
+        ("123", "0 0 obj\n1\n", false),
+        ("123", "999999999999999999999999 0 obj\n1\n", false),
+    ] {
+        let input = synthetic_stale_parent_pdf_with_tree(
+            b"<< /Type /Page /Parent 1 0 R >>",
+            b"2 0 R",
+            body.as_bytes(),
+            gap.as_bytes(),
+        );
+        assert_eq!(inspect_bytes(input).is_ok(), accepted, "{gap:?}");
+    }
+    // A matching prefix also works with xref streams; the 128-byte live-prefix gap
+    // cap includes whitespace separating it from adjacent complete objects.
+    let prefix = b"2 0 obj\n<< /Ty\n";
+    for length in [128, 129] {
+        let mut gap = vec![b' '; length - prefix.len() - 1];
+        gap.extend_from_slice(prefix);
+        let result = inspect_bytes(synthetic_xref_stream_pdf(false, false, false, &gap));
+        assert_eq!(result.is_ok(), length == 128);
+    }
+}
+
+#[test]
 fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
     let mut lone_cr = write_pdf_without_outlines();
     let separator = lone_cr
@@ -1027,6 +1125,12 @@ fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
         .windows(marker.len())
         .position(|part| part == marker)
         .unwrap();
+    let marker = b"2 0 obj\n<< /Ty\n";
+    let dictionary_gap = synthetic_xref_stream_pdf(false, false, false, marker);
+    let dictionary_at = dictionary_gap
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
     for (bytes, at, reason) in [
         (
             lone_cr,
@@ -1034,6 +1138,11 @@ fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
             "PDF stream separator changed after inspection",
         ),
         (orphan, gap, "PDF orphan gap changed after inspection"),
+        (
+            dictionary_gap,
+            dictionary_at,
+            "PDF orphan gap changed after inspection",
+        ),
     ] {
         let shared = Rc::new(RefCell::new(bytes));
         let mut source = SharedPdfSource(shared.clone());

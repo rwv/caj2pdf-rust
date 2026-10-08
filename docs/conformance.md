@@ -768,3 +768,46 @@ substituted for source pixels: the native output matches the verbatim source
 body on that page and all others. The discrepancy remains recorded rather
 than silently loosening the render comparison. The four passing source-outline
 checks are independent of these PDF framing/render checks.
+
+
+## Accepted-corpus runtime and order checkpoint (#406)
+
+At merged converter `c31ac81a659d3a15fa3e048785e4e0c7885a0a6a`, all **1,232 accepted
+originals** have identical native, Node.js and Chromium PDF bytes, sizes and
+page counts. All browser OPFS cleanup checks pass. The
+[pinned per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/f30fe7b039048cab44d5abedadeafa8ec729b5da/research/notes/full-runtime-parity-20261008.json)
+retains initial missing-font configuration refusals separately from successful
+attempts with matching options. Seven synthetic fixtures are excluded.
+
+All 26 previously failing applicable order checks now pass in the corrected
+harness. Eighteen required the measured bottom-up type-0 bitmap row convention;
+eight required native glyph order rather than a bitmap oracle. The
+[pinned text receipt](https://github.com/rwv/caj2pdf-samples/blob/f765b4b8bc552cc130f8b9c7d4cb8f287d92077c/research/notes/native-content-order-20261008.json)
+covers 38 pages / 60,762 glyphs and 24 detected page-swap, glyph-omission and
+Unicode-map corruption controls. This proves glyph identity/order, not font
+geometry or complete visual fidelity. Historical failures remain archived.
+
+This checkpoint's native totals are **1,232 PASS / 35 FAIL / 10 UNSUPPORTED**.
+The 936 missing bitmap-oracle checks, broader source geometry/content/render
+checks, source-outline research and refusal recovery remain in #406. Runtime
+parity does not establish independent source correctness, and later recoveries
+require their own runtime checks. No release is published.
+
+## Interrupted live-object prefix checkpoint (#410)
+
+The unchanged seven-page KDH original in [#410](https://github.com/rwv/caj2pdf-rust/issues/410)
+now converts in native, Node.js and Chromium with identical PDF bytes and empty
+browser OPFS storage afterward. Independent decoding preserves every original
+PDF byte through its actual CRLF-terminated EOF. Qpdf checks both the source
+reference and output without warnings. All seven page identities, rectangles,
+MediaBoxes, CropBoxes, rotations, extracted texts and RGB renders at 72 dpi
+match in PyMuPDF 1.27.2.2; all 22 raw streams retain their object numbers and
+bytes. Both source and output have zero outline items. Source hashes are checked
+before and after. These are scoped decoded-source comparisons, not CAJViewer or
+all-renderer/resolution fidelity claims.
+
+Twelve interrupted prefixes exactly match indexed complete counterparts. The
+new gap repair preserves source positions and object data while blanking these
+inactive bytes. Existing lone-CR stream separators are normalized and seven
+stale Page parents are independently validated against Kids before replacement;
+those existing repairs do not change the measured page content or geometry.
