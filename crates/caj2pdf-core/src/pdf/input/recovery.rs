@@ -18,7 +18,7 @@ use crate::{Cancellation, Context, Error, ErrorKind, Limits, OmittedPage, Ranged
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The latest start, after an interrupted stream, of its complete replay.
-const MAX_REPLAY_DISTANCE: u64 = 64 * 1024;
+const MAX_REPLAY_DISTANCE: u64 = 1024 * 1024;
 /// Maximum exact prefix compared against an independently framed copy.
 const MAX_COPY_PREFIX: u64 = 64 * 1024;
 /// How far past an understated direct `/Length` a terminator may be found.
@@ -30,7 +30,12 @@ pub(super) enum Recovery {
     Resume(u64),
     /// Continue at `resume` once the complete scan proves `prefix` an exact
     /// proper prefix of the indexed object with the same number.
-    Defer { resume: u64, prefix: FragmentObject },
+    Defer {
+        resume: u64,
+        prefix: FragmentObject,
+        /// A marker-derived frame must be reached by the complete scan.
+        counterpart: Option<FragmentObject>,
+    },
     /// A measured interruption that the complete graph must prove unused.
     Orphan { resume: u64, prefix: FragmentObject },
     /// The stream ends at `end` after a same-width `/Length` correction.
@@ -120,7 +125,11 @@ fn syntax_recovery<S: RangedSource, C: Cancellation>(
     if candidates.filter(|r| named(*r)).count() > 1 || objects.filter(|r| named(*r)).count() > 1 {
         return Ok(None);
     }
-    Ok(Some(Recovery::Defer { resume, prefix }))
+    Ok(Some(Recovery::Defer {
+        resume,
+        prefix,
+        counterpart: None,
+    }))
 }
 
 /// Lossless rules for a parsed stream whose extent is not confirmed.
@@ -135,20 +144,31 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     }
     if stream.reference.generation == 0
         && let Some(original) = unique(&pass.objects, |r| r == stream.reference)
-        && let Some(end) = copy_prefix_end(reader, start, original, stream.data_start)?
+        && let Some((end, _)) = copy_prefix(reader, start, original, stream.data_start)?
     {
         return Ok(Some(Recovery::Resume(end)));
     }
     if let Some((resume, prefix)) = super::orphan::image_prefix(reader, pass, start, stream)? {
         return Ok(Some(Recovery::Orphan { resume, prefix }));
     }
+    if let Some(end) =
+        candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
+    {
+        return Ok(Some(Recovery::Resume(end)));
+    }
+    // A marker-derived replay must not bypass conflicting anchored evidence.
+    if pass
+        .candidates
+        .iter()
+        .filter(|candidate| candidate.object.reference == stream.reference)
+        .take(2)
+        .count()
+        > 1
+    {
+        return Ok(None);
+    }
     let Some((patch_offset, original)) = &stream.direct else {
         if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
-            return Ok(Some(Recovery::Resume(end)));
-        }
-        if let Some(end) =
-            candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
-        {
             return Ok(Some(Recovery::Resume(end)));
         }
         return Ok(match stream_replay(reader, start, stream)? {
@@ -159,28 +179,13 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     match stream_replay(reader, start, stream)? {
         Replay::Found(recovery) => return Ok(Some(recovery)),
         // A replayed header is no understated Length: never repair it.
-        Replay::Unproven => {
-            let end =
-                candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?;
-            return Ok(end.map(Recovery::Resume));
-        }
+        Replay::Unproven => return Ok(None),
         Replay::Absent => {}
     }
     let length = stream.length.expect("a direct Length is always known");
     let data_at = start + stream.data_start;
     let (corrected, end) =
-        match repair_stream_length(reader, data_at + length, data_at, stream.reference) {
-            Ok(repair) => repair,
-            Err(error) if error.is_malformed_pdf() => {
-                if let Some(end) =
-                    candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
-                {
-                    return Ok(Some(Recovery::Resume(end)));
-                }
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
+        repair_stream_length(reader, data_at + length, data_at, stream.reference)?;
     let replacement = corrected.to_string().into_bytes();
     if pass.retries
         && let Some(candidate) =
@@ -270,35 +275,36 @@ fn deferred_replay<S: RangedSource, C: Cancellation>(
     copy: u64,
     stream: &StreamFailure,
 ) -> Result<Option<Recovery>> {
-    let span = copy - start;
-    let interrupted = reader.bytes(start, span as usize)?;
-    let available = span.min(reader.range.length - copy);
-    let replay = reader.bytes(copy, available as usize)?;
-    let shared = interrupted
-        .iter()
-        .zip(&replay)
-        .take_while(|(left, right)| left == right)
-        .count();
-    let prefix = interrupted[..shared].trim_ascii_end().len();
-    let mut resume = shared;
-    while interrupted.get(resume).is_some_and(u8::is_ascii_whitespace) {
-        resume += 1;
-    }
-    if prefix as u64 <= stream.data_start
-        || !(resume == interrupted.len() || interrupted[resume].is_ascii_digit())
-    {
+    let length = stream
+        .length
+        .expect("replay discovery requires a resolved Length");
+    let Some(after) = copy
+        .checked_add(stream.data_start)
+        .and_then(|at| at.checked_add(length))
+    else {
         return Ok(None);
-    }
-    Ok(Some(Recovery::Defer {
-        resume: start + resume as u64,
-        prefix: FragmentObject {
-            reference: stream.reference,
-            range: PdfRange {
-                offset: reader.range.offset + start,
-                length: prefix as u64,
-            },
+    };
+    let end = match reader.check_stream_tail(after, Some(stream.reference)) {
+        Ok(end) => end,
+        Err(error) if error.is_malformed_pdf() => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let original = FragmentObject {
+        reference: stream.reference,
+        range: PdfRange {
+            offset: reader.absolute(copy),
+            length: end - copy,
         },
-    }))
+    };
+    Ok(
+        copy_prefix(reader, start, original, stream.data_start)?.map(|(resume, prefix)| {
+            Recovery::Defer {
+                resume,
+                prefix,
+                counterpart: Some(original),
+            }
+        }),
+    )
 }
 
 /// The next `endstream` keyword starting at or after `from` and ending by
@@ -701,7 +707,7 @@ pub(super) fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     if matches.next().is_some() || candidate.object.range.offset <= reader.absolute(start) {
         return Ok(None);
     }
-    let end = copy_prefix_end(
+    let end = copy_prefix(
         reader,
         start,
         candidate.object,
@@ -712,7 +718,7 @@ pub(super) fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
         // encountered inside another payload during a speculative row scan.
         candidate.used = true;
     }
-    Ok(end)
+    Ok(end.map(|(resume, _)| resume))
 }
 
 pub(super) fn shared_prefix<S: RangedSource, C: Cancellation>(
@@ -760,12 +766,12 @@ pub(super) fn shared_prefix<S: RangedSource, C: Cancellation>(
 /// First mismatch against one independently framed counterpart, followed only
 /// by bounded PDF whitespace and a complete next object header. Never search
 /// the interrupted payload for a marker or materialize the compared prefix.
-fn copy_prefix_end<S: RangedSource, C: Cancellation>(
+fn copy_prefix<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     original: FragmentObject,
     minimum_shared: u64,
-) -> Result<Option<u64>> {
+) -> Result<Option<(u64, FragmentObject)>> {
     let Some(at) = original.range.offset.checked_sub(reader.range.offset) else {
         return Ok(None);
     };
@@ -814,7 +820,16 @@ fn copy_prefix_end<S: RangedSource, C: Cancellation>(
             "interrupted copy changed while reading",
         ));
     }
-    Ok(Some(next))
+    Ok(Some((
+        next,
+        FragmentObject {
+            reference: original.reference,
+            range: PdfRange {
+                offset: reader.absolute(start),
+                length: shared,
+            },
+        },
+    )))
 }
 
 /// The one indexed object numbered `reference`, if it is unique.

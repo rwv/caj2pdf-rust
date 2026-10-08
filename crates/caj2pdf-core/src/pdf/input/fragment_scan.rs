@@ -2,7 +2,7 @@
 
 //! Bounded object scanning for headerless CAJ PDF fragments.
 //!
-//! Each indirect object is parsed and inspected once. A stream ends at its
+//! Each pass parses and inspects indirect objects in order. A stream ends at its
 //! declared `/Length` when `endstream` follows it. Otherwise, and for an
 //! indirect length that is not yet known, the scanner searches forward for
 //! `endstream` and keeps the first candidate that the later-resolved
@@ -181,7 +181,7 @@ pub(super) struct Pass<'p> {
     /// Whether two integer objects with one reference differ.
     conflicting_lengths: bool,
     pub pending_lengths: Vec<PendingLength>,
-    pub pending_prefixes: Vec<FragmentObject>,
+    pub pending_prefixes: Vec<(FragmentObject, Option<FragmentObject>)>,
     pending_orphans: Vec<FragmentObject>,
     pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
@@ -259,9 +259,14 @@ struct Framed {
     pending: Option<PendingLength>,
 }
 
-/// A failed pass to repeat with the stream at `.0` framed by `.1`. The
-/// error stands if no repeated pass succeeds.
-struct Retry(u64, Extent, Error);
+/// Constraints for repeating a failed pass. The error stands if no repeated
+/// pass succeeds.
+enum Retry {
+    One(u64, Extent, Error),
+    /// Resolve all known constraints together; a missing early integer may
+    /// currently be hidden inside another provisionally framed stream.
+    Lengths(Vec<(u64, u64)>, Error),
+}
 
 /// How one pass ended.
 enum Outcome {
@@ -330,24 +335,64 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
             rows,
             retries: verify && rows.is_none(),
         };
-        let Retry(start, extent, error) =
-            match run_pass(&mut reader, &mut pass, minimum_relative, &hints)? {
-                Outcome::Done {
-                    end,
-                    final_repaired,
-                } => match finish(&mut reader, pass, end, final_repaired, verify)? {
-                    Ok(scan) => return Ok(scan),
-                    Err(retry) => retry,
-                },
-                Outcome::Retry(retry) => retry,
-            };
-        first_error.get_or_insert(error);
-        match hints.iter_mut().find(|(at, _)| *at == start) {
-            Some(hint) => hint.1 = extent,
-            None => hints.push((start, extent)),
+        let retry = match run_pass(&mut reader, &mut pass, minimum_relative, &hints)? {
+            Outcome::Done {
+                end,
+                final_repaired,
+            } => match finish(&mut reader, pass, end, final_repaired, verify)? {
+                Ok(scan) => return Ok(scan),
+                Err(retry) => retry,
+            },
+            Outcome::Retry(retry) => retry,
+        };
+        match retry {
+            Retry::One(start, extent, error) => {
+                first_error.get_or_insert(error);
+                insert_hint(&mut hints, start, extent, limits)?;
+            }
+            Retry::Lengths(resolved, error) => {
+                first_error.get_or_insert(error);
+                for (start, length) in resolved {
+                    if cancellation.is_cancelled() {
+                        return Err(crate::ErrorKind::Cancelled.into());
+                    }
+                    insert_hint(&mut hints, start, Extent::Length(length), limits)?;
+                }
+            }
         }
     }
     Err(first_error.expect("every repeated pass failed"))
+}
+
+/// Keep one hint per object start, with bounded metadata and logarithmic lookup.
+fn insert_hint(
+    hints: &mut Vec<(u64, Extent)>,
+    start: u64,
+    extent: Extent,
+    limits: &Limits,
+) -> Result<()> {
+    match hints.binary_search_by_key(&start, |(at, _)| *at) {
+        Ok(index) => hints[index].1 = extent,
+        Err(index) => {
+            let count = hints.len() as u64 + 1;
+            if count > u64::from(MAX_PDF_OBJECTS) {
+                return Err(Error::limit(
+                    "fragment extent hints",
+                    u64::from(MAX_PDF_OBJECTS),
+                    count,
+                ));
+            }
+            let bytes = count * size_of::<(u64, Extent)>() as u64;
+            limits.check_allocation(bytes)?;
+            reserve(
+                hints,
+                1,
+                limits.allocation_refused("fragment extent hints", bytes),
+            )?;
+            hints.insert(index, (start, extent));
+        }
+    }
+    Ok(())
 }
 
 /// Index objects forward from the fragment start until the page table's body
@@ -415,10 +460,18 @@ fn run_pass<S: RangedSource, C: Cancellation>(
                 final_repaired = false;
             }
             Recovery::Resume(resume) => cursor = resume,
-            Recovery::Defer { resume, prefix } => {
+            Recovery::Defer {
+                resume,
+                prefix,
+                counterpart,
+            } => {
+                reader.limits.check_allocation(
+                    (pass.pending_prefixes.len() as u64 + 1)
+                        * size_of::<(FragmentObject, Option<FragmentObject>)>() as u64,
+                )?;
                 push_counted(
                     &mut pass.pending_prefixes,
-                    prefix,
+                    (prefix, counterpart),
                     "CAJ interrupted prefixes",
                 )?;
                 cursor = resume;
@@ -513,7 +566,7 @@ fn retry<S: RangedSource, C: Cancellation>(
             continue;
         };
         if confirms(reader, pending, pass.length_of(pending.target))? != Some(true) {
-            return Ok(Retry(pending.start, Extent::After(marker + 1), error));
+            return Ok(Retry::One(pending.start, Extent::After(marker + 1), error));
         }
     }
     Err(error)
@@ -667,8 +720,9 @@ fn frame_object<S: RangedSource, C: Cancellation>(
     let value = entry.value(&dictionary.bytes);
     let data_at = start + data_start;
     let hint = hints
-        .iter()
-        .find_map(|&(at, extent)| (at == start).then_some(extent));
+        .binary_search_by_key(&start, |(at, _)| *at)
+        .ok()
+        .map(|index| hints[index].1);
     let (length, target, direct) = if let Some(length) = exact_unsigned(value) {
         let Some(dictionary_start) = head.dictionary_start else {
             return other(reader, start, "stream dictionary offset is missing");
@@ -816,11 +870,58 @@ fn finish<S: RangedSource, C: Cancellation>(
         let error = reader.malformed(0, None, "conflicting fragment integer objects");
         return retry(reader, &pass, error).map(Err);
     }
+    // Provisional extents can hide later integers or encompass a complete
+    // replay. Resolve every observed mismatch before using those spans as
+    // evidence for missing targets, candidate identity or duplicate conflicts.
+    if pass.retries {
+        let mut resolved = Vec::new();
+        let mut first = None;
+        for pending in &pass.pending_lengths {
+            if reader.cancellation.is_cancelled() {
+                return Err(crate::ErrorKind::Cancelled.into());
+            }
+            let Some(length) = pass.length_of(pending.target) else {
+                continue;
+            };
+            if pending.marker.is_none() || confirms(reader, pending, Some(length))? == Some(true) {
+                continue;
+            }
+            let bytes = (resolved.len() as u64 + 1) * size_of::<(u64, u64)>() as u64;
+            reader.limits.check_allocation(bytes)?;
+            push_counted(
+                &mut resolved,
+                (pending.start, length),
+                "fragment resolved Lengths",
+            )?;
+            first.get_or_insert_with(|| {
+                reader.malformed(
+                    0,
+                    Some(pending.target),
+                    "indirect stream Length does not match its integer object",
+                )
+            });
+        }
+        if let Some(error) = first {
+            return Ok(Err(Retry::Lengths(resolved, error)));
+        }
+    }
     // A candidate reached through a container anchor may actually be inside a
     // stream. Only the complete forward parse establishes its object boundary.
     if verify {
-        for candidate in pass.candidates.iter().filter(|candidate| candidate.used) {
-            let object = candidate.object;
+        for object in pass
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.used)
+            .map(|candidate| candidate.object)
+            .chain(
+                pass.pending_prefixes
+                    .iter()
+                    .filter_map(|(_, object)| *object),
+            )
+        {
+            if reader.cancellation.is_cancelled() {
+                return Err(crate::ErrorKind::Cancelled.into());
+            }
             let confirmed = pass
                 .objects
                 .binary_search_by_key(&object.range.offset, |actual| actual.object.range.offset)
@@ -839,7 +940,7 @@ fn finish<S: RangedSource, C: Cancellation>(
     }
     compact_replays(reader, &mut pass.objects)?;
     if verify {
-        for prefix in std::mem::take(&mut pass.pending_prefixes) {
+        for (prefix, _) in std::mem::take(&mut pass.pending_prefixes) {
             match proves_prefix(reader, &pass.objects, prefix)? {
                 Some(true) => {}
                 None if pass.rows.is_some() => {
@@ -880,7 +981,11 @@ fn finish<S: RangedSource, C: Cancellation>(
                 "indirect stream Length does not match its integer object",
             );
             if let (Some(length), Some(_)) = (resolved, pending.marker) {
-                return Ok(Err(Retry(pending.start, Extent::Length(length), error)));
+                return Ok(Err(Retry::One(
+                    pending.start,
+                    Extent::Length(length),
+                    error,
+                )));
             }
             return Err(error);
         }
@@ -960,10 +1065,14 @@ fn proves_prefix<S: RangedSource, C: Cancellation>(
     if prefix.range.length >= original.range.length {
         return Ok(Some(false));
     }
-    let length = prefix.range.length as usize;
-    let partial = reader.bytes(prefix.range.offset - body_start, length)?;
-    let complete = reader.bytes(original.range.offset - body_start, length)?;
-    Ok(Some(partial == complete))
+    Ok(Some(
+        recovery::shared_prefix(
+            reader,
+            prefix.range.offset - body_start,
+            original.range.offset - body_start,
+            prefix.range.length,
+        )? == prefix.range.length,
+    ))
 }
 
 /// Keep the first of identical object replays, comparing them in bounded
@@ -1042,3 +1151,6 @@ mod tests;
 
 #[cfg(test)]
 mod redundant_tests;
+
+#[cfg(test)]
+mod length_tests;

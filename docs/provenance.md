@@ -1263,3 +1263,47 @@ referenced/opaque/unmeasured declarations and strict indexed PDFs. No foreign
 converter/vendor implementation, private-source migration, new dependency or
 external fixture bytes were used. Documents, diagnostic PDFs, text and pixels
 remain outside Git. Other unresolved sources require separate evidence.
+
+## Indirect-Length ordering and same-row replays (#444)
+
+CAJSamples [issue-30/Lambertian.caj](https://github.com/caj2pdf/CAJSamples/blob/7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07/issue-30/Lambertian.caj),
+SHA-256 `c41cd7306591e0a4fc40728617b2d42d7302ba57413591de00f18bcf63023743`,
+has 141 pages and 31 bookmarks. Independent source framing and a complete gap
+inventory identify 15,525 complete unique objects, 7,623 streams, 31 complete
+duplicate occurrences and 158 interruptions. Every interruption is an exact
+proper prefix of a retained same-ID object. All original body bytes remain
+verbatim in the independent PDF; only missing page-tree/catalog/xref framing
+is added. The first independent framing used a 64 KiB metadata probe and
+missed the 70,053-byte Resources dictionary 7563. The gap inventory exposed
+that omission; its qpdf success was not complete-graph evidence. The corrected
+bounded framing includes that dictionary and leaves no unexplained gap.
+
+The 78-byte prefix of stream 7566 at 1,819,698 has its complete counterpart
+583,921 bytes later, in the same page-table row. JPEG objects 15446 and 15491
+have 207- and 221-byte proper prefixes; provisional unknown-Length extents
+mistook them for complete conflicting duplicates. Length integer 15558 is
+present at 189,264 with value 114,224, but stream 2's provisional extent hid
+it. Resolving the available later Length 3 exposes that integer on a new pass.
+Independent JPEG decoding confirms the complete image payload; the missing
+Length diagnostic was not evidence of JPEG corruption. Diagnostic omissions
+of prefixes remained failures and are not counted as conversion passes.
+
+The original MIT fix batches observed Length constraints before provisional
+span validation and compares distant same-row copies through bounded ranged
+reads. Complete-scan counterpart proof, eventual integer checks, ambiguity,
+cancellation, allocation and finite retry bounds remain required. Tests use
+original authored streams for hidden/out-of-order Lengths, more independent
+constraints than the rescan budget, provisional duplicates, missing/conflicting
+integers, source changes, fake/ambiguous copies, distance/prefix/tail limits,
+short I/O and cancellation. No external fixture bytes, foreign converter or
+vendor implementation, private-source migration or new dependency is used.
+
+The unchanged original converts natively with qpdf exit 0. All 15,525 object
+values, 7,623 raw streams, 141 page identities/order/geometry/text/links and
+Poppler RGB72 renders agree with corrected independent framing; all 31 source
+bookmarks agree. The independent graph records paths to every affected
+resource and all indirect-Length dependencies. Runtime, scoped original-viewer
+and full-corpus receipts are tracked in [#444](https://github.com/rwv/caj2pdf-rust/issues/444).
+This is not a whole-document vendor-render claim; #441's cold-session
+repeatability limitation remains open. Document, PDF, text, font and pixel
+bytes remain external. Other #406 failures require their own evidence.
