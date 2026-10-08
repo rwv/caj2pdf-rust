@@ -15,6 +15,16 @@ are MIT-licensed.
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
+## Install
+
+```sh
+npm install caj2pdf-rust
+```
+
+The published package includes the tested WASM module; consumers do not need
+a Rust toolchain. Version 0.5.0 changes the Worker API; see the
+[migration guide](https://github.com/rwv/caj2pdf-rust/blob/main/docs/releases/v0.5.0.md).
+
 ## Build and test
 
 ```sh
