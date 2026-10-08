@@ -694,8 +694,8 @@ limits per child. Tool/font versions and hashes are recorded in the receipt.
 All 50 remaining refusals are classified: 16 encrypted PDFs (14 also have
 HTML debris), nine encrypted TEB containers, and 25 PDF repair/profile/limit
 or CAJ-span cases. These are not 50 proven implementation defects. A valid
-xref Predictor 12 profile remains explicitly unsupported under
-[#402](https://github.com/rwv/caj2pdf-rust/issues/402). The existing qpdf warning
+xref Predictor 12 profile was explicitly unsupported at this checkpoint;
+its later fix is recorded [below](#png-up-xref-and-object-stream-checkpoint-402-404). The existing qpdf warning
 comes from byte-identical source content stream 142; it is never counted as
 a clean structural pass. Partial conversions with substituted blank pages
 are diagnostic evidence only, not compatibility passes.
@@ -714,3 +714,31 @@ C8/HN-B outlines (#303), caller fonts and decoration substitutes remain limits.
 The collection still has 1,000 unscanned/rate-limited repositories and one
 truncated tree; it is not exhaustive GitHub coverage. Seven synthetic fixtures
 are excluded. Corpus/document/PDF/image/font bytes remain external.
+
+
+## PNG Up xref and object-stream checkpoint (#402, #404)
+
+The pinned original in [#402](https://github.com/rwv/caj2pdf-rust/issues/402)
+now converts all **10 pages** on native, Node.js and real Chromium. Each
+output is 79,483 bytes, SHA-256
+`ff827dfd3e13a6c27f9e3a55a1b03745fe192d3526a5ad90afeed9776f17f82c`.
+Chromium uses the browser adapter's OPFS spool and leaves no temporary entry.
+The source SHA-256 and byte size are unchanged before and after conversion.
+
+The unchanged decoded source PDF and output both pass qpdf 12.2.0 with exit
+0. Every page preserves its object identity, rectangle, rotation and text;
+all **10 RGB renders at 72 dpi** match byte-for-byte in PyMuPDF 1.27.2.2.
+All **40 raw stream payloads** are identical, including both xref streams
+and all 13 object streams. The existing incremental-Catalog normalization
+retires stale linearization hints without rewriting those streams.
+The source and output both have **zero outlines**; compressed outline support
+is separately tested using the project's original two-page nested-outline
+fixture encoded by qpdf. These checks establish the stated oracle scope,
+not fidelity across every renderer, resolution or unrelated PDF profile.
+
+The prior release explicitly refused the first xref's DecodeParms. Reading
+that predictor exposed the necessary [#404 object-stream dependency](https://github.com/rwv/caj2pdf-rust/issues/404),
+which is included in the final fix. The implementation and original regression
+controls are described in [provenance](provenance.md#png-up-xref-and-compressed-pdf-metadata-402-404);
+[supported PDF input](pdf-input.md) lists the bounded profile and exclusions.
+No optional-corpus skip is counted as a compatibility pass.

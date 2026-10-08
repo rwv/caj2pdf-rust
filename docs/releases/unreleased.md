@@ -1,5 +1,20 @@
 # Unreleased
 
+## PNG Up xrefs and compressed PDF metadata (#402, #404)
+
+- The measured KDH/PDF profile now converts through bounded PNG Up xref
+  decoding and Flate object-stream metadata loading. Revision precedence and
+  original stream bytes are preserved; unknown neighboring profiles fail.
+- The original 10-page sample passes native, Node and Chromium with identical
+  output bytes. All page renders at 72 dpi, text, geometry and 40 raw streams
+  match the unchanged decoded PDF; qpdf is clean. See the
+  [checkpoint](../conformance.md#png-up-xref-and-object-stream-checkpoint-402-404).
+- No public API shapes or dependencies change. Newly accepted compressed
+  objects have no standalone source span, so `PdfIndex::object_location`
+  returns `UnsupportedFormat` for those members. Memory remains bounded
+  under `Limits`; this does not enable other PNG algorithms or general
+  object-stream profiles. Existing v0.4.0 artifacts are unchanged.
+
 ## GitHub corpus validation (#385)
 
 - The full 1,277-document native rerun after #386–#394 adds 99 conversion

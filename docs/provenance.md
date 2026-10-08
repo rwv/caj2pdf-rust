@@ -348,7 +348,7 @@ existing test graph. No package code is copied into this repository.
 
 | Package | Purpose and resolved features | License / selected grant |
 | --- | --- | --- |
-| `flate2` 1.1.10 | Bounded zlib decoding of xref streams; `rust_backend`, `miniz_oxide`, `any_impl`. | `MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
+| `flate2` 1.1.10 | Bounded zlib decoding of xref and object streams; `rust_backend`, `miniz_oxide`, `any_impl`. | `MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
 | `miniz_oxide` 0.9.1 | Pure Rust Deflate backend; `default`, `with-alloc`, `simd`, `simd-adler32`. | `MIT OR Zlib OR Apache-2.0` / MIT (`LICENSE-MIT.md`) |
 | `adler2` 2.0.1 | Adler-32 for zlib; `default`. | `0BSD OR MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
 | `crc32fast` 1.5.2 | CRC-32 for flate2; `default`. | `MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
@@ -636,3 +636,38 @@ private-source migration, new dependency or document/font byte import occurs.
 Control screenshots, source documents, PDFs and generated font files remain
 external. The [conformance checkpoint](conformance.md#c8-native-article-checkpoint-391)
 separates these observations from general document/ornament fidelity.
+
+
+## PNG Up xref and compressed PDF metadata (#402, #404)
+
+The independent implementation follows Adobe PDF Reference 1.7,
+[sections 3.3 and 3.4.6–3.4.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf),
+and the [PNG Up filter definition](https://www.w3.org/TR/PNG-Filters.html).
+Predictor 12 is an encoding hint; decoding uses each row's algorithm byte.
+The admitted byte-component, one-color profile requires tag 2 and a row
+width equal to the sum of the xref field widths. Up adds the previous row
+modulo 256, starting from a zero row independently for each stream.
+
+The pinned [FuryMartin source](https://github.com/FuryMartin/caj2pdf-actions/blob/456a85d9a55690302e4dd10a95b6456afc1ceda6/file.caj)
+is 79,463 bytes, SHA-256
+`77b2ebe0a8d6cf9023b1427a0a5c4b3ff0f92b254bdee449c9a80cbc428e9fe3`.
+Its unchanged KDH-decoded PDF is 79,208 bytes, SHA-256
+`a5626ac265c7e543e2a59dfefc4ad05851c902299b344679ac346613ad5947c5`.
+Xref objects 64 and 32 have 31 four-byte and 46 five-byte rows, respectively;
+all 77 algorithm bytes are 2. Their type-2 entries reference 24 metadata
+objects (33–45 and 65–75) in 13 direct-length Flate object streams. This
+second dependency is tracked separately by #404. No source bytes are patched
+to make the original pass.
+
+Original MIT Rust fixtures independently encode positive, malformed,
+truncated, overflow, limit, cancellation and revision controls. An integration
+test asks the existing qpdf test tool to compress the project's original
+`valid_nested_outline.pdf`, then checks one-byte source reads, unchanged
+output bytes, outline validation and both page renders. This is generated
+original test data, not a copied external document or converter algorithm.
+The [conformance checkpoint](conformance.md#png-up-xref-and-object-stream-checkpoint-402-404)
+records the external original's native/Node/Chromium and oracle comparisons.
+All new code is independently authored MIT; there is no private-source
+migration, foreign converter implementation, new dependency or committed
+external document/font/render data. The existing selected MIT `flate2` grant
+also covers the bounded object-stream inflation path.
