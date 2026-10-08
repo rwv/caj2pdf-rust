@@ -951,7 +951,7 @@ or external document, PDF, font or pixel data is added to the repository.
 
 ## Unresolved Indexed palette boundary (#420)
 
-The [pinned investigation](https://github.com/rwv/caj2pdf-samples/blob/f139330/research/notes/indexed-palette-boundary-20261008.md)
+The [pinned investigation](https://github.com/rwv/caj2pdf-samples/blob/f1393308877014562bbb894e8b299f6917f1f004/research/notes/indexed-palette-boundary-20261008.md)
 and its measurement receipt cover the unchanged 80-page CAJSamples `issue-39`
 original, SHA-256
 `5e1ea482a56a2df02a2a452ac97949824c726471c88157e78441a1201b3d8697`.
