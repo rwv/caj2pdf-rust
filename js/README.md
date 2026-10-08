@@ -28,10 +28,8 @@ to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
 `0644`), which is where `loadModule()` looks by default. That copy is
 gitignored and is never committed. Examples use this same packaged module path,
 including when Cargo builds into a custom target directory. The `files` list puts it in the tarball,
-and `prepack` refuses to pack without a WebAssembly module there. The
-package is marked `private` until the release process
-([release policy](../docs/release-policy.md)) runs `npm run build:wasm`,
-removes `private`, and publishes.
+and `prepack` refuses to pack without a WebAssembly module there. The release process ([release policy](../docs/release-policy.md)) tests the
+actual tarball on Node.js and Chromium before publishing it.
 
 ## Usage
 
