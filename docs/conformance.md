@@ -1058,10 +1058,23 @@ wrappers from two server/authentication wrappers. All remain conversion FAIL.
 The fixed `AppendCA` recipient marker and custom `TTKN.PubSec.s1` profile do
 not establish standard PKCS#7/PFX processing or available decryption keys.
 
-Fresh logical-PDF probes retain the unsupported-filter error. Three offline
-viewer originals show open errors and a separate unencrypted control opens;
-the other 13 TTKN originals are viewer NOT_RUN. These checks do not prove
-irrecoverability or whole-document correctness. The inventory criterion is
+Fresh logical-PDF probes retain the unsupported-filter error. The
+[complete offline follow-up](https://github.com/rwv/caj2pdf-samples/blob/b4c8eb2f4d89ce46e585779bb870b8f8d946b7fc/research/notes/ttkn-payload-boundary-20261008.md)
+observes all 16 originals with readable UI fonts: 11 report a validation server
+connection error and five report an unknown error with a literal placeholder.
+Three paired filename-extension probes agree; a separate derived unencrypted
+control opens under both extensions. No credentials or network access were
+supplied, and these messages do not establish a sole failure cause.
+
+Simply disabling handler selection in external copies also fails: all 16
+qpdf checks exit 2 and all 11,162 single-Flate streams reject zlib decoding.
+The 5,701 other/unfiltered streams are NOT_CHECKED, and 17 parser warnings
+remain explicit. Object-graph page counts and block-aligned stream lengths
+are not recovered content or a demonstrated cipher profile. Production still
+refuses the unchanged originals with `AMBIGUOUS_PDF_REPAIR` for the non-PDF
+suffix; the unsupported-handler diagnostic belongs to the logical-prefix
+probe. There is no new conversion pass, irrecoverability proof or full-page
+fidelity result, and #441 remains open. The inventory criterion is
 complete, but [#415](https://github.com/rwv/caj2pdf-rust/issues/415) remains open
 for actual wrapper/credential semantics and validated recovery or exception
 evidence. The [provenance record](provenance.md#ttkn-encrypted-pdf-wrapper-inventory-415)

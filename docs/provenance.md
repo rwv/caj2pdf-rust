@@ -1642,11 +1642,42 @@ The new bounded inventory and six synthetic test groups are original MIT work
 in the samples repository. pikepdf 10.5.1 and cryptography 44.0.3 are external
 research tools, not added converter dependencies; no library implementation
 was copied. Fresh qpdf checks of all logical prefixes retain the unsupported
-filter diagnostic. Three scoped offline viewer opens fail, while a separate
-unencrypted control opens; the available fonts do not expose readable error
-messages, so the cause is not inferred. All four sessions have stable final
-captures, unchanged inputs, no OOM and verified container removal. The other
-13 originals are viewer NOT_RUN and #441 remains open.
+filter diagnostic.
+
+The [payload/viewer follow-up](https://github.com/rwv/caj2pdf-samples/blob/b4c8eb2f4d89ce46e585779bb870b8f8d946b7fc/research/notes/ttkn-payload-boundary-20261008.md)
+supersedes the three-original viewer coverage. A read-only CJK UI font mount
+makes errors readable for all 16 unchanged originals: 11 show a validation
+server connection error and five show an unknown error with a literal `%d`
+placeholder. Three originals also have matching `.caj`/`.pdf` outcomes. One
+derived unencrypted PDF opens at 1/78 and 48% under both extensions; it is a
+control, not another corpus conversion pass. All 21 sessions preserve sources,
+have no OOM and verify container removal. Six distinct final RGB frame groups
+were visually inspected; remaining frames match those groups exactly. Stable
+final pairs do not resolve #441. No authentication endpoint was contacted or
+credential supplied; the messages do not establish a sole failure cause.
+
+The new original MIT probe makes bounded external diagnostic copies with
+exactly one byte changed (`/Encrypt` to `/Xncrypt`) and the non-PDF wrapper
+omitted. Complete independent prefix comparisons verify that every other
+logical PDF byte is unchanged. All 16 diagnostics receive qpdf exit 2. Of
+16,863 raw streams, all 11,162 single-Flate streams fail bounded zlib decoding;
+the other 5,701 streams are explicitly NOT_CHECKED. All stream lengths are
+multiples of 16, which does not establish a cipher mode or key derivation.
+The 2,647 object-graph page entries are not decoded pages. All 17 parser
+warnings remain recorded: one duplicate `/MediaBox` per input, plus an unknown
+token treated as a string in object 735 of `64d3145cba37`.
+
+This Unix research utility uses 64 KiB sequential copies, 512 MiB source,
+4 KiB trailer, 100,000-object and 16 MiB raw/decoded-stream limits, with a
+1 GiB address-space cap and bounded qpdf subprocesses. Five original MIT test
+groups cover authored plaintext/encrypted controls, unchecked filters, zlib
+boundaries and identity/extent/trailer guards. No production dependency is
+added. Earlier invalid decode counters, the first unknown-filter failure,
+superseded runs and a failed direct invocation of the archived historical
+suite remain disclosed. The Catalog workflow's 57 selected synthetic tests
+pass locally; this is not a full archived-suite or corpus-compatibility claim.
+The metadata-only JSON receipt has SHA-256
+`ee4acd6983205a981e4544f7fb0c9eb43113d6baeb2b86f63ff140d29b27a791`.
 
 No foreign converter, vendor implementation or private HN/JBIG source was
 read or migrated. Documents, XML values, certificates, PFX/password/key data,
