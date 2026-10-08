@@ -1361,3 +1361,48 @@ with intact sources and verified container cleanup. Other vendor-viewer pages
 were not run and #441's cold-session limitation remains open. Metadata-only
 receipts and full-corpus results are tracked in [#446](https://github.com/rwv/caj2pdf-rust/issues/446).
 Documents, PDFs, text, fonts and pixels remain outside Git.
+
+## Truncated original with missing required bytes (#448)
+
+[AnguoCYF/caj2pdf-actions/file.caj](https://github.com/AnguoCYF/caj2pdf-actions/blob/a166a7c4b093bb24de4d92f8c15841b9f123d3ab/file.caj),
+SHA-256 `48960fa0d3ac6b9e531baf1193510263f75b8d1f472312cb89c2a406204c1970`,
+has 4,669,461 bytes and declares 134 pages / 94 bookmarks. Its independently
+computed Git blob `5d6ff7a27d2b2fbb1753cb0a397b3f12c36e196b` matches the
+public source, excluding a locally incomplete download. All 37 in-file page
+row offsets match their expected headers. Row 37 is partial; rows 38–134
+begin beyond EOF. The declared body end is 12991530, exceeding the available
+file by 8,322,069 bytes.
+
+The final object, Flate image 973, begins at 3750728 with data at 3750893.
+Its direct Length is 1058306, but only 918568 payload bytes remain: 139738
+bytes are missing before its tail and subsequent rows. Independent bounded
+zlib decoding emits a 2233675-byte prefix without an error but never reaches
+zlib EOF. These counts and hashes corroborate actual truncation; no decoded
+content is retained in Git. The complete declared document cannot be derived
+from these available bytes without additional source data.
+
+Native conversion refuses at byte 61864, record 37. Node and Chromium return
+the same `MALFORMED_CAJ`, write zero bytes and preserve input integrity;
+browser OPFS cleanup passes. These are expected-refusal checks, not conversion
+passes. Existing original page-span bounds tests cover this behavior; no
+converter change or redundant fixture is needed. Fresh contained original-viewer
+sessions show page 1/134 and a blank damaged page 37/134 at 50%. Timed captures
+agree, source hashes and container cleanup pass. The blank page is not treated
+as authored empty content; other pages and #441 limits remain unverified.
+
+Three uploaded repository-history versions contain the same truncated blob;
+the older fourth version is smaller. No exact header/table prefix match was
+found among 189 larger collected originals. Public title/filename search and
+the Tsinghua library record identify the thesis. The current author URL returns
+a 38-byte missing-page HTML response despite its indexed PDF description.
+A public archive supplies a separate 12,742,695-byte PDF, SHA-256
+`0720aeb03613751b5675ca02d4e8ce85ecee4312b691f9f32b071229f57d1cd1`,
+with 139 pages, 97 outlines and qpdf exit 0. Its differing inventory is not
+silently substituted for this original. Its named local outline destinations
+expose the separate implementation gap [#449](https://github.com/rwv/caj2pdf-rust/issues/449).
+The search is scoped and does not prove that no intact 134-page edition exists
+elsewhere. The [pinned metadata-only receipt](https://github.com/rwv/caj2pdf-samples/blob/6db00a66872a5bcacf113659d0304ca297ec83e8/research/notes/truncated-caj-20261008.md)
+records the source and alternative-search provenance for
+[#448](https://github.com/rwv/caj2pdf-rust/issues/448). No foreign converter
+implementation, private migration, new dependency or external document/PDF/text/
+pixel/font/vendor bytes are introduced. No release.
