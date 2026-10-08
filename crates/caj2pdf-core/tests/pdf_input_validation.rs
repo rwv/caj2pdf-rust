@@ -360,6 +360,46 @@ fn unfiltered_xref_stream_copy_reopens() {
 }
 
 #[test]
+fn independently_encoded_object_streams_and_up_xref_preserve_pages_and_outlines() {
+    // qpdf encodes an original MIT fixture, providing an independent producer
+    // for compressed Catalog/page/outline metadata and PNG Up xref rows.
+    let original = fixture("valid_nested_outline.pdf");
+    let encoded = TempPdf::new("object-stream-input");
+    check_command(
+        Command::new("qpdf")
+            .arg("--object-streams=generate")
+            .arg(&original)
+            .arg(&encoded.path),
+        "qpdf object-stream encoding",
+    );
+    let input = read(&encoded.path).unwrap();
+    for marker in [b"/ObjStm".as_slice(), b"/Predictor 12"] {
+        assert!(input.windows(marker.len()).any(|bytes| bytes == marker));
+    }
+    let mut source = OneBytePdfSource(input.clone());
+    let mut output = TempPdf::new("object-stream-output");
+    let report = copy_pdf(
+        &mut source,
+        &mut &mut output.file,
+        &Limits::default(),
+        &CancelAfter::Never,
+    )
+    .unwrap();
+    output.file.flush().unwrap();
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(read(&output.path).unwrap(), input);
+    let index = inspect_bytes(input).unwrap();
+    assert!(index.has_outlines());
+    check_pdf(&output.path, 2);
+    for page in 1..=2 {
+        assert_eq!(
+            render_page(&original, page),
+            render_page(&output.path, page)
+        );
+    }
+}
+
+#[test]
 fn xref_stream_row_parse_observes_cancellation() {
     // Width-one rows are cheap to inflate but can require many parse steps.
     // The deliberately free self-entry would fail later if parsing completed.
