@@ -33,6 +33,8 @@ pub(super) enum Recovery {
     Orphan { resume: u64, prefix: FragmentObject },
     /// The stream ends at `end` after a same-width `/Length` correction.
     Repaired { end: u64, patch: FragmentPatch },
+    /// A complete empty Form inside an equivalent empty Form wrapper.
+    Embedded { object: FragmentObject, end: u64 },
     /// Partial mode recorded damage; continue at this offset, or stop.
     Discarded(Option<u64>),
 }
@@ -126,6 +128,9 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     start: u64,
     stream: &StreamFailure,
 ) -> Result<Option<Recovery>> {
+    if let Some((object, end)) = super::empty_form::candidate(reader, start, stream)? {
+        return Ok(Some(Recovery::Embedded { object, end }));
+    }
     if let Some((resume, prefix)) = super::orphan::image_prefix(reader, pass, start, stream)? {
         return Ok(Some(Recovery::Orphan { resume, prefix }));
     }

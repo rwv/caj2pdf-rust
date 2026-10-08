@@ -222,6 +222,26 @@ With `--allow-damaged` (below), a failure no rule recovers is recorded and
 the scan resumes after an independently framed stream or at the page
 table's next page dictionary.
 
+### Nested duplicate empty Forms
+
+The measured #439 CAJ profile contains a complete empty Form immediately at
+another empty Form's declared data boundary. Both must use the same object
+number, generation zero, direct Length zero, and exactly Type, Subtype, Length,
+BBox and Matrix keys. Type/Subtype must be XObject/Form. All four BBox and six
+Matrix numeric tokens must match exactly; floating-point normalization is not
+used. Each header is limited to 256 bytes. Two consecutive complete
+endstream/endobj tails are required, with at most 64 PDF whitespace bytes
+before each keyword. No payload search or recursive recovery is performed.
+
+The scanner keeps the complete inner object and resumes after the outer tail.
+It rechecks both headers and tails before selection, then uses the existing
+object index, duplicate checks, graph validation and sequential reconstruction.
+Only redundant framing is omitted; no content stream is edited. Additional
+keys, differing geometry or IDs, indirect/nonzero Lengths, nonempty content,
+incomplete tails and nested repeats do not qualify. Ordinary indexed-PDF
+validation remains unchanged. Header/tail probes use bounded ranged reads and
+existing allocation, cancellation and I/O limits.
+
 ### Checksum-confirmed CAJ stream substitution
 
 The measured #436 profile additionally recovers `ca a7 c2 e4` expanded from

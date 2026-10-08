@@ -6,6 +6,7 @@
 //! metadata, never page-content payloads. All offsets in `PdfIndex` are relative
 //! to `PdfRange`; diagnostics use absolute source offsets.
 
+mod empty_form;
 mod footer;
 mod link_repair;
 mod object_stream;

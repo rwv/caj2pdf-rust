@@ -1175,3 +1175,40 @@ comparison. No independently downloaded intact source or whole-document
 vendor-render proof is claimed. The bounded recovery is supported by the
 unchanged source's redundant lengths, checksums and offsets, plus the scoped
 render controls; the original corruption cause remains unknown.
+
+
+## Nested duplicate empty Forms (#439)
+
+Three independently collected public `CatTalk2/Face-recognition` CAJ originals
+contain an empty Form inside a redundant same-number empty Form wrapper:
+
+| Source SHA-256 | Pages / bookmarks | Form | Complete objects / streams |
+| --- | --- | --- | --- |
+| `0374e70b8fe016b8b28932d2d4824744c7cd16155262b8be6f8d26f79275ae0e` | 66 / 54 | 9418 | 640 / 262 |
+| `76e306d87586e3f28efcb4d6c7093b5cb002b69c1da609c6dde1a817a506f581` | 81 / 90 | 182 | 736 / 373 |
+| `7797fd3c7d6ce8b1ae8203ff9957d6a52ef76c4290a8a777da66297f30c8fa78` | 64 / 22 | 29 | 348 / 119 |
+
+Both dictionaries have exactly Type, Subtype, Length, BBox and Matrix. Their
+numeric tokens are identical despite whitespace differences, and both Lengths
+are direct zero. Each complete inner Form is followed by its own tail and the
+outer tail. The original MIT `pdf/input/empty_form.rs` implements only the
+[bounded measured profile](pdf-input.md#nested-duplicate-empty-forms), retaining
+the complete inner object's bytes. The original tests use authored dictionaries
+and page content, including conflicting, nonempty, incomplete, recursive,
+changing-source, cancellation, short-I/O and strict indexed-PDF controls.
+No foreign converter/vendor implementation or private source was used; there
+are no new dependencies or externally sourced fixture bytes.
+
+An independent framing keeps the entire original CAJ body verbatim, selects
+all complete objects (including the inner Form) in its xref, and supplies only
+missing page-tree/catalog framing. All 1,724 selected object values and 754 raw
+stream payloads agree with conversion of the unchanged originals. All 211
+page identities, geometry, text, links and Poppler RGB72 renders agree, and
+166 source bookmarks are retained. Qpdf accepts all three outputs and the
+independent framings. Source-viewer comparisons cover affected pages 30, 31
+and 3 respectively, with a painted Form negative control for each; this is
+scoped viewer evidence, not a whole-document vendor-render claim. The first
+two selected pages match exactly; the third has a retained pixel disagreement
+under investigation. The 66-page source also produces a MuPDF warning for a
+non-embedded SimSun font using identity encoding. Document
+bytes, diagnostic PDFs and screenshots remain external.
