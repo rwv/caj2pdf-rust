@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+No changes recorded after v0.6.0.
+
+## v0.6.0
+
+See the [release notes and migration guide](docs/releases/v0.6.0.md).
+
 - **Breaking:** recognize the independently measured CAA target-descriptor
   profile across core, CLI, Node and browser (#424, #425). Inspection reports
   CAA with unknown counts; conversion returns the existing typed unsupported
