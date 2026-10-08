@@ -80,6 +80,7 @@ struct Record {
     output_offset: u64,
     /// The position of this object in the supplied plan.
     index: Option<usize>,
+    blank_media_box: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Copy)]
@@ -113,6 +114,7 @@ impl Record {
             },
             output_offset: 0,
             index: None,
+            blank_media_box: None,
         }
     }
 }
@@ -537,7 +539,7 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
         source,
         plan,
         given,
-        &records,
+        &mut records,
         &sorted_pages,
         limits,
         cancellation,
@@ -596,7 +598,7 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     out.write(HEADER)?;
     for record in records.iter_mut().filter(|record| record.range.length != 0) {
         record.output_offset = out.position;
-        copy_object(source, &mut out, record.range, &mut buffer)?;
+        copy_object(source, &mut out, record, &mut buffer)?;
         out.write(b"\n")?;
     }
     if let Some(prefix) = pages_prefix {
@@ -728,6 +730,7 @@ fn index_spans(
             range: fragment.range,
             output_offset: 0,
             index: Some(index),
+            blank_media_box: None,
         });
     }
     records.sort_unstable_by_key(|record| record.range.offset);
@@ -762,9 +765,10 @@ fn index_spans(
 fn copy_object<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     out: &mut Output<'_, W, C>,
-    range: PdfRange,
+    record: &Record,
     buffer: &mut [u8],
 ) -> Result<()> {
+    let range = record.range;
     let mut copied = 0;
     while copied < range.length {
         let length = (range.length - copied).min(buffer.len() as u64) as usize;
@@ -776,6 +780,13 @@ fn copy_object<R: RangedSource, W: Write, C: Cancellation>(
             out.limits,
             out.cancellation,
         )?;
+        if let Some((first, last)) = record.blank_media_box {
+            let begin = (first as u64).max(copied);
+            let end = (last as u64).min(copied + length as u64);
+            if begin < end {
+                buffer[(begin - copied) as usize..(end - copied) as usize].fill(b' ');
+            }
+        }
         out.write(&buffer[..length])?;
         copied += length as u64;
     }
@@ -836,7 +847,7 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     source: &mut R,
     plan: &FragmentPlan<'_>,
     given: Option<Vec<Option<FragmentInspection>>>,
-    records: &[Record],
+    records: &mut [Record],
     sorted_pages: &[PdfRef],
     limits: &Limits,
     cancellation: &C,
@@ -867,7 +878,8 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     let mut content_evidence = Vec::new();
     // At most one destination per record, so a `u64` count cannot overflow.
     let mut destination_count = 0_u64;
-    for (position, record) in records.iter().enumerate() {
+    for position in 0..records.len() {
+        let record = records[position];
         let inspection = match (&mut given, record.index) {
             (_, None) => None,
             (Some(given), Some(index)) => given[index].take(),
@@ -898,6 +910,16 @@ fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             kinds.push(None);
             continue;
         };
+        if let Some((first, last)) = inspection.blank_media_box {
+            if first >= last || last as u64 > record.range.length {
+                return Err(malformed(
+                    Some(record.reference),
+                    record.range.offset,
+                    "page box repair exceeds object span",
+                ));
+            }
+            records[position].blank_media_box = Some((first, last));
+        }
         // The inspector rejects any header other than the expected one.
         debug_assert_eq!(inspection.reference, record.reference);
         if inspection.max_referenced_object > MAX_PDF_OBJECTS {

@@ -1,5 +1,16 @@
 # Unreleased
 
+## Identical CAJ fragment page boxes (#407)
+
+- CAJ reconstruction now removes the second of two identical direct
+  MediaBox values on a Page or Pages dictionary while copying that object.
+  Conflicting values and other duplicate-key profiles remain errors.
+- Four original documents (308 pages, 218 outlines) pass native/Node/Chromium,
+  qpdf and the [source-content checks](../conformance.md#identical-fragment-page-box-checkpoint-407).
+  Stream bytes and object identities are preserved. No public API shapes or
+  dependencies change; reconstruction retains only fixed-size span metadata
+  under the existing allocation limits.
+
 ## PNG Up xrefs and compressed PDF metadata (#402, #404)
 
 - The measured KDH/PDF profile now converts through bounded PNG Up xref

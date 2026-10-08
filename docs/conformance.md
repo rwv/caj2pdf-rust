@@ -742,3 +742,29 @@ which is included in the final fix. The implementation and original regression
 controls are described in [provenance](provenance.md#png-up-xref-and-compressed-pdf-metadata-402-404);
 [supported PDF input](pdf-input.md) lists the bounded profile and exclusions.
 No optional-corpus skip is counted as a compatibility pass.
+
+
+## Identical fragment page-box checkpoint (#407)
+
+All four unchanged originals in [#407](https://github.com/rwv/caj2pdf-rust/issues/407)
+convert on native, Node.js and real Chromium: **308 pages and 218 outlines**,
+with identical PDF hashes across runtimes and clean qpdf 12.2.0 checks. Browser
+OPFS cleanup passes. Original source hashes/sizes pass before and after.
+The original CAJ page-table identities and outline title/order/destination
+inventory all match. All **1,308 raw stream payloads and their object numbers**
+are preserved in the independently framed source body and the native output.
+
+All 308 page-object identities, rectangles, rotations and extracted texts
+match the source-body PDF oracle; all RGB renders at 72 dpi match in PyMuPDF
+1.27.2.2. This oracle preserves the original object body, including the
+redundant boxes, and independently derives only missing structural ancestors
+from source Parent links and the CAJ page table. It does not incorporate
+converter-generated page content. These are source-body comparisons, not
+CAJViewer or every-renderer/resolution fidelity claims.
+
+Qpdf's separately rewritten reference changes rendering on page 69 of
+`6f30a4a0dc36…` despite preserving raw stream payloads. That reference is not
+substituted for source pixels: the native output matches the verbatim source
+body on that page and all others. The discrepancy remains recorded rather
+than silently loosening the render comparison. The four passing source-outline
+checks are independent of these PDF framing/render checks.
