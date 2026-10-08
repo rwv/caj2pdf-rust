@@ -2,6 +2,13 @@
 
 Changes after [v0.6.1](v0.6.1.md):
 
+- Accept the measured named local outline destinations in indexed PDFs (#449):
+  byte-string keys in an indirect Dests name tree, resolving through indirect
+  XYZ arrays to live pages. Validate complete ordering, Limits and graph shape
+  under bounded metadata budgets; reject missing/ambiguous targets and
+  unobserved named profiles. Clean PDFs remain byte-identical. Native, CLI,
+  Node and browser share this core behavior, with no API or dependency change.
+
 - Recover the measured redundant CAJ xref/header-copy suffix and two unused
   interruption profiles (#409, #434). The suffix must match original header
   bytes and terminate at a pending indirect Length object. Interrupted images

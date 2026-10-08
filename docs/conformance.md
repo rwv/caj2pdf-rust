@@ -1000,3 +1000,15 @@ conversion or arbitrary replacement is added. A separately retrieved archived
 gap #449. Its availability neither repairs this original nor establishes
 edition equivalence. The documented search does not rule out intact
 alternatives elsewhere; other refused sources need their own evidence.
+
+## Named local outline destinations (#449)
+
+The separately collected archived PDF in [provenance](provenance.md#named-local-outline-destinations-449)
+now passes native/Node/Chromium with byte-identical output and qpdf exit zero.
+Independent checks preserve all 139 pages, 97 outlines, 889 named annotation
+links, 4,006 original object values and 563 raw streams. All 139 Poppler renders
+agree; an independently modified wrong-target control changes the first outline
+from page 1 to page 2 in the reader. This is not a vendor-viewer fidelity claim.
+External actions are inventoried without execution. The original 134-page CAJ
+in #448 remains a distinct missing-data exception, and baseline counts must
+not silently absorb this new source identity.

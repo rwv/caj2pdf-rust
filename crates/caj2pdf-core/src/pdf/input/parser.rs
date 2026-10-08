@@ -780,6 +780,77 @@ pub(super) fn destination_page(bytes: &[u8]) -> Option<PdfRef> {
     parser.at_end().then_some(page)
 }
 
+/// Borrow each complete direct array value without retaining another index.
+pub(super) fn array_values(bytes: &[u8]) -> ParseResult<ArrayValues<'_>> {
+    let mut parser = Syntax::new(bytes);
+    parser.skip_space();
+    parser.expect_byte(b'[', "expected PDF array")?;
+    Ok(ArrayValues {
+        parser,
+        done: false,
+    })
+}
+
+pub(super) struct ArrayValues<'a> {
+    parser: Syntax<'a>,
+    done: bool,
+}
+
+impl<'a> Iterator for ArrayValues<'a> {
+    type Item = ParseResult<&'a [u8]>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        self.parser.skip_space();
+        if self.parser.bytes.get(self.parser.pos) == Some(&b']') {
+            self.done = true;
+            self.parser.pos += 1;
+            return (!self.parser.at_end())
+                .then(|| Err(malformed(self.parser.pos, "trailing data after PDF array")));
+        }
+        let start = self.parser.pos;
+        // References are already validated by the indexed object's parser.
+        // Do not retain them a second time across array values.
+        self.parser.references.clear();
+        match self.parser.skip_value(0) {
+            Ok(()) => Some(Ok(&self.parser.bytes[start..self.parser.pos])),
+            Err(error) => {
+                self.done = true;
+                Some(Err(error))
+            }
+        }
+    }
+}
+
+/// The measured named-destination view. Direct outline arrays retain their
+/// existing profile; this stricter admission applies to the new name tree.
+pub(super) fn xyz_destination_page(bytes: &[u8]) -> Option<PdfRef> {
+    let page = destination_page(bytes)?;
+    let mut values = array_values(bytes).ok()?;
+    values.next()?.ok()?;
+    if exact_name(values.next()?.ok()?).as_deref() != Some(b"XYZ") {
+        return None;
+    }
+    for _ in 0..3 {
+        let value = values.next()?.ok()?;
+        if value == b"null" {
+            continue;
+        }
+        let mut parser = Syntax::new(value);
+        let (span, _) = parser.read_number_token().ok()?;
+        let number = std::str::from_utf8(&value[span])
+            .ok()?
+            .parse::<f64>()
+            .ok()?;
+        if !parser.at_end() || !number.is_finite() {
+            return None;
+        }
+    }
+    values.next().is_none().then_some(page)
+}
+
 pub(super) fn media_box(bytes: &[u8]) -> Option<[f64; 4]> {
     let mut parser = Syntax::new(bytes);
     parser.skip_space();

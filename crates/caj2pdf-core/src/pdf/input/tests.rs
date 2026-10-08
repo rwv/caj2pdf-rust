@@ -7,6 +7,8 @@ use crate::test_support::{CancelAfter, NEVER};
 use recovery::blank_fragment_page;
 use std::io::Cursor;
 
+mod named_destination_tests;
+
 /// Parse one planned object span and frame it with `resolve_length`.
 fn inspect_fragment_object<S: RangedSource, C: Cancellation>(
     source: &mut S,
@@ -3332,6 +3334,9 @@ fn compressed_fixture(
     change_data: impl FnOnce(&mut Vec<u8>),
     change_xref: impl FnOnce(&mut Vec<u8>),
 ) -> Vec<u8> {
+    let container = members.iter().map(|(number, _)| *number).max().unwrap() + 1;
+    let xref_number = container + 1;
+    let size = xref_number + 1;
     let mut header = String::new();
     let mut body = Vec::new();
     for &(number, value) in members {
@@ -3346,19 +3351,19 @@ fn compressed_fixture(
     let encoded = zlib(&decoded);
     let mut pdf = b"%PDF-1.5\n".to_vec();
     let object_at = pdf.len();
-    pdf.extend_from_slice(format!("4 0 obj\n<< /Type /ObjStm /N {} /First {first} /Length {} /Filter /FlateDecode {extra} >>\nstream\n", members.len(), encoded.len()).as_bytes());
+    pdf.extend_from_slice(format!("{container} 0 obj\n<< /Type /ObjStm /N {} /First {first} /Length {} /Filter /FlateDecode {extra} >>\nstream\n", members.len(), encoded.len()).as_bytes());
     pdf.extend_from_slice(&encoded);
     pdf.extend_from_slice(b"\nendstream\nendobj\n");
     let xref_at = pdf.len();
     let mut rows = Vec::new();
-    for number in 0..6 {
+    for number in 0..size {
         let (kind, offset, ordinal) = match number {
             0 => (0_u8, 0_u32, u16::MAX),
-            4 => (1, object_at as u32, 0),
-            5 => (1, xref_at as u32, 0),
+            n if n == container => (1, object_at as u32, 0),
+            n if n == xref_number => (1, xref_at as u32, 0),
             _ => (
                 2,
-                4,
+                container,
                 members.iter().position(|(n, _)| *n == number).unwrap_or(0) as u16,
             ),
         };
@@ -3368,7 +3373,7 @@ fn compressed_fixture(
     }
     change_xref(&mut rows);
     let xref = zlib(&rows);
-    pdf.extend_from_slice(format!("5 0 obj\n<< /Type /XRef /Size 6 /Root 1 0 R /W [1 4 2] /Length {} /Filter /FlateDecode >>\nstream\n", xref.len()).as_bytes());
+    pdf.extend_from_slice(format!("{xref_number} 0 obj\n<< /Type /XRef /Size {size} /Root 1 0 R /W [1 4 2] /Length {} /Filter /FlateDecode >>\nstream\n", xref.len()).as_bytes());
     pdf.extend_from_slice(&xref);
     pdf.extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{xref_at}\n%%EOF\n").as_bytes());
     pdf

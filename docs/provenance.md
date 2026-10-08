@@ -1406,3 +1406,44 @@ records the source and alternative-search provenance for
 [#448](https://github.com/rwv/caj2pdf-rust/issues/448). No foreign converter
 implementation, private migration, new dependency or external document/PDF/text/
 pixel/font/vendor bytes are introduced. No release.
+
+## Named local outline destinations (#449)
+
+The [archived author-hosted thesis PDF](https://web.archive.org/web/20220119135502id_/http://ise.thss.tsinghua.edu.cn/~mlong/doc/phd-thesis-mingsheng-long.pdf),
+SHA-256 `0720aeb03613751b5675ca02d4e8ce85ecee4312b691f9f32b071229f57d1cd1`,
+has 12,742,695 bytes, 139 pages and 97 outlines. It is a separate identity
+outside the original 1,277-input GitHub baseline, not a repaired version of
+the truncated 134-page original in #448. The failed current author URL and
+archive provenance remain in that issue's pinned evidence.
+
+Independent standard-PDF inspection finds Catalog 1 / Names 3600 / Dests 3595,
+341 tree nodes at maximum depth four, and 747 byte-string keys resolving to
+indirect XYZ arrays. All non-root Limits and lexical ordering agree. All 97
+outline items use direct local GoTo actions with string keys; 889 annotation
+links resolve through the same names. Another 29 URI and two launch actions
+are inventoried without execution. Qpdf and MuPDF identify 4,006 original
+objects and 563 streams. Pikepdf exposes an additional in-memory MediaBox array
+at 4007; it is absent from the original xref and excluded from source counts.
+
+The original MIT implementation follows ISO 32000-1:2008 §§7.3.4 (byte strings),
+7.9.6/Table 36 (name trees), 12.3.2.2/Table 151 (XYZ), 12.3.2.3 (named destinations)
+and 12.6.4.2 (local GoTo). The [Adobe-hosted specification](https://raw.githubusercontent.com/adobe/dc-acrobat-sdk-docs/master/docs/standards/pdfstandards/pdf/PDF32000_2008.pdf)
+was read directly; no foreign converter or vendor implementation was inspected.
+The existing indexed/object-stream reader, page-target validation, parser and
+bounded allocation helpers are reused. The [input profile](pdf-input.md#named-local-destinations)
+records admission and resource limits. No private migration, dependency or
+native/CLI/JavaScript API change is introduced.
+
+The unchanged PDF converts byte-identically on native, Node and Chromium, with
+clean qpdf and browser temporary-file cleanup. Independent comparison covers
+all 139 page objects/geometries/text/link inventories and Poppler RGB renders,
+all 4,006 object values, 563 raw streams and 97 outlines. An independent reader
+resolves the first outline to page 1; a wrong-target diagnostic changes that
+resolution to page 2 while preserving page text. This is scoped reader
+navigation evidence, not an original-vendor-viewer run or a resolution of #441.
+Original controls cover string escapes, tree topology/order/Limits, unsupported
+targets/actions/views, compressed metadata, depth/work/allocation boundaries,
+short I/O, cancellation and an invalid target after a source change.
+Full regression and reviewed-build receipts are tracked in
+[#449](https://github.com/rwv/caj2pdf-rust/issues/449). External document/PDF/text/
+pixel/font bytes remain outside Git; no release is performed.
