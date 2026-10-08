@@ -29,6 +29,8 @@ pub(super) enum Recovery {
     /// Continue at `resume` once the complete scan proves `prefix` an exact
     /// proper prefix of the indexed object with the same number.
     Defer { resume: u64, prefix: FragmentObject },
+    /// A measured interruption that the complete graph must prove unused.
+    Orphan { resume: u64, prefix: FragmentObject },
     /// The stream ends at `end` after a same-width `/Length` correction.
     Repaired { end: u64, patch: FragmentPatch },
     /// Partial mode recorded damage; continue at this offset, or stop.
@@ -79,6 +81,9 @@ fn syntax_recovery<S: RangedSource, C: Cancellation>(
     start: u64,
     error: &Error,
 ) -> Result<Option<Recovery>> {
+    if let Some(end) = super::epilogue::end(reader, pass, start)? {
+        return Ok(Some(Recovery::Resume(end)));
+    }
     if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
         return Ok(Some(Recovery::Resume(end)));
     }
@@ -97,6 +102,9 @@ fn syntax_recovery<S: RangedSource, C: Cancellation>(
     }
     if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
         return Ok(Some(Recovery::Resume(end)));
+    }
+    if let Some((resume, prefix)) = super::orphan::opener(reader, start, error)? {
+        return Ok(Some(Recovery::Orphan { resume, prefix }));
     }
     let Some((resume, prefix)) = interrupted_syntax_prefix(reader, start, error)? else {
         return Ok(None);
@@ -118,6 +126,9 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     start: u64,
     stream: &StreamFailure,
 ) -> Result<Option<Recovery>> {
+    if let Some((resume, prefix)) = super::orphan::image_prefix(reader, pass, start, stream)? {
+        return Ok(Some(Recovery::Orphan { resume, prefix }));
+    }
     let Some((patch_offset, original)) = &stream.direct else {
         if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
             return Ok(Some(Recovery::Resume(end)));

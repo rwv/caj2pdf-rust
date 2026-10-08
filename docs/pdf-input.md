@@ -31,6 +31,9 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   [Stream extents in CAJ fragments](#stream-extents-in-caj-fragments).
   PDF-looking bytes inside a stream are payload once the extent is fixed;
   the reader does not re-parse them.
+  Up to 64 PDF whitespace bytes may separate that fixed extent from the exact
+  `endstream`/`endobj` tail (#409). This measured tolerance does not extend the
+  payload, search past non-whitespace, or relax Length-repair width limits.
 - Catalog and page-tree links, declared page counts, and bounded object and
   page indexes. Page geometry accepts direct rectangles or indirect scalar
   rectangle objects. Compressed metadata uses generation-zero, standalone
@@ -218,6 +221,41 @@ the same number. A deferred prefix without that proof is an error.
 With `--allow-damaged` (below), a failure no rule recovers is recorded and
 the scan resumes after an independently framed stream or at the page
 table's next page dictionary.
+
+## Redundant CAJ framing
+
+The measured #434 profile additionally recognizes an obsolete classic
+xref/trailer/startxref/EOF block followed by an encoded duplicate of the CAJ
+header. Its syntax is capped at 4 KiB and the existing allocation-derived
+syntax limit, with at most 128 ordered entries and exactly Size, Root, Info,
+Prev and two 16-byte hexadecimal ID strings in the trailer. Old xref offsets
+are never used as object boundaries. Every copied byte must equal the source
+header from byte 144 after the measured FZHMEI XOR phase. At least 128 and
+fewer than 65,536 bytes must match before CRLF and a complete generation-zero
+integer that exactly confirms a previously pending stream Length. Header
+fields, framing bytes and the complete duplicate are checked again.
+
+Two narrowly measured unused interruptions can be omitted only after the
+complete forward scan proves that no parsed object references their IDs and
+no complete object has that ID. An unfinished generation-zero object followed
+by a single `<`, CRLF and an adjacent complete non-stream object has no value
+bytes to retain. An interrupted Image/Flate/RGB stream must have the measured
+nine-field dictionary and a known indirect Length. Its dictionary, except
+Length, must equal an independently anchored later image, and at least 256
+but fewer than 65,536 payload bytes must match before CRLF and a pending
+Length's exact integer. The complete image's declared extent and object
+boundary must agree. Only one candidate may qualify, and the full scan must
+actually reach it outside other stream payloads.
+
+Image headers and adjacent opener objects are capped at 256 bytes; at most
+64 eligible images and 64 unused interruptions are admitted. Prefix checks
+use chunks of at most 256 bytes, respecting smaller I/O limits, short reads
+and cancellation. A changed prefix/header, meaningful unmatched value,
+incoming reference, conflicting counterpart or incomplete inspection fails.
+Opaque object/xref streams cannot supply complete-reference proof; partial
+scans that discard other damage cannot establish it either. This is not a
+general policy of deleting unreferenced malformed objects. Complete stream
+payloads are preserved, and no missing image data is reconstructed.
 
 ## Header offset
 

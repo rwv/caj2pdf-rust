@@ -170,6 +170,7 @@ pub(super) struct Pass<'p> {
     conflicting_lengths: bool,
     pub pending_lengths: Vec<PendingLength>,
     pub pending_prefixes: Vec<FragmentObject>,
+    pending_orphans: Vec<FragmentObject>,
     pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
@@ -274,6 +275,7 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
             conflicting_lengths: false,
             pending_lengths: Vec::new(),
             pending_prefixes: Vec::new(),
+            pending_orphans: Vec::new(),
             patches: Vec::new(),
             source_paths: Vec::new(),
             source_path_bytes: 0,
@@ -353,6 +355,20 @@ fn run_pass<S: RangedSource, C: Cancellation>(
                     &mut pass.pending_prefixes,
                     prefix,
                     "CAJ interrupted prefixes",
+                )?;
+                cursor = resume;
+            }
+            Recovery::Orphan { resume, prefix } => {
+                if pass.pending_orphans.len() == 64 {
+                    return Err(Error::limit("CAJ unused interruptions", 64, 65));
+                }
+                reader.limits.check_allocation(
+                    (pass.pending_orphans.len() as u64 + 1) * size_of::<FragmentObject>() as u64,
+                )?;
+                push_counted(
+                    &mut pass.pending_orphans,
+                    prefix,
+                    "CAJ unused interruptions",
                 )?;
                 cursor = resume;
             }
@@ -793,6 +809,54 @@ fn finish<S: RangedSource, C: Cancellation>(
             return Err(error);
         }
     }
+    if verify && !pass.pending_orphans.is_empty() {
+        if !pass.damaged.is_empty() {
+            return Err(reader.malformed(
+                0,
+                None,
+                "unused interruption requires a complete object graph",
+            ));
+        }
+        if let Some(index) = pass.objects.iter().position(|s| s.inspection.is_err()) {
+            return Err(pass.objects.swap_remove(index).inspection.err().unwrap());
+        }
+        // Dictionary references alone cannot prove absence of incoming
+        // edges when an object stream could hide compressed metadata.
+        for scanned in &pass.objects {
+            if !scanned.inspection.as_ref().unwrap().is_stream {
+                continue;
+            }
+            let at = scanned.object.range.offset - body_start;
+            let head = reader.load_head(at, Some(scanned.object.reference))?;
+            if let Some(value) = head.dictionary.as_ref().and_then(|d| d.value(b"Type")) {
+                let name = super::exact_name(value);
+                if name.is_none() || matches!(name.as_deref(), Some(b"ObjStm" | b"XRef")) {
+                    return Err(reader.malformed(
+                        at,
+                        Some(scanned.object.reference),
+                        "unused interruption has an opaque metadata stream",
+                    ));
+                }
+            }
+        }
+        for orphan in &pass.pending_orphans {
+            for scanned in &pass.objects {
+                if reader.cancellation.is_cancelled() {
+                    return Err(crate::ErrorKind::Cancelled.into());
+                }
+                let inspection = scanned.inspection.as_ref().unwrap();
+                if scanned.object.reference == orphan.reference
+                    || inspection.references.contains(&orphan.reference)
+                {
+                    return Err(reader.malformed(
+                        orphan.range.offset - body_start,
+                        Some(orphan.reference),
+                        "interrupted orphan has a complete object or incoming reference",
+                    ));
+                }
+            }
+        }
+    }
     Ok(Ok(FragmentScan {
         objects: pass.objects,
         patches: pass.patches,
@@ -898,3 +962,6 @@ fn is_malformed(error: &Error) -> bool {
 mod damaged_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod redundant_tests;

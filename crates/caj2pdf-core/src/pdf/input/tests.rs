@@ -112,6 +112,90 @@ fn stream_crlf_across_object_head_reads_preserves_payload_extent() {
     }
 }
 
+#[test]
+fn declared_stream_extent_accepts_only_bounded_whitespace_before_its_tail() {
+    // Includes a complete fake terminator inside the declared opaque payload.
+    let payload = "first\nendstream\nendobj\nlast";
+    let reference = PdfRef {
+        number: 1,
+        generation: 0,
+    };
+    for indirect in [false, true] {
+        for tail in ["", "\r ", "\r\n \t\0\x0c\n", &" ".repeat(64)] {
+            let length = if indirect {
+                "2 0 R".to_owned()
+            } else {
+                payload.len().to_string()
+            };
+            let bytes =
+                format!("1 0 obj << /Length {length} >> stream\n{payload}{tail}endstream\nendobj")
+                    .into_bytes();
+            let range = PdfRange {
+                offset: 0,
+                length: bytes.len() as u64,
+            };
+            let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+            let limits = Limits {
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            };
+            let inspected =
+                inspect_fragment_object(&mut source, range, reference, &limits, &NEVER, |target| {
+                    assert_eq!(target.number, 2);
+                    Some(payload.len() as u64)
+                })
+                .unwrap();
+            assert!(inspected.is_stream);
+        }
+    }
+    for tail in [
+        "xendstream\nendobj",
+        "%comment\nendstream\nendobj",
+        "endstrea",
+        "endstream",
+        "endstream\nendob",
+    ] {
+        let bytes = format!("1 0 obj << /Length 3 >> stream\nabc\r {tail}");
+        assert!(
+            inspect_raw_fragment(bytes.as_bytes()).is_err(),
+            "accepted {tail:?}"
+        );
+    }
+    let bytes = format!(
+        "1 0 obj << /Length 3 >> stream\nabc{}endstream\nendobj",
+        " ".repeat(65)
+    );
+    let error = inspect_raw_fragment(bytes.as_bytes()).err().unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::LimitExceeded {
+            limit: 64,
+            attempted: 65,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn fragment_whitespace_does_not_trigger_a_width_changing_length_repair() {
+    let payload = "x".repeat(97) + "\n";
+    let bytes =
+        format!("1 0 obj << /Length 98 >> stream\n{payload}\r endstream\rendobj").into_bytes();
+    let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+    let scan = scan_fragment_with_candidates(
+        &mut source,
+        0,
+        bytes.len() as u64,
+        &Limits::default(),
+        &NEVER,
+        &mut [],
+    )
+    .unwrap();
+    assert_eq!(scan.objects.len(), 1);
+    assert_eq!(scan.objects[0].object.range.length, bytes.len() as u64);
+    assert!(scan.patches.is_empty());
+}
+
 fn expect_pdf_error(bytes: Vec<u8>, kind: &str) {
     let error = pdf_error(open(bytes));
     assert!(pdf_class(&error) == Some(kind), "{error:?}");
@@ -260,7 +344,8 @@ fn indirect_lengths_frame_streams_without_decoding_them() {
 #[test]
 fn indirect_flate_length_preserves_cancellation_at_every_checkpoint() {
     let encoded = zlib(&vec![b'x'; 9000]);
-    let bytes = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    let mut bytes = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    replace_once(&mut bytes, b"\nendstream", b"\r endstream");
     let counter = CancelAfter::never();
     scan_indirect(bytes.clone(), &Limits::default(), &counter).unwrap();
     for allowed in 0..counter.queries() {

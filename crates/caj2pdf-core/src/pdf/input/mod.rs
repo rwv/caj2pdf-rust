@@ -41,6 +41,7 @@ use std::cmp::min;
 const WINDOW_BYTES: usize = 8 * 1024;
 const MAX_TAIL_SEARCH: u64 = 64 * 1024;
 const MAX_OBJECT_SYNTAX: u64 = 4 * 1024 * 1024;
+const MAX_STREAM_TAIL_SPACE: u64 = 64;
 const MAX_XREF_SECTIONS: usize = 64;
 const MAX_XREF_INDEX_VALUES: usize = 8192;
 const MAX_XREF_STREAM_BYTES: u64 = 4 * 1024 * 1024;
@@ -1342,15 +1343,24 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     fn check_stream_tail(&mut self, after_data: u64, object: Option<PdfRef>) -> Result<u64> {
         let mut cursor = after_data;
-        match self.byte(cursor)? {
-            Some(b'\r') => {
-                cursor += 1;
-                if self.byte(cursor)? == Some(b'\n') {
-                    cursor += 1;
-                }
+        // Length already fixes the opaque payload extent. Tolerate a bounded
+        // whitespace tail without mistaking it for understated stream data.
+        while matches!(
+            self.byte(cursor)?,
+            Some(b' ' | b'\t' | b'\r' | b'\n' | 0 | 12)
+        ) {
+            cursor += 1;
+            if cursor - after_data > MAX_STREAM_TAIL_SPACE {
+                return Err(self.locate_limit(
+                    cursor - 1,
+                    object,
+                    Error::limit(
+                        "PDF stream tail whitespace",
+                        MAX_STREAM_TAIL_SPACE,
+                        cursor - after_data,
+                    ),
+                ));
             }
-            Some(b'\n') => cursor += 1,
-            _ => {}
         }
         if self.bytes(cursor, 9)?.as_slice() != b"endstream" {
             return Err(self.malformed(cursor, object, "stream Length does not end at endstream"));
@@ -3230,7 +3240,9 @@ pub(crate) fn inspect_generated_object(
     inspect_head(&head, range, 0, limits)
 }
 
+mod epilogue;
 mod fragment_scan;
+mod orphan;
 mod recovery;
 
 pub(crate) use fragment_scan::{

@@ -979,3 +979,62 @@ tool behavior were used; no foreign converter, private HN/JBIG or vendor
 implementation was inspected or migrated. No document, PDF, palette, font,
 pixel or vendor binary data is committed. APIs, dependencies, support claims
 and release behavior remain unchanged.
+
+## Redundant CAJ framing (#409, #434)
+
+Independent source-byte inspection of the unchanged 60-page CAJSamples
+`issue-90/4-[6].caj`, upstream revision
+`7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07`, SHA-256
+`dc3c3a651d4abaea61b8982e5165636f61b85f2c48f2eace3c6730e00dd963d3`,
+establishes four separate framing conditions. No converter or vendor
+implementation was used to derive them.
+
+- Object 229 declares 98 bytes: 97 complete Flate bytes and LF. The subsequent
+  CR and SPACE precede an exact stream/object tail. Retaining Length 98 avoids
+  an unnecessary width-changing repair to 100. The bounded PDF whitespace
+  tolerance changes no payload bytes and is not a general malformed-syntax
+  conformance claim.
+- A classic epilogue occupies `[2911107,2911776)`. After its CR, all 3,733
+  encoded bytes at `[2911777,2915510)` equal source header `[144,3877)` under
+  the measured FZHMEI XOR phase 2. CRLF precedes integer 4478 at 2915512,
+  value 1592527, which equals image 4479's complete encoded extent. Old xref
+  offsets and Root are stale; they do not define the reconstructed graph.
+- Image 4474 at 1314164 ends after a 3,276-byte payload prefix. That prefix
+  and its nine-field dictionary, except Length reference, match complete image
+  4479. CRLF precedes complete Length integer 4468 at 1317618. This proves a
+  shared prefix, not the absent image tail. Qpdf's complete selected-object
+  graph has no incoming reference to 4474.
+- Bytes `[2954967,2954978)` are only `4448 0 obj<`; CRLF then complete font
+  4459 follows. There is no complete 4448 object or parsed incoming reference.
+  The later interrupted 4459 and all other 29 metadata interruptions are
+  exact prefixes of complete same-ID source objects.
+
+Original MIT framing copies the entire source body `[47940,3491634)` verbatim
+and builds a new xref from 395 complete object identities. Five complete
+duplicate occurrences are exact. It adds only seven absent Pages ancestors
+and a root/Catalog derived from original Parent links and CAJ page-table
+order. Qpdf accepts the independently framed PDF without warnings. It retains
+189 distinct raw streams, 60 page identities and 36 source bookmarks.
+
+External same-width diagnostics first omitted each proved redundant range
+to isolate scanner behavior. The resulting PDF and the subsequent unchanged
+original's native conversion have identical SHA-256
+`743afde6eb64ea8673b066a5d4320beb4f227b7199f37e8bfc92374f75e27d23`.
+Against independent framing, all 395 object values, 189 raw streams, 60 page
+IDs/boxes/rotations/text/links and 36 source bookmark titles/hierarchy/targets
+agree. All 60 Poppler RGB72 page renders match exactly. Nine fresh offline
+CAJViewer sessions compare original CAJ, independently framed PDF and the
+diagnostic result on pages 1–3 at 50% zoom: three full-page crops match,
+with two stable captures each, unchanged inputs, no OOM and complete cleanup.
+This is three-page vendor evidence, not a whole-document vendor comparison
+or proof of implementation independence between renderers.
+
+Production rules are original MIT Rust with bounded ranged reads, sequential
+output, complete-reference proof, independently anchored counterpart checks,
+prefix/header rechecks and cancellation. Original synthetic tests include
+opaque false headers/terminators, hidden/duplicate candidates, incoming and
+non-reference lookalikes, metadata streams, malformed/overflowing/truncated
+profiles, every cancellation checkpoint, short reads, limits and changing
+sources. They contain no corpus bytes. Documents, derived PDFs, font/pixel
+data and vendor binaries stay external. No new dependency, private migration,
+foreign converter code or private HN/JBIG implementation is introduced.
