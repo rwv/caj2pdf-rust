@@ -27,14 +27,17 @@ output hashes (1,240 PASS, 28 FAIL, nine UNSUPPORTED). Ancillary warnings and
 unexecuted checks are retained in the
 [pinned report](https://github.com/rwv/caj2pdf-samples/blob/26720c5d76fbb05b39400a65b35b3974b31c1931/research/notes/redundant-caj-framing-20261008.md).
 
-Known source-data limitation (#436): the accepted 63-page issue-20 sample
-already contains five bad Flate checksums and one invalid DEFLATE stream,
-affecting image, font and page-content resources. Native/Node/Chromium outputs
-preserve these bytes; matching independent source-framed renders does not
-prove intact content. Original CAJViewer page 39 remains unverified. See the
-[source-stream investigation](../provenance.md#damaged-source-streams-in-an-accepted-caj-436).
-This adds evidence, not a new fix or compatibility pass; #436 remains open.
-A subsequent [substitution diagnostic](../provenance.md#checksum-confirmed-substitution-candidate)
-restores the original checksums, lengths and page-table offsets without
-editing those expectations. Its PDF validates cleanly, but a bounded
-production recovery rule and its negative controls remain unimplemented.
+Recover the measured stream-byte expansion in the accepted 63-page issue-20
+CAJ (#436). Only damaged simple Flate streams whose original checksums,
+Lengths and all page-table anchors corroborate the inverse substitution are
+changed. Native, CLI, Node and browser share the bounded ranged recovery;
+there is no API or dependency change. Other codec payloads remain opaque.
+See the [admission bounds](../pdf-input.md#checksum-confirmed-caj-stream-substitution)
+and [production evidence](../provenance.md#bounded-production-recovery).
+
+The unchanged original now produces identical native/Node/Chromium PDFs with
+clean qpdf and 63 clean Poppler renders. All independently framed diagnostic
+pages, object values and payloads agree; 93 bookmarks are retained. Previous
+vendor checks cover modified-source pages 3/5/39 and the identical PDF.
+Original damaged-source page 39 remains inaccessible, and no independently
+obtained intact alternative or general corruption repair is claimed.

@@ -2,8 +2,9 @@
 
 //! CAJ to PDF conversion using bounded PDF fragment reconstruction.
 
-use super::parse_metadata;
+use super::{CajMetadata, parse_metadata};
 use crate::fallible::{reserve, reserve_exact};
+use crate::pdf::input::stream_substitution::Plan as SubstitutionPlan;
 use crate::pdf::input::{
     FragmentCandidate, FragmentKind, FragmentScan, LinkRepairCandidate, LinkRepairKind,
     LinkRepairTarget, PatchedSource, collect_fragment_candidates, inspect_generated_object,
@@ -422,8 +423,9 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
 /// stable positioned reads. Page payloads are never materialized in a `Vec`;
 /// only page/outline metadata, object positions, and small missing page-tree
 /// dictionaries are retained. All PDF object validation precedes output.
-/// Each source object is parsed once by the fragment scan, whose inspection
-/// carries through page-tree reconstruction and link repair.
+/// Each ordinary source object is parsed once. A checksum-confirmed stream
+/// substitution with independent page-table evidence requires one rescan of
+/// its sparse repaired view before page-tree reconstruction and link repair.
 pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
@@ -442,6 +444,64 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
         cancellation,
         options.allow_damaged,
     )?;
+    let mut report = if let Some(plan) = SubstitutionPlan::from_scan(&mut scan, &metadata, limits)?
+    {
+        plan.verify(&mut counted, limits, cancellation)?;
+        let result = {
+            let mut recovered = plan.source(&mut counted, limits, cancellation)?;
+            let result = (|| {
+                let metadata = parse_metadata(&mut recovered, limits, cancellation)?;
+                let scan = scan_caj_objects(
+                    &mut recovered,
+                    &metadata,
+                    limits,
+                    cancellation,
+                    options.allow_damaged,
+                )?;
+                if !scan.substitutions.is_empty() {
+                    return Err(Error::invalid(
+                        "CAJ substitution did not restore stream framing",
+                    ));
+                }
+                convert_scanned(
+                    &mut recovered,
+                    sink,
+                    metadata,
+                    scan,
+                    options,
+                    limits,
+                    cancellation,
+                )
+            })();
+            result.map_err(|error| recovered.locate(error))
+        };
+        let report = result?;
+        plan.verify(&mut counted, limits, cancellation)?;
+        report
+    } else {
+        convert_scanned(
+            &mut counted,
+            sink,
+            metadata,
+            scan,
+            options,
+            limits,
+            cancellation,
+        )?
+    };
+    report.input_bytes_read = input_bytes_read;
+    Ok(report)
+}
+
+fn convert_scanned<S: RangedSource, W: Write, C: Cancellation>(
+    source: &mut S,
+    sink: &mut W,
+    metadata: CajMetadata,
+    mut scan: FragmentScan,
+    options: &ConversionOptions<'_>,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ConversionReport> {
     let mut source_paths = std::mem::take(&mut scan.source_paths);
     let mut sorted_page_ids = Vec::new();
     if !source_paths.is_empty() {
@@ -456,7 +516,7 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     }
     for repair in &source_paths {
         if validate_source_path_repair(
-            &mut counted,
+            source,
             repair,
             &scan.objects,
             &sorted_page_ids,
@@ -492,11 +552,11 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
             .any(|object| object.object == repair.object)
     });
     let (damaged_suffix, omitted_pages) = if options.allow_damaged && !scan.damaged.is_empty() {
-        substitute_damaged_pages(&mut counted, &metadata, &mut scan, limits, cancellation)?
+        substitute_damaged_pages(source, &metadata, &mut scan, limits, cancellation)?
     } else {
         (Vec::new(), Vec::new())
     };
-    let mut working = ExtendedSource::new(&mut counted, &damaged_suffix)?;
+    let mut working = ExtendedSource::new(source, &damaged_suffix)?;
     // Report the first structural inspection error in source order.
     let mut objects = Vec::new();
     let refused = limits.allocation_refused(
@@ -859,7 +919,6 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     };
     let mut report =
         reconstruct_inspected(&mut extended, sink, plan, bookmarks, limits, cancellation)?;
-    report.input_bytes_read = input_bytes_read;
     report.omitted_pages = omitted_pages;
     Ok(report)
 }

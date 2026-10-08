@@ -1105,12 +1105,12 @@ A separate unchanged CAJ navigation control reaches page 39. An upstream
 2018 report likewise describes this attachment as damaged and mentions a
 usable new download; no intact alternative was obtained or verified here.
 
-This is evidence-only original MIT research: no foreign converter or vendor
+The initial report was evidence-only original MIT research: no foreign converter or vendor
 implementation, private HN/JBIG code, document/font/pixel bytes, new dependency
-or production behavior is introduced. Full corpus tests are not rerun for
-this documentation change, and no new compatibility pass is counted. Review
-is self-review. #436 stays open for a proven recovery policy and an intact
-semantic oracle; these defects do not prove the whole source irrecoverable.
+or production behavior was introduced. Full corpus tests were not rerun for
+that documentation change, and no new compatibility pass was counted. Review
+was self-review. At that stage #436 stayed open for a proven recovery policy
+and an intact semantic oracle; the defects did not prove irrecoverability.
 
 ### Checksum-confirmed substitution candidate
 
@@ -1135,8 +1135,43 @@ Six additional isolated CAJViewer sessions now reach diagnostic pages 3, 5
 and 39; each modified-CAJ/output pair has identical full-page crops, stable
 captures, unchanged inputs, no OOM and complete cleanup. These are modified
 source observations, not an independently obtained intact alternative.
-Production recovery remains unimplemented: neighboring refusals, bounded
-resource/cancellation/changing-source controls, unchanged-original runtime
-parity and full regression must precede any automatic transformation. The
-historical corruption process and a general replacement policy are not
-established. The candidate adds no unchanged-input compatibility pass.
+At that diagnostic stage production recovery was unimplemented; the candidate
+added no unchanged-input compatibility pass. The historical corruption process
+and a general replacement policy remain unestablished.
+
+
+### Bounded production recovery
+
+The original MIT `pdf/input/stream_substitution.rs` independently implements
+only the [measured admission rule](pdf-input.md#checksum-confirmed-caj-stream-substitution).
+The candidate frame must restore its unchanged checksum and Length, and the
+combined sparse view must restore every original page-table anchor. No
+foreign converter/vendor implementation, private-source migration, new codec
+or dependency is involved. The existing flate2 dependency supplies ordinary
+zlib decoding. Authored test pixels and zlib stored blocks exercise short
+reads down to one byte, recognition across 4 KiB windows, exact clean/damaged
+output equality, legitimate metadata, wrong/incomplete/ambiguous candidates,
+valid codecs with bad Lengths, filter/parameter/generation exclusions, page
+anchor disagreement, missing or damaged objects, profile limits, cancellation
+through emission, changing streams and source error coordinates. They contain
+no external document bytes.
+
+On the unchanged original, the production native, Node and Chromium outputs
+all contain 63 pages and have SHA-256
+`cb4e6a918e633a57c6bb76f0a984cf9c3b8b0155ae55cac7171f14a94ba04ec4`
+(968,994 bytes), exactly the earlier diagnostic PDF. Chromium removes its OPFS
+artifacts. A fresh independent framing of the established diagnostic source
+has 260 objects, 87 streams, zero codec failures and qpdf exit zero. All 260
+object values (except stream Length), all 87 expected payloads, all 63 page
+identities/geometry/text/links and all 63 Poppler RGB72 renders agree with the
+unchanged-original output; both render passes have zero stderr. Six payloads
+intentionally change according to the 13 measured sites; 81 retain original
+bytes. The output has 93 bookmarks.
+
+The six previously pinned vendor sessions cover diagnostic pages 3, 5 and
+39; that evidence applies to the byte-identical PDF and was not rerun.
+Original damaged-source navigation still cannot establish a page-39 viewer
+comparison. No independently downloaded intact source or whole-document
+vendor-render proof is claimed. The bounded recovery is supported by the
+unchanged source's redundant lengths, checksums and offsets, plus the scoped
+render controls; the original corruption cause remains unknown.
