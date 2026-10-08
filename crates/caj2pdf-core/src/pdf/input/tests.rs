@@ -166,14 +166,11 @@ fn declared_stream_extent_accepts_only_bounded_whitespace_before_its_tail() {
         " ".repeat(65)
     );
     let error = inspect_raw_fragment(bytes.as_bytes()).err().unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::LimitExceeded {
-            limit: 64,
-            attempted: 65,
-            ..
-        }
-    ));
+    assert!(matches!(error.kind, ErrorKind::Malformed));
+    assert_eq!(
+        error.reason,
+        "stream tail whitespace exceeds bounded profile"
+    );
 }
 
 #[test]

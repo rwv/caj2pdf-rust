@@ -1351,14 +1351,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         ) {
             cursor += 1;
             if cursor - after_data > MAX_STREAM_TAIL_SPACE {
-                return Err(self.locate_limit(
+                // A failed extent may point into a later replay's opaque
+                // payload. This fixed recognition bound is a syntax mismatch,
+                // not exhaustion of a caller's resource budget: the fragment
+                // scanner can still prove that independent replay boundary.
+                return Err(self.malformed(
                     cursor - 1,
                     object,
-                    Error::limit(
-                        "PDF stream tail whitespace",
-                        MAX_STREAM_TAIL_SPACE,
-                        cursor - after_data,
-                    ),
+                    "stream tail whitespace exceeds bounded profile",
                 ));
             }
         }

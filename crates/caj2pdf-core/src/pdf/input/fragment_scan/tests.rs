@@ -972,19 +972,22 @@ mod candidate_tests {
 
     #[test]
     fn later_direct_length_stream_has_a_bounded_prefix_recovery() {
-        let header = b"7 0 obj\n<< /Length 600 >>\nstream\n";
-        let mut complete = header.to_vec();
-        complete.extend_from_slice(&[b'Z'; 600]);
-        complete.extend_from_slice(b"\nendstream\nendobj");
-        let mut bytes = header.to_vec();
-        bytes.extend_from_slice(b"ZZZZZ\n");
-        bytes.extend_from_slice(NEXT);
-        let mut candidates = [candidate(bytes.len())];
-        candidates[0].object.range.length = complete.len() as u64;
-        bytes.extend_from_slice(&complete);
-        // The later copy repeats the stream header at the offset its
-        // endstream and Length imply, so the replay rule bounds the prefix.
-        assert_eq!(scan(bytes, &mut candidates).unwrap().objects.len(), 2);
+        for byte in *b"Z " {
+            let header = b"7 0 obj\n<< /Length 600 >>\nstream\n";
+            let mut complete = header.to_vec();
+            complete.extend_from_slice(&[byte; 600]);
+            complete.extend_from_slice(b"\nendstream\nendobj");
+            let mut bytes = header.to_vec();
+            bytes.extend_from_slice(&[byte; 5]);
+            bytes.push(b'\n');
+            bytes.extend_from_slice(NEXT);
+            let mut candidates = [candidate(bytes.len())];
+            candidates[0].object.range.length = complete.len() as u64;
+            bytes.extend_from_slice(&complete);
+            // The later copy repeats the stream header at the offset its
+            // endstream and Length imply, so the replay rule bounds the prefix.
+            assert_eq!(scan(bytes, &mut candidates).unwrap().objects.len(), 2);
+        }
     }
 
     #[test]
