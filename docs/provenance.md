@@ -895,3 +895,56 @@ included in converter packages; no upstream source is copied. The action
 exchanges GitHub OIDC identity for a temporary crates.io token and revokes it
 when the job ends. npm uses its official CLI's OIDC and provenance support.
 No new format facts, fixtures, product dependencies or private migrations.
+
+## Malformed tiling-pattern matrices (#414)
+
+Two unchanged originals, [163 pages](https://github.com/personqianduixue/Math_Model/blob/8783d0d822f89f98aa6182dd933cc2e9f3e2ddce/3-2%E7%AE%97%E6%B3%95-%E7%8E%B0%E4%BB%A3%E7%9A%84%E7%AE%97%E6%B3%95/%E7%B2%92%E5%AD%90%E7%BE%A4%E7%AE%97%E6%B3%95/%E7%B2%92%E5%AD%90%E7%BE%A4%E7%AE%97%E6%B3%95%E7%9A%84%E7%A0%94%E7%A9%B6%E5%8F%8A%E5%BA%94%E7%94%A8_%E5%88%98%E8%A1%8D%E6%B0%91.caj)
+(SHA-256 `2423e0b8e64060bc55cf004da3c7f79b411739753e89e39ebefcea44b300b968`) and
+[101 pages](https://github.com/angeladygaga/caj2pdf-actions/blob/436a7485a23665f73f6b70fbe080bb579cb7184c/file.caj)
+(SHA-256 `f08947012a4882d3f62c9e3552f5a889d4bc7dee22f3a5119f22b7cb298b180f`), contain four Pattern objects
+with Matrix `[0.72 0 0 -0.719999 -5e-006 842]`: objects 615/620/625 and 1307,
+respectively. Their source resources reach page 20 and page 23. The
+[Adobe PDF reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.6.pdf)
+requires six numeric Matrix elements and defines identity as the omitted
+Matrix default. This does not prescribe recovery for an invalid exponent.
+
+Original asymmetric-pattern controls distinguish decimal expansion, replacing
+only the bad element with zero, and whole-Matrix identity. CAJViewer 9.0.0 and
+Poppler use identity on the measured invalid-array controls; MuPDF instead
+uses a zero element. The initial controls used an otherwise identity basis
+and could not distinguish these behaviors. They are not sufficient evidence
+for a zero-element repair. Small and amplified exponents, a nonidentity basis,
+valid decimals, zero and identity were subsequently measured separately.
+
+Nine fresh offline one-document viewer sessions compare both unchanged CAJ
+originals, independently framed raw PDFs and explicit identity controls at the
+two affected pages. Complete-page RGB crops at 50% agree, with two stable
+captures each. Zero/decimal controls visibly change the first document's
+pattern. Input hashes and cleanup pass; each isolated container remains below
+748 MB and avoids OOM. Earlier multi-tab OOM/black captures, shifted sidebars
+and an unsuccessful diagnostic CAJ view are retained as failed observations,
+never passes. Vendor binaries, screenshots and documents remain external;
+no vendor implementation was inspected, copied or migrated. Tool agreement
+does not assert implementation independence or universal rendering fidelity.
+
+Independent original MIT framing preserves source bodies `[46152, 4114695)`
+and `[40908, 3705592)`, constructs explicit xrefs from 667/1,377 unique measured
+headers and supplies absent Pages ancestors from original Parent/Kids and
+source page-table order. Qpdf retains warnings for the four nonnumeric tokens.
+All 264 Poppler RGB72 renders agree after explicit identity normalization;
+all 1,366 raw stream payloads, source page IDs, text and effective geometry
+remain intact. The unchanged originals produce the same PDFs as those measured
+diagnostic controls. MuPDF's different handling of the invalid source Matrix
+is expressly not counted as rendering agreement.
+
+Original MIT recovery replaces only this measured array with explicit identity
+and same-width whitespace padding. A 32-byte probe and a 512-byte header bound
+precede strict parsing of the normalized dictionary. All eleven observed keys,
+generation zero, the exact Matrix tokens, Pattern/Paint/TilingType 1, BBox
+`[0 0 64 64]`, XStep/YStep 64, a generation-zero Resources reference, FlateDecode
+and a direct 45-byte stream with a complete terminator are required. Duplicate,
+extra, nested, oversized or different profiles are refused. Valid matrices and
+ordinary indexed PDF parsing stay unchanged. Existing ranged patch output is
+reused, with source rechecks, cancellation and retained-allocation limits;
+stream content is never rewritten or buffered for this repair. No dependency
+or external document, PDF, font or pixel data is added to the repository.

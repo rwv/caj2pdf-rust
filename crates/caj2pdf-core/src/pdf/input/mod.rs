@@ -10,6 +10,7 @@ mod footer;
 mod link_repair;
 mod object_stream;
 mod parser;
+mod pattern_matrix;
 mod resource_repair;
 mod source_path;
 pub(crate) use source_path::validate as validate_source_path_repair;

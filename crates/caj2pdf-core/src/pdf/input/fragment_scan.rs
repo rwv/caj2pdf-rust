@@ -8,7 +8,8 @@
 //! `endstream` and keeps the first candidate that the later-resolved
 //! `/Length` confirms. Damaged-input rules live in `recovery`.
 
-use super::recovery::{self, LengthPatch, Recovery, find_endstream};
+use super::pattern_matrix;
+use super::recovery::{self, FragmentPatch, Recovery, find_endstream};
 use super::source_path::{self, SourcePathRepair};
 use super::{
     FragmentInspection, ObjectTail, Reader, exact_reference, exact_unsigned, inspect_head,
@@ -38,7 +39,7 @@ pub(crate) struct ScannedObject {
 /// page table supplies the minimum body end and page order, never object spans.
 pub(crate) struct FragmentScan {
     pub objects: Vec<ScannedObject>,
-    pub patches: Vec<LengthPatch>,
+    pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
 }
@@ -169,7 +170,7 @@ pub(super) struct Pass<'p> {
     conflicting_lengths: bool,
     pub pending_lengths: Vec<PendingLength>,
     pub pending_prefixes: Vec<FragmentObject>,
-    pub patches: Vec<LengthPatch>,
+    pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
     pub candidates: &'p mut [FragmentCandidate],
@@ -178,9 +179,23 @@ pub(super) struct Pass<'p> {
     /// a complete scan does, so row candidates and partial scans stay linear.
     retries: bool,
     source_path_bytes: usize,
+    patch_bytes: usize,
 }
 
 impl Pass<'_> {
+    fn push_patch(&mut self, patch: FragmentPatch, limits: &Limits) -> Result<()> {
+        let retained = self
+            .patch_bytes
+            .checked_add(
+                size_of::<FragmentPatch>() + patch.original.len() + patch.replacement.len(),
+            )
+            .ok_or_else(|| Error::invalid("fragment patch budget overflows"))?;
+        limits.check_allocation(retained as u64)?;
+        push_counted(&mut self.patches, patch, "CAJ fragment patches")?;
+        self.patch_bytes = retained;
+        Ok(())
+    }
+
     pub fn push_damaged(&mut self, reference: Option<PdfRef>, offset: u64) -> Result<()> {
         push_counted(
             &mut self.damaged,
@@ -262,6 +277,7 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
             patches: Vec::new(),
             source_paths: Vec::new(),
             source_path_bytes: 0,
+            patch_bytes: 0,
             damaged: Vec::new(),
             candidates: &mut *candidates,
             rows,
@@ -344,7 +360,7 @@ fn run_pass<S: RangedSource, C: Cancellation>(
                 let Failure::Stream(_, stream) = failure else {
                     unreachable!("only a stream extent is repaired");
                 };
-                push_counted(&mut pass.patches, patch, "CAJ stream Length repairs")?;
+                pass.push_patch(patch, reader.limits)?;
                 let object = ScannedObject {
                     object: object_at(reader, stream.reference, start, end),
                     inspection: stream.inspection,
@@ -507,6 +523,17 @@ fn frame_object<S: RangedSource, C: Cancellation>(
                 }));
             }
             if is_malformed(&error) {
+                if let Some((object, patch)) = pattern_matrix::candidate(reader, start)? {
+                    let end = object.object.range.offset - reader.range.offset
+                        + object.object.range.length;
+                    pass.push_patch(patch, reader.limits)?;
+                    return Ok(Ok(Framed {
+                        object,
+                        end,
+                        integer: None,
+                        pending: None,
+                    }));
+                }
                 return Ok(Err(Failure::Syntax(error)));
             }
             return Err(error);

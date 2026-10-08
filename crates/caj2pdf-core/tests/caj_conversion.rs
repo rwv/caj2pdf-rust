@@ -2167,3 +2167,110 @@ fn allow_damaged_leaves_valid_caj_bytes_identical() {
     }
     assert_eq!(outputs[0], outputs[1]);
 }
+
+fn tiling_pattern_caj(matrix: &str, short_content: bool) -> Vec<u8> {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        1,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Pattern << /P 7 0 R >> >> /Contents 3 0 R >>",
+    );
+    // Original asymmetric bars, in a 34-byte stored zlib block. The zlib
+    // header, stored-block framing and Adler32 make exactly 45 encoded bytes.
+    let mut paint = [b' '; 34];
+    let commands = b"0 g 0 0 13 64 re f\n";
+    paint[..commands.len()].copy_from_slice(commands);
+    let mut encoded = vec![0x78, 0x01, 0x01, 34, 0, 0xdd, 0xff];
+    encoded.extend_from_slice(&paint);
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for byte in paint {
+        a = (a + u32::from(byte)) % 65521;
+        b = (b + a) % 65521;
+    }
+    encoded.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    assert_eq!(encoded.len(), 45);
+    body.extend_from_slice(format!("7 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /Length 45 /Filter /FlateDecode /Resources 8 0 R /XStep 64 /YStep 64 /BBox [0 0 64 64] /Matrix {matrix} >>\nstream\n").as_bytes());
+    body.extend_from_slice(&encoded);
+    body.extend_from_slice(b"\nendstream\nendobj\n");
+    object(&mut body, 8, "<< >>");
+    let content = b"/Pattern cs /P scn 0 0 200 200 re f\n";
+    body.extend_from_slice(
+        format!(
+            "3 0 obj\n<< /Length {} >>\nstream\n",
+            content.len() - 2 * usize::from(short_content)
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(content);
+    body.extend_from_slice(b"\nendstream\nendobj\n");
+    fragment_caj(&body, &[1])
+}
+
+#[test]
+fn measured_pattern_matrix_preserves_identity_rendering_and_streams() {
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let bad_matrix = "[0.72 0 0 -0.719999 -5e-006 842]";
+    let identity = format!("{:<width$}", "[1 0 0 1 0 0]", width = bad_matrix.len());
+    let valid = tiling_pattern_caj(&identity, false);
+    let (expected, _) = convert(&valid, ConversionOptions::default(), &limits).unwrap();
+    let baseline = TempPdf::write("pattern-identity", &expected);
+    let pixels = rendered_page(&baseline.0);
+    for short_content in [false, true] {
+        let input = tiling_pattern_caj(bad_matrix, short_content);
+        let (actual, report) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+        assert_eq!(report.pages_converted, 1);
+        assert!(report.omitted_pages.is_empty());
+        // Equal output proves that the pattern and content streams are
+        // untouched, including with a later independent Length repair.
+        assert_eq!(actual, expected);
+        let file = TempPdf::write("pattern-repair", &actual);
+        checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+        assert_eq!(rendered_page(&file.0), pixels);
+        assert_eq!(inspect(&actual).pages().len(), 1);
+    }
+    // These valid matrices must retain their actual transforms. Both differ
+    // from the independently measured viewer fallback for the malformed one.
+    for matrix in [
+        "[0.72 0 0 -0.719999 0 842]",
+        "[0.72 0 0 -0.719999 -.000005 842]",
+    ] {
+        let (pdf, _) = convert(
+            &tiling_pattern_caj(matrix, false),
+            ConversionOptions::default(),
+            &limits,
+        )
+        .unwrap();
+        assert!(pdf.windows(matrix.len()).any(|v| v == matrix.as_bytes()));
+        let file = TempPdf::write("pattern-valid-transform", &pdf);
+        checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+        assert_ne!(rendered_page(&file.0), pixels);
+    }
+    // The same malformed array remains an error in an ordinary indexed PDF.
+    let mut indexed = expected;
+    let at = indexed
+        .windows(identity.len())
+        .position(|v| v == identity.as_bytes())
+        .unwrap();
+    indexed[at..at + bad_matrix.len()].copy_from_slice(bad_matrix.as_bytes());
+    let mut source = indexed.as_slice();
+    assert!(matches!(
+        PdfIndex::open(
+            &mut source,
+            PdfRange {
+                offset: 0,
+                length: indexed.len() as u64
+            },
+            &limits,
+            &NeverCancel
+        ),
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
+    ));
+    let different = tiling_pattern_caj("[0.72 0 0 -0.719999 -5e+001 842]", false);
+    rejected_without_output(&different, &limits);
+}
