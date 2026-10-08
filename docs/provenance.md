@@ -1217,3 +1217,49 @@ The 66-page source also produces a MuPDF warning for a non-embedded SimSun
 font using identity encoding. Native, Node and Chromium outputs agree byte
 for byte for all three originals. Document
 bytes, diagnostic PDFs and screenshots remain external.
+
+## Proved interrupted CAJ copies (#442)
+
+Three independently collected originals have complete counterparts for
+interrupted metadata/stream copies. Sources and SHA-256 identities:
+
+| Source | SHA-256 | Pages / bookmarks | Complete objects / streams |
+| --- | --- | --- | --- |
+| ZERO-A-ONE/FZU-IS-404, revision `ce66d4f14929d7df802f196671cce94c093fda1b` | `cb6f5e781f372e31d63f7dcc63739f5e86366b124b7619e18a8c4210217584d6` | 182 / 30 | 586 / 195 |
+| qinzc1993/caj2pdf-actions, revision `d28d4f05fa834372c014e9d52de3333341a88c5e` | `f65742f37f10987a68c318670811dc5e0803f9d928f9ced8f2e6bdbb8000d24a` | 47 / 24 | 179 / 65 |
+| CAJSamples issue-85 Mingtang, revision `7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07` | `f26570f28a2043e17c1bbf065a62a531815c56d6ce2b84b4cc501c832926858e` | 234 / 111 | 857 / 344 |
+
+The first source adds the interrupted `false` value in ExtGState 593 and a
+487-byte prefix of font stream 606. The second adds a 360-byte prefix of stream
+4 and a negative-number prefix in FontDescriptor 157. The third adds nine
+stream prefixes, a terminal `792 0` header and one unused unfinished declaration
+853. All newly recovered stream prefixes include original headers and payload
+bytes; their complete same-ID copies are independently length-framed.
+
+An independent inventory covers every non-whitespace gap between complete
+objects: 445 exact proper prefixes and the sole unmatched declaration 853,
+plus 47 complete duplicate occurrences. The independent PDF framing retains
+every original body byte verbatim and adds only missing page-tree/catalog/xref
+framing. No original object is edited. To prove reference absence without
+silently resolving a missing target to null, a separate diagnostic adds a
+sentinel at ID 853 before an independent structural graph walk. There are no
+incoming references, encrypted data or opaque metadata streams. A deliberate
+nested reference control is detected by the same walk.
+
+Native conversion of all three unchanged originals passes qpdf. Every one of
+1,622 complete object values, 604 raw streams and 463 page identities, geometry,
+text, links and Poppler RGB72 renders agrees with independent original-body
+framing; all 165 source bookmarks agree. This comparison is not a whole-document
+CAJViewer rendering claim. Runtime, scoped vendor-viewer and full-corpus results
+are tracked with explicit limitations in [#442](https://github.com/rwv/caj2pdf-rust/issues/442).
+The separate cold-session repeatability observation in #441 remains open.
+
+The original MIT implementation reuses the fragment scanner, orphan graph
+validation and sequential writer; its [admission bounds](pdf-input.md#proved-interrupted-copies-across-caj-page-rows)
+are finite. Authored tests cover earlier/distant later copies, chained page
+anchors, hidden false candidates, conflicting objects, prefix and whitespace
+bounds, short I/O, cancellation, limits, source changes, syntax/EOF cases,
+referenced/opaque/unmeasured declarations and strict indexed PDFs. No foreign
+converter/vendor implementation, private-source migration, new dependency or
+external fixture bytes were used. Documents, diagnostic PDFs, text and pixels
+remain outside Git. Other unresolved sources require separate evidence.

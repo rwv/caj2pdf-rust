@@ -489,3 +489,35 @@ remain errors. Valid matrices and ordinary indexed PDFs remain strict.
 
 See [provenance](provenance.md#malformed-tiling-pattern-matrices-414) and the
 [scoped comparison](conformance.md#tiling-pattern-matrix-checkpoint-414).
+
+### Proved interrupted copies across CAJ page rows
+
+The measured #442 profile compares an interrupted object against one complete
+same-ID generation-zero copy, either already framed or independently anchored
+by a later page-table row. The comparison includes the complete stream header
+and at least one payload byte. At most 64 KiB of strict proper prefix is
+accepted; the first mismatch must lead through at most 64 non-NUL PDF spacing
+bytes to a parsed adjacent indirect-object header. Both the prefix and boundary
+are rechecked. No payload marker search or codec reinterpretation is added.
+The two comparison buffers are at most 256 bytes each and respect smaller
+I/O chunks and allocation limits.
+
+Candidate rows are collected once each, from last to first, so later anchors
+can supply proofs needed to frame earlier rows. Only starts inside the row
+enter its candidate index. A distant counterpart is read by bounded ranges;
+ordinary syntax/stream search windows are unchanged. The complete forward scan
+must reach every used candidate at its exact range and must still reject
+conflicting complete copies. Candidate-only scans do not establish validity of
+the final document. Existing object/page/allocation and retry bounds apply.
+
+Known metadata prefixes may stop inside a boolean or negative number. A
+terminal repeated `number 0` header is accepted only when it exactly prefixes
+one retained complete non-stream object and ends at actual source EOF.
+Separately, the measured unfinished `Length <positive integer>` / `Filter
+/FlateDecod` declaration followed by CRLF may be omitted only before an adjacent
+generation-zero stream header, with its syntax bounded to 256 bytes. It has no
+stream keyword or payload. Existing complete-graph validation must prove no
+same-ID complete object or incoming reference, no damaged/uninspectable object
+and no opaque metadata stream. Additional keys, content and unmeasured endings
+remain errors; this is not general malformed-object deletion or parent repair.
+Ordinary indexed PDFs keep their existing strict rules.

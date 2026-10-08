@@ -55,15 +55,24 @@ pub(crate) struct FragmentCandidate {
 
 /// Collect locally framed candidates from an anchored row. Deferred prefixes
 /// and indirect Length references are proved by the final whole-fragment scan,
-/// never by this index.
+/// never by this index. Later-row candidates can bound earlier interruptions;
+/// their confirmation remains deferred to the complete scan.
 pub(crate) fn collect_fragment_candidates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     start: u64,
     end: u64,
     limits: &Limits,
     cancellation: &C,
+    candidates: &mut [FragmentCandidate],
 ) -> Result<Vec<FragmentObject>> {
-    let scan = scan_fragment(source, start, end, limits, cancellation, Mode::Candidates)?;
+    let scan = scan_fragment(
+        source,
+        start,
+        end,
+        limits,
+        cancellation,
+        Mode::Candidates(candidates),
+    )?;
     Ok(if scan.patches.is_empty() && scan.source_paths.is_empty() {
         scan.objects.iter().map(|scanned| scanned.object).collect()
     } else {
@@ -101,7 +110,7 @@ pub(crate) fn scan_damaged_fragment<S: RangedSource, C: Cancellation>(
 
 enum Mode<'a> {
     Complete(&'a mut [FragmentCandidate]),
-    Candidates,
+    Candidates(&'a mut [FragmentCandidate]),
     Damaged(&'a [CajPageRow], &'a mut [FragmentCandidate]),
 }
 
@@ -292,7 +301,7 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
     let mut reader = Reader::new(source, range, limits, cancellation)?;
     let (candidates, rows, verify) = match mode {
         Mode::Complete(candidates) => (candidates, None, true),
-        Mode::Candidates => (&mut [][..], None, false),
+        Mode::Candidates(candidates) => (candidates, None, false),
         Mode::Damaged(rows, candidates) => (candidates, Some(rows), true),
     };
     let mut hints: Vec<(u64, Extent)> = Vec::new();
@@ -807,7 +816,11 @@ fn finish<S: RangedSource, C: Cancellation>(
     }
     // A candidate reached through a container anchor may actually be inside a
     // stream. Only the complete forward parse establishes its object boundary.
-    for candidate in pass.candidates.iter().filter(|candidate| candidate.used) {
+    for candidate in pass
+        .candidates
+        .iter()
+        .filter(|candidate| verify && candidate.used)
+    {
         let object = candidate.object;
         let confirmed = pass
             .objects

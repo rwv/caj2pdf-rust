@@ -56,3 +56,13 @@ All three unchanged originals produce identical native/Node/Chromium PDFs;
 agree. Scoped source-viewer checks retain one initial cold-session raster
 disagreement despite three matching retries; its cause remains open in #441.
 No full-document vendor-render fidelity is claimed.
+
+Recover three measured CAJs with interrupted same-ID object copies (#442),
+including distant later copies established by page-table anchors, partial
+boolean/number values and a terminal repeated header. One payload-free
+unfinished Flate declaration is omitted only after complete-graph proof that
+it is unused. Comparisons use bounded ranged I/O, preserve complete object and
+stream bytes, and retain strict ambiguity and indexed-PDF behavior. Native,
+CLI, browser and Node share the core implementation; no API or dependency
+changes. See [bounds](../pdf-input.md#proved-interrupted-copies-across-caj-page-rows)
+and [source evidence](../provenance.md#proved-interrupted-caj-copies-442).

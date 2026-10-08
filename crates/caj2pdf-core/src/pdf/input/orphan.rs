@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Two measured unused interruptions. Every proposed omission is deferred
+//! Measured unused interruptions. Every proposed omission is deferred
 //! until the complete scan proves that no object references the missing ID.
 
 use super::fragment_scan::{Pass, StreamFailure};
 use super::parser::{Syntax, exact_name, exact_reference, exact_unsigned};
+use super::recovery::shared_prefix;
 use super::{ObjectTail, Reader};
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, RangedSource, Result};
@@ -19,11 +20,19 @@ pub(super) fn opener<S: RangedSource, C: Cancellation>(
     start: u64,
     error: &Error,
 ) -> Result<Option<(u64, FragmentObject)>> {
-    if error.reason != "invalid PDF hexadecimal string" {
-        return Ok(None);
-    }
-    let bytes = reader.bytes(start, (reader.range.length - start).min(64) as usize)?;
-    let Some((reference, split)) = opener_prefix(&bytes) else {
+    let flate = match error.reason {
+        "invalid PDF hexadecimal string" => false,
+        "expected PDF name" => true,
+        _ => return Ok(None),
+    };
+    let bound = if flate { MAX_HEADER as u64 } else { 64 };
+    let bytes = reader.bytes(start, (reader.range.length - start).min(bound) as usize)?;
+    let parsed = if flate {
+        flate_declaration_prefix(&bytes)
+    } else {
+        opener_prefix(&bytes)
+    };
+    let Some((reference, split)) = parsed else {
         return Ok(None);
     };
     let next = start + split as u64;
@@ -34,7 +43,11 @@ pub(super) fn opener<S: RangedSource, C: Cancellation>(
     };
     if head.reference == reference
         || head.reference.generation != 0
-        || !matches!(head.tail, ObjectTail::EndObject { end } if end <= MAX_HEADER)
+        || if flate {
+            !matches!(head.tail, ObjectTail::Stream { data_start } if data_start <= MAX_HEADER)
+        } else {
+            !matches!(head.tail, ObjectTail::EndObject { end } if end <= MAX_HEADER)
+        }
     {
         return Ok(None);
     }
@@ -77,6 +90,45 @@ fn opener_prefix(bytes: &[u8]) -> Option<(PdfRef, usize)> {
             generation: 0,
         },
         s.pos + 3,
+    ))
+}
+
+/// The measured declaration stops inside the FlateDecode name, before any
+/// stream keyword or payload. Its missing ID must have no incoming reference
+/// in the complete graph; this does not authorize dropping arbitrary values.
+fn flate_declaration_prefix(bytes: &[u8]) -> Option<(PdfRef, usize)> {
+    let mut s = Syntax::new(bytes);
+    let number = u32::try_from(s.unsigned().ok()?).ok()?;
+    if number == 0 || s.unsigned().ok()? != 0 {
+        return None;
+    }
+    s.skip_space();
+    if !s.consume_keyword(b"obj").ok()? {
+        return None;
+    }
+    s.skip_space();
+    if !s.consume_keyword(b"<<").ok()? {
+        return None;
+    }
+    s.skip_space();
+    if !s.consume_keyword(b"/Length").ok()? || s.unsigned().ok()? == 0 {
+        return None;
+    }
+    s.skip_space();
+    if !s.consume_keyword(b"/Filter").ok()? {
+        return None;
+    }
+    s.skip_space();
+    let suffix = b"/FlateDecod\r\n";
+    if !bytes.get(s.pos..)?.starts_with(suffix) {
+        return None;
+    }
+    Some((
+        PdfRef {
+            number,
+            generation: 0,
+        },
+        s.pos + suffix.len(),
     ))
 }
 
@@ -251,27 +303,4 @@ pub(super) fn image_prefix<S: RangedSource, C: Cancellation>(
             },
         },
     )))
-}
-
-fn shared_prefix<S: RangedSource, C: Cancellation>(
-    reader: &mut Reader<'_, S, C>,
-    left_at: u64,
-    right_at: u64,
-    bound: u64,
-) -> Result<u64> {
-    let mut matched = 0;
-    while matched < bound {
-        let count = (bound - matched)
-            .min(256)
-            .min(reader.limits.io_chunk_bytes as u64) as usize;
-        reader.limits.check_allocation(count as u64 * 2)?;
-        let left = reader.bytes(left_at + matched, count)?;
-        let right = reader.bytes(right_at + matched, count)?;
-        let equal = left.iter().zip(&right).take_while(|(a, b)| a == b).count();
-        matched += equal as u64;
-        if equal != count {
-            break;
-        }
-    }
-    Ok(matched)
 }
