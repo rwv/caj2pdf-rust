@@ -370,3 +370,26 @@ candidates can require complete graph validation, and retained bytes remain
 under Limits. Every payload byte is preserved in the hexadecimal string.
 Source rechecks, cancellation, sequential output and strict required references
 remain in force. Ordinary indexed PDF strings retain their existing rules.
+
+### Measured CAJ Pattern Matrix fallback
+
+CAJ fragment recovery admits one measured malformed tiling-pattern Matrix
+(#414): `[0.72 0 0 -0.719999 -5e-006 842]`. It writes explicit identity
+`[1 0 0 1 0 0]` with equal-width padding to preserve the observed CAJViewer
+and Poppler rendering. The pattern content and every stream byte are retained.
+MuPDF handles the malformed original differently; neither arithmetic exponent
+expansion nor replacing just the fifth value with zero matches the measured
+source-viewer behavior. This is a documented recovery profile, not additional
+PDF number syntax or general permission to discard malformed matrices.
+
+The complete header must fit 512 bytes and contain exactly the eleven measured
+keys: Type Pattern, PatternType/PaintType/TilingType 1, XStep/YStep 64,
+BBox `[0 0 64 64]`, the measured Matrix, a generation-zero Resources reference,
+Filter FlateDecode and direct Length 45. The generation-zero stream must have
+its complete declared boundary; it cannot combine with an unproved stream
+extent. Source bytes are rechecked and patched during ranged reads, with
+bounded retained metadata and sequential output. Other malformed profiles
+remain errors. Valid matrices and ordinary indexed PDFs remain strict.
+
+See [provenance](provenance.md#malformed-tiling-pattern-matrices-414) and the
+[scoped comparison](conformance.md#tiling-pattern-matrix-checkpoint-414).

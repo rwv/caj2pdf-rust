@@ -30,7 +30,7 @@ pub(super) enum Recovery {
     /// proper prefix of the indexed object with the same number.
     Defer { resume: u64, prefix: FragmentObject },
     /// The stream ends at `end` after a same-width `/Length` correction.
-    Repaired { end: u64, patch: LengthPatch },
+    Repaired { end: u64, patch: FragmentPatch },
     /// Partial mode recorded damage; continue at this offset, or stop.
     Discarded(Option<u64>),
 }
@@ -163,7 +163,7 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     }
     Ok(Some(Recovery::Repaired {
         end,
-        patch: LengthPatch {
+        patch: FragmentPatch {
             offset: *patch_offset,
             original: original.clone(),
             replacement,
@@ -949,10 +949,10 @@ fn replay_prefix(bytes: &[u8]) -> Option<(PdfRef, usize)> {
     ))
 }
 
-/// An equal-width correction to an observed, understated direct `/Length`.
+/// An equal-width correction to measured CAJ fragment metadata.
 /// The PDF bytes remain at their original offsets when the patch is applied.
 #[derive(Clone, Debug)]
-pub(crate) struct LengthPatch {
+pub(crate) struct FragmentPatch {
     pub(super) offset: u64,
     pub(super) original: Vec<u8>,
     pub(super) replacement: Vec<u8>,
@@ -960,15 +960,15 @@ pub(crate) struct LengthPatch {
 
 const OVERREAD: &str = "source reported more bytes than requested";
 
-/// Apply verified same-width stream length repairs while forwarding ranged
+/// Apply verified same-width fragment metadata repairs while forwarding ranged
 /// reads. This adapter never buffers an object or stream payload.
 pub(crate) struct PatchedSource<'a, S> {
     source: &'a mut S,
-    patches: &'a [LengthPatch],
+    patches: &'a [FragmentPatch],
 }
 
 impl<'a, S> PatchedSource<'a, S> {
-    pub fn new(source: &'a mut S, patches: &'a [LengthPatch]) -> Self {
+    pub fn new(source: &'a mut S, patches: &'a [FragmentPatch]) -> Self {
         Self { source, patches }
     }
 }
@@ -1005,7 +1005,7 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
                         ErrorKind::Malformed,
                         first,
                         None,
-                        "source changed after stream Length validation",
+                        "source changed after fragment patch validation",
                     ));
                 }
                 destination[target_start..target_start + length]

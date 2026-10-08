@@ -597,7 +597,7 @@ fn patched_stream_length_rejects_source_mutation_after_scan() {
         Err(Error {
             kind: ErrorKind::Malformed,
             context: Context::Pdf { repair: false, .. },
-            reason: "source changed after stream Length validation",
+            reason: "source changed after fragment patch validation",
             ..
         })
     ));

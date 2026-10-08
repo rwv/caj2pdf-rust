@@ -910,6 +910,31 @@ short reads, source mutation, cancellation and allocation/count bounds.
 Whole-corpus/runtime evidence is recorded against the final PR candidate;
 this checkpoint does not classify other refused originals as irrecoverable.
 
+### Tiling-pattern Matrix checkpoint (#414)
+
+Both unchanged CAJ originals (163 + 101 pages) recorded in
+[provenance](provenance.md#malformed-tiling-pattern-matrices-414) convert with
+four measured invalid Pattern matrices normalized to explicit identity. All
+264 source page IDs, text and effective geometry and all 1,366 raw streams
+remain intact. Independent outline checks preserve all 207 source bookmarks
+(116 + 91). Native, Node.js and Chromium outputs have identical PDF hashes,
+and browser OPFS cleanup passes. Every Poppler RGB72 page matches independently framed original
+body bytes; qpdf checks the output successfully. CAJViewer checks cover the
+two affected pages at 50%, not every source page or resolution. Fresh isolated
+sessions compare unchanged CAJ, raw source PDF and identity controls; stable
+full-page crops agree. The initial simple controls, shifted screenshots and
+later black desktop after multi-tab OOM are not promoted to passing evidence.
+
+Nonidentity and amplified controls distinguish the observed whole-Matrix
+fallback from decimal expansion and a zero fifth element. MuPDF's source error
+handling differs, so it is not claimed as an identity-rendering oracle. The
+original MIT regression fixture has asymmetric visible bars and verifies exact
+stream/output preservation against valid identity, different valid matrices
+left intact, mixed Matrix/Length patches and ordinary indexed-PDF refusal.
+Negative profiles, short reads, cancellation, source mutation and allocation
+bounds are exercised. Runtime, available source-outline and whole-corpus
+results are pinned to the final PR candidate; other refusals remain separate.
+
 ## NH and CAA discovery checkpoint (#424)
 
 The [pinned discovery receipt](https://github.com/rwv/caj2pdf-samples/blob/d9b42808e6a8d6ed7814d6970ac8253a590f513d/research/notes/caa-nh-discovery-20261008.md)
