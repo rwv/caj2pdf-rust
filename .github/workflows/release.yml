@@ -247,4 +247,4 @@ jobs:
       - name: Publish the tested npm tarball with provenance
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: npm publish "dist/caj2pdf-rust-${RELEASE_TAG#v}.tgz" --access public --provenance --ignore-scripts
+        run: npm publish "./dist/caj2pdf-rust-${RELEASE_TAG#v}.tgz" --access public --provenance --ignore-scripts

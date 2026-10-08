@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-No changes recorded after v0.6.0.
+No changes recorded after v0.6.1.
+
+## v0.6.1
+
+- Recover the independently measured malformed CAJ tiling-pattern Matrix
+  profile using the source viewer's whole-Matrix identity fallback (#414,
+  #427). Preserve pattern streams and strict behavior for unrelated profiles.
+- Fix npm publishing by passing an explicit local tarball path. v0.6.0's
+  crates.io and GitHub release succeeded, but its npm upload did not occur.
+  v0.6.1 retries the normal tagged OIDC pipeline with a new version.
+- No new API changes since v0.6.0. npm users upgrading from v0.5.0 must apply
+  the [v0.6.0 migration](docs/releases/v0.6.0.md#breaking-changes-and-migration).
+
+See [v0.6.1 release notes](docs/releases/v0.6.1.md) for evidence and limits.
 
 ## v0.6.0
 
