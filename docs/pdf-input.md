@@ -13,7 +13,11 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
 - PDF 1.7 syntax with ordinary indirect objects, classic cross-reference
   tables, and incremental revisions linked by `/Prev`. The bounded xref-stream
   subset accepts direct `/Size`, `/W`, `/Index`, and `/Length`, unfiltered or
-  `/FlateDecode` data, and ordinary free or uncompressed in-use entries. A
+  `/FlateDecode` data, and free, standalone or compressed in-use entries.
+  The measured PNG Up profile accepts direct `/DecodeParms` with
+  `/Predictor 12`, `/Colors 1`, `/BitsPerComponent 8`, and `/Columns` equal
+  to the sum of `/W`. Each row must carry algorithm byte 2; prediction state
+  continues across `/Index` subsections and resets for each xref stream. A
   later classic table may point back to an xref stream through `/Prev`.
   Linearized PDFs may link forward to the main xref section. Precedence follows
   the chain, not physical offsets; cycles, out-of-range links and chains longer
@@ -29,11 +33,24 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   the reader does not re-parse them.
 - Catalog and page-tree links, declared page counts, and bounded object and
   page indexes. Page geometry accepts direct rectangles or indirect scalar
-  rectangle objects. Encrypted input, type-2 compressed object entries,
-  object streams, unsupported xref filters or predictors, and unrecognized
-  structural damage return a located typed error. This profile does not claim
-  object-stream support because the observed KDH xref streams contain only
-  type-0 and type-1 entries; compressed objects need a separate bounded reader.
+  rectangle objects. Compressed metadata uses generation-zero, standalone
+  `/ObjStm` containers with direct `/N`, `/First`, `/Length` and a single
+  `/FlateDecode` filter. Member numbers, offsets, xref ordinals, syntax and
+  live references are checked before structure traversal. The final xref
+  revision determines membership, including later standalone replacements.
+  Original stream bytes are retained. `PdfIndex::object_location` returns
+  `UnsupportedFormat` for a compressed member, which has no standalone byte
+  span; internal diagnostics identify the physical container.
+- Object-stream encoded and decoded metadata each use the object-syntax cap
+  `min(4 MiB, max_allocation_bytes / 32)` (plus one inflation sentinel);
+  retained member bytes and the member index each have a separate
+  `max_allocation_bytes / 8` cap. Reads, inflation and member walks observe
+  cancellation. Input remains ranged and output sequential.
+  Encrypted input, other prediction algorithms, filter arrays, object-stream
+  `/DecodeParms`, `/Extends`, external streams, indirect object-stream lengths,
+  compressed indirect stream-length values and unrecognized structural damage
+  remain typed errors. This is the measured #402/#404 profile, not general
+  object-stream or PNG-filter support.
 
 Pass-through does not decode page content filters. The reader validates stream
 framing and declared byte lengths, but it cannot establish that compressed

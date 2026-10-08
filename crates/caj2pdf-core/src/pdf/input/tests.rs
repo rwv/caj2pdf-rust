@@ -3111,3 +3111,450 @@ fn blank_substitutes_require_valid_page_geometry() {
         );
     }
 }
+
+/// Original object-stream fixture. Members are metadata only; callbacks mutate
+/// the uncompressed stream or xref rows before independent zlib encoding.
+fn compressed_fixture(
+    members: &[(u32, &str)],
+    extra: &str,
+    change_data: impl FnOnce(&mut Vec<u8>),
+    change_xref: impl FnOnce(&mut Vec<u8>),
+) -> Vec<u8> {
+    let mut header = String::new();
+    let mut body = Vec::new();
+    for &(number, value) in members {
+        header.push_str(&format!("{number} {} ", body.len()));
+        body.extend_from_slice(value.as_bytes());
+        body.push(b'\n');
+    }
+    let first = header.len();
+    let mut decoded = header.into_bytes();
+    decoded.extend_from_slice(&body);
+    change_data(&mut decoded);
+    let encoded = zlib(&decoded);
+    let mut pdf = b"%PDF-1.5\n".to_vec();
+    let object_at = pdf.len();
+    pdf.extend_from_slice(format!("4 0 obj\n<< /Type /ObjStm /N {} /First {first} /Length {} /Filter /FlateDecode {extra} >>\nstream\n", members.len(), encoded.len()).as_bytes());
+    pdf.extend_from_slice(&encoded);
+    pdf.extend_from_slice(b"\nendstream\nendobj\n");
+    let xref_at = pdf.len();
+    let mut rows = Vec::new();
+    for number in 0..6 {
+        let (kind, offset, ordinal) = match number {
+            0 => (0_u8, 0_u32, u16::MAX),
+            4 => (1, object_at as u32, 0),
+            5 => (1, xref_at as u32, 0),
+            _ => (
+                2,
+                4,
+                members.iter().position(|(n, _)| *n == number).unwrap_or(0) as u16,
+            ),
+        };
+        rows.push(kind);
+        rows.extend_from_slice(&offset.to_be_bytes());
+        rows.extend_from_slice(&ordinal.to_be_bytes());
+    }
+    change_xref(&mut rows);
+    let xref = zlib(&rows);
+    pdf.extend_from_slice(format!("5 0 obj\n<< /Type /XRef /Size 6 /Root 1 0 R /W [1 4 2] /Length {} /Filter /FlateDecode >>\nstream\n", xref.len()).as_bytes());
+    pdf.extend_from_slice(&xref);
+    pdf.extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{xref_at}\n%%EOF\n").as_bytes());
+    pdf
+}
+
+fn with_up_xref(
+    mut doc: Vec<u8>,
+    row_width: usize,
+    parameters: &str,
+    edit: impl FnOnce(&mut Vec<u8>),
+) -> Vec<u8> {
+    let data_at = find(&doc, b"stream\n") as usize + 7;
+    let data_end = find(&doc, b"\nendstream") as usize;
+    let raw = doc[data_at..data_end].to_vec();
+    let mut predicted = Vec::new();
+    for (number, row) in raw.chunks_exact(row_width).enumerate() {
+        predicted.push(2);
+        for (column, &byte) in row.iter().enumerate() {
+            let previous = if number == 0 {
+                0
+            } else {
+                raw[(number - 1) * row_width + column]
+            };
+            predicted.push(byte.wrapping_sub(previous));
+        }
+    }
+    edit(&mut predicted);
+    let encoded = zlib(&predicted);
+    doc.splice(data_at..data_end, encoded.iter().copied());
+    replace_once(
+        &mut doc,
+        format!("/Length {}", raw.len()).as_bytes(),
+        format!(
+            "/Length {} /Filter /FlateDecode /DecodeParms {parameters}",
+            encoded.len()
+        )
+        .as_bytes(),
+    );
+    doc
+}
+
+#[test]
+fn png_up_xref_rows_preserve_object_offsets_and_index_subsections() {
+    for widths in [[1, 2, 2], [1, 4, 2], [8, 8, 8]] {
+        let width = widths.iter().sum();
+        let raw = xref_stream_pdf(&minimal_objects(), widths, 0, false);
+        let expected = open(raw.clone()).unwrap();
+        let mut doc = with_up_xref(
+            raw,
+            width,
+            &format!("<< /Predictor 12 /Columns {width} >>"),
+            |_| {},
+        );
+        // Prediction must not reset when Index advances to another subsection.
+        replace_once(&mut doc, b"/Index [0 5]", b"/Index [0 2 2 3]");
+        let actual = open_with(
+            doc,
+            &Limits {
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(actual.pages(), expected.pages());
+        for number in 1..4 {
+            let reference = PdfRef {
+                number,
+                generation: 0,
+            };
+            assert_eq!(
+                actual.object_location(reference).unwrap(),
+                expected.object_location(reference).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn png_up_xref_parameters_rows_and_lengths_remain_strict() {
+    for parameters in [
+        "<< >>",
+        "null",
+        "[]",
+        "1 0 R",
+        "<< /Predictor 11 /Columns 7 >>",
+        "<< /Predictor 12 /Columns 8 >>",
+        "<< /Predictor 12 /Columns 7 /Colors 3 >>",
+        "<< /Predictor 12 /Columns 7 /BitsPerComponent 16 >>",
+        "<< /Predictor 12 /Columns -7 >>",
+        "<< /Predictor 12 /Columns (7) >>",
+        "<< /Predictor 12 /Columns 7 /EarlyChange 1 >>",
+    ] {
+        let doc = with_up_xref(
+            xref_stream_pdf(&minimal_objects(), [1, 4, 2], 0, false),
+            7,
+            parameters,
+            |_| {},
+        );
+        assert!(
+            matches!(
+                open(doc),
+                Err(Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    ..
+                })
+            ),
+            "{parameters}"
+        );
+    }
+    for algorithm in [0, 1, 3, 4, 5, 255] {
+        let doc = with_up_xref(
+            xref_stream_pdf(&minimal_objects(), [1, 4, 2], 0, false),
+            7,
+            "<< /Predictor 12 /Columns 7 >>",
+            |rows| rows[8] = algorithm,
+        );
+        let error = pdf_error(open(doc));
+        assert_eq!(
+            pdf_class(&error),
+            Some(if algorithm <= 4 {
+                "unsupported"
+            } else {
+                "malformed"
+            })
+        );
+    }
+    for extra in [false, true] {
+        let doc = with_up_xref(
+            xref_stream_pdf(&minimal_objects(), [1, 4, 2], 0, false),
+            7,
+            "<< /Predictor 12 /Columns 7 >>",
+            |rows| {
+                if extra {
+                    rows.push(0);
+                } else {
+                    rows.pop();
+                }
+            },
+        );
+        assert!(open(doc).is_err());
+    }
+    assert!(xref_up_parameters(
+        b"<< /Pr#65dictor +12 /Columns 7 /Colors 1 /BitsPerComponent 8 >>",
+        7
+    ));
+    assert!(!xref_up_parameters(b"<< /Predictor 12 /Columns 7 >> 0", 7));
+    assert!(!xref_up_parameters(
+        b"<< /Predictor 12 /Columns 7 /Columns 7 >>",
+        7
+    ));
+}
+
+#[test]
+fn compressed_metadata_preserves_references_and_has_no_invented_source_span() {
+    let mut members = minimal_objects();
+    members.swap(0, 2); // Header order need not equal object-number order.
+    let doc = compressed_fixture(&members, "", |_| {}, |_| {});
+    let index = open(doc).unwrap();
+    assert_eq!(
+        index.pages(),
+        &[PdfRef {
+            number: 3,
+            generation: 0
+        }]
+    );
+    assert!(matches!(
+        index.object_location(index.catalog()),
+        Err(Error {
+            kind: ErrorKind::UnsupportedFormat,
+            ..
+        })
+    ));
+    assert_eq!(
+        index
+            .object_location(PdfRef {
+                number: 4,
+                generation: 0
+            })
+            .unwrap()
+            .offset,
+        9
+    );
+}
+
+#[test]
+fn compressed_metadata_rejects_bad_headers_members_and_xref_ordinals() {
+    for mutation in 0..8 {
+        let doc = compressed_fixture(
+            &minimal_objects(),
+            "",
+            |data| match mutation {
+                0 => data[0] = b'0', // Reserved object zero.
+                1 => data[0] = b'2', // Duplicate number.
+                2 => data[2] = b'9', // Nonzero first offset.
+                3 => {
+                    data.pop();
+                    data.pop();
+                } // Truncated final dictionary.
+                4 => data.extend_from_slice(b" 0"), // More than one member value.
+                _ => {}
+            },
+            |rows| match mutation {
+                5 => rows[7 + 6] = 2,   // Object 1 is not member 2.
+                6 => rows[7 + 4] = 1,   // Container itself is compressed.
+                7 => rows[7 + 6] = 250, // Missing ordinal.
+                _ => {}
+            },
+        );
+        assert!(open(doc).is_err(), "mutation {mutation}");
+    }
+    for extra in ["/Extends 4 0 R", "/DecodeParms << >>", "/F (external)"] {
+        assert!(
+            matches!(
+                open(compressed_fixture(
+                    &minimal_objects(),
+                    extra,
+                    |_| {},
+                    |_| {}
+                )),
+                Err(Error {
+                    kind: ErrorKind::UnsupportedFormat,
+                    ..
+                })
+            ),
+            "{extra}"
+        );
+    }
+}
+
+#[test]
+fn later_standalone_revision_supersedes_compressed_member() {
+    let mut doc = compressed_fixture(&minimal_objects(), "", |_| {}, |_| {});
+    let marker = find(&doc, b"startxref\n") as usize + 10;
+    let previous = std::str::from_utf8(&doc[marker..])
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let page_at = doc.len();
+    doc.extend_from_slice(
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 30] >>\nendobj\n",
+    );
+    let xref_at = doc.len();
+    doc.extend_from_slice(format!("xref\n3 1\n{page_at:010} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R /Prev {previous} >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes());
+    let index = open(doc).unwrap();
+    assert_eq!(
+        index
+            .object_location(PdfRef {
+                number: 3,
+                generation: 0
+            })
+            .unwrap()
+            .offset,
+        page_at as u64
+    );
+    assert!(
+        index
+            .compressed_object(PdfRef {
+                number: 3,
+                generation: 0
+            })
+            .is_none()
+    );
+}
+
+#[test]
+fn cancellation_covers_up_xref_and_compressed_metadata_loading() {
+    let fixtures = [
+        with_up_xref(
+            xref_stream_pdf(&minimal_objects(), [1, 4, 2], 0, false),
+            7,
+            "<< /Predictor 12 /Columns 7 >>",
+            |_| {},
+        ),
+        compressed_fixture(&minimal_objects(), "", |_| {}, |_| {}),
+    ];
+    for doc in fixtures {
+        for allowed in 0..10000 {
+            match open_cancellable(doc.clone(), &Limits::default(), &CancelAfter::new(allowed)) {
+                Ok(_) => {
+                    assert!(allowed > 5);
+                    break;
+                }
+                Err(Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                }) => {}
+                Err(error) => panic!("checkpoint {allowed}: {error}"),
+            }
+            assert!(allowed < 9999);
+        }
+    }
+}
+
+#[test]
+fn compressed_metadata_limits_and_integer_overflow_are_located() {
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        max_allocation_bytes: 512 * 32,
+        ..Limits::default()
+    };
+    let make = |size| {
+        compressed_fixture(
+            &minimal_objects(),
+            "",
+            |data| data.resize(size, b' '),
+            |_| {},
+        )
+    };
+    open_with(make(512), &limits).unwrap();
+    let error = pdf_error(open_with(make(513), &limits));
+    assert!(
+        matches!(
+            error,
+            Error {
+                kind: ErrorKind::LimitExceeded {
+                    resource: "PDF object stream decoded bytes",
+                    limit: 512,
+                    attempted: 513
+                },
+                offset: Some(9),
+                context: Context::Pdf {
+                    object: Some((4, 0)),
+                    ..
+                },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    for field in ["18446744073709551616 0 ", "1 18446744073709551616 "] {
+        let doc = compressed_fixture(
+            &minimal_objects(),
+            "",
+            |data| {
+                data.splice(..4, field.bytes());
+            },
+            |_| {},
+        );
+        let error = pdf_error(open(doc));
+        assert!(
+            matches!(
+                error,
+                Error {
+                    kind: ErrorKind::Malformed,
+                    offset: Some(9),
+                    context: Context::Pdf {
+                        object: Some((4, 0)),
+                        ..
+                    },
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+    }
+    let mut doc = compressed_fixture(&minimal_objects(), "", |_| {}, |_| {});
+    replace_once(&mut doc, b"/N 3 ", b"/N 0 ");
+    assert!(matches!(
+        open(doc),
+        Err(Error {
+            kind: ErrorKind::Malformed,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn object_stream_inflation_requires_complete_zlib_and_exact_encoded_extent() {
+    let encoded = zlib(b"1 0 null");
+    for mutated in [
+        encoded[..encoded.len() - 1].to_vec(),
+        [encoded.as_slice(), b"x"].concat(),
+    ] {
+        assert!(matches!(
+            inflate_pdf_stream(&mutated, 100, false, 1, &NEVER),
+            Err(Error {
+                kind: ErrorKind::Malformed,
+                ..
+            })
+        ));
+    }
+    assert_eq!(
+        inflate_pdf_stream(&encoded, 8, false, 1, &NEVER).unwrap(),
+        b"1 0 null"
+    );
+}
+
+#[test]
+fn object_stream_members_cannot_contain_streams_or_dangling_references() {
+    for member in [
+        "<< /Type /Page /Parent 2 1 R /MediaBox [0 0 20 30] >>",
+        "<< /Length 1 >> stream\nx\nendstream",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 30] /Contents 1 0 R >>",
+    ] {
+        let mut members = minimal_objects();
+        members[2].1 = member;
+        assert!(open(compressed_fixture(&members, "", |_| {}, |_| {})).is_err());
+    }
+}

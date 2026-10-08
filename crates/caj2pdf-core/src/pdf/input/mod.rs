@@ -2,12 +2,13 @@
 
 //! Checked, ranged PDF input for classic tables and bounded xref streams.
 //!
-//! This module stores object positions and page references, never page or
-//! stream payloads. All offsets in `PdfIndex` are relative to `PdfRange`;
-//! diagnostics use absolute source offsets.
+//! This module stores object positions, page references and bounded compressed
+//! metadata, never page-content payloads. All offsets in `PdfIndex` are relative
+//! to `PdfRange`; diagnostics use absolute source offsets.
 
 mod footer;
 mod link_repair;
+mod object_stream;
 mod parser;
 
 pub(crate) use link_repair::{
@@ -24,6 +25,7 @@ use crate::fallible::{len_u64, push_bounded, reserve_exact};
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use crate::{Context, ErrorKind};
 use flate2::{Decompress, FlushDecompress, Status};
+use object_stream::CompressedObject;
 use parser::{
     Dictionary, ObjectHead, ObjectTail, Syntax, destination_page, exact_name, exact_reference,
     exact_unsigned, first_id_string, goto_destination, media_box, parse_object_head,
@@ -75,6 +77,7 @@ pub struct PdfIndex {
     pages: Vec<PdfRef>,
     has_outlines: bool,
     object_locations: Vec<Option<(u16, ObjectLocation)>>,
+    compressed_objects: Vec<CompressedObject>,
     repair_objects: Vec<RepairObject>,
     retained_repair_bytes: u64,
     stale_page_parents: Vec<(PdfRef, PdfRef)>,
@@ -152,6 +155,8 @@ impl PdfIndex {
         }
     }
 
+    /// Return the physical span of a standalone indirect object. Compressed
+    /// objects have no standalone source span and return UnsupportedFormat.
     pub fn object_location(&self, reference: PdfRef) -> Result<ObjectLocation> {
         let slot = self
             .object_locations
@@ -159,6 +164,12 @@ impl PdfIndex {
             .and_then(|slot| *slot);
         match slot {
             Some((generation, location)) if generation == reference.generation => Ok(location),
+            _ if self.compressed_object(reference).is_some() => Err(Error::pdf(
+                ErrorKind::UnsupportedFormat,
+                self.range.offset,
+                Some((reference.number, reference.generation)),
+                "compressed PDF object has no standalone source span",
+            )),
             _ => Err(Error::pdf(
                 ErrorKind::Malformed,
                 self.range.offset,
@@ -234,6 +245,7 @@ impl PdfIndex {
             pages: Vec::new(),
             has_outlines: false,
             object_locations,
+            compressed_objects: Vec::new(),
             repair_objects: Vec::new(),
             retained_repair_bytes: 0,
             stale_page_parents: Vec::new(),
@@ -242,6 +254,7 @@ impl PdfIndex {
             retained_gap_bytes: 0,
             max_referenced_object: 0,
         };
+        reader.read_compressed_objects(&slots, &mut index)?;
         reader.validate_objects(&slots, &mut index)?;
         index.stream_separator_patches.sort_unstable();
         reader.read_structure(&slots, &mut index)?;
@@ -252,7 +265,7 @@ impl PdfIndex {
             // tables, which describe the original file length and layout.
             // Reuse the validated Catalog entries; pages and streams stay
             // untouched. An already updated PDF needs no further revision.
-            let catalog_at = index.object_location(index.catalog)?.offset;
+            let catalog_at = index.metadata_location(index.catalog)?.offset;
             reader.push_repair_body(
                 &index.catalog_dict,
                 index.catalog,
@@ -264,7 +277,7 @@ impl PdfIndex {
             )?;
         }
         if let Some((reference, _)) = index.stale_page_parents.first() {
-            let location = index.object_location(*reference)?;
+            let location = index.metadata_location(*reference)?;
             return Err(reader.malformed(
                 location.offset,
                 Some(*reference),
@@ -280,6 +293,7 @@ impl PdfIndex {
 enum XrefKind {
     Free,
     InUse(u64),
+    Compressed { stream: u32, index: u32 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -872,8 +886,49 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let failure = self.malformed(at, Some(reference), "xref Index row count overflows");
             rows = rows.checked_add(count).ok_or(failure)?;
         }
+        let filter =
+            optional_entry(dictionary.value(b"Filter").map(exact_name)).ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    ErrorKind::UnsupportedFormat,
+                    "xref stream filter is unsupported",
+                )
+            })?;
+        if filter.as_deref().is_some_and(|name| name != b"FlateDecode") {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                ErrorKind::UnsupportedFormat,
+                "xref stream filter is unsupported",
+            ));
+        }
+        let predictor = match dictionary.value(b"DecodeParms") {
+            None => false,
+            Some(value) if filter.is_some() && xref_up_parameters(value, row_width) => true,
+            Some(_) => {
+                return Err(self.problem(
+                    at,
+                    Some(reference),
+                    ErrorKind::UnsupportedFormat,
+                    "xref stream decode parameters are unsupported",
+                ));
+            }
+        };
+        if dictionary.value(b"F").is_some() {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                ErrorKind::UnsupportedFormat,
+                "xref stream external data is unsupported",
+            ));
+        }
         let failure = self.malformed(at, Some(reference), "xref stream decoded size overflows");
-        let decoded_len = rows.checked_mul(row_width).ok_or(failure)?;
+        // PNG prediction adds one algorithm byte to every inflated row. Include
+        // those bytes and the inflation sentinel in the existing allocation cap.
+        let decoded_len = rows
+            .checked_mul(row_width + u64::from(predictor))
+            .ok_or(failure)?;
         // Encoded and decoded buffers may coexist during inflation. Keep their
         // combined ceiling within one quarter of the configured allocation cap.
         let cap = MAX_XREF_STREAM_BYTES.min(self.limits.max_allocation_bytes / 8);
@@ -902,38 +957,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 Error::limit("PDF xref encoded bytes", cap, length),
             ));
         }
-        if dictionary.value(b"DecodeParms").is_some() || dictionary.value(b"F").is_some() {
-            return Err(self.problem(
-                at,
-                Some(reference),
-                ErrorKind::UnsupportedFormat,
-                "xref stream decode parameters are unsupported",
-            ));
-        }
-        let filter =
-            optional_entry(dictionary.value(b"Filter").map(exact_name)).ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    ErrorKind::UnsupportedFormat,
-                    "xref stream filter is unsupported",
-                )
-            })?;
-        if filter.as_deref().is_some_and(|name| name != b"FlateDecode") {
-            return Err(self.problem(
-                at,
-                Some(reference),
-                ErrorKind::UnsupportedFormat,
-                "xref stream filter is unsupported",
-            ));
-        }
         let failure = self.malformed(at, Some(reference), "xref stream offset overflows");
         let data_at = at.checked_add(data_start as u64).ok_or(failure)?;
         let failure = self.malformed(data_at, Some(reference), "xref stream length overflows");
         let after_data = data_at.checked_add(length).ok_or(failure)?;
         self.check_stream_tail(after_data, Some(reference))?;
         let encoded = self.bytes(data_at, length as usize)?;
-        let decoded = if filter.is_some() {
+        let mut decoded = if filter.is_some() {
             inflate_xref(
                 &encoded,
                 decoded_len as usize,
@@ -956,12 +986,41 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         };
         let mut records = Vec::new();
         let mut position = 0;
+        // W contains three fields of at most eight bytes. Prediction state
+        // spans Index subsections, but starts at zero for each xref stream.
+        let mut previous_row = [0_u8; 24];
         for pair in indices.as_chunks::<2>().0 {
             for number in pair[0]..pair[0] + pair[1] {
                 // A one-byte row can fit millions of entries in the bounded
                 // stream, so check cancellation during row parsing as well.
                 if records.len() % 1024 == 0 && self.cancellation.is_cancelled() {
                     return Err(crate::ErrorKind::Cancelled.into());
+                }
+                if predictor {
+                    let algorithm = decoded[position];
+                    // Predictor >= 10 is an encoding hint, not the row tag.
+                    // This measured profile admits Up only; never decode a
+                    // different PNG algorithm as Up merely because Predictor=12.
+                    if algorithm != 2 {
+                        return Err(self.problem(
+                            data_at,
+                            Some(reference),
+                            if algorithm <= 4 {
+                                ErrorKind::UnsupportedFormat
+                            } else {
+                                ErrorKind::Malformed
+                            },
+                            "xref stream PNG row algorithm is not Up",
+                        ));
+                    }
+                    position += 1;
+                    for (value, previous) in decoded[position..position + row_width as usize]
+                        .iter_mut()
+                        .zip(&mut previous_row)
+                    {
+                        *value = value.wrapping_add(*previous);
+                        *previous = *value;
+                    }
                 }
                 // Exact decoded length was checked against the declared row
                 // geometry, but still reject any future parser drift safely.
@@ -992,12 +1051,20 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         XrefKind::InUse(field2)
                     }
                     2 => {
-                        return Err(self.problem(
-                            data_at,
-                            Some(reference),
-                            ErrorKind::UnsupportedFormat,
-                            "compressed PDF objects are unsupported",
-                        ));
+                        if field2 == 0
+                            || field2 >= u64::from(trailer.size)
+                            || field3 >= u64::from(MAX_PDF_OBJECTS)
+                        {
+                            return Err(self.malformed(
+                                data_at,
+                                Some(reference),
+                                "xref compressed object stream or index is invalid",
+                            ));
+                        }
+                        XrefKind::Compressed {
+                            stream: field2 as u32,
+                            index: field3 as u32,
+                        }
                     }
                     _ => {
                         return Err(self.problem(
@@ -1008,7 +1075,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         ));
                     }
                 };
-                let generation = u16::try_from(field3).map_err(|_| {
+                let generation = u16::try_from(if matches!(kind, XrefKind::Compressed { .. }) {
+                    0
+                } else {
+                    field3
+                })
+                .map_err(|_| {
                     self.malformed(data_at, Some(reference), "xref generation exceeds 16 bits")
                 })?;
                 push_bounded(
@@ -1201,6 +1273,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 generation,
                 kind: XrefKind::InUse(offset),
             }) if generation == reference.generation => offset,
+            Some(XrefSlot {
+                generation,
+                kind: XrefKind::Compressed { .. },
+            }) if generation == reference.generation => {
+                return Err(self.problem(
+                    0,
+                    Some(reference),
+                    ErrorKind::UnsupportedFormat,
+                    "compressed indirect stream Length is unsupported",
+                ));
+            }
             _ => {
                 return Err(self.malformed(
                     0,
@@ -1255,35 +1338,34 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     fn validate_objects(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {
         for (number, slot) in slots.iter().enumerate().skip(1) {
-            let Some(XrefSlot {
-                generation,
-                kind: XrefKind::InUse(offset),
-            }) = slot
-            else {
+            let Some(slot) = slot else {
                 continue;
             };
+            let generation = slot.generation;
             let reference = PdfRef {
                 number: number as u32,
-                generation: *generation,
+                generation,
             };
-            if *offset >= index.logical_end {
+            let offset = match slot.kind {
+                XrefKind::Free => continue,
+                XrefKind::InUse(offset) => offset,
+                XrefKind::Compressed { .. } => index.metadata_location(reference)?.offset,
+            };
+            if offset >= index.logical_end {
                 return Err(self.malformed(
-                    *offset,
+                    offset,
                     Some(reference),
                     "live PDF object begins after logical EOF",
                 ));
             }
-            let (head, location) = self.load_object(*offset, reference, slots)?;
-            check_live_object_end(self.range, *offset, reference, location, index.logical_end)?;
+            let (head, location) = self.load_indexed_object(offset, reference, slots, index)?;
+            check_live_object_end(self.range, offset, reference, location, index.logical_end)?;
             if let ObjectTail::Stream { data_start } = &head.tail
                 && *data_start > 0
                 && head.bytes[*data_start - 1] == b'\r'
             {
-                let failure = self.malformed(
-                    *offset,
-                    Some(reference),
-                    "stream separator offset overflows",
-                );
+                let failure =
+                    self.malformed(offset, Some(reference), "stream separator offset overflows");
                 let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or(failure)?;
                 push_bounded(
                     &mut index.stream_separator_patches,
@@ -1301,7 +1383,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.check_dictionary_duplicates(
                     dictionary,
                     reference,
-                    *offset,
+                    offset,
                     &kind,
                     &mut index.repair_objects,
                     &mut index.retained_repair_bytes,
@@ -1315,7 +1397,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             });
             for target in &head.references {
                 let live = slots.get(target.number as usize).and_then(|slot| *slot);
-                if !matches!(live,Some(XrefSlot{generation,kind:XrefKind::InUse(_)}) if generation==target.generation)
+                if !matches!(live,Some(XrefSlot{generation,kind:XrefKind::InUse(_) | XrefKind::Compressed { .. }}) if generation==target.generation)
                 {
                     if matches!(
                         live,
@@ -1337,11 +1419,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             self.limits.max_allocation_bytes / 8,
                             "PDF stale page parent candidates",
                         )
-                        .map_err(self.locator(*offset, Some(reference)))?;
+                        .map_err(self.locator(offset, Some(reference)))?;
                         continue;
                     }
                     return Err(self.malformed(
-                        *offset,
+                        offset,
                         Some(reference),
                         "PDF object contains a dangling indirect reference",
                     ));
@@ -1351,21 +1433,23 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .max_referenced_object
                 .max(head.max_reference)
                 .max(number as u32);
-            index.object_locations[number] = Some((*generation, location));
+            if matches!(slot.kind, XrefKind::InUse(_)) {
+                index.object_locations[number] = Some((generation, location));
+            }
         }
         Ok(())
     }
 
     fn read_structure(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {
         if let Some(info) = index.trailer_info {
-            let location = index.object_location(info).map_err(|_| {
+            let location = index.metadata_location(info).map_err(|_| {
                 self.malformed(
                     index.xref_offset,
                     Some(info),
                     "trailer Info does not resolve to a live object",
                 )
             })?;
-            let (head, _) = self.load_object(location.offset, info, slots)?;
+            let (head, _) = self.load_indexed_object(location.offset, info, slots, index)?;
             let failure = self.malformed(
                 location.offset,
                 Some(info),
@@ -1380,8 +1464,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
         }
-        let catalog_location = index.object_location(index.catalog)?;
-        let (catalog_head, _) = self.load_object(catalog_location.offset, index.catalog, slots)?;
+        let catalog_location = index.metadata_location(index.catalog)?;
+        let (catalog_head, _) =
+            self.load_indexed_object(catalog_location.offset, index.catalog, slots, index)?;
         let failure = self.malformed(
             catalog_location.offset,
             Some(index.catalog),
@@ -1412,8 +1497,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "direct or malformed AcroForm dictionaries are unsupported",
                 )
             })?;
-            let location = index.object_location(form_ref)?;
-            let (form_head, _) = self.load_object(location.offset, form_ref, slots)?;
+            let location = index.metadata_location(form_ref)?;
+            let (form_head, _) =
+                self.load_indexed_object(location.offset, form_ref, slots, index)?;
             let failure = self.malformed(
                 location.offset,
                 Some(form_ref),
@@ -1478,7 +1564,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let node = match visit {
                 Ok(node) => node,
                 Err(reference) => {
-                    let location = index.object_location(reference)?;
+                    let location = index.metadata_location(reference)?;
                     return Err(self.malformed(
                         location.offset,
                         Some(reference),
@@ -1487,7 +1573,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
             };
             let (reference, parent) = (node.reference, node.parent);
-            let location = index.object_location(reference)?;
+            let location = index.metadata_location(reference)?;
             // A resolved reference has a slot, and `visited` has one entry
             // per slot.
             let seen = &mut visited[reference.number as usize];
@@ -1499,7 +1585,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             *seen = true;
-            let (head, _) = self.load_object(location.offset, reference, slots)?;
+            let (head, _) = self.load_indexed_object(location.offset, reference, slots, index)?;
             let failure = self.malformed(
                 location.offset,
                 Some(reference),
@@ -1654,8 +1740,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "invalid Catalog Outlines reference",
             );
             let outline_ref = exact_reference(outline_value).ok_or(failure)?;
-            let outline_location = index.object_location(outline_ref)?;
-            let (head, _) = self.load_object(outline_location.offset, outline_ref, slots)?;
+            let outline_location = index.metadata_location(outline_ref)?;
+            let (head, _) =
+                self.load_indexed_object(outline_location.offset, outline_ref, slots, index)?;
             let failure = self.malformed(
                 outline_location.offset,
                 Some(outline_ref),
@@ -1685,8 +1772,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Ok(());
         }
         if let Some(reference) = exact_reference(value) {
-            let location = index.object_location(reference)?;
-            let (head, _) = self.load_object(location.offset, reference, slots)?;
+            let location = index.metadata_location(reference)?;
+            let (head, _) = self.load_indexed_object(location.offset, reference, slots, index)?;
             if head
                 .scalar
                 .as_ref()
@@ -1721,8 +1808,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             {
                 return Ok(());
             }
-            let location = index.object_location(reference)?;
-            let (head, _) = self.load_object(location.offset, reference, slots)?;
+            let location = index.metadata_location(reference)?;
+            let (head, _) = self.load_indexed_object(location.offset, reference, slots, index)?;
             if matches!(head.tail, ObjectTail::Stream { .. }) {
                 contents_validated[reference.number as usize] = true;
                 return Ok(());
@@ -1760,8 +1847,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         slots: &[Option<XrefSlot>],
         index: &PdfIndex,
     ) -> Result<()> {
-        let location = index.object_location(reference)?;
-        let (head, _) = self.load_object(location.offset, reference, slots)?;
+        let location = index.metadata_location(reference)?;
+        let (head, _) = self.load_indexed_object(location.offset, reference, slots, index)?;
         if !matches!(head.tail, ObjectTail::Stream { .. }) {
             return Err(self.malformed(
                 location.offset,
@@ -1883,7 +1970,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     missing_previous,
                     expected_last,
                 } => {
-                    let location = index.object_location(reference)?;
+                    let location = index.metadata_location(reference)?;
                     let replacement_last = self.outline_last_repair(
                         expected_last,
                         completed,
@@ -1892,7 +1979,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         reference,
                     )?;
                     if missing_previous.is_some() || replacement_last.is_some() {
-                        let (head, _) = self.load_object(location.offset, reference, slots)?;
+                        let (head, _) =
+                            self.load_indexed_object(location.offset, reference, slots, index)?;
                         let dictionary = head.dictionary.ok_or_else(|| {
                             self.malformed(
                                 location.offset,
@@ -1913,7 +2001,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     continue;
                 }
             };
-            let location = index.object_location(task.reference)?;
+            let location = index.metadata_location(task.reference)?;
             // A resolved reference has a slot, and `visited` has one entry
             // per slot.
             let seen = &mut visited[task.reference.number as usize];
@@ -1934,7 +2022,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             self.limits
                 .check_bookmarks(item_count)
                 .map_err(self.locator(location.offset, Some(task.reference)))?;
-            let (head, _) = self.load_object(location.offset, task.reference, slots)?;
+            let (head, _) =
+                self.load_indexed_object(location.offset, task.reference, slots, index)?;
             let failure = self.malformed(
                 location.offset,
                 Some(task.reference),
@@ -2480,6 +2569,34 @@ fn parse_orphan_gap(bytes: &[u8]) -> Option<u32> {
     (rest.is_empty() || rest == b"e").then_some(number)
 }
 
+/// The measured byte-per-component, one-color PNG Up xref profile. The
+/// enclosing object parser already validates/bounds this direct value and
+/// rejects duplicate nested keys. Reuse its name/integer parsing here.
+fn xref_up_parameters(value: &[u8], row_width: u64) -> bool {
+    let mut syntax = Syntax::new(value);
+    let Ok(entries) = syntax.dictionary(1) else {
+        return false;
+    };
+    if entries.len() > 4 || !syntax.at_end() {
+        return false;
+    }
+    let mut parameters = [1, 1, 8, 1];
+    for entry in entries {
+        let slot = match entry.name.as_slice() {
+            b"Predictor" => 0,
+            b"Colors" => 1,
+            b"BitsPerComponent" => 2,
+            b"Columns" => 3,
+            _ => return false,
+        };
+        let Some(number) = exact_unsigned(entry.value(value)) else {
+            return false;
+        };
+        parameters[slot] = number;
+    }
+    parameters == [12, 1, 8, row_width]
+}
+
 /// Inflate exactly `expected` bytes; invalid data is an unlocated malformed
 /// error, and more data an unlocated limit error.
 fn inflate_xref<C: Cancellation>(
@@ -2488,15 +2605,35 @@ fn inflate_xref<C: Cancellation>(
     chunk_bytes: usize,
     cancellation: &C,
 ) -> Result<Vec<u8>> {
+    inflate_pdf_stream(encoded, expected, true, chunk_bytes, cancellation)
+}
+
+fn inflate_pdf_stream<C: Cancellation>(
+    encoded: &[u8],
+    expected: usize,
+    exact: bool,
+    chunk_bytes: usize,
+    cancellation: &C,
+) -> Result<Vec<u8>> {
     let too_long = || {
         let expected = len_u64(expected);
         Error::limit(
-            "PDF xref decoded bytes",
+            if exact {
+                "PDF xref decoded bytes"
+            } else {
+                "PDF object stream decoded bytes"
+            },
             expected,
             expected.saturating_add(1),
         )
     };
-    let invalid = || Error::invalid("xref stream Flate data is invalid");
+    let invalid = || {
+        Error::invalid(if exact {
+            "xref stream Flate data is invalid"
+        } else {
+            "object stream Flate data is invalid"
+        })
+    };
     let length = expected.checked_add(1).ok_or_else(too_long)?;
     let mut decoded = Vec::new();
     reserve_exact(&mut decoded, length, too_long())?;
@@ -2526,11 +2663,11 @@ fn inflate_xref<C: Cancellation>(
         }
         if status == Status::StreamEnd {
             if inflater.total_in() as usize != encoded.len()
-                || inflater.total_out() as usize != expected
+                || (exact && inflater.total_out() as usize != expected)
             {
                 return Err(invalid());
             }
-            decoded.truncate(expected);
+            decoded.truncate(inflater.total_out() as usize);
             return Ok(decoded);
         }
         if inflater.total_in() == before_in && inflater.total_out() == before_out {
