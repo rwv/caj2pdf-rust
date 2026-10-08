@@ -1656,3 +1656,49 @@ recovery or unavoidable-exception proof remain unresolved in
 [#415](https://github.com/rwv/caj2pdf-rust/issues/415). No recovery implementation,
 support/API change, release-note entry or publication is justified by this
 research-only change.
+
+## Current runtime and expanded outline inventories (#406, #303)
+
+The [runtime receipt](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/current-corpus-runtime-20261008.md)
+pins original MIT Node/browser measurement harnesses and the reviewed #457
+code, CLI, WASM and 41-file frozen JS package. All 1,252 accepted outputs
+match existing same-build native hashes, sizes and pages. Source hashes are
+checked before and after operations; 45 fresh refusals retain zero output
+and cleanup evidence on each runtime. Final aggregation independently checks
+source sets/order and detects deliberate duplicate, exchanged-identity,
+changed-hash and retained-temporary-entry controls. Native corpus evidence
+is inherited from the frozen reviewed run, not relabeled as newly executed.
+
+The [outline inventory](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/hnc8-outline-inventory-20261008.md)
+uses an original MIT Python standard-library script and seven synthetic
+control groups in the samples repository. It streams source hashes, reads
+bounded measured header/index fields and the final 64 bytes, and permits
+only a completely framed application-info package with encoded/decoded
+limits of 1 MiB. UTF-8 XML must have no NUL/DTD/entity declarations and at
+most 100,000 nodes. Unknown boundaries remain unresolved; exported metadata
+contains structure/counts/hashes, never XML text or link/attribute values.
+
+All 849 C8/HN-B first-text offsets equal their page-index ends. Five final
+application-info packages contain known link structures. Neither this span
+inspection nor structural-name matching establishes absence of other possible
+outline layouts. The unchanged 132-page source SHA-256
+`1373e97a8598258c5ee9f8a2191f9efa189c5d62d5b663cfa6ec4aa7f7418735`
+has the HN-A marker 400 and 81 bookmarks, correcting the historical #303
+classification; fresh CLI/header observations and a populated viewer panel
+agree. The previous source-outline comparison retains its own build and scope.
+
+Six fresh hash-pinned offline, read-only, resource-limited viewer sessions
+cover four C8 originals and two HN-A positive controls. Selected contents tabs
+and final full frames were visually inspected. Stable captures, unchanged
+inputs, no OOM and container removal are recorded. The initial C8 annotations-tab
+capture is retained as an unsuccessful contents observation. General viewer
+readiness and full-document fidelity are not established. The auxiliary
+45-page HN-A control is outside the catalog's frozen 1,297 identities.
+
+No foreign converter, private HN/JBIG or vendor implementation is read or
+migrated. No production source or dependency changes; documents, derived
+PDF/XML/pixel data and fonts remain external. One known private-use visual
+substitution, unknown C8/HN-B outlines and remaining recovery boundaries stay
+explicit. #406's runtime criterion is satisfied, while its other criteria
+and #303 remain open. This conformance-only update has no release-note or
+publication effect.
