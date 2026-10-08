@@ -307,8 +307,10 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
     let mut hints: Vec<(u64, Extent)> = Vec::new();
     let mut first_error = None;
     for _ in 0..=MAX_EXTENT_RETRIES {
-        for candidate in candidates.iter_mut() {
-            candidate.used = false;
+        if verify {
+            for candidate in candidates.iter_mut() {
+                candidate.used = false;
+            }
         }
         let mut pass = Pass {
             objects: Vec::new(),
@@ -816,25 +818,23 @@ fn finish<S: RangedSource, C: Cancellation>(
     }
     // A candidate reached through a container anchor may actually be inside a
     // stream. Only the complete forward parse establishes its object boundary.
-    for candidate in pass
-        .candidates
-        .iter()
-        .filter(|candidate| verify && candidate.used)
-    {
-        let object = candidate.object;
-        let confirmed = pass
-            .objects
-            .binary_search_by_key(&object.range.offset, |actual| actual.object.range.offset)
-            .is_ok_and(|index| pass.objects[index].object == object);
-        if !confirmed {
-            return Err(reader
-                .problem(
-                    object.range.offset.saturating_sub(body_start),
-                    Some(object.reference),
-                    ErrorKind::Malformed,
-                    "recovery candidate is not a complete fragment object",
-                )
-                .ambiguous_repair());
+    if verify {
+        for candidate in pass.candidates.iter().filter(|candidate| candidate.used) {
+            let object = candidate.object;
+            let confirmed = pass
+                .objects
+                .binary_search_by_key(&object.range.offset, |actual| actual.object.range.offset)
+                .is_ok_and(|index| pass.objects[index].object == object);
+            if !confirmed {
+                return Err(reader
+                    .problem(
+                        object.range.offset.saturating_sub(body_start),
+                        Some(object.reference),
+                        ErrorKind::Malformed,
+                        "recovery candidate is not a complete fragment object",
+                    )
+                    .ambiguous_repair());
+            }
         }
     }
     compact_replays(reader, &mut pass.objects)?;
