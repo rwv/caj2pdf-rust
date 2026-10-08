@@ -1067,3 +1067,22 @@ for actual wrapper/credential semantics and validated recovery or exception
 evidence. The [provenance record](provenance.md#ttkn-encrypted-pdf-wrapper-inventory-415)
 documents the original MIT research tools, public specifications and limits.
 Production behavior, supported formats and releases are unchanged.
+
+## Indexed lookup audit and missing-color boundary (#420)
+
+The [pinned follow-up](https://github.com/rwv/caj2pdf-samples/blob/73e56cc579a48b9f2d8309f044bf6e5daa71c4e3/research/notes/indexed-palette-loss-20261008.md)
+checks decoded Indexed lookup lengths in all 1,252 accepted output PDFs from
+the reviewed #457 regression and the extended inventory. The receipt separates
+exact and extra lengths, content parsing and the retained annotation warning;
+it preserves initial harness failures. This is additional scoped evidence,
+not complete visual/content verification of 35,587 pages.
+
+The unchanged 80-page #420 original remains conversion FAIL. Its three-byte
+CMYK lookup in object 319 admits two different complete tables with identical
+surviving bytes and original image indices, yet different rendered colors.
+This is a concrete missing-data boundary, not evidence for a padding policy.
+Current native, Node and Chromium strict refusal, source integrity and cleanup
+checks pass; those are not conversion compatibility passes. The
+[provenance record](provenance.md#unresolved-indexed-palette-boundary-420)
+retains the source-history search, earlier viewer/whole-document limits and
+unmet recovery criteria. #420 and #406 remain open; no release is performed.
