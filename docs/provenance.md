@@ -806,3 +806,38 @@ foreign source and decoder binaries stay outside both repositories. The
 retains five image-free pages as inapplicable to bitmap checks and links their
 separate complete glyph proof. No new product dependency or format semantics
 is inferred from these measurements.
+
+## Absent optional CAJ link appearances (#417)
+
+The unchanged [109-page CAJ source](https://github.com/Wilson-whu2010/caj2pdf-actions/blob/7f704d976511936b7cb9939b5ebddab38ff2ab6f/file.caj)
+has SHA-256 `d3d8a89dc8ac9212a445935c55e29ac93224df1d157e891aebb2fb1f652906b6`.
+Of 75 measured Link appearance references, two targets are absent: object 82
+at source byte 1,935,124 points to 10887; object 518 at 2,316,599 points to 10886.
+Their direct destinations are retained Pages 57 and 100. Both have the exact
+zero-width border-style dictionary and a direct appearance dictionary containing
+only the missing normal appearance. The
+[Adobe PDF reference, section 3.2.8](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf)
+defines nonexistent indirect targets as null, so the measured absent optional
+appearance supplies no usable stream. This does not waive required references.
+
+Original MIT candidate inspection reuses complete bounded object parsing,
+source-byte rechecks and the existing repair budget/writer. The CAJ caller
+proves the single target absent from the scanned object graph and the link
+destination present in its explicit page inventory. Only the parsed AP pair
+is removed; references aliased elsewhere in the object, other annotation or
+border profiles, actions and unmeasured appearance states remain ineligible.
+Original controls cover all cancellation checkpoints, one-byte reads, source
+mutation, allocation bounds, strict neighboring profiles and earlier indirect
+destination behavior. A live Link AP reference/stream is checked structurally;
+MuPDF ignores that Link appearance in the synthetic control, so a neighboring
+Square annotation supplies the visible live-appearance pixel control.
+
+The independent source oracle copies bytes `[154216, 6552931)` verbatim and
+adds only a Catalog pointing to the existing source Pages root 2. The CAJ
+page table independently verifies the resulting page inventory. MuPDF reconstruction preserves all 109 page IDs. Qpdf's
+reconstruction warnings are retained separately from its clean normalized output;
+the original source-body PDF supplies the comparison baseline. No foreign
+converter implementation, private migration, new product dependency or external
+document/PDF/font/pixel bytes are included. The
+[conformance checkpoint](conformance.md#absent-optional-link-appearance-checkpoint-417)
+records whole-original comparisons and their renderer scope.

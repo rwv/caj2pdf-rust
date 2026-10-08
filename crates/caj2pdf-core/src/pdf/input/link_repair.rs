@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Narrow repairs for link destinations pointing at omitted fragment pages.
+//! Narrow repairs for link destinations and absent optional appearances.
 //!
 //! This module only identifies candidates. The caller must prove that the
-//! target is absent from the retained page set before replacing an object.
+//! relevant page or appearance target is absent before replacing an object.
 
-use super::parser::{Syntax, destination_page, exact_name, exact_reference, parse_object_head};
+use super::parser::{
+    Syntax, destination_page, exact_name, exact_reference, exact_unsigned, parse_object_head,
+};
 use super::{FragmentObject, ObjectTail, Reader};
 use crate::fallible::reserve_exact;
 use crate::pdf::PdfRef;
@@ -19,13 +21,15 @@ pub(crate) enum LinkRepairKind {
     ScalarDestination,
 }
 
-/// The reference that makes a link destination repair eligible.
+/// The reference that makes a narrow link repair eligible.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LinkDestinationTarget {
+pub(crate) enum LinkRepairTarget {
     /// A direct destination array begins with this page reference.
     DirectPage(PdfRef),
     /// A link's `/Dest` value refers to a separate destination object.
     IndirectArray(PdfRef),
+    /// One missing optional appearance; the destination page must remain live.
+    AbsentAppearance { missing: PdfRef, page: PdfRef },
 }
 
 /// A complete, bounded replacement object plus the evidence needed to decide
@@ -34,7 +38,7 @@ pub(crate) enum LinkDestinationTarget {
 pub(crate) struct LinkRepairCandidate {
     pub object: PdfRef,
     pub kind: LinkRepairKind,
-    pub target: LinkDestinationTarget,
+    pub target: LinkRepairTarget,
     /// A link's non-destination fields still refer to its indirect `/Dest`.
     /// Nulling that destination would also change those unrelated fields.
     pub retains_destination_reference: bool,
@@ -66,6 +70,28 @@ fn is_link_with_destination(head: &super::parser::ObjectHead) -> bool {
 pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellation>(
     source: &mut S,
     fragment: FragmentObject,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Option<LinkRepairCandidate>> {
+    inspect_link_candidate(source, fragment, None, limits, cancellation)
+}
+
+/// Inspect a link after the caller proves a reference absent. Prefer the
+/// measured optional appearance repair; otherwise inspect its destination.
+pub(crate) fn inspect_link_missing_target_candidate<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    fragment: FragmentObject,
+    missing: PdfRef,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Option<LinkRepairCandidate>> {
+    inspect_link_candidate(source, fragment, Some(missing), limits, cancellation)
+}
+
+fn inspect_link_candidate<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    fragment: FragmentObject,
+    missing_appearance: Option<PdfRef>,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Option<LinkRepairCandidate>> {
@@ -155,15 +181,48 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
         let dictionary = complete.dictionary.as_ref().expect("classified dictionary");
         reader.reject_duplicate_names(dictionary, 0, Some(reference))?;
         let destination = dictionary.entry(b"Dest").expect("classified destination");
-        let target = if let Some(page) = destination_page(destination.value(&dictionary.bytes)) {
-            LinkDestinationTarget::DirectPage(page)
-        } else if let Some(array) = exact_reference(destination.value(&dictionary.bytes)) {
-            LinkDestinationTarget::IndirectArray(array)
+        let appearance = missing_appearance.and_then(|missing| {
+            let page = destination_page(destination.value(&dictionary.bytes))?;
+            let appearance = dictionary.entry(b"AP")?;
+            // Only the measured /AP << /N absent >> and zero-width /BS
+            // qualify. No rollover/down/state maps or other reference aliases.
+            if missing.generation != 0
+                || single_entry(appearance.value(&dictionary.bytes), b"N").and_then(exact_reference)
+                    != Some(missing)
+                || dictionary
+                    .value(b"BS")
+                    .and_then(|value| single_entry(value, b"W"))
+                    .and_then(exact_unsigned)
+                    != Some(0)
+                || complete
+                    .references
+                    .iter()
+                    .filter(|target| **target == missing)
+                    .count()
+                    != 1
+            {
+                return None;
+            }
+            Some((
+                appearance,
+                LinkRepairTarget::AbsentAppearance { missing, page },
+            ))
+        });
+        let (removed, target) = if let Some(appearance) = appearance {
+            appearance
         } else {
-            return Ok(None);
+            let target = if let Some(page) = destination_page(destination.value(&dictionary.bytes))
+            {
+                LinkRepairTarget::DirectPage(page)
+            } else if let Some(array) = exact_reference(destination.value(&dictionary.bytes)) {
+                LinkRepairTarget::IndirectArray(array)
+            } else {
+                return Ok(None);
+            };
+            (destination, target)
         };
         let retains_destination_reference = match target {
-            LinkDestinationTarget::IndirectArray(array) => {
+            LinkRepairTarget::IndirectArray(array) => {
                 complete
                     .references
                     .iter()
@@ -171,7 +230,7 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
                     .count()
                     != 1
             }
-            LinkDestinationTarget::DirectPage(_) => false,
+            LinkRepairTarget::DirectPage(_) | LinkRepairTarget::AbsentAppearance { .. } => false,
         };
         // The parser records the dictionary at `dictionary_start` in
         // `complete.bytes` and each entry's nonempty pair relative to it, so
@@ -179,8 +238,8 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
         let dictionary_start = complete
             .dictionary_start
             .expect("classified dictionary offset");
-        let pair_start = dictionary_start + destination.pair.start;
-        let pair_end = dictionary_start + destination.pair.end;
+        let pair_start = dictionary_start + removed.pair.start;
+        let pair_end = dictionary_start + removed.pair.end;
         debug_assert!(pair_start < pair_end && pair_end <= complete.bytes.len());
         let mut replacement = Vec::new();
         let refused = Error::limit(
@@ -212,10 +271,21 @@ pub(crate) fn inspect_link_destination_candidate<S: RangedSource, C: Cancellatio
     Ok(Some(LinkRepairCandidate {
         object: reference,
         kind: LinkRepairKind::ScalarDestination,
-        target: LinkDestinationTarget::DirectPage(page),
+        target: LinkRepairTarget::DirectPage(page),
         retains_destination_reference: false,
         replacement,
     }))
+}
+
+/// A complete direct dictionary with exactly one named value. The surrounding
+/// object has already passed strict parsing; no nested profile is guessed.
+fn single_entry<'a>(bytes: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    let mut syntax = Syntax::new(bytes);
+    let entries = syntax.dictionary(0).ok()?;
+    if entries.len() != 1 || entries[0].name() != key || !syntax.at_end() {
+        return None;
+    }
+    Some(entries[0].value(bytes))
 }
 
 #[cfg(test)]
@@ -294,13 +364,116 @@ mod tests {
     }
 
     #[test]
+    fn absent_appearance_reuses_bounded_cancellable_source_checked_reads() {
+        use crate::test_support::CancelAfter;
+        let bytes =
+            b"9 0 obj\n<</Subtype/Link/BS<</W 0>>/Dest[6 0 R/Fit]/AP<</N 99 0 R>>>>\nendobj\n";
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: bytes.len() as u64,
+            },
+        };
+        let missing = PdfRef {
+            number: 99,
+            generation: 0,
+        };
+        let limits = Limits {
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        };
+        let mut source = Source::new(bytes.to_vec());
+        let signal = CancelAfter::never();
+        let candidate =
+            inspect_link_missing_target_candidate(&mut source, fragment, missing, &limits, &signal)
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            candidate.target,
+            LinkRepairTarget::AbsentAppearance {
+                missing,
+                page: PdfRef {
+                    number: 6,
+                    generation: 0
+                },
+            }
+        );
+        assert!(source.largest_request <= 1);
+        assert!(
+            candidate
+                .replacement
+                .windows(16)
+                .any(|part| part == b"/Dest[6 0 R/Fit]")
+        );
+        assert!(!candidate.replacement.windows(3).any(|part| part == b"/AP"));
+        for allowed in 0..signal.queries() {
+            let mut source = Source::new(bytes.to_vec());
+            assert!(matches!(
+                inspect_link_missing_target_candidate(
+                    &mut source,
+                    fragment,
+                    missing,
+                    &limits,
+                    &CancelAfter::new(allowed),
+                ),
+                Err(Error {
+                    kind: ErrorKind::Cancelled,
+                    ..
+                })
+            ));
+        }
+        let changed = String::from_utf8(bytes.to_vec())
+            .unwrap()
+            .replace("99 0 R", "98 0 R");
+        let mut source = Source::switching(bytes.to_vec(), changed.into_bytes(), |_, starts| {
+            starts >= 2
+        });
+        assert!(
+            inspect_link_missing_target_candidate(
+                &mut source,
+                fragment,
+                missing,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .is_err()
+        );
+        let mut oversized = bytes.to_vec();
+        oversized.extend(std::iter::repeat_n(b' ', 256));
+        let mut source = Source::new(oversized);
+        let mut fragment = fragment;
+        fragment.range.length = source.size();
+        let limits = Limits {
+            max_allocation_bytes: 4096,
+            ..limits
+        };
+        assert!(matches!(
+            inspect_link_missing_target_candidate(
+                &mut source,
+                fragment,
+                missing,
+                &limits,
+                &NeverCancel,
+            ),
+            Err(Error {
+                kind: ErrorKind::LimitExceeded { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn removes_only_a_direct_link_destination_pair() {
         let bytes = b"9 0 obj\n<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /AP << /Dest (appearance) >> /Dest [6 0 R /Fit] /Border [0 0 0] >>\nendobj\n";
         let candidate = inspect(bytes).unwrap().unwrap();
         assert_eq!(candidate.kind, LinkRepairKind::Link);
         assert_eq!(
             candidate.target,
-            LinkDestinationTarget::DirectPage(PdfRef {
+            LinkRepairTarget::DirectPage(PdfRef {
                 number: 6,
                 generation: 0
             })
@@ -328,7 +501,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             link.target,
-            LinkDestinationTarget::IndirectArray(PdfRef {
+            LinkRepairTarget::IndirectArray(PdfRef {
                 number: 42,
                 generation: 0
             })
@@ -341,7 +514,7 @@ mod tests {
         assert_eq!(array.kind, LinkRepairKind::ScalarDestination);
         assert_eq!(
             array.target,
-            LinkDestinationTarget::DirectPage(PdfRef {
+            LinkRepairTarget::DirectPage(PdfRef {
                 number: 6,
                 generation: 0
             })
@@ -694,7 +867,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             shared.target,
-            LinkDestinationTarget::IndirectArray(PdfRef {
+            LinkRepairTarget::IndirectArray(PdfRef {
                 number: 42,
                 generation: 0
             })

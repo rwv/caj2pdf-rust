@@ -13,7 +13,8 @@ mod parser;
 mod resource_repair;
 
 pub(crate) use link_repair::{
-    LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, inspect_link_destination_candidate,
+    LinkRepairCandidate, LinkRepairKind, LinkRepairTarget, inspect_link_destination_candidate,
+    inspect_link_missing_target_candidate,
 };
 
 pub use parser::DictEntry;

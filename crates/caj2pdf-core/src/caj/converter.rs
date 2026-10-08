@@ -5,10 +5,10 @@
 use super::parse_metadata;
 use crate::fallible::{reserve, reserve_exact};
 use crate::pdf::input::{
-    FragmentCandidate, FragmentKind, FragmentScan, LinkDestinationTarget, LinkRepairCandidate,
-    LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_generated_object,
-    inspect_link_destination_candidate, scan_damaged_fragment, scan_fragment_with_candidates,
-    substitute_damaged_pages,
+    FragmentCandidate, FragmentKind, FragmentScan, LinkRepairCandidate, LinkRepairKind,
+    LinkRepairTarget, PatchedSource, collect_fragment_candidates, inspect_generated_object,
+    inspect_link_destination_candidate, inspect_link_missing_target_candidate,
+    scan_damaged_fragment, scan_fragment_with_candidates, substitute_damaged_pages,
 };
 use crate::pdf::{
     FragmentObject, InspectedObject, InspectedPlan, PdfRange, PdfRef, append_replacement,
@@ -657,8 +657,9 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     }
 
     // A few observed fragments contain link annotations aimed at pages that
-    // were omitted from the CAJ page table. Remove only those broken /Dest
-    // entries. An indirect destination array is nullified after every object
+    // were omitted from the CAJ page table, or one absent optional appearance
+    // while their destination page remains live. Remove only the proven /Dest
+    // or /AP pair. An indirect destination array is nullified after every object
     // referring to it has been confirmed to be a matching link annotation.
     let mut dangling_count = 0usize;
     for index in 0..missing_references.len() {
@@ -694,13 +695,27 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
                 .find(|inspected| inspected.object.reference == owner)
                 .map(|inspected| inspected.object)
                 .ok_or_else(failure)?;
-            let candidate =
-                inspect_link_destination_candidate(&mut patched, fragment, limits, cancellation)?
-                    .ok_or_else(failure)?;
-            let LinkDestinationTarget::DirectPage(target) = candidate.target else {
+            if targets.len() != 1 {
                 return Err(failure());
+            }
+            let candidate = inspect_link_missing_target_candidate(
+                &mut patched,
+                fragment,
+                targets[0].target,
+                limits,
+                cancellation,
+            )?
+            .ok_or_else(failure)?;
+            let eligible = match candidate.target {
+                LinkRepairTarget::DirectPage(target) => {
+                    targets[0].target == target && !page_refs.contains(&target)
+                }
+                LinkRepairTarget::AbsentAppearance { missing, page } => {
+                    targets[0].target == missing && page_refs.contains(&page)
+                }
+                LinkRepairTarget::IndirectArray(_) => false,
             };
-            if targets.len() != 1 || targets[0].target != target || page_refs.contains(&target) {
+            if !eligible {
                 return Err(failure());
             }
             if candidate.kind == LinkRepairKind::ScalarDestination {
@@ -744,7 +759,7 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
                 )?
                 .ok_or_else(|| missing_reference(&objects, fragment.reference))?;
                 if candidate.kind != LinkRepairKind::Link
-                    || candidate.target != LinkDestinationTarget::IndirectArray(scalar)
+                    || candidate.target != LinkRepairTarget::IndirectArray(scalar)
                     || candidate.retains_destination_reference
                 {
                     return Err(missing_reference(&objects, fragment.reference));
@@ -862,7 +877,7 @@ mod tests {
         let candidate = |length| LinkRepairCandidate {
             object,
             kind: LinkRepairKind::Link,
-            target: LinkDestinationTarget::DirectPage(PdfRef {
+            target: LinkRepairTarget::DirectPage(PdfRef {
                 number: 3,
                 generation: 0,
             }),
