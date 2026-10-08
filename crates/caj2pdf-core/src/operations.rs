@@ -4,6 +4,7 @@
 //! [`inspect`], [`inspect_pages`], [`needs_fonts`], [`read_outline`] and
 //! [`index_pdf`] detect the input and dispatch to the format engines.
 
+mod caa;
 mod convert;
 mod inspect;
 mod observe;
@@ -31,6 +32,8 @@ pub enum InputFormat {
     Hn,
     C8,
     Teb,
+    /// An observed CAA target descriptor, without document pages.
+    Caa,
 }
 
 impl InputFormat {
@@ -44,6 +47,7 @@ impl InputFormat {
             Self::Hn => "HN",
             Self::C8 => "C8",
             Self::Teb => "TEB",
+            Self::Caa => "CAA",
         }
     }
 
@@ -83,15 +87,28 @@ pub struct Detection {
 ///
 /// `prefix` should hold the first `min(PDF_HEADER_SEARCH_BYTES, size)` bytes;
 /// `SIGNATURE_BYTES` suffice for every signature that starts at byte 0, and
-/// bytes beyond `PDF_HEADER_SEARCH_BYTES` are ignored. The signatures are
-/// those recorded in `tests/fixtures/README.md`, `docs/research/caj-format.md`,
+/// bytes beyond `PDF_HEADER_SEARCH_BYTES` are ignored. CAA requires its
+/// complete observed descriptor fields in the same bounded prefix.
+/// Other signatures are recorded in `tests/fixtures/README.md`, `docs/research/caj-format.md`,
 /// `docs/research/kdh-format.md`, and `docs/research/hnc8-container.md`; CAJ, KDH, HN, C8, and
 /// TEB must start at byte 0. If none matches, a `%PDF-` marker elsewhere in
 /// the searched prefix still selects PDF, as observed for files with a leading
 /// newline, byte-order mark, or junk line. Recognition does not imply
 /// support; the selected reader validates the complete header.
 pub fn detect_format(prefix: &[u8]) -> Option<InputFormat> {
-    leading_format(prefix).or_else(|| pdf_header_offset(prefix).map(|_| InputFormat::Pdf))
+    leading_format(prefix).or_else(|| searched_format(prefix).map(|(format, _)| format))
+}
+
+fn searched_format(prefix: &[u8]) -> Option<(InputFormat, usize)> {
+    let prefix = &prefix[..prefix.len().min(PDF_HEADER_SEARCH_BYTES)];
+    if caa::recognizes(prefix) {
+        Some((InputFormat::Caa, 0))
+    } else {
+        prefix
+            .windows(PDF_SIGNATURE.len())
+            .position(|window| window == PDF_SIGNATURE)
+            .map(|offset| (InputFormat::Pdf, offset))
+    }
 }
 
 fn leading_format(prefix: &[u8]) -> Option<InputFormat> {
@@ -109,17 +126,12 @@ fn leading_format(prefix: &[u8]) -> Option<InputFormat> {
         .map(|&(_, format)| format)
 }
 
-fn pdf_header_offset(prefix: &[u8]) -> Option<usize> {
-    prefix[..prefix.len().min(PDF_HEADER_SEARCH_BYTES)]
-        .windows(PDF_SIGNATURE.len())
-        .position(|window| window == PDF_SIGNATURE)
-}
-
 /// Read the leading bytes of `source` and recognize its input family as
 /// [`detect_format`] does, also locating a displaced PDF header.
 ///
 /// Only `min(SIGNATURE_BYTES, size)` bytes are read when a signature starts
-/// at byte 0; otherwise at most `PDF_HEADER_SEARCH_BYTES` in total, in reads
+/// at byte 0; otherwise CAA fields and a displaced PDF header are searched in
+/// at most `PDF_HEADER_SEARCH_BYTES` in total, in reads
 /// no larger than `limits.io_chunk_bytes`. `Ok(None)` means unrecognized.
 pub fn detect_source<S: RangedSource, C: Cancellation>(
     source: &mut S,
@@ -141,8 +153,8 @@ pub fn detect_source<S: RangedSource, C: Cancellation>(
     let searched = size.min(PDF_HEADER_SEARCH_BYTES as u64) as usize;
     read_prefix(source, &mut prefix, leading..searched, limits, cancellation)?;
     Ok(
-        pdf_header_offset(&prefix[..searched]).map(|offset| Detection {
-            format: InputFormat::Pdf,
+        searched_format(&prefix[..searched]).map(|(format, offset)| Detection {
+            format,
             header_offset: offset as u64,
             bytes_read: searched as u64,
         }),
@@ -380,5 +392,108 @@ mod tests {
             ),
             "{error:?}"
         );
+    }
+
+    const CAA: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/target_descriptor.caa"
+    ));
+
+    #[test]
+    fn caa_requires_complete_observed_fields_within_the_probe_bound() {
+        let text = std::str::from_utf8(CAA).unwrap();
+        for bytes in [
+            CAA.to_vec(),
+            text.replace("DOCTYPE=NH", "DOCTYPE=KDH")
+                .replace('\n', "\r\n")
+                .into_bytes(),
+            [CAA, b"\r\n \t"].concat(),
+        ] {
+            assert_eq!(detect_format(&bytes), Some(InputFormat::Caa));
+        }
+        for end in 0..CAA.len() {
+            assert_eq!(detect_format(&CAA[..end]), None, "prefix {end}");
+        }
+        for (from, to) in [
+            ("[TARGET]", "[OTHER]"),
+            ("A1=1", "A1="),
+            ("D1=1", "D1=-1"),
+            ("A2=QQ==", "A2="),
+            ("A2=QQ==", "A2=Q!"),
+            ("D2=Qg==", "D2=你好"),
+            ("B1=0", "B1=1"),
+            ("C2=", "C2=unknown"),
+            ("B2=\n", ""),
+            ("A1=1", "A1=1\nA1=1"),
+            ("DOCTYPE=NH", "DOCTYPE=CAS"),
+            ("DOCTYPE=NH", "DOCTYPE=NHX"),
+        ] {
+            assert_eq!(
+                detect_format(text.replace(from, to).as_bytes()),
+                None,
+                "{to}"
+            );
+        }
+        assert_eq!(detect_format(&[CAA, b"X=extra\n"].concat()), None);
+        assert_eq!(detect_format(&[CAA, &[0xff]].concat()), None);
+        let long = text.replace("A2=QQ==", &format!("A2={}", "A".repeat(1024)));
+        assert_eq!(detect_format(long.as_bytes()), None);
+    }
+
+    #[test]
+    fn caa_detection_is_chunked_cancellable_and_bounded() {
+        let limits = Limits {
+            io_chunk_bytes: 3,
+            ..Limits::default()
+        };
+        let mut source = Source::new(CAA.to_vec());
+        assert_eq!(
+            detect(&mut source, &limits).unwrap(),
+            detection(InputFormat::Caa, 0, CAA.len() as u64)
+        );
+        assert!(source.reads.iter().all(|(_, len)| *len <= 3));
+        assert_eq!(
+            source.reads.iter().map(|(_, len)| len).sum::<usize>(),
+            CAA.len()
+        );
+        let error = detect_source(&mut source, &limits, &CancelAfter::new(2)).unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::Cancelled));
+
+        let mut source = Source::new([b"[TARGET]\n".as_slice(), &[b'A'; 2048]].concat());
+        assert_eq!(detect(&mut source, &limits).unwrap(), None);
+        assert_eq!(
+            source.reads.iter().map(|(_, len)| len).sum::<usize>(),
+            PDF_HEADER_SEARCH_BYTES
+        );
+    }
+
+    #[test]
+    fn caa_inspection_has_unknown_counts_and_conversion_writes_nothing() {
+        let limits = Limits::default();
+        let mut source = CAA;
+        let info = super::inspect(
+            &mut source,
+            &super::InspectOptions::default(),
+            &limits,
+            &mut crate::NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(info.format, InputFormat::Caa);
+        assert_eq!(info.page_count, None);
+        assert_eq!(info.bookmark_count, None);
+        assert_eq!(info.has_outline, None);
+        assert_eq!(info.input_bytes_read, CAA.len() as u64);
+        assert!(!info.format.is_convertible());
+        let mut output = Vec::new();
+        let error = super::convert(
+            &mut source,
+            &mut output,
+            super::ConversionOptions::default(),
+            &limits,
+            &mut crate::NeverCancel,
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::UnsupportedFormat));
+        assert!(output.is_empty());
     }
 }

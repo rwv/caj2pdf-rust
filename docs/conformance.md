@@ -28,10 +28,11 @@ The same conversion core serves all three interfaces.
 | HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
 | C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint); the unreleased [additional 10/5-page profiles](#additional-c8-sample-checkpoint-380-382) also complete. Native pages require fonts: explicit, or installed ones the CLI finds. Requested bookmarks are omitted with a warning (no outline is written from unverified metadata); #303 tracks the missing outline evidence. Font/raster differences remain explicit. |
 | HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images and the measured [type-3 bilevel overlay profile](#hn-b-magnesium-article-checkpoint-381); colored/JPEG images after text and mode-0 images remain errors. [Independent controls and scoped layout checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnb-compact-index.md) do not establish original-font pixel parity. |
+| CAA target descriptors | Inspection only | Complete observed fields required within a 1,024-byte probe; no pages, target resolution or conversion. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
-This table describes current main, which v0.4.0 released. Earlier published
-artifacts do not gain these capabilities.
+This table describes current main, including unreleased changes. Earlier
+published artifacts do not gain these capabilities.
 The font-free corpus checkpoint below is separate from successful explicit-font
 HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
 proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,
@@ -908,3 +909,33 @@ unchanged, rendering/shared/indirect/wrong-key references, partial damage,
 short reads, source mutation, cancellation and allocation/count bounds.
 Whole-corpus/runtime evidence is recorded against the final PR candidate;
 this checkpoint does not classify other refused originals as irrecoverable.
+
+## NH and CAA discovery checkpoint (#424)
+
+The [pinned discovery receipt](https://github.com/rwv/caj2pdf-samples/blob/d9b42808e6a8d6ed7814d6970ac8253a590f513d/research/notes/caa-nh-discovery-20261008.md)
+adds 19 distinct external identities to the catalog: 18 CAA descriptors
+(350–404 bytes; 16 with `DOCTYPE=NH`, two with `DOCTYPE=KDH`) and one
+8,527,548-byte `.nh` document. Sources, hashes and rights limitations live
+in that metadata-only repository; no external payload is committed here.
+
+The `.nh` document has HN-A bytes, not an additional format signature. On
+main `b02a6ece1e7e6c7c2c49c3abfa2ad72b5f8a7565`, CLI, Node and Chromium
+convert all 433 pages and 365 bookmarks with no omitted pages or outline
+warnings. Each 24,592,732-byte PDF has SHA-256
+`b12385a8a53a811ac245dd6f65b410a5c1b1be526292b42e94594a6b75c4add3`;
+all pass qpdf, Poppler page counts and MuPDF outline counts. This checkpoint
+does not establish viewer pixel parity. The tagged v0.4.0 executable fails
+at page 4 on type-3 flags `0x800c`; do not apply this result retroactively.
+
+CAA recognition derives solely from the observed complete `[TARGET]` field
+sequence, ASCII value shapes, line terminators and NH/KDH document-type
+labels. A fixed 1 KiB probe reuses existing detection storage, obeys I/O
+chunk limits and cancellation, and does not decode or expose opaque values.
+Core/CLI/JS inspection reports unknown page and bookmark counts. Conversion
+refuses before any PDF write. Synthetic MIT fixtures cover malformed and
+partial descriptors; browser and Node tests exercise the actual WASM path.
+Linux CAJViewer 9.0.0.24093 rejected both representative CAA types in the
+network-disabled probe, while its PDF control opened. Historical target
+resolution is unverified. CAS is named in the 2002 vendor manual, but no
+authentic bytes were found; [sample research #28](https://github.com/rwv/caj2pdf-samples/issues/28)
+remains open, with no invented signature or conversion claim.

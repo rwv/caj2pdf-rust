@@ -42,7 +42,7 @@ class FixtureTests(unittest.TestCase):
         names = [entry["path"] for entry in entries]
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(names, sorted(names))
-        self.assertEqual(len(entries), 13)
+        self.assertEqual(len(entries), 14)
         for entry in entries:
             with self.subTest(path=entry["path"]):
                 path = FIXTURE_DIR / entry["path"]

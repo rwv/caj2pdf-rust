@@ -55,11 +55,18 @@ await writer.close();
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
 | C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
+| CAA (unreleased) | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
 | TEB | Rejected: a DRM-encrypted container. |
 
 The [support matrix](docs/conformance.md#current-support-and-release-status)
 is the source of truth, with the verified profiles and remaining differences.
 Unsupported content fails with a located error instead of dropping pages.
+
+Extensions do not determine the format: the measured `.nh` sample contains
+HN-A bytes and converts through that path (433 pages, 365 bookmarks;
+[validation](docs/conformance.md#nh-and-caa-discovery-checkpoint-424)). Historical
+CAJViewer documentation also names CAS, but no authentic sample has been found;
+[CAS research remains open](https://github.com/rwv/caj2pdf-samples/issues/28).
 
 ## Fonts for C8 and HN-B text pages
 

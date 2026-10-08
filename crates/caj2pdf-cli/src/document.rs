@@ -22,15 +22,22 @@ use std::io::{self, Write};
 /// TEB is a CNKI DRM container whose document entries are encrypted
 /// (rwv/caj2pdf-samples research notes); this project does not decrypt it.
 pub fn unsupported_reason(format: InputFormat) -> Option<&'static str> {
-    matches!(format, InputFormat::Teb).then_some("drm-encrypted")
+    match format {
+        InputFormat::Teb => Some("drm-encrypted"),
+        InputFormat::Caa => Some("target-descriptor"),
+        _ => None,
+    }
 }
 
 pub(crate) fn unsupported(format: InputFormat) -> String {
-    match unsupported_reason(format) {
-        Some(_) => "TEB input is a DRM-encrypted CNKI container; \
+    match format {
+        InputFormat::Teb => "TEB input is a DRM-encrypted CNKI container; \
                     its document content is encrypted and cannot be converted"
             .to_owned(),
-        None => format!(
+        InputFormat::Caa => "CAA input is a target descriptor, not a document; \
+                            obtain the referenced document and convert that file"
+            .to_owned(),
+        _ => format!(
             "{name} input is recognized, but {name} conversion is not supported",
             name = format.name()
         ),

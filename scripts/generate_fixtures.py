@@ -159,6 +159,11 @@ def fixtures() -> list[tuple[str, bytes, str, str, str, dict[str, object]]]:
         ("truncated_c8.c8", b"\xc8\x00\x00\x00", "C8", "malformed", "Signature only; header is absent.", {}),
         ("truncated_kdh.kdh", b"KDH", "KDH", "malformed", "Signature only; header is absent.", {}),
         ("truncated_teb.teb", b"TEB", "TEB", "malformed", "Signature only; header is absent.", {}),
+        (
+            "target_descriptor.caa",
+            b"[TARGET]\nA1=1\nA2=QQ==\nB1=0\nB2=\nC1=0\nC2=\nD1=1\nD2=Qg==\nDOCTYPE=NH\n",
+            "CAA", "valid", "Original target descriptor with invented opaque values; no document pages.", {},
+        ),
     ]
 
 

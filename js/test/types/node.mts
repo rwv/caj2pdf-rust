@@ -18,7 +18,7 @@ export async function useNode(inputPath: string, outputPath: string) {
   void omittedOutline;
   const input = await openHandle(inputPath, 'r');
   const info = await inspect(module, input.fd);
-  const pages: number = info.pageCount;
+  const pages: number | null = info.pageCount;
   await convert(module, await openAsBlob(inputPath), sink);
   await convert(module, new URL(`file://${inputPath}`), sink);
   await convertReadable(module, Readable.from([]), sink, { maxSpoolBytes: 1024n });

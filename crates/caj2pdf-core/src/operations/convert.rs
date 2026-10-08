@@ -184,7 +184,7 @@ pub fn convert<S: RangedSource, W: Write>(
         InputFormat::Hn | InputFormat::C8 => {
             convert_hnc8(&mut source, sink, options, limits, &observer)?
         }
-        InputFormat::Nh | InputFormat::Teb => return Err(refused()),
+        InputFormat::Nh | InputFormat::Teb | InputFormat::Caa => return Err(refused()),
     };
     report.input_bytes_read = report.input_bytes_read.saturating_add(bytes_read);
     Ok(report)

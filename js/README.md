@@ -12,8 +12,21 @@ are MIT-licensed.
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
 | HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text needs caller fonts (below). `inspect` reads page counts and validated HN-A bookmark counts. |
+| CAA (unreleased) | `inspect` returns `format: "caa"` and null counts; `convert` rejects with `UnsupportedFormatError` and asks for the referenced document. |
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
+
+The measured `.nh` sample contains HN-A bytes and uses the HN reader. The
+legacy forced format `"nh"` remains unsupported; it does not mean the `.nh`
+extension. Detection uses bytes, not names. CAA recognition is limited to
+the complete observed descriptor fields within the first 1,024 bytes; it
+never decodes or fetches their opaque targets. CAS has no verified sample.
+
+**Unreleased breaking inspection type change:** `DocumentInfo.pageCount` is now
+`number | null`, because CAA descriptors have no known page count. Callers
+should handle `info.pageCount === null` before using it as a number; the
+`Format` union also includes `"caa"`. Existing successful document inspections
+still return numeric page counts.
 
 ## Install
 

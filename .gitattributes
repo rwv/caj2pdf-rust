@@ -1,0 +1,2 @@
+# Preserve the generated fixture's exact bytes and manifest hash on Windows.
+/tests/fixtures/target_descriptor.caa -text

@@ -39,11 +39,16 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
 | `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with installed or given fonts | Container variant and pages |
+| `[TARGET]` and all observed CAA fields within 1,024 bytes | CAA | Target descriptor; exits with status 1 and asks for the referenced document | Format only; counts unknown |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
 HN/C8 routes use the same independently implemented core page composer as
-WASM. Malformed data and unsupported layouts produce located errors. No NH
-signature has been measured, so NH input remains unrecognized. A PDF header
+WASM. Malformed data and unsupported layouts produce located errors. The
+measured `.nh` file has an `HN` signature and follows the HN-A path; no separate
+`NH` signature is registered. CAA detection requires the complete observed
+field sequence, never just `[TARGET]` or the extension. Its opaque values are
+not decoded, resolved over the network, or interpreted as page counts.
+A PDF header
 after leading bytes is read from the header; see the
 [header offset rule](pdf-input.md#header-offset). PDF/KDH
 inspection reports outline presence rather than full outline entries;
@@ -446,15 +451,15 @@ added without changing version 1.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `schema_version` | integer | Always `1` for this schema. |
-| `format` | string | `"PDF"`, `"CAJ"`, `"KDH"`, `"HN"`, `"C8"`, or `"TEB"`. |
+| `format` | string | `"PDF"`, `"CAJ"`, `"KDH"`, `"HN"`, `"C8"`, `"CAA"`, or `"TEB"`. |
 | `variant` | string or null | Measured HN/C8 container layout: `"C8"`, `"HN-A"`, or `"HN-B"`; otherwise null. |
 | `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require a supported profile. |
-| `page_count` | integer or null | Declared page count; null when unknown (TEB). |
-| `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, TEB). |
+| `page_count` | integer or null | Declared page count; null when unknown (CAA, TEB). |
+| `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, CAA, TEB). |
 | `bookmark_count` | integer or null | Number of outline entries that conversion writes; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
 | `outline_warnings` | integer or null | Number of [HN-A bookmark defects](#hn-a-bookmark-defects) skipped or re-parented; `0` for other listed outlines; null when `bookmark_count` is null. |
-| `unsupported_reason` | string | Present only when a recognized format is never converted: `"drm-encrypted"` for TEB, whose document content is encrypted. |
+| `unsupported_reason` | string | Present only when a recognized format is never converted: `"target-descriptor"` for CAA, which has no document pages, or `"drm-encrypted"` for TEB, whose document content is encrypted. |
 | `application_info` | object | Present only for a C8 source with a readable [application-info package](#c8-application-info); omitted otherwise, including when a defective package is ignored. |
 
 The `application_info` object has these fields:
@@ -511,7 +516,7 @@ already uses.
   `KDH 2.00 Copyright(C) 2000 CAJCD`. With `--pages` a different signature is
   reported with unknown page count and outline and exit status 0; without
   `--pages` it remains an error.
-- CAJ, PDF and TEB: no per-page records (`Page structure: not available`).
+- CAJ, PDF, CAA and TEB: no per-page records (`Page structure: not available`).
 
 | Text framing | Meaning |
 | --- | --- |

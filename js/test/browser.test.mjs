@@ -30,6 +30,7 @@ before(async () => {
   const pdf = await fixture("valid_out_of_order_objects.pdf");
   const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   const fixtures = {
+    "/fixtures/input.caa": await fixture("target_descriptor.caa"),
     "/fixtures/footer.pdf": new Uint8Array([...pdf, ...footer]),
     "/fixtures/symbols.ttf": await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url)),
     "/fixtures/geometric.ttf": await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url)),
@@ -94,6 +95,18 @@ function decode(output) {
 }
 
 const options = { skip, timeout: 60_000 };
+
+test("Chromium: CAA inspection succeeds and conversion refuses without writing", options, async () => {
+  const result = await run("inspectDescriptor", "input.caa");
+  assert.equal(result.info.format, "caa");
+  assert.equal(result.info.pageCount, null);
+  assert.equal(result.info.bookmarkCount, null);
+  assert.equal(result.error?.name, "UnsupportedFormatError");
+  assert.equal(result.error?.code, "UNSUPPORTED_FORMAT");
+  assert.equal(result.error?.format, "caa");
+  assert.match(result.error.message, /obtain the referenced document/);
+  assert.equal(result.written, 0);
+});
 
 test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF", options, async (t) => {
   for (const [name, format, pages, bookmarks] of [
