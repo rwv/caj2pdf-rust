@@ -778,7 +778,7 @@ records independent decoding and source-content verification.
 
 ## Expanded GitHub source-image evidence (#406)
 
-The [pinned samples receipt](https://github.com/rwv/caj2pdf-samples/blob/13d4047cb8c62ab93fd1edfe448b8e657d81c52d/research/notes/github-bitmap-oracles-20261008.json)
+The [pinned samples receipt](https://github.com/rwv/caj2pdf-samples/blob/38a9bd62b32e198444e6596106e6e2db309834c4/research/notes/github-bitmap-oracles-20261008.json)
 records source/PDF identities, bounded independent source inventory, every
 page/image comparison, external tool identities and deliberate negative
 controls for all 936 accepted originals missing image oracles. The original

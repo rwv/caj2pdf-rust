@@ -841,7 +841,7 @@ fidelity claims, and they do not close the broader #406/#409 acceptance work.
 
 ## Expanded source-bitmap checkpoint (#406)
 
-The [pinned complete receipt](https://github.com/rwv/caj2pdf-samples/blob/13d4047cb8c62ab93fd1edfe448b8e657d81c52d/research/notes/github-bitmap-oracles-20261008.json)
+The [pinned complete receipt](https://github.com/rwv/caj2pdf-samples/blob/38a9bd62b32e198444e6596106e6e2db309834c4/research/notes/github-bitmap-oracles-20261008.json)
 fills the frozen harness's **936 missing source-image oracles**, covering
 13,991 pages and 15,708 source descriptors against the PDFs produced by
 `d6e23c3dd02ed1609e2ffee3da05313b8441231a` (merged through #413).
@@ -853,7 +853,8 @@ payload. Type 3 uses untouched source JBIG2 bytes in the independently written
 wrapper and Poppler/MuPDF agreement; those tools' decoder implementation
 independence remains unverified. The Rust decoder never supplies oracle pixels.
 
-All 13,986 image-bearing pages match dimensions, visible bits and image order.
+All 13,986 image-bearing pages match bitmap dimensions/visible bits, JPEG bytes
+and image order.
 The 15,700 output images account for eight repeated source descriptors under
 the scoped identity rule; placement and alias coordinates remain separate.
 Five image-free pages in the mixed HN-B source retain `NOT_APPLICABLE` bitmap
