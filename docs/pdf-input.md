@@ -116,7 +116,8 @@ errors. Existing repair budgets and sequential copying apply.
 Existing outlines accept direct `/Dest` arrays and direct local
 `/A << /S /GoTo /D [...] >>` dictionaries, optionally with `/Type /Action`.
 The destination must identify a page in the validated page tree. Actions are
-preserved without execution; named destinations, indirect action dictionaries,
+preserved without execution. Byte-string destinations also accept the bounded
+[name-tree profile](#named-local-destinations) below. Indirect action dictionaries,
 other action types, extra/chained action fields and simultaneous `/Dest` and
 `/A` remain unsupported or malformed. A missing sibling `/Prev` is derived
 from the validated `/Next` chain. A `/Last` that points to the final descendant
@@ -125,6 +126,32 @@ Both links are combined in one incremental replacement per affected dictionary;
 titles, ordering and destinations stay unchanged. Explicit contradictory links,
 other `/Last` mismatches, cycles and repeated nodes fail. The bounded outline
 walk retains references rather than all subtree dictionaries.
+
+### Named local destinations
+
+For a byte-string outline `/Dest` or local GoTo `/D`, the indexed reader resolves
+an indirect Catalog `/Names` dictionary and indirect `/Dests` tree. The measured
+profile has indirect dictionary nodes, direct `/Kids` reference arrays or direct
+`/Names` key/value arrays, and indirect `/XYZ` destination arrays. Root nodes
+contain only Kids or Names; other nodes additionally require two-string Limits.
+Each XYZ array must identify a live page followed by exactly three finite numeric
+or null arguments. Literal/hexadecimal keys are compared as decoded bytes, without
+Unicode normalization. Other named destination representations and views remain
+unsupported; existing direct outline-array behavior is unchanged.
+
+The tree is checked once in lexical order. Duplicate keys, overlapping or reversed
+child ranges, incorrect Limits, empty nodes, cycles/shared nodes and missing keys
+fail. The walk uses the existing 64-level syntax-depth ceiling and one visited byte
+per admitted xref slot. The destination index, traversal stack and cumulative
+reserved name/Limit bytes each have an allocation-derived budget of
+`max_allocation_bytes / 8`; cumulative loaded destination metadata is capped by
+`max_allocation_bytes`. Existing object-syntax, xref and cancellation limits still
+apply. Named outline lookups then use binary search. Metadata may reside in the
+existing supported object-stream profile.
+
+No name tree, action, page or destination is rewritten. A clean PDF remains
+byte-identical under ranged input and sequential copying. As with the existing
+reader, callers must keep the source stable throughout inspection and copying.
 
 The KDH wrapper admits the measured `01 00 00 00` field at offset `0x28` as
 well as `00 00 02 00`, retaining the signature, offset-254 XOR and complete PDF

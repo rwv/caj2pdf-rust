@@ -9,6 +9,7 @@
 mod empty_form;
 mod footer;
 mod link_repair;
+mod named_destinations;
 mod object_stream;
 mod parser;
 mod pattern_matrix;
@@ -2015,6 +2016,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         for page in &index.pages {
             page_targets[page.number as usize] = Some(page.generation);
         }
+        let mut named_destinations = None;
         let mut stack = Vec::new();
         push_bounded(
             &mut stack,
@@ -2151,14 +2153,35 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 })?),
             };
             if let Some(value) = destination {
-                let page = destination_page(value).ok_or_else(|| {
-                    self.problem(
+                let page = if let Some(page) = destination_page(value) {
+                    page
+                } else if let Some(name) =
+                    named_destinations::name_bytes(value, self.limits.max_allocation_bytes / 8)
+                        .map_err(self.locator(location.offset, Some(task.reference)))?
+                {
+                    if named_destinations.is_none() {
+                        named_destinations =
+                            Some(self.read_named_destinations(slots, index, &page_targets)?);
+                    }
+                    let entries = named_destinations.as_ref().expect("loaded name tree");
+                    let position = entries
+                        .binary_search_by(|entry| entry.name.cmp(&name))
+                        .map_err(|_| {
+                            self.malformed(
+                                location.offset,
+                                Some(task.reference),
+                                "outline destination name is absent from Dests",
+                            )
+                        })?;
+                    entries[position].page
+                } else {
+                    return Err(self.problem(
                         location.offset,
                         Some(task.reference),
                         ErrorKind::UnsupportedFormat,
                         "outline destination must be a direct page array",
-                    )
-                })?;
+                    ));
+                };
                 if page_targets.get(page.number as usize).copied().flatten()
                     != Some(page.generation)
                 {
