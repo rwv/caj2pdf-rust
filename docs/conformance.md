@@ -793,8 +793,10 @@ a swap of two image-only pages that intentionally leaves empty glyph
 sequences equal. None of these counts substitutes glyph checks for pixels.
 
 This checkpoint's native totals are **1,232 PASS / 35 FAIL / 10 UNSUPPORTED**.
-The 936 missing bitmap-oracle checks, broader source geometry/content/render
-checks, source-outline research and refusal recovery remain in #406. Runtime
+At this checkpoint the 936 bitmap-oracle checks were still missing; the
+subsequent source-bitmap checkpoint below fills that scoped gap. Broader source
+geometry/content/render checks, source-outline research and refusal recovery
+remain in #406. Runtime
 parity does not establish independent source correctness, and later recoveries
 require their own runtime checks. No release is published.
 
@@ -836,3 +838,35 @@ both independent sources; both converted outputs pass without warnings. The
 source warnings are retained rather than counted as clean source checks.
 These are scoped source-PDF comparisons, not CAJViewer or every-resolution/font
 fidelity claims, and they do not close the broader #406/#409 acceptance work.
+
+## Expanded source-bitmap checkpoint (#406)
+
+The [pinned complete receipt](https://github.com/rwv/caj2pdf-samples/blob/38a9bd62b32e198444e6596106e6e2db309834c4/research/notes/github-bitmap-oracles-20261008.json)
+fills the frozen harness's **936 missing source-image oracles**, covering
+13,991 pages and 15,708 source descriptors against the PDFs produced by
+`d6e23c3dd02ed1609e2ffee3da05313b8441231a` (merged through #413).
+All source image identities match: 10,077 type-0 and 3,150 type-3 bitmap
+descriptors, plus 2,481 unchanged JPEG payloads. Per-document identical payloads
+reuse an oracle result; the external decoders separately check 10,065 type-0
+and 3,146 type-3 payloads. Type 0 uses two fresh guarded prefill workers per
+payload. Type 3 uses untouched source JBIG2 bytes in the independently written
+wrapper and Poppler/MuPDF agreement; those tools' decoder implementation
+independence remains unverified. The Rust decoder never supplies oracle pixels.
+
+All 13,986 image-bearing pages match bitmap dimensions/visible bits, JPEG bytes
+and image order.
+The 15,700 output images account for eight repeated source descriptors under
+the scoped identity rule; placement and alias coordinates remain separate.
+Five image-free pages in the mixed HN-B source retain `NOT_APPLICABLE` bitmap
+status. A fresh complete native-text check verifies all 12 pages and 20,693
+glyph identities/order in that same PDF. The raw bitmap runner's 935 PASS and
+one incomplete-document FAIL are preserved alongside the complementary proof,
+so no image-free page is counted as a pixel pass. Every source/PDF/library
+hash remains unchanged. Deliberate page swaps, omitted images, a changed visible
+pixel and an extra empty page are detected by the applicable controls.
+
+This completes the missing source-bitmap identity/order coverage, not all-page
+geometry, native font appearance, vectors, source outlines or complete rendered
+fidelity. Native conversion totals remain **1,235 PASS / 32 FAIL / 10 UNSUPPORTED**
+across 1,277 originals. Refusal recovery and the broader #406 criteria remain
+open. No product API, conversion behavior, dependency or release changes here.
