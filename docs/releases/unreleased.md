@@ -34,3 +34,7 @@ preserve these bytes; matching independent source-framed renders does not
 prove intact content. Original CAJViewer page 39 remains unverified. See the
 [source-stream investigation](../provenance.md#damaged-source-streams-in-an-accepted-caj-436).
 This adds evidence, not a new fix or compatibility pass; #436 remains open.
+A subsequent [substitution diagnostic](../provenance.md#checksum-confirmed-substitution-candidate)
+restores the original checksums, lengths and page-table offsets without
+editing those expectations. Its PDF validates cleanly, but a bounded
+production recovery rule and its negative controls remain unimplemented.

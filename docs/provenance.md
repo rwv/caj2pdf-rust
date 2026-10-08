@@ -1111,3 +1111,32 @@ or production behavior is introduced. Full corpus tests are not rerun for
 this documentation change, and no new compatibility pass is counted. Review
 is self-review. #436 stays open for a proven recovery policy and an intact
 semantic oracle; these defects do not prove the whole source irrecoverable.
+
+### Checksum-confirmed substitution candidate
+
+A [subsequent diagnostic report](https://github.com/rwv/caj2pdf-samples/blob/8f1141f5e58099897bbf2a26b7e82624daec88fd/research/notes/stream-substitution-candidate-20261008.md)
+advances that baseline. Sequence `ca a7 c2 e4` occurs 13 times exclusively
+inside the six damaged streams. An exhaustive diagnostic tests all 65,536
+two-byte replacements at stream 142's one occurrence, preserving its stored
+checksum and all other bytes. Only `b5 f4` passes strict zlib EOF/checksum;
+uniqueness is limited to this candidate family, not arbitrary byte edits.
+
+Applying that same substitution at all 13 positions, without editing any
+source metadata, restores all six original checksums and encoded Lengths,
+all 63 original page-table offsets, the three image byte counts and both
+font Length1 values. All 22 stored font table checksums also agree. The
+983,497-byte diagnostic CAJ has SHA-256
+`d5a23e59ad27807d8b8fbc9271dd9e4857d7c01c31a2682b014a13861b340a15`.
+Its native PDF passes qpdf, and Poppler renders all 63 pages with no stderr.
+All 81 unaffected payloads, page identities/geometry/links and 93 bookmarks
+remain unchanged; the six damaged payloads explicitly change.
+
+Six additional isolated CAJViewer sessions now reach diagnostic pages 3, 5
+and 39; each modified-CAJ/output pair has identical full-page crops, stable
+captures, unchanged inputs, no OOM and complete cleanup. These are modified
+source observations, not an independently obtained intact alternative.
+Production recovery remains unimplemented: neighboring refusals, bounded
+resource/cancellation/changing-source controls, unchanged-original runtime
+parity and full regression must precede any automatic transformation. The
+historical corruption process and a general replacement policy are not
+established. The candidate adds no unchanged-input compatibility pass.
