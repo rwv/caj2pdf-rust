@@ -775,3 +775,34 @@ converter implementation, private-source migration or new dependency.
 External documents, PDFs, fonts and pixels remain outside Git. The
 [conformance checkpoint](conformance.md#equivalent-opacity-resource-checkpoint-412)
 records independent decoding and source-content verification.
+
+## Expanded GitHub source-image evidence (#406)
+
+The [pinned samples receipt](https://github.com/rwv/caj2pdf-samples/blob/13d4047cb8c62ab93fd1edfe448b8e657d81c52d/research/notes/github-bitmap-oracles-20261008.json)
+records source/PDF identities, bounded independent source inventory, every
+page/image comparison, external tool identities and deliberate negative
+controls for all 936 accepted originals missing image oracles. The original
+MIT runner reuses the existing source extractor and black-box protocols.
+The 10,077 type-0 and 3,150 type-3 descriptors are checked against external
+decoder output; 2,481 JPEG descriptors retain exact encoded identity. Repeated
+identical payloads reuse results within each document, with all descriptors
+still checked in source page order.
+
+The external type-0 oracle was rebuilt at the already documented revision
+`8cbc3c5721acb762f739434eb3d206171dbb022a`, reproducing library SHA-256
+`d370d071a4b7abdf7db4565c2bc85ac881470ee1a212459dd658d70974128de6`
+and the pinned compiler identity. Its implementation was not read, copied,
+transliterated or linked into the project. The library remains an external
+behavioral oracle, never a product dependency or release artifact. Fresh
+guarded workers with different prefills check each unique source payload.
+The original type-3 wrapper copies the source JBIG2 stream for separately
+installed Poppler/MuPDF tools; matching output is tool agreement, with decoder
+implementation independence explicitly unverified.
+
+Only original MIT tools/tests and metadata-only receipts are committed in
+the samples repository. External documents, decoded pixels, PDFs, fonts,
+foreign source and decoder binaries stay outside both repositories. The
+[conformance checkpoint](conformance.md#expanded-source-bitmap-checkpoint-406)
+retains five image-free pages as inapplicable to bitmap checks and links their
+separate complete glyph proof. No new product dependency or format semantics
+is inferred from these measurements.
