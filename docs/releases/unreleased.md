@@ -124,3 +124,14 @@ streams and bookmarks; referenced, ambiguous and unmeasured cases remain
 errors. Native, CLI, Node and browser share the bounded core change without
 API or dependency changes. See [bounds](../pdf-input.md#interrupted-metadata-and-missing-parents)
 and [provenance](../provenance.md#interrupted-metadata-and-missing-parent-openers-452).
+
+Recover the measured 78-page CAJ with a retained catalog, disconnected page
+tree, unused incomplete metadata declaration and missing parent prefixes
+(#456). Preserve the original page-label tree, complete page content and all
+40 CAJ bookmarks. Require complete-graph proofs of optional-target absence,
+explicit inheritable page values and exact partial-child-list agreement;
+live form/metadata, extra catalog properties and unproved profiles remain
+errors. Native, CLI, Node and browser share the bounded core behavior with
+no public API or dependency change. See the
+[bounds](../pdf-input.md#retained-catalog-and-incomplete-page-tree) and
+[provenance](../provenance.md#retained-catalog-and-incomplete-page-tree-456).

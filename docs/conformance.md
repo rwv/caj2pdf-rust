@@ -1031,3 +1031,21 @@ are retained separately from unchanged-original release-build evidence.
 The complete regression and exact reviewed-build receipts are tracked in
 [#452](https://github.com/rwv/caj2pdf-rust/issues/452); optional-corpus skips
 remain distinct from compatibility passes. No release is performed.
+
+## Retained catalog and incomplete page tree (#456)
+
+The unchanged 78-page CAJ in [provenance](provenance.md#retained-catalog-and-incomplete-page-tree-456)
+produces identical native, Node and Chromium output with clean qpdf and browser
+temporary-file cleanup. All 421 retained original values, 201 raw streams and
+78 page references/geometries/text/link inventories/Poppler renders agree with
+independent source-body framing. The output also retains all 78 explicit page
+labels and 40 CAJ bookmark titles, depths, order and destinations. The old
+catalog/root are replaced; missing optional metadata/form values are not
+recovered historical information.
+
+Fresh source-viewer comparisons cover pages 1, 53 and 78 and a detected
+painted-content negative. Other viewer pages are NOT_RUN and #441 remains
+open. Earlier framing errors and modified-source diagnostics remain separate
+from original compatibility evidence. Full regression and reviewed-build/CI
+receipts are tracked in [#456](https://github.com/rwv/caj2pdf-rust/issues/456).
+Skipped optional-corpus tests are not compatibility passes. No release occurs.

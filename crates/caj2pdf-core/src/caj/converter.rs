@@ -926,6 +926,7 @@ fn convert_scanned<S: RangedSource, W: Write, C: Cancellation>(
         objects,
         pages: &page_refs,
         pages_root: root,
+        page_labels: scan.page_labels,
     };
     let mut report =
         reconstruct_inspected(&mut extended, sink, plan, bookmarks, limits, cancellation)?;

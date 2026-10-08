@@ -387,6 +387,12 @@ pub(crate) struct InspectedPlan<'a> {
     pub objects: Vec<InspectedObject>,
     pub pages: &'a [PdfRef],
     pub pages_root: PdfRef,
+    pub page_labels: Option<PdfRef>,
+}
+
+struct Inspections {
+    objects: Vec<Option<FragmentInspection>>,
+    page_labels: Option<PdfRef>,
 }
 
 /// Reconstruct from an [`InspectedPlan`] without parsing its objects again.
@@ -421,7 +427,10 @@ pub(crate) fn reconstruct_inspected<R: RangedSource, W: Write, C: Cancellation>(
         pages: plan.pages,
         pages_root: plan.pages_root,
     };
-    let given = Some(inspections);
+    let given = Some(Inspections {
+        objects: inspections,
+        page_labels: plan.page_labels,
+    });
     reconstruct(
         source,
         sink,
@@ -437,7 +446,7 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: &FragmentPlan<'_>,
-    given: Option<Vec<Option<FragmentInspection>>>,
+    given: Option<Inspections>,
     bookmarks: &[Bookmark],
     limits: &Limits,
     cancellation: &C,
@@ -533,12 +542,23 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     records.push(Record::synthetic(catalog));
     records.sort_unstable_by_key(|record| record.reference.number);
 
+    let page_labels = given.as_ref().and_then(|g| g.page_labels);
+    if let Some(labels) = page_labels {
+        checked_reference(labels, 0)?;
+        if object_index(&records, labels).is_none_or(|i| records[i].range.length == 0) {
+            return Err(malformed(
+                Some(labels),
+                0,
+                "retained page-label tree is missing",
+            ));
+        }
+    }
     // Validate framing, stream lengths, references, and page-tree structure
     // against the supplied source spans before writing anything.
     validate_fragment_structure(
         source,
         plan,
-        given,
+        given.map(|g| g.objects),
         &mut records,
         &sorted_pages,
         limits,
@@ -574,19 +594,17 @@ fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
         )
     });
     let pages_suffix = b"] >>\nendobj\n";
-    let catalog_text = {
-        if let Some((outline_root, ..)) = &outline {
-            format!(
-                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
-                catalog.number, plan.pages_root.number, outline_root.number
-            )
-        } else {
-            format!(
-                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
-                catalog.number, plan.pages_root.number
-            )
-        }
-    };
+    let mut catalog_text = format!(
+        "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R",
+        catalog.number, plan.pages_root.number
+    );
+    if let Some((outline_root, ..)) = &outline {
+        catalog_text.push_str(&format!(" /Outlines {} 0 R", outline_root.number));
+    }
+    if let Some(labels) = page_labels {
+        catalog_text.push_str(&format!(" /PageLabels {} 0 R", labels.number));
+    }
+    catalog_text.push_str(" >>\nendobj\n");
 
     // `limits.validate` admitted one I/O chunk under the allocation limit.
     let mut buffer = Vec::new();

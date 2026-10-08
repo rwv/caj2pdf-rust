@@ -70,6 +70,242 @@ fn find(bytes: &[u8], token: &[u8]) -> usize {
     bytes.windows(token.len()).position(|b| b == token).unwrap()
 }
 
+fn retained_catalog_fixture() -> Vec<u8> {
+    format!(
+        "1 0 obj << /Length 3 >> stream\nabc\nendstream\nendobj\n\
+         60 0 obj<</Type/Catalog/Pages 70 0 R/PageLabels 61 0 R/AcroForm 80 0 R/Metadata 90 0 R>>endobj\n\
+         70 0 obj<</Type/Pages/Count 3/Kids[71 0 R 50 0 R]>>endobj\n\
+         61 0 obj<</Nums[0 62 0 R]>>endobj\n\
+         62 0 obj<</S/D>>endobj\n\
+         90 0 obj<</Length 1234/Type/Metada\r\n\
+         91 0 obj 9 endobj\n\
+         8 0 obj<</Count 2/Kids[3 0 R 1\r\n\
+         3 0 obj {PAGE} endobj\n\
+         14 0 obj {PAGE} endobj\n\
+         50 0 \r\n\
+         20 0 obj {} endobj\n\
+         30 0 obj<</Type/Pages/Parent 50 0 R/Count 1/Kids[20 0 R]>>endobj",
+        PAGE.replace("/Parent 8", "/Parent 30")
+    ).into_bytes()
+}
+
+#[test]
+fn retained_catalog_preserves_labels_and_all_independent_leaves() {
+    for maximum in [1, 7, 256, usize::MAX] {
+        let bytes = retained_catalog_fixture();
+        let mut source = Source::new(bytes.clone());
+        source.maximum = maximum;
+        let result = source.scan(&Limits::default(), &NEVER).unwrap();
+        assert_eq!(
+            result.page_labels,
+            Some(PdfRef {
+                number: 61,
+                generation: 0
+            })
+        );
+        assert_eq!(result.objects.len(), 8);
+        assert_eq!(
+            result
+                .objects
+                .iter()
+                .filter(|s| matches!(
+                    s.inspection.as_ref().unwrap().kind,
+                    FragmentKind::Page { .. }
+                ))
+                .count(),
+            3
+        );
+        assert!(
+            result
+                .objects
+                .iter()
+                .all(|s| ![60, 70, 90].contains(&s.object.reference.number))
+        );
+        assert!(
+            result.patches.is_empty()
+                && result.damaged.is_empty()
+                && result.substitutions.is_empty()
+        );
+        assert_eq!(source.bytes, bytes);
+    }
+}
+
+#[test]
+fn retained_catalog_refuses_live_or_unproved_semantics() {
+    let bytes = retained_catalog_fixture();
+    for (from, to) in [
+        ("/AcroForm 80 0 R", "/AcroForm 61 0 R"),
+        ("/Metadata 90 0 R", "/Metadata 1 0 R"),
+        ("/Pages 70 0 R", "/Pages 8 0 R"),
+        ("/Type/Catalog/Pages", "/Type/Catalog/Names << >>/Pages"),
+        ("/Count 3/Kids", "/Count 4/Kids"),
+        ("/Kids[71 0 R 50 0 R]", "/Kids[30 0 R 50 0 R]"),
+        ("/Kids[71 0 R 50 0 R]", "/Kids[71 0 R 71 0 R]"),
+        ("/Type/Pages/Count 3", "/Type/Pages/Rotate 90/Count 3"),
+        ("/Nums[0 62 0 R]", "/Nums[1 62 0 R]"),
+        ("/Nums[0 62 0 R]", "/Nums[0 62 0 R 1 62 0 R]"),
+        ("/S/D", "/S/r"),
+        ("/S/D", "/S/D/P(custom)"),
+        ("/Length 1234/Type/Metada", "/Length 0/Type/Metada"),
+        ("/Length 1234/Type/Metada", "/Length 1234/Type/Metadata"),
+        ("/Type/Metada\r\n", "/Type/Metada\n"),
+        (
+            "8 0 obj<</Count 2/Kids[3 0 R 1",
+            "8 0 obj<</Count 3/Kids[3 0 R 1",
+        ),
+        (
+            "8 0 obj<</Count 2/Kids[3 0 R 1",
+            "8 0 obj<</Count 2/Kids[4 0 R 1",
+        ),
+        (
+            "8 0 obj<</Count 2/Kids[3 0 R 1",
+            "8 0 obj<</Count 2/Kids[3 0 R 2",
+        ),
+        (
+            "8 0 obj<</Count 2/Kids[3 0 R 1",
+            "8 0 obj<</Count 2/Kids[3 0 R 14",
+        ),
+        ("/Parent 50 0 R/Count 1", "/Parent 50 0 R/Count 2"),
+        ("/Parent 50 0 R/Count 1", "/Parent 50 0 R/Rotate 90/Count 1"),
+        ("/Kids[20 0 R]", "/Kids[3 0 R]"),
+        ("/CropBox [0 0 90 70]", ""),
+        ("/Resources << >>", "/Resources << >> /Annots []"),
+        ("50 0 \r\n", "50 1 \r\n"),
+    ] {
+        assert!(
+            Source::new(replace(&bytes, from, to))
+                .scan(&Limits::default(), &NEVER)
+                .is_err(),
+            "{from} -> {to}"
+        );
+    }
+    for extra in [
+        "80 0 obj << /Fields [] >> endobj",
+        "90 0 obj null endobj",
+        "92 0 obj << /Metadata 90 0 R >> endobj",
+        "92 0 obj [80 0 R] endobj",
+        "92 0 obj [60 0 R] endobj",
+        "92 0 obj [70 0 R] endobj",
+        "92 0 obj << /Type /Catalog /Pages 70 0 R >> endobj",
+        "92 0 obj << /Type /ObjStm /Length 0 >> stream\nendstream\nendobj",
+        "92 0 obj << /Type /XRef /Length 0 >> stream\nendstream\nendobj",
+    ] {
+        let mut changed = bytes.clone();
+        changed.extend_from_slice(format!("\n{extra}").as_bytes());
+        assert!(
+            Source::new(changed)
+                .scan(&Limits::default(), &NEVER)
+                .is_err(),
+            "{extra}"
+        );
+    }
+}
+
+#[test]
+fn retained_catalog_propagates_every_read_failure_and_cancellation() {
+    let bytes = retained_catalog_fixture();
+    let limits = Limits::default();
+    let mut baseline = Source::new(bytes.clone());
+    let cancellation = CancelAfter::never();
+    baseline.scan(&limits, &cancellation).unwrap();
+    for allowed in 0..cancellation.queries() {
+        let e = Source::new(bytes.clone())
+            .scan(&limits, &CancelAfter::new(allowed))
+            .err()
+            .unwrap();
+        assert!(matches!(e.kind, ErrorKind::Cancelled), "{allowed}: {e:?}");
+    }
+    for fail_at in 0..baseline.reads {
+        let mut source = Source::new(bytes.clone());
+        source.fail_at = fail_at;
+        let e = source.scan(&limits, &NEVER).err().unwrap();
+        assert!(matches!(e.kind, ErrorKind::Io(_)), "{fail_at}: {e:?}");
+    }
+}
+
+#[test]
+fn retained_catalog_checks_source_stability_and_header_limits() {
+    let bytes = retained_catalog_fixture();
+    let mut baseline = Source::new(bytes.clone());
+    baseline.scan(&Limits::default(), &NEVER).unwrap();
+    for token in [
+        b"60 0 obj".as_slice(),
+        b"70 0 obj",
+        b"90 0 obj",
+        b"8 0 obj<</Count",
+        b"50 0 \r\n",
+    ] {
+        let at = find(&bytes, token);
+        let trigger = baseline
+            .offset_reads
+            .iter()
+            .rposition(|offset| *offset == at as u64)
+            .unwrap();
+        let mut source = Source::new(bytes.clone());
+        source.change = Some((trigger, at));
+        assert!(
+            source.scan(&Limits::default(), &NEVER).is_err(),
+            "{token:?}"
+        );
+        assert_ne!(source.bytes, bytes);
+    }
+    let start = find(&bytes, b"60 0 obj");
+    let end = start + find(&bytes[start..], b"endobj") + 6;
+    for length in [256, 257] {
+        let padded = replace(
+            &bytes,
+            "60 0 obj",
+            &format!("60 0 {}obj", " ".repeat(length - (end - start))),
+        );
+        assert_eq!(
+            Source::new(padded).scan(&Limits::default(), &NEVER).is_ok(),
+            length == 256
+        );
+    }
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        max_allocation_bytes: 64,
+        ..Limits::default()
+    };
+    assert!(matches!(
+        Source::new(bytes).scan(&limits, &NEVER).err().unwrap().kind,
+        ErrorKind::LimitExceeded { .. }
+    ));
+}
+
+#[test]
+fn retained_catalog_bounds_the_complete_intermediate_children() {
+    for count in [64, 65] {
+        let mut bytes = retained_catalog_fixture();
+        let mut kids = "20 0 R".to_owned();
+        for id in 100..100 + count - 1 {
+            kids.push_str(&format!(" {id} 0 R"));
+            bytes.extend_from_slice(
+                format!(
+                    "\n{id} 0 obj {} endobj",
+                    PAGE.replace("/Parent 8", "/Parent 30")
+                )
+                .as_bytes(),
+            );
+        }
+        bytes = replace(
+            &bytes,
+            "/Count 1/Kids[20 0 R]",
+            &format!("/Count {count}/Kids[{kids}]"),
+        );
+        bytes = replace(
+            &bytes,
+            "/Count 3/Kids",
+            &format!("/Count {}/Kids", count + 2),
+        );
+        assert_eq!(
+            Source::new(bytes).scan(&Limits::default(), &NEVER).is_ok(),
+            count == 64,
+            "{count}"
+        );
+    }
+}
+
 #[test]
 fn measured_interruptions_preserve_complete_objects_with_short_reads() {
     for opener in ["8 0", "8 0 obj<<"] {
