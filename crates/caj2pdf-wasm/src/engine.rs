@@ -73,6 +73,7 @@ pub fn format_code(format: Option<InputFormat>) -> u32 {
         Some(InputFormat::C8) => 5,
         Some(InputFormat::Teb) => 6,
         Some(InputFormat::Nh) => 7,
+        Some(InputFormat::Caa) => 8,
     }
 }
 
@@ -87,6 +88,7 @@ pub fn format_from_code(code: u32) -> Option<Option<InputFormat>> {
         5 => Some(InputFormat::C8),
         6 => Some(InputFormat::Teb),
         7 => Some(InputFormat::Nh),
+        8 => Some(InputFormat::Caa),
         _ => return None,
     })
 }
@@ -416,10 +418,10 @@ fn run<'h, H: Host>(
     result.map_err(|error| in_hnc8(error, progress.format))
 }
 
-/// An inspection's outcome. A document without a page count is not
-/// supported.
+/// An inspection's outcome. CAA descriptors expose their family without
+/// document counts; other count-less inputs keep the existing refusal.
 fn inspected(info: DocumentInfo) -> Result<Outcome> {
-    if info.page_count.is_none() {
+    if info.page_count.is_none() && info.format != InputFormat::Caa {
         return Err(ErrorKind::UnsupportedFormat.into());
     }
     Ok(Outcome {

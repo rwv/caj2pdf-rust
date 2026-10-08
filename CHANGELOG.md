@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Breaking:** recognize the independently measured CAA target-descriptor
+  profile across core, CLI, Node and browser (#424, #425). Inspection reports
+  CAA with unknown counts; conversion returns the existing typed unsupported
+  error before writing bytes and asks for the referenced document. No target
+  decoding or network resolution is performed. Rust exhaustive matches must
+  handle the new `InputFormat::Caa`; JavaScript `Format` adds `"caa"` and
+  `DocumentInfo.pageCount` changes from `number` to `number | null` (guard
+  `info.pageCount !== null` before arithmetic). Raw WASM appends format code
+  8, preserving codes 0–7; successful CAA inspection returns page-count 0
+  and bookmark-count -1 through the raw ABI, translated to null in JS.
+  The existing HN-A path also converts a newly cataloged `.nh` sample across
+  all three runtimes: 433 pages and 365 bookmarks, with identical PDFs. This
+  is current-main evidence; v0.4.0 fails that sample on page 4. CAS remains
+  an open sample gap. See the [checkpoint](docs/conformance.md#nh-and-caa-discovery-checkpoint-424).
+
 - Fixed: two additional C8 profiles (#380, #382) convert all 10/5 pages
   through CLI, Node and browser. Admit the independently controlled terminal
   encoded NUL, aligned image names without NUL padding, explicit glyph sizes,

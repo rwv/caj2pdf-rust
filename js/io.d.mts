@@ -9,7 +9,7 @@ export declare const MAX_ALLOCATION_LIMIT: bigint;
 export declare const DEFAULT_LIMITS: Readonly<Required<Limits>>;
 
 /** Input format names in WASM code order. Native C8/HN-B text needs caller fonts (`hnc8.fonts`). */
-export type Format = "auto" | "pdf" | "caj" | "kdh" | "hn" | "c8" | "teb" | "nh";
+export type Format = "auto" | "pdf" | "caj" | "kdh" | "hn" | "c8" | "teb" | "nh" | "caa";
 export type DetectedFormat = Exclude<Format, "auto">;
 export declare const FORMATS: readonly Format[];
 
@@ -111,7 +111,8 @@ export interface ConversionReport {
 
 export interface DocumentInfo {
   format: DetectedFormat;
-  pageCount: number;
+  /** `null` for a CAA target descriptor, which contains no document page count. */
+  pageCount: number | null;
   /** Validated for CAJ/HN-A; `null` when unknown or not counted (C8, HN-B, PDF, KDH). */
   bookmarkCount: number | null;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */

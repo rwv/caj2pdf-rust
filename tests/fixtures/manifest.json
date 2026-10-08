@@ -54,6 +54,14 @@
       ]
     },
     {
+      "path": "target_descriptor.caa",
+      "sha256": "378be727fbcde35e5ca23055100c7ef33aae143f9c6148be7d3b8b5748217294",
+      "size": 64,
+      "format": "CAA",
+      "expected_outcome": "valid",
+      "condition": "Original target descriptor with invented opaque values; no document pages."
+    },
+    {
       "path": "truncated_c8.c8",
       "sha256": "a77802d8305178be2db1ab04fdd5ca3b8c03ad5d45ca35132ff6a04c7faec115",
       "size": 4,

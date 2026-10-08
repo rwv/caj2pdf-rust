@@ -13,7 +13,7 @@ export async function useBrowser(file: File, opfs: FileSystemFileHandle, destina
   });
   const count: bigint = report.outputBytesWritten;
   const info = await inspect(module, opfs, { signal });
-  const pages: number = info.pageCount;
+  const pages: number | null = info.pageCount;
   await convertReadableStream(module, file.stream(), sink, { signal, maxSpoolBytes: BigInt(file.size) });
   const spool = await spoolToOpfs(file.stream(), { maxBytes: BigInt(file.size), signal });
   const spooled: FileSystemFileHandle = spool.source;

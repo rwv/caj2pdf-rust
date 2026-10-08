@@ -5,6 +5,10 @@ under MIT. The bytes come from `scripts/generate_fixtures.py`, written from the
 published [PDF 1.7 reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)
 and signature facts recorded in the public
 [CAJSamples magic index](https://github.com/caj2pdf/CAJSamples/blob/7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07/magic).
+The `target_descriptor.caa` fixture uses independently measured CAA field
+names/order from the [pinned discovery](https://github.com/rwv/caj2pdf-samples/blob/d9b42808e6a8d6ed7814d6970ac8253a590f513d/research/notes/caa-nh-discovery-20261008.md),
+with invented numeric and base64-alphabet values. It contains no document
+pages or real target values.
 No CAJSamples document, reference-converter output, or legacy converter source
 was used.
 

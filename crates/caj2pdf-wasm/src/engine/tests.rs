@@ -205,11 +205,34 @@ fn failure(session: &Session) -> &Error {
 
 #[test]
 fn format_codes_round_trip_and_reject_unknown_codes() {
-    for code in 0..=7 {
+    for code in 0..=8 {
         let format = format_from_code(code).expect("known code");
         assert_eq!(format_code(format), code);
     }
-    assert_eq!(format_from_code(8), None);
+    assert_eq!(format_code(Some(InputFormat::Caa)), 8);
+    assert_eq!(format_from_code(9), None);
+}
+
+#[test]
+fn caa_can_be_inspected_but_conversion_refuses_without_output() {
+    let bytes = fixture("target_descriptor.caa");
+    let mut host = Memory::new(&bytes).short(2);
+    let session = run(&mut host, limits(3), Operation::Inspect { format: None });
+    let info = outcome(&session).info.as_ref().unwrap();
+    assert_eq!(info.format, InputFormat::Caa);
+    assert_eq!(info.page_count, None);
+    assert_eq!(info.bookmark_count, None);
+    assert!(host.output.is_empty());
+    assert!(host.max_read <= 3);
+    for format in [None, Some(InputFormat::Caa)] {
+        let session = run(&mut host, limits(3), convert_op(format));
+        assert!(matches!(
+            failure(&session).kind,
+            ErrorKind::UnsupportedFormat
+        ));
+        assert_eq!(session.format(), Some(InputFormat::Caa));
+        assert!(host.output.is_empty());
+    }
 }
 
 #[test]

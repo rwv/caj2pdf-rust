@@ -204,7 +204,7 @@ function inspection(exports, format, memory) {
   const notes = exports.caj2pdf_info_note_count();
   return {
     format,
-    pageCount: exports.caj2pdf_info_page_count(),
+    pageCount: format === "caa" ? null : exports.caj2pdf_info_page_count(),
     bookmarkCount: bookmarks < 0n ? null : Number(bookmarks),
     outlineWarnings: exports.caj2pdf_outline_warnings(),
     applicationInfo: notes < 0n

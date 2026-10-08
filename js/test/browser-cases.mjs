@@ -123,6 +123,12 @@ export async function reject(name) {
   return { ...result, written: sink.chunks.length };
 }
 
+/** Descriptor metadata and the typed refusal through the same File adapter. */
+export async function inspectDescriptor(name) {
+  const info = await inspect(await modulePromise, await input(name));
+  return { info: plainReport(info), ...await reject(name) };
+}
+
 /** A parser failure after spooling must release its stream and OPFS file. */
 export async function rejectSpooled(name) {
   const sink = collector();

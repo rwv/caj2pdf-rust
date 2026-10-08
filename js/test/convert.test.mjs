@@ -175,6 +175,30 @@ test("inspect reports format, pages, and CAJ bookmarks without output", async ()
   }
 });
 
+test("CAA inspection reports unknown counts and conversion refuses without writing", async () => {
+  const bytes = await fixture("target_descriptor.caa");
+  const source = new Blob([bytes]);
+  const module = await wasmModule();
+  const info = await inspect(module, source, { chunkSize: 3 });
+  assert.equal(info.format, "caa");
+  assert.equal(info.pageCount, null);
+  assert.equal(info.bookmarkCount, null);
+  assert.equal(info.inputBytesRead, BigInt(bytes.length));
+  const sink = { async writeChunk() { assert.fail("CAA must not write PDF bytes"); }, async flush() {} };
+  for (const options of [{}, { format: "caa" }]) {
+    await assert.rejects(convert(module, source, sink, options), (error) => {
+      assert.ok(error instanceof UnsupportedFormatError);
+      assert.equal(error.code, "UNSUPPORTED_FORMAT");
+      assert.equal(error.format, "caa");
+      assert.match(error.message, /obtain the referenced document/);
+      return true;
+    });
+  }
+  await assert.rejects(inspect(module, new Blob([bytes.subarray(0, -1)])), {
+    name: "UnsupportedFormatError", format: null,
+  });
+});
+
 test("malformed HN/C8 and unsupported TEB failures are distinguished", async () => {
   const cases = [
     ["truncated_hn.hn", "hn"],

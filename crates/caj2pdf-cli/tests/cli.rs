@@ -667,8 +667,15 @@ fn inspect_reports_every_recognized_format() {
     scratch.write("doc.c8", &c8());
     scratch.write("doc.hn", &hn());
     scratch.write("doc.teb", &fixture("truncated_teb.teb"));
+    scratch.write("doc.caa", &fixture("target_descriptor.caa"));
     let common = r#""conversion_supported":"#;
     for (input, expected) in [
+        (
+            "doc.caa",
+            format!(
+                r#"{{"schema_version":1,"format":"CAA","variant":null,{common}false,"page_count":null,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null,"unsupported_reason":"target-descriptor"}}"#
+            ),
+        ),
         (
             "doc.pdf",
             format!(
@@ -728,6 +735,24 @@ fn inspect_reports_every_recognized_format() {
         let output = scratch.run(["inspect", input]);
         assert_failure(&output, 1, message);
     }
+}
+
+#[test]
+fn caa_refusal_leaves_stdout_and_output_paths_empty() {
+    let scratch = Scratch::new("caa");
+    let bytes = fixture("target_descriptor.caa");
+    scratch.write("descriptor.caa", &bytes);
+    let output = scratch.run(["inspect", "descriptor.caa"]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("target descriptor; obtain the referenced document"));
+    let reason = "obtain the referenced document and convert that file";
+    assert_failure(&scratch.run(["descriptor.caa", "-o", "out.pdf"]), 1, reason);
+    assert_failure(
+        &scratch.run_with_stdin(&["-", "-o", "-"], &bytes),
+        1,
+        reason,
+    );
+    assert_eq!(scratch.entries(), ["descriptor.caa"]);
 }
 
 #[test]

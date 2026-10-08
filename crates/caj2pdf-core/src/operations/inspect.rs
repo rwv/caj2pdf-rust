@@ -97,7 +97,7 @@ impl DocumentInfo {
 /// The family is detected unless [`InspectOptions::format`] names it, and
 /// reported to [`Progress::format`]; an empty or unrecognized input is
 /// refused as by [`super::convert`]. PDF and KDH are indexed, CAJ and HN/C8
-/// metadata and outlines are read, and NH and TEB report only their family.
+/// metadata and outlines are read, and NH, TEB and CAA report only their family.
 pub fn inspect<S: RangedSource>(
     source: &mut S,
     options: &InspectOptions,
@@ -163,7 +163,7 @@ fn read_info<S: RangedSource>(
         InputFormat::Hn | InputFormat::C8 => {
             inspect_hnc8(source, &mut info, options, limits, observer)?;
         }
-        InputFormat::Nh | InputFormat::Teb => {}
+        InputFormat::Nh | InputFormat::Teb | InputFormat::Caa => {}
     }
     Ok(info)
 }
