@@ -1044,11 +1044,13 @@ fn interrupted_live_objects_require_an_exact_indexed_prefix() {
         check_pdf(&output.path, 1);
     }
     for gap in [
-        "2 0 obj\n<< /Tx\n",   // conflicting key
-        "2 0 obj\r<< /Ty\n",   // different header whitespace
-        "2 1 obj\n<< /Ty\n",   // different generation
-        "3 0 obj\n<< /Ty\n",   // free target
-        "8 0 obj\n<< /Ty\n",   // unknown target
+        "2 0 obj\n<< /Tx\n",     // conflicting key
+        "2 0 obj\r<< /Ty\n",     // different header whitespace
+        "2 1 obj\n<< /Ty\n",     // different generation
+        "3 0 obj\n<< /Ty\n",     // free target
+        "8 0 obj\n<< /Ty\n",     // unknown target
+        "\x0b2 0 obj\n<< /Ty\n", // vertical TAB is not PDF whitespace
+        "2 0 obj\n<< /Ty\x0b\n",
         "2 0 obj\n<< /Ty#7\n", // partial escape
         "2 0 obj\n<< /Type /Page /Parent 1 0 R >>\nendobj\n",
     ] {
@@ -1102,6 +1104,8 @@ fn interrupted_live_objects_require_an_exact_indexed_prefix() {
     // A matching prefix also works with xref streams; the 128-byte live-prefix gap
     // cap includes whitespace separating it from adjacent complete objects.
     let prefix = b"2 0 obj\n<< /Ty\n";
+    let nul_framed = b"\0 2 0 obj\n<< /Ty\n\0";
+    assert!(inspect_bytes(synthetic_xref_stream_pdf(false, false, false, nul_framed)).is_ok());
     for length in [128, 129] {
         let mut gap = vec![b' '; length - prefix.len() - 1];
         gap.extend_from_slice(prefix);

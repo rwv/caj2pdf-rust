@@ -755,7 +755,7 @@ pub(super) fn media_box(bytes: &[u8]) -> Option<[f64; 4]> {
         .then_some(box_values)
 }
 
-fn is_space(byte: u8) -> bool {
+pub(super) fn is_space(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 12 | b'\r' | b' ')
 }
 

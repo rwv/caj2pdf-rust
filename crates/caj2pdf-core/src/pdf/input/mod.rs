@@ -2501,7 +2501,15 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     /// A short interrupted dictionary/integer may refer to a live object
     /// elsewhere. Only that xref-selected object's exact bytes justify a patch.
     fn matches_live_object_prefix(&mut self, bytes: &[u8], index: &PdfIndex) -> Result<bool> {
-        let prefix = bytes.trim_ascii();
+        let start = bytes
+            .iter()
+            .position(|&byte| !parser::is_space(byte))
+            .unwrap_or(bytes.len());
+        let end = bytes
+            .iter()
+            .rposition(|&byte| !parser::is_space(byte))
+            .map_or(start, |at| at + 1);
+        let prefix = &bytes[start..end];
         let mut syntax = Syntax::new(prefix);
         let Ok(number) = syntax.unsigned() else {
             return Ok(false);

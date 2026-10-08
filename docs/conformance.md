@@ -786,6 +786,11 @@ eight required native glyph order rather than a bitmap oracle. The
 covers 38 pages / 60,762 glyphs and 24 detected page-swap, glyph-omission and
 Unicode-map corruption controls. This proves glyph identity/order, not font
 geometry or complete visual fidelity. Historical failures remain archived.
+The subsequent [ten-original glyph receipt](https://github.com/rwv/caj2pdf-samples/blob/4752137e9a2a2a848ae3e4fcd2720412cd4a05e0/research/notes/native-content-completion-20261008.json)
+covers all 83,432 native glyphs over 60 pages (50 with native glyphs), with
+30 detected glyph-affecting controls. A separate image-order check detects
+a swap of two image-only pages that intentionally leaves empty glyph
+sequences equal. None of these counts substitutes glyph checks for pixels.
 
 This checkpoint's native totals are **1,232 PASS / 35 FAIL / 10 UNSUPPORTED**.
 The 936 missing bitmap-oracle checks, broader source geometry/content/render

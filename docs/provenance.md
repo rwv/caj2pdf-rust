@@ -729,7 +729,8 @@ remain in place. No stream extent or payload search is introduced.
 Original MIT controls cover indexed counterparts before/after the gap, partial
 keys/references/integers, conflicts, missing/free targets, generation mismatch,
 complete objects, excluded stream/other scalar profiles, one-byte reads,
-128/129-byte bounds, cancellation checkpoints and source mutation during copy.
+128/129-byte bounds, exact PDF whitespace (including NUL, excluding vertical
+TAB), cancellation checkpoints and source mutation during copy.
 The [conformance checkpoint](conformance.md#interrupted-live-object-prefix-checkpoint-410)
 compares the entire original through an independent decoded PDF oracle.
 Existing CR stream-separator normalization and validated stale-parent repair
