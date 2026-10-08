@@ -383,6 +383,26 @@ fn run_pass<S: RangedSource, C: Cancellation>(
             Err(error) => return retry(reader, pass, error).map(Outcome::Retry),
         };
         match recovery {
+            Recovery::Embedded { object, end } => {
+                let Failure::Stream(_, stream) = failure else {
+                    unreachable!("only an empty stream wrapper is recovered");
+                };
+                cursor = index_object(
+                    pass,
+                    Framed {
+                        // The two bounded dictionaries have identical values;
+                        // reuse the already validated structural inspection.
+                        object: ScannedObject {
+                            object,
+                            inspection: stream.inspection,
+                        },
+                        end,
+                        integer: None,
+                        pending: None,
+                    },
+                )?;
+                final_repaired = false;
+            }
             Recovery::Resume(resume) => cursor = resume,
             Recovery::Defer { resume, prefix } => {
                 push_counted(

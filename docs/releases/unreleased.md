@@ -41,3 +41,18 @@ pages, object values and payloads agree; 93 bookmarks are retained. Previous
 vendor checks cover modified-source pages 3/5/39 and the identical PDF.
 Original damaged-source page 39 remains inaccessible, and no independently
 obtained intact alternative or general corruption repair is claimed.
+
+
+Recover three measured CAJs containing a complete empty Form inside an
+identical same-number empty Form wrapper (#439). The bounded scanner retains
+the inner object and omits only redundant framing; nonempty, conflicting,
+incomplete and unmeasured profiles remain errors. Native, CLI, Node and browser
+share the rule, with no API or dependency change. See the
+[admission bounds](../pdf-input.md#nested-duplicate-empty-forms) and
+[provenance](../provenance.md#nested-duplicate-empty-forms-439).
+
+All three unchanged originals produce identical native/Node/Chromium PDFs;
+211 independently framed page renders, 754 raw streams and 166 bookmarks
+agree. Scoped source-viewer checks retain one initial cold-session raster
+disagreement despite three matching retries; its cause remains open in #441.
+No full-document vendor-render fidelity is claimed.
