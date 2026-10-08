@@ -262,3 +262,41 @@ export async function convertDamaged(name) {
   await sink.writer.close();
   return { omittedPages: report.omittedPages.map((page) => ({ pageIndex: page.pageIndex, offset: page.offset.toString() })), output: await encode(sink.chunks) };
 }
+
+/** Force abort after the Worker checks CANCEL but before it starts waiting. */
+export async function abortBeforeAckWait(name) {
+  const module = await modulePromise;
+  const stream = (await input(name)).stream();
+  const controller = new AbortController();
+  const RealWorker = globalThis.Worker;
+  const waits = [];
+  let pauses = 0;
+  globalThis.Worker = class extends RealWorker {
+    constructor(url, options) {
+      super(new URL("./abort-wait-worker.mjs", import.meta.url), options);
+      this.addEventListener("message", (event) => {
+        if (event.data.type === "test-before-ack-wait") {
+          event.stopImmediatePropagation();
+          pauses++;
+          controller.abort();
+          const gate = new Int32Array(event.data.gate);
+          Atomics.store(gate, 0, 1);
+          Atomics.notify(gate, 0);
+        } else if (event.data.type === "test-after-ack-wait") {
+          event.stopImmediatePropagation();
+          waits.push(event.data.result);
+        }
+      });
+    }
+  };
+  try {
+    const result = await settle(convertReadableStream(module, stream, {
+      // No write ACK may accidentally rescue the otherwise lost notification.
+      writeChunk() { return new Promise(() => {}); },
+      async flush() {},
+    }, { signal: controller.signal }));
+    return { ...result, pauses, waits, after: await opfsEntries(), unlocked: readerReleased(stream) };
+  } finally {
+    globalThis.Worker = RealWorker;
+  }
+}

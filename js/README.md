@@ -506,6 +506,12 @@ only a transient `NoModificationAllowedError` (at most three attempts, with
 10 ms and 50 ms delays). If the failed spool still cannot be removed, rejection
 is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
 `errors[1]` holds the removal failure. The temporary file may then remain.
+`convertReadableStream`, `convertReadable` and `convertSpooled` also expose
+this combined failure when conversion fails and its already-created spool
+cannot be removed. Callers that inspect
+`error.name` or `error.code` should first inspect `error.cause` when catching an
+`AggregateError`, and also report its cleanup error. A successfully cleaned
+conversion still rejects with its original error object.
 
 ### Fonts for native C8 and HN-B pages
 

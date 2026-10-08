@@ -287,3 +287,12 @@ test("Chromium: damaged CAJ mode returns explicit blank-page diagnostics", optio
   assert.match(result.omittedPages[0].offset, /^\d+$/);
   await validatePdf(t, decode(result.output), 2);
 });
+
+test("Chromium: abort between the cancellation check and ACK wait closes OPFS", options, async () => {
+  const result = await run("abortBeforeAckWait", "input.caj");
+  assert.equal(result.error?.name, "AbortError", JSON.stringify(result));
+  assert.equal(result.pauses, 1);
+  assert.deepEqual(result.waits, ["not-equal"], "a pre-wait cancellation cannot lose its wakeup");
+  assert.deepEqual(result.after, [], "the Worker closes its input before spool removal");
+  assert.equal(result.unlocked, true);
+});

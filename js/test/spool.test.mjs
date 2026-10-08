@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { convertReadableStream, spoolToOpfs } from "../browser.mjs";
+import { convertSpooledWith } from "../internal/run.mjs";
 import { convertReadable, convertSpooled, spoolToTempFile, webWritableSink } from "../node.mjs";
 import {
   collectingWriter,
@@ -172,20 +173,26 @@ test("conversion and stream failures remove the spool", async () => {
     );
   });
   await withTempRoot(async (tempDirectory) => {
-    // The conversion error wins over a failing cleanup.
+    // Both failures remain observable, with conversion as the primary cause.
+    const cleanupError = new Error("cleanup failed");
     const failingDispose = async (stream, options) => {
       const spooled = await spoolToTempFile(stream, { ...options, directory: tempDirectory });
       return {
         source: spooled.source,
         async dispose() {
           await spooled.dispose();
-          throw new Error("cleanup failed");
+          throw cleanupError;
         },
       };
     };
     await assert.rejects(
       convertSpooled(failingDispose, await wasmModule(), Readable.from([Uint8Array.of(0)]), discard),
-      { name: "UnsupportedFormatError" },
+      (error) => {
+        assert.ok(error instanceof AggregateError);
+        assert.equal(error.cause.name, "UnsupportedFormatError");
+        assert.deepEqual(error.errors, [error.cause, cleanupError]);
+        return true;
+      },
     );
   });
   await assert.rejects(spoolToTempFile({}, { maxBytes: 1n }), TypeError);
@@ -317,4 +324,44 @@ test("a synchronously failing OPFS writer abort still removes the spool", async 
   );
   assert.equal(files.size, 0);
   assert.deepEqual(events, ["abort", "remove"]);
+});
+
+test("conversion spool cleanup preserves both synchronous and asynchronous failures", async (t) => {
+  const module = await wasmModule();
+  const primary = new DOMException("cancel conversion", "AbortError");
+  const cleanup = new Error("remove failed");
+  for (const asynchronous of [false, true]) {
+    await t.test(asynchronous ? "rejected cleanup" : "throwing cleanup", async () => {
+      let disposed = 0;
+      const spool = async () => ({ source: {}, dispose() {
+        disposed++;
+        if (asynchronous) return Promise.reject(cleanup);
+        throw cleanup;
+      } });
+      await assert.rejects(convertSpooledWith(async () => { throw primary; }, spool, module, {}, discard), (error) => {
+        assert.ok(error instanceof AggregateError);
+        assert.equal(error.cause, primary);
+        assert.deepEqual(error.errors, [primary, cleanup]);
+        return true;
+      });
+      assert.equal(disposed, 1);
+    });
+  }
+});
+
+test("conversion rejection waits for disposal and retains its reason when cleanup succeeds", async () => {
+  const module = await wasmModule();
+  const primary = new Error("conversion failed");
+  let begin, finish;
+  const started = new Promise((resolve) => { begin = resolve; });
+  const cleanup = new Promise((resolve) => { finish = resolve; });
+  const spool = async () => ({ source: {}, dispose() { begin(); return cleanup; } });
+  let settled = false;
+  const operation = convertSpooledWith(async () => { throw primary; }, spool, module, {}, discard);
+  const assertion = assert.rejects(operation, (error) => { settled = true; return error === primary; });
+  await started;
+  await Promise.resolve();
+  assert.equal(settled, false);
+  finish();
+  await assertion;
 });

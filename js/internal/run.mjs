@@ -259,6 +259,9 @@ export async function runOperation(platform, operation, wasm, source, sink, opti
       // The Worker stops at its next checkpoint; a stalled write or a read
       // waiting on this thread is woken and fails.
       Atomics.store(shared, CANCEL, 1);
+      // A notification alone can precede the Worker's wait. Change its
+      // expected ACK value too, so cancellation cannot lose that wakeup.
+      Atomics.add(shared, ACKS, 1);
       Atomics.notify(shared, ACKS);
       answerRead(-1);
       stopTimer = setTimeout(release, STOP_TIMEOUT_MS);
@@ -396,8 +399,11 @@ export async function convertSpooledWith(convert, spool, wasm, stream, sink, opt
   try {
     result = await convert(wasm, spooled.source, sink, options);
   } catch (error) {
-    // A cleanup failure must not hide the conversion failure.
-    await Promise.resolve().then(() => spooled.dispose()).catch(() => {});
+    try {
+      await spooled.dispose();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Conversion failed and its temporary file could not be removed", { cause: error });
+    }
     throw error;
   }
   await spooled.dispose();
