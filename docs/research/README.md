@@ -32,3 +32,9 @@ caj2pdf-samples; a format fact that the code depends on is summarized in
 The [2026-10-07 GitHub corpus validation](https://github.com/rwv/caj2pdf-samples/blob/043e52cd37389b3f903426cd0b8c6d7564aedf43/research/notes/github-sweep-fixes-20261007.md)
 records all 1,277 post-fix native results, 50 remaining refusal classifications,
 scoped runtime/fidelity evidence and explicit collection/test limits (#385).
+
+The [973-original HN/C8/NH geometry report](https://github.com/rwv/caj2pdf-samples/blob/7dd99d385d334815c49afedcfe7929f5412bed8d/research/notes/source-image-geometry-20261008.md)
+records source-declared page boxes and ordered image transforms/resource
+identities for 16,548 accepted pages, with new NH bitmap evidence. Native
+glyph/vector placement, complete rendered-page fidelity and unknown outlines
+remain separate open obligations under #406.
