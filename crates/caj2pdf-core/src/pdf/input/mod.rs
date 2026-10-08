@@ -2779,6 +2779,9 @@ pub(crate) struct FragmentInspection {
     pub contents: Option<Vec<PdfRef>>,
     pub contents_is_direct_array: bool,
     pub scalar_reference_array: Option<Vec<PdfRef>>,
+    /// One redundant MediaBox pair, relative to the indirect object's start.
+    /// Reconstruction replaces only this metadata span with whitespace.
+    pub blank_media_box: Option<(usize, usize)>,
 }
 
 impl FragmentInspection {
@@ -2800,6 +2803,19 @@ fn reject_duplicate_names(
     object: Option<PdfRef>,
     limits: &Limits,
 ) -> Result<()> {
+    duplicate_name_repair(dictionary, range, at, object, limits, false).map(|_| ())
+}
+
+/// The fragment path can remove one identical direct page box. Every other
+/// repeated name retains the strict ambiguity error.
+fn duplicate_name_repair(
+    dictionary: &Dictionary,
+    range: PdfRange,
+    at: u64,
+    object: Option<PdfRef>,
+    limits: &Limits,
+    repair_page_box: bool,
+) -> Result<Option<std::ops::Range<usize>>> {
     let locate = |error: Error| {
         error
             .at(range.offset.saturating_add(at))
@@ -2816,10 +2832,27 @@ fn reject_duplicate_names(
             .name
             .cmp(&dictionary.entries[*right].name)
     });
-    if keys
-        .windows(2)
-        .any(|pair| dictionary.entries[pair[0]].name == dictionary.entries[pair[1]].name)
-    {
+    let page_tree = repair_page_box
+        && dictionary
+            .value(b"Type")
+            .and_then(exact_name)
+            .is_some_and(|kind| kind == b"Page" || kind == b"Pages");
+    let mut redundant = None;
+    for pair in keys.windows(2) {
+        let left = &dictionary.entries[pair[0]];
+        let right = &dictionary.entries[pair[1]];
+        if left.name != right.name {
+            continue;
+        }
+        if page_tree
+            && left.name == b"MediaBox"
+            && dictionary.entries_named(b"MediaBox").count() == 2
+            && media_box(left.value(&dictionary.bytes)).is_some()
+            && media_box(left.value(&dictionary.bytes)) == media_box(right.value(&dictionary.bytes))
+        {
+            redundant = Some(dictionary.entries[pair[0].max(pair[1])].pair.clone());
+            continue;
+        }
         return Err(located_problem(
             range,
             at,
@@ -2829,7 +2862,7 @@ fn reject_duplicate_names(
         )
         .ambiguous_repair());
     }
-    Ok(())
+    Ok(redundant)
 }
 
 /// Classify one parsed object head: its page-tree role, references and
@@ -2845,9 +2878,19 @@ fn inspect_head(
     let problem = |kind, reason| located_problem(range, at, object, kind, reason);
     let malformed = |reason| problem(ErrorKind::Malformed, reason);
     let unsupported = |reason| problem(ErrorKind::UnsupportedFormat, reason);
-    if let Some(dictionary) = &head.dictionary {
-        reject_duplicate_names(dictionary, range, at, object, limits)?;
-    }
+    let blank_media_box = if let Some(dictionary) = &head.dictionary {
+        let repair = matches!(head.tail, ObjectTail::EndObject { .. });
+        duplicate_name_repair(dictionary, range, at, object, limits, repair)?
+            .map(|pair| -> Result<_> {
+                let start = head
+                    .dictionary_start
+                    .ok_or(malformed("fragment dictionary offset is missing"))?;
+                Ok((start + pair.start, start + pair.end))
+            })
+            .transpose()?
+    } else {
+        None
+    };
     let destination = match &head.dictionary {
         Some(dictionary) if dictionary.value(b"Title").is_some() => {
             if dictionary.value(b"A").is_some() {
@@ -2954,6 +2997,7 @@ fn inspect_head(
         contents,
         contents_is_direct_array,
         scalar_reference_array,
+        blank_media_box,
     })
 }
 

@@ -3558,3 +3558,39 @@ fn object_stream_members_cannot_contain_streams_or_dangling_references() {
         assert!(open(compressed_fixture(&members, "", |_| {}, |_| {})).is_err());
     }
 }
+
+#[test]
+fn fragment_page_box_repair_keeps_conflicts_and_other_duplicates_strict() {
+    for body in [
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /MediaBox [0 0 11 20] >>",
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /MediaBox [0 0 10 20] /MediaBox [0 0 10 20] >>",
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 0 20] /MediaBox [0 0 0 20] >>",
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /MediaBox 6 0 R >>",
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /MediaBox [0 0 10 20] /Other 0 /Other 0 >>",
+        "<< /Type /Font /MediaBox [0 0 10 20] /MediaBox [0 0 10 20] >>",
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /MediaBox [0 0 10 20] /Length 0 >> stream\n\nendstream",
+    ] {
+        let bytes = format!("3 0 obj {body} endobj");
+        assert!(
+            inspect_generated_object(bytes.as_bytes(), &Limits::default()).is_err(),
+            "{body}"
+        );
+    }
+    let bytes = b"3 0 obj << /Type /Page /Parent 5 0 R /MediaBox [0 0 10 20] /Media#42ox [0 0 10.0 +20] >> endobj";
+    let inspection = inspect_generated_object(bytes, &Limits::default()).unwrap();
+    let (start, end) = inspection.blank_media_box.unwrap();
+    assert_eq!(&bytes[start..end], b"/Media#42ox [0 0 10.0 +20]");
+    assert!(matches!(
+        inspect_generated_object(
+            bytes,
+            &Limits {
+                max_allocation_bytes: 1,
+                ..Limits::default()
+            }
+        ),
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
+    ));
+}

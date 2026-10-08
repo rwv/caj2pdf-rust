@@ -2238,12 +2238,12 @@ fn fragment_page_contents_must_resolve_to_stream() {
 }
 
 #[test]
-fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
+fn fragment_conflicting_duplicate_dictionary_key_is_rejected() {
     let mut bytes = b"CAJ\0".to_vec();
     let page = add_fragment_object(
         &mut bytes,
         3,
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /MediaBox [0 0 200 100] /Resources << >> >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /MediaBox [0 0 201 100] /Resources << >> >>",
     );
     let pages = [fragment_ref(3)];
     let objects = [page];
@@ -2662,4 +2662,102 @@ fn pdf_copy_rejects_a_source_that_overreports_a_read() {
         "{error}"
     );
     assert!(sink.is_empty());
+}
+
+fn page_box_fragment(
+    duplicate: bool,
+    on_pages: bool,
+) -> (Vec<u8>, Vec<FragmentObject>, Vec<PdfRef>) {
+    let mut bytes = b"CAJ\0original geometry control\n".to_vec();
+    let repeated = "/MediaBox [0 0 120 80]";
+    let mut objects = vec![
+        add_fragment_object(
+            &mut bytes,
+            5,
+            format!(
+                "<< /Type /Pages /Kids [9 0 R 3 0 R] /Count 2 /MediaBox [0 0 120 80] {} >>",
+                if duplicate && on_pages { repeated } else { "" }
+            )
+            .as_bytes(),
+        ),
+        add_fragment_object(
+            &mut bytes,
+            9,
+            format!(
+                "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 120 80] {} /Contents 4 0 R >>",
+                if duplicate && !on_pages { repeated } else { "" }
+            )
+            .as_bytes(),
+        ),
+        add_fragment_object(
+            &mut bytes,
+            3,
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 80 120] /Contents 6 0 R >>",
+        ),
+    ];
+    for (number, content) in [
+        (4, "0 0 0 rg 5 10 25 30 re f\n"),
+        (6, "1 0 0 rg 20 15 40 35 re f\n"),
+    ] {
+        let body = format!(
+            "<< /Length {} >>\nstream\n{content}endstream",
+            content.len()
+        );
+        objects.push(add_fragment_object(&mut bytes, number, body.as_bytes()));
+    }
+    (bytes, objects, vec![fragment_ref(9), fragment_ref(3)])
+}
+
+#[test]
+fn fragment_identical_page_boxes_preserve_content_order_and_geometry() {
+    for on_pages in [false, true] {
+        let mut outputs = Vec::new();
+        for duplicate in [false, true] {
+            let (bytes, objects, pages) = page_box_fragment(duplicate, on_pages);
+            let mut source = OneBytePdfSource(bytes);
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: fragment_ref(5),
+            };
+            let mut output = TempPdf::new("fragment-page-box");
+            let limits = Limits {
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            };
+            reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut &mut output.file,
+                &plan,
+                &[],
+                &limits,
+                &CancelAfter::Never,
+            )
+            .unwrap();
+            output.file.flush().unwrap();
+            let pdf = read(&output.path).unwrap();
+            // One box each on the Pages root and the two Pages, with no extra
+            // key left for a downstream reader to resolve differently.
+            assert_eq!(
+                pdf.windows(9)
+                    .filter(|bytes| *bytes == b"/MediaBox")
+                    .count(),
+                3
+            );
+            let index = inspect_bytes(pdf).unwrap();
+            assert_eq!(index.pages(), pages);
+            check_pdf(&output.path, 2);
+            outputs.push(output);
+        }
+        for page in 1..=2 {
+            assert_eq!(
+                render_page(&outputs[0].path, page),
+                render_page(&outputs[1].path, page)
+            );
+        }
+        assert_ne!(
+            render_page(&outputs[1].path, 1),
+            render_page(&outputs[1].path, 2)
+        );
+    }
 }

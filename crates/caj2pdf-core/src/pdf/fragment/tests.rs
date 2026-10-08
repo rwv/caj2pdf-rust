@@ -1901,14 +1901,14 @@ fn page_reference_buffer_flushes_before_it_overflows_a_chunk() {
 }
 
 /// The smallest fragment that still reads a scalar, an indirect Contents
-/// array, and a stream, and copies an existing page tree.
+/// array, and a stream, copies a page tree and normalizes a duplicate page box.
 fn lean_content_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
     let mut bytes = b"CAJ\0".to_vec();
     let objects = vec![
         add_object(
             &mut bytes,
             9,
-            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] /Contents 4 0 R >>",
+            b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] /MediaBox [0 0 1 1] /Contents 4 0 R >>",
         ),
         add_object(&mut bytes, 5, b"<< /Type /Pages /Count 1 /Kids [9 0 R] >>"),
         add_object(&mut bytes, 4, b"[6 0 R]"),

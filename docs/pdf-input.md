@@ -110,6 +110,15 @@ framing checks. Stream-head reads request lookahead when a CR is the last byte
 of a buffer, so a split CRLF does not shift the declared payload extent. See
 #387, #393 and #394 for the external sample identities and validation scope.
 
+CAJ fragment reconstruction also normalizes exactly two identical direct
+`/MediaBox` values on a non-stream `/Page` or `/Pages` dictionary. The second
+key/value pair becomes equal-length whitespace while the object is copied;
+page identities, all other dictionary entries and stream payloads stay intact.
+The fragment index retains only the bounded pair offsets. Conflicting or
+invalid boxes, a third occurrence, other duplicate keys, indirect repeated
+boxes and stream dictionaries keep their ambiguity errors. This extends the
+measured complete-PDF geometry repair to the separate fragment path (#407).
+
 CAJ files that contain indirect object fragments but lack a complete PDF
 header/xref use `FragmentPlan`: the CAJ format handler supplies complete,
 nonoverlapping object byte spans and explicit page order. Reconstruction

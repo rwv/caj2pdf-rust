@@ -671,3 +671,39 @@ All new code is independently authored MIT; there is no private-source
 migration, foreign converter implementation, new dependency or committed
 external document/font/render data. The existing selected MIT `flate2` grant
 also covers the bounded object-stream inflation path.
+
+
+## Identical page boxes in CAJ fragments (#407)
+
+Four original CAJ inputs repeat the same direct MediaBox twice on a Page or
+Pages dictionary. This is recoverable metadata duplication: it does not imply
+missing page data. The pinned identities are:
+
+| SHA-256 | Pages | Measured duplicate |
+| --- | ---: | --- |
+| `366f4d2f665253fc4398aafe70a69e75f4c8c2efc25c3de439b17e43267ef045` | 62 | Pages object 1, `[0 0 612 792]` |
+| `6f30a4a0dc36d3c2dccdc876026098696f57678b394770e92c444e7e133c6e15` | 70 | Pages object 1, `[0 0 612 792]` |
+| `9be1188adba1a3f496347f0850d841add927efa1fc4abfc188ebb5ab05048b0c` | 54 | Page object 3, `[0 0 595.28 841.89]` |
+| `acca38898dc3346140723f69894d60d90a138bd7da9b3f62ab7671c92d334bd5` | 122 | Page object 3, `[0 0 595.28 841.89]` |
+
+Source locators and unchanged input hashes are linked from
+[#407](https://github.com/rwv/caj2pdf-rust/issues/407). The implementation
+reuses the bounded dictionary-key index and page geometry parser; it records
+only one relative metadata span and blanks the redundant pair during normal
+sequential copying. It does not accept undefined conflicting duplicates,
+change stream lengths, add whole-file buffering or reparse every source object.
+The span occupies fixed metadata space charged through the existing indexes.
+
+Original MIT tests cover Page and Pages, source/container offsets, one-byte
+reads, two distinct rendered pages, malformed/conflicting/third duplicates,
+other repeated keys, escaped names, allocation refusal and cancellation during
+normalization. Independent real-document checks frame the original PDF object
+body verbatim with a Catalog and any missing page-tree ancestors derived from
+the existing Parent links and explicit CAJ page table. MuPDF then supplies the
+source-body render oracle; qpdf independently reconstructs and validates its
+own normalized copy. No converter-produced page content enters this oracle.
+The [checkpoint](conformance.md#identical-fragment-page-box-checkpoint-407)
+records the comparison scope and an observed qpdf-rewrite render difference.
+All code and controls are independently authored MIT, with no private-source
+migration, new dependency, foreign converter implementation or committed
+external document/PDF/render/font bytes.
