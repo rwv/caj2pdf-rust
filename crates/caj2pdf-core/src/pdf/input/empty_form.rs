@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 
 //! A measured empty Form serialized inside an equivalent empty Form wrapper.
-//! Both headers declare zero content. Keep the complete inner object, only
-//! after proving the two dictionaries and both consecutive tails.
+//! Both headers declare zero content. CAJ fragments keep the identical inner
+//! object. Indexed PDFs retain the outer identity through an appended empty
+//! revision, requiring the different inner ID's live xref to point elsewhere.
 
 use super::fragment_scan::StreamFailure;
 use super::parser::{Dictionary, ObjectHead, Syntax, exact_name, exact_unsigned, is_space};
-use super::{ObjectTail, Reader};
-use crate::pdf::{FragmentObject, PdfRange};
-use crate::{Cancellation, RangedSource, Result};
+use super::{GapPatch, ObjectLocation, ObjectTail, PdfIndex, Reader, XrefKind, XrefSlot};
+use crate::fallible::{push_bounded, reserve_exact};
+use crate::pdf::{FragmentObject, PdfRange, PdfRef};
+use crate::{Cancellation, Error, RangedSource, Result};
 
 const MAX_HEAD: u64 = 256;
 const MAX_SPACE: usize = 64;
@@ -171,5 +173,159 @@ fn tail_end(bytes: &[u8], at: usize) -> Option<usize> {
     Some(s.pos)
 }
 
+impl<S: RangedSource, C: Cancellation> Reader<'_, S, C> {
+    pub(super) fn recover_indexed_empty_form(
+        &mut self,
+        at: u64,
+        reference: PdfRef,
+        slots: &[Option<XrefSlot>],
+        index: &mut PdfIndex,
+    ) -> Result<Option<(ObjectHead, ObjectLocation)>> {
+        let Some(outer) = head(self, at)? else {
+            return Ok(None);
+        };
+        let Some(a) = profile(&outer) else {
+            return Ok(None);
+        };
+        if outer.reference != reference {
+            return Ok(None);
+        }
+        let ObjectTail::Stream { data_start } = outer.tail else {
+            return Ok(None);
+        };
+        let inner_at = at + data_start as u64;
+        let Some(inner) = head(self, inner_at)? else {
+            return Ok(None);
+        };
+        let Some(b) = profile(&inner) else {
+            return Ok(None);
+        };
+        if !inner.bytes.first().is_some_and(u8::is_ascii_digit)
+            || inner.reference == reference
+            || !a
+                .bbox
+                .into_iter()
+                .chain(a.matrix)
+                .zip(b.bbox.into_iter().chain(b.matrix))
+                .all(|(a, b)| trim_decimal_zeros(a) == trim_decimal_zeros(b))
+        {
+            return Ok(None);
+        }
+        let ObjectTail::Stream {
+            data_start: inner_data,
+        } = inner.tail
+        else {
+            return Ok(None);
+        };
+        let data_at = inner_at + inner_data as u64;
+        let tails = self.bytes(
+            data_at,
+            (self.range.length - data_at).min(TAIL_WINDOW as u64) as usize,
+        )?;
+        let Some(inner_end) = tail_end(&tails, 0) else {
+            return Ok(None);
+        };
+        let Some(outer_end) = tail_end(&tails, inner_end) else {
+            return Ok(None);
+        };
+        let end = data_at + outer_end as u64;
+        // The inner label is not a replacement identity. Its actual live
+        // object must be elsewhere; the ordinary sorted span validation also
+        // rejects ANY other live xref inside this entire outer frame.
+        if !matches!(slots.get(inner.reference.number as usize).and_then(|slot| *slot),
+            Some(XrefSlot { generation: 0, kind: XrefKind::InUse(live) }) if live < at || live >= end)
+        {
+            return Ok(None);
+        }
+        let length = end - at;
+        let cap = (64 * 1024).min(self.limits.max_allocation_bytes / 8);
+        let retained = index.retained_empty_form_bytes.saturating_add(length);
+        if retained > cap {
+            return Err(self.locate_limit(
+                at,
+                Some(reference),
+                Error::limit("PDF empty Form proof bytes", cap, retained),
+            ));
+        }
+        let original = self.bytes(at, length as usize)?;
+        if original[..data_start] != outer.bytes[..data_start]
+            || original[data_start..data_start + inner_data] != inner.bytes[..inner_data]
+            || original[data_start + inner_data..] != tails[..outer_end]
+        {
+            return Err(self.malformed(
+                at,
+                Some(reference),
+                "nested empty Form changed while reading",
+            ));
+        }
+        // Keep the same dictionary serializer, repair budget and append-only
+        // writer as the existing indexed repairs. This is an empty stream,
+        // never a copied or decoded content payload.
+        self.push_repair_body(
+            outer.dictionary.as_ref().unwrap(),
+            reference,
+            at,
+            |_, _| true,
+            b"",
+            &mut index.repair_objects,
+            &mut index.retained_repair_bytes,
+        )?;
+        let suffix = b"\nstream\n\nendstream";
+        let retained_body = index
+            .retained_repair_bytes
+            .saturating_add(suffix.len() as u64);
+        let body_cap = self.limits.max_allocation_bytes / 2;
+        if retained_body > body_cap {
+            return Err(self.locate_limit(
+                at,
+                Some(reference),
+                Error::limit("PDF repair object bytes", body_cap, retained_body),
+            ));
+        }
+        // validate_objects visits each live ID once, so this repair is last.
+        let body = &mut index.repair_objects.last_mut().unwrap().body;
+        reserve_exact(
+            body,
+            suffix.len(),
+            self.allocation_limit(
+                at,
+                Some(reference),
+                "PDF empty Form repair allocation",
+                body.len() as u64 + suffix.len() as u64,
+            ),
+        )?;
+        body.extend_from_slice(suffix);
+        index.retained_repair_bytes = retained_body;
+        push_bounded(
+            &mut index.empty_form_checks,
+            GapPatch {
+                offset: at,
+                original,
+            },
+            cap,
+            "PDF empty Form proof index",
+        )
+        .map_err(self.locator(at, Some(reference)))?;
+        index.retained_empty_form_bytes = retained;
+        Ok(Some((outer, ObjectLocation { offset: at, length })))
+    }
+}
+
+/// Normalize only redundant fractional zeros. Keep signs and integer digits
+/// exact; do not broaden CAJ's lexical comparison or round long decimals.
+fn trim_decimal_zeros(mut token: &[u8]) -> &[u8] {
+    if token.contains(&b'.') {
+        while token.last() == Some(&b'0') {
+            token = &token[..token.len() - 1];
+        }
+        if token.last() == Some(&b'.') {
+            token = &token[..token.len() - 1];
+        }
+    }
+    token
+}
+
+#[cfg(test)]
+mod indexed_tests;
 #[cfg(test)]
 mod tests;

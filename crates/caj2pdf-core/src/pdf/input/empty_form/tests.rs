@@ -353,7 +353,7 @@ fn a_conflicting_complete_copy_still_fails_before_emission() {
 }
 
 #[test]
-fn indexed_pdf_stream_framing_is_unchanged() {
+fn same_id_nested_forms_remain_invalid_in_indexed_pdfs() {
     fn pdf(form: &[u8]) -> Vec<u8> {
         let objects: [(usize,Vec<u8>);4]=[
             (1,b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n".to_vec()),

@@ -842,6 +842,8 @@ fn copy_patches<'a>(separators: &'a [u64], gaps: &'a [GapPatch]) -> CopyPatches<
         gaps,
         next_separator: 0,
         next_gap: 0,
+        empty_forms: &[],
+        next_empty_form: 0,
     }
 }
 

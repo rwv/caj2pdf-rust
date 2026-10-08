@@ -75,3 +75,18 @@ marker-derived counterpart. Complete objects, stream bytes and bookmarks are
 preserved. Native, CLI, Node and browser share the core rule without API or
 dependency changes. See [bounds](../pdf-input.md#indirect-lengths-and-distant-same-row-replays)
 and [provenance](../provenance.md#indirect-length-ordering-and-same-row-replays-444).
+
+Recover the measured 66-page KDH with a differently numbered empty Form nested
+inside indexed object 485 (#446). Append an empty revision under the outer ID
+only after bounded dictionary, exact geometry, tail, separate live-xref and
+source-stability proofs. Keep every reference and the real inner ID's object;
+#439's CAJ profile is unchanged. Native, CLI, Node and browser share the core
+rule, without API or dependency changes. See [bounds](../pdf-input.md#indexed-nested-empty-forms)
+and [provenance](../provenance.md#indexed-nested-empty-form-446).
+
+The unchanged original produces identical native/Node/Chromium PDFs with
+qpdf exit 0. All 66 pages and the other 304 raw streams match independently
+decoded source evidence; there are no outlines. Scoped source-viewer page 47
+matches, with a Form-content negative control. Original malformed-stream
+warnings and decoder framing disagreements remain documented; no general
+nested-object recovery or whole-document vendor-render claim is made.

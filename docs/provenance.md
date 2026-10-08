@@ -1307,3 +1307,57 @@ and full-corpus receipts are tracked in [#444](https://github.com/rwv/caj2pdf-ru
 This is not a whole-document vendor-render claim; #441's cold-session
 repeatability limitation remains open. Document, PDF, text, font and pixel
 bytes remain external. Other #406 failures require their own evidence.
+
+## Indexed nested empty Form (#446)
+
+The unchanged [ldp-1/caj2pdf-actions original](https://github.com/ldp-1/caj2pdf-actions/blob/81b21b895fd6082852a4868e4237b6e6cdd48484/file.caj),
+SHA-256 `ece0be828c95350ed2d48c83fb8a5255f13c935d91da5c7c99448ffec99287a9`,
+is a 4,719,676-byte KDH containing 66 pages and no outlines. Independently
+applying the project's original MIT wrapper observations yields a 4,719,411-byte
+PDF, SHA-256 `df77c36c2bc750d60c48b73579231f60a0a94fb65d1a974868549ee0c7db7372`.
+Its xrefs select 960 objects and 305 streams. Object 485, at decoded offset
+786401, declares a zero-length Form whose data begins at 786530 with another
+zero-length Form labeled 754. Both complete tails follow; the full nested
+frame is 276 bytes. Their five dictionary keys and geometry agree, differing
+only in trailing decimal zeros. The real live 754 is a shading function at
+1078402, not the embedded serialization. Page 47 calls resource `/Meta754`,
+which refers to 485. Page 12's annotation destination reaches page 47 for
+navigation; it is not an additional rendering use.
+
+An independent diagnostic appends an empty 485 while retaining all original
+bytes and IDs. Its first trailer mistakenly used Size 962 rather than source
+Size 961; that qpdf warning is retained as superseded harness evidence. The
+corrected diagnostic preserves Size 961. Original duplicate MediaBox and
+CR-separator warnings are also retained. Qpdf infers 112 payload bytes for
+the malformed 485, while MuPDF infers 110; neither is presented as a clean
+original framing. The repair follows the measured empty-Form declarations,
+not a general interpretation of arbitrary nested PDF objects.
+
+The original MIT implementation reuses bounded header/profile/tail helpers,
+the existing dictionary repair serializer, live-span validation and incremental
+writer. It keeps the outer identity, verifies the distinct live inner xref,
+and compares exact decimals without floating-point rounding. The complete
+bounded source proof is checked again during copying. Source checks and gap
+patches share chunk-boundary comparison code; only gaps are blanked. The
+[admission bounds](pdf-input.md#indexed-nested-empty-forms) leave #439's CAJ
+profile unchanged. Original authored fixtures cover both live-xref orderings,
+exact header and aggregate proof bounds, contradictory dictionaries/geometry,
+malformed tails, generation/xref conflicts, short I/O, cancellation, allocation
+limits, and mutation of every byte at proof capture and during copying.
+No foreign converter/vendor implementation, private source, external fixture
+bytes or new dependencies were used.
+
+Conversion of the unchanged KDH produces the same 4,720,370-byte PDF in native,
+Node and Chromium, SHA-256
+`6c32efe1fc0abf3b9f7f4737428b73dc3e0a82f2973ae6ac147564cf6300b2aa`.
+Qpdf exits 0. All 960 canonical object values and the other 304 raw stream
+payloads agree with the independently decoded original. All 66 page IDs,
+geometry, text, links and Poppler RGB72 renders agree; both outline inventories
+are empty. Original renderer warnings remain recorded. Three fresh isolated
+source-viewer sessions compare unchanged KDH, production PDF and a control
+that paints only Form 485. The complete page-47 crop at 50% matches exactly;
+the control changes 76 pixels. Each session's 3/10/12-second captures agree,
+with intact sources and verified container cleanup. Other vendor-viewer pages
+were not run and #441's cold-session limitation remains open. Metadata-only
+receipts and full-corpus results are tracked in [#446](https://github.com/rwv/caj2pdf-rust/issues/446).
+Documents, PDFs, text, fonts and pixels remain outside Git.

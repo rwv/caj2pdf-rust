@@ -293,6 +293,8 @@ struct CopyPatches<'a> {
     gaps: &'a [GapPatch],
     next_separator: usize,
     next_gap: usize,
+    empty_forms: &'a [GapPatch],
+    next_empty_form: usize,
 }
 
 impl<'a> CopyPatches<'a> {
@@ -302,11 +304,22 @@ impl<'a> CopyPatches<'a> {
             gaps: index.gap_patches(),
             next_separator: 0,
             next_gap: 0,
+            empty_forms: index.empty_form_checks(),
+            next_empty_form: 0,
         }
     }
 
     /// Patch one copied chunk that starts `done` bytes into the prefix.
     fn apply(&mut self, buffer: &mut [u8], done: u64) -> Result<()> {
+        // Check the original nested frame before separator normalization.
+        apply_ranges(
+            buffer,
+            done,
+            self.empty_forms,
+            &mut self.next_empty_form,
+            false,
+            "PDF empty Form changed after inspection",
+        )?;
         let end = done + buffer.len() as u64;
         while let Some(&patch_at) = self.separators.get(self.next_separator) {
             if patch_at >= end {
@@ -324,35 +337,21 @@ impl<'a> CopyPatches<'a> {
             buffer[within] = b'\n';
             self.next_separator += 1;
         }
-        while let Some(gap) = self.gaps.get(self.next_gap) {
-            let gap_end = gap
-                .offset
-                .checked_add(gap.original.len() as u64)
-                .ok_or(Error::invalid("PDF orphan gap patch overflows"))?;
-            if gap.offset >= end {
-                break;
-            }
-            let overlap_start = gap.offset.max(done);
-            let overlap_end = gap_end.min(end);
-            if overlap_start < overlap_end {
-                let source_start = (overlap_start - done) as usize;
-                let source_end = (overlap_end - done) as usize;
-                let original_start = (overlap_start - gap.offset) as usize;
-                let original_end = (overlap_end - gap.offset) as usize;
-                if buffer[source_start..source_end] != gap.original[original_start..original_end] {
-                    return Err(Error::invalid("PDF orphan gap changed after inspection"));
-                }
-                buffer[source_start..source_end].fill(b' ');
-            }
-            if gap_end > end {
-                break;
-            }
-            self.next_gap += 1;
-        }
+        apply_ranges(
+            buffer,
+            done,
+            self.gaps,
+            &mut self.next_gap,
+            true,
+            "PDF orphan gap changed after inspection",
+        )?;
         Ok(())
     }
 
     fn check_consumed(&self) -> Result<()> {
+        if self.next_empty_form != self.empty_forms.len() {
+            return Err(Error::invalid("PDF empty Form proof exceeds copied prefix"));
+        }
         if self.next_separator != self.separators.len() {
             return Err(Error::invalid(
                 "PDF stream separator patch exceeds copied prefix",
@@ -363,6 +362,47 @@ impl<'a> CopyPatches<'a> {
         }
         Ok(())
     }
+}
+
+// Both inactive-gap patches and read-only repair proofs compare the original
+// bytes across arbitrary copy chunk boundaries. Only gaps are blanked.
+fn apply_ranges(
+    buffer: &mut [u8],
+    done: u64,
+    ranges: &[GapPatch],
+    next: &mut usize,
+    blank: bool,
+    reason: &'static str,
+) -> Result<()> {
+    let end = done + buffer.len() as u64;
+    while let Some(gap) = ranges.get(*next) {
+        let gap_end = gap
+            .offset
+            .checked_add(gap.original.len() as u64)
+            .ok_or(Error::invalid("PDF orphan gap patch overflows"))?;
+        if gap.offset >= end {
+            break;
+        }
+        let overlap_start = gap.offset.max(done);
+        let overlap_end = gap_end.min(end);
+        if overlap_start < overlap_end {
+            let source_start = (overlap_start - done) as usize;
+            let source_end = (overlap_end - done) as usize;
+            let original_start = (overlap_start - gap.offset) as usize;
+            let original_end = (overlap_end - gap.offset) as usize;
+            if buffer[source_start..source_end] != gap.original[original_start..original_end] {
+                return Err(Error::invalid(reason));
+            }
+            if blank {
+                buffer[source_start..source_end].fill(b' ');
+            }
+        }
+        if gap_end > end {
+            break;
+        }
+        *next += 1;
+    }
+    Ok(())
 }
 
 struct AppendWriter<'a, W: Write, C: Cancellation> {
