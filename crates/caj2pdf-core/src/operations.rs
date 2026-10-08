@@ -104,7 +104,10 @@ fn searched_format(prefix: &[u8]) -> Option<(InputFormat, usize)> {
     if caa::recognizes(prefix) {
         Some((InputFormat::Caa, 0))
     } else {
-        pdf_header_offset(prefix).map(|offset| (InputFormat::Pdf, offset))
+        prefix
+            .windows(PDF_SIGNATURE.len())
+            .position(|window| window == PDF_SIGNATURE)
+            .map(|offset| (InputFormat::Pdf, offset))
     }
 }
 
@@ -121,12 +124,6 @@ fn leading_format(prefix: &[u8]) -> Option<InputFormat> {
         .iter()
         .find(|(signature, _)| prefix.starts_with(signature))
         .map(|&(_, format)| format)
-}
-
-fn pdf_header_offset(prefix: &[u8]) -> Option<usize> {
-    prefix[..prefix.len().min(PDF_HEADER_SEARCH_BYTES)]
-        .windows(PDF_SIGNATURE.len())
-        .position(|window| window == PDF_SIGNATURE)
 }
 
 /// Read the leading bytes of `source` and recognize its input family as

@@ -11,6 +11,8 @@
  * READ_COUNT answer reads that the caller serves from its own thread.
  */
 
+import { FORMATS } from "../io.mjs";
+
 const CANCEL = 0;
 const ACKS = 1;
 const READ_STATE = 2;
@@ -204,7 +206,7 @@ function inspection(exports, format, memory) {
   const notes = exports.caj2pdf_info_note_count();
   return {
     format,
-    pageCount: format === "caa" ? null : exports.caj2pdf_info_page_count(),
+    pageCount: FORMATS[format] === "caa" ? null : exports.caj2pdf_info_page_count(),
     bookmarkCount: bookmarks < 0n ? null : Number(bookmarks),
     outlineWarnings: exports.caj2pdf_outline_warnings(),
     applicationInfo: notes < 0n

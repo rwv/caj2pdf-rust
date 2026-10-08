@@ -113,7 +113,7 @@ export interface DocumentInfo {
   format: DetectedFormat;
   /** `null` for a CAA target descriptor, which contains no document page count. */
   pageCount: number | null;
-  /** Validated for CAJ/HN-A; `null` when unknown or not counted (C8, HN-B, PDF, KDH). */
+  /** Validated for CAJ/HN-A; `null` when unknown or not counted (C8, HN-B, PDF, KDH, CAA). */
   bookmarkCount: number | null;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
   outlineWarnings: number;

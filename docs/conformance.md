@@ -31,8 +31,8 @@ The same conversion core serves all three interfaces.
 | CAA target descriptors | Inspection only | Complete observed fields required within a 1,024-byte probe; no pages, target resolution or conversion. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
-This table describes current main, which v0.4.0 released. Earlier published
-artifacts do not gain these capabilities.
+This table describes current main, including unreleased changes. Earlier
+published artifacts do not gain these capabilities.
 The font-free corpus checkpoint below is separate from successful explicit-font
 HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
 proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,

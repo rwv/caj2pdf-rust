@@ -45,7 +45,7 @@ export class UnsupportedFormatError extends Caj2PdfError {
           ? "TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted"
           : format === "caa"
             ? "CAA input is a target descriptor, not a document; obtain the referenced document and convert that file"
-          : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
+            : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
       "UNSUPPORTED_FORMAT",
     );
     this.name = "UnsupportedFormatError";
