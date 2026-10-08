@@ -1056,3 +1056,58 @@ as additional frozen-corpus passes. Local checks pass 1,306 workspace and
 166 JavaScript tests, with seven optional-corpus tests ignored; eight required
 CI checks pass at the tested production commit. Review is self-review, not
 independent approval, and the wider #406 correctness goal remains open.
+
+## Damaged source streams in an accepted CAJ (#436)
+
+The [pinned report and metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/bf2e3d77b7aaf8a7d6cf722149938119ed0f1a30/research/notes/damaged-source-streams-20261008.md)
+investigate the remaining qpdf-warning output in the full regression above.
+The unchanged 63-page CAJSamples `issue-20/文件名未知.caj`, source SHA-256
+`5a4432ed4878944c4aaa17f591b2a93d00014ea0bdacc9162bed1d88f8d61127`,
+contains six damaged streams before conversion. Independent MIT framing
+copies `[37868,983323)` verbatim, selects all 260 original objects and adds
+only two missing Pages ancestors, their root and Catalog using source Parent
+relationships and page-table order. The table's last nominal end, 983295,
+cuts into the final stream and is not used as the complete body boundary.
+
+Of 84 Flate streams, 78 pass strict zlib decoding. Streams 4, 9, 13, 269 and
+142 reach raw DEFLATE EOF with incorrect Adler-32 checksums; stream 53 fails
+with invalid code lengths before EOF, so its complete codec extent is not
+established. Three JPEG streams have complete extents and decode without
+warnings. Parsed resource paths register the damaged images on pages 2–4,
+font 53 on pages 5–63, font 269 on page 5, and content 142 on page 39.
+Resource registration is not proof of execution on every listed page.
+
+Source content 142 starts at 880636. Its complete zlib frame is 4,586 bytes;
+stored checksum `deae043d` differs from computed `4dd63b40`. The output's
+4,587-byte stream equals that unchanged source frame plus LF. Independent
+framing and output both retain the same 24 unexpected-parenthesis warnings
+and qpdf exit 3. No data is normalized to hide this defect.
+The accepted outcome follows the intentional codec-free framing change in
+PR #369; it is not a regression from #435. Historical v0.4.0 codec rejection
+does not describe the current opaque-payload framing policy.
+
+All 260 original object values agree except repaired stream Length fields;
+all 87 output payloads equal their independently located source bytes. All
+63 page IDs/geometry/text/links and Poppler RGB72 images agree, with source
+errors retained: Poppler exits zero while emitting 11,546 raw-framing and
+6,908 output syntax-error lines. Matching damaged renderings and extracted
+texts do not prove intact intended content. Fresh native, Node and Chromium
+outputs have identical SHA-256
+`58fc31644f1363fa695112bf2deb71e4069e990f53199e610938b31dc8052e6d`;
+Chromium leaves no OPFS artifacts. The 93-bookmark source proof is inherited
+from the identical pinned output, not re-executed.
+
+Seven fresh offline CAJViewer sessions preserve input hashes, avoid OOM and
+remove their containers. Raw/output page 39 crops match; a deliberately
+emptied-content control differs by 20,839 pixels. Three original-CAJ attempts
+cannot reach requested page 39 and are explicitly not source-viewer passes.
+A separate unchanged CAJ navigation control reaches page 39. An upstream
+2018 report likewise describes this attachment as damaged and mentions a
+usable new download; no intact alternative was obtained or verified here.
+
+This is evidence-only original MIT research: no foreign converter or vendor
+implementation, private HN/JBIG code, document/font/pixel bytes, new dependency
+or production behavior is introduced. Full corpus tests are not rerun for
+this documentation change, and no new compatibility pass is counted. Review
+is self-review. #436 stays open for a proven recovery policy and an intact
+semantic oracle; these defects do not prove the whole source irrecoverable.

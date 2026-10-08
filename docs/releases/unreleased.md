@@ -26,3 +26,11 @@ framed page renders agree. Source-viewer checks cover pages 1–3. The fresh
 output hashes (1,240 PASS, 28 FAIL, nine UNSUPPORTED). Ancillary warnings and
 unexecuted checks are retained in the
 [pinned report](https://github.com/rwv/caj2pdf-samples/blob/26720c5d76fbb05b39400a65b35b3974b31c1931/research/notes/redundant-caj-framing-20261008.md).
+
+Known source-data limitation (#436): the accepted 63-page issue-20 sample
+already contains five bad Flate checksums and one invalid DEFLATE stream,
+affecting image, font and page-content resources. Native/Node/Chromium outputs
+preserve these bytes; matching independent source-framed renders does not
+prove intact content. Original CAJViewer page 39 remains unverified. See the
+[source-stream investigation](../provenance.md#damaged-source-streams-in-an-accepted-caj-436).
+This adds evidence, not a new fix or compatibility pass; #436 remains open.
