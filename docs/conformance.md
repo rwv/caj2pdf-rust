@@ -982,3 +982,21 @@ Qpdf and MuPDF disagree on the original malformed stream's inferred extent
 (112 versus 110 bytes), and original parser warnings remain in the receipt.
 These are scoped measured-profile checks, not proof that arbitrary nested
 objects can be discarded or other refused sources are irrecoverable.
+
+## Missing-data exception: truncated CAJ (#448)
+
+The 134-page original identified in [provenance](provenance.md#truncated-original-with-missing-required-bytes-448)
+is byte-identical to its public Git blob but ends within a declared Flate image
+on page 37. That stream lacks 139738 bytes and all 97 later page rows start
+beyond EOF. Complete conversion requires additional source bytes. The source
+remains a failure in the 1,277-original baseline, not a recovered compatibility
+pass. Native/Node/Chromium consistently refuse before publishing output; the
+JS sinks receive zero bytes and browser temporary-file cleanup passes.
+
+Scoped original-viewer checks show a title page and a blank damaged page 37;
+blank damage behavior is not authored content. No automatic partial/blank
+conversion or arbitrary replacement is added. A separately retrieved archived
+139-page PDF has a different source identity and exposes the named-destination
+gap #449. Its availability neither repairs this original nor establishes
+edition equivalence. The documented search does not rule out intact
+alternatives elsewhere; other refused sources need their own evidence.
