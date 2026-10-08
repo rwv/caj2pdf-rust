@@ -9,6 +9,7 @@ use crate::pdf::input::{
     LinkRepairTarget, PatchedSource, collect_fragment_candidates, inspect_generated_object,
     inspect_link_destination_candidate, inspect_link_missing_target_candidate,
     scan_damaged_fragment, scan_fragment_with_candidates, substitute_damaged_pages,
+    validate_source_path_repair,
 };
 use crate::pdf::{
     FragmentObject, InspectedObject, InspectedPlan, PdfRange, PdfRef, append_replacement,
@@ -441,6 +442,55 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
         cancellation,
         options.allow_damaged,
     )?;
+    let mut source_paths = std::mem::take(&mut scan.source_paths);
+    let mut sorted_page_ids = Vec::new();
+    if !source_paths.is_empty() {
+        // The larger page-row index has already passed the allocation limit.
+        let refused = limits.allocation_refused(
+            "CAJ source path page index",
+            (metadata.page_rows.len() * size_of::<u32>()) as u64,
+        );
+        reserve_exact(&mut sorted_page_ids, metadata.page_rows.len(), refused)?;
+        sorted_page_ids.extend(metadata.page_rows.iter().map(|page| page.page_object_id));
+        sorted_page_ids.sort_unstable();
+    }
+    for repair in &source_paths {
+        if validate_source_path_repair(
+            &mut counted,
+            repair,
+            &scan.objects,
+            &sorted_page_ids,
+            limits,
+            cancellation,
+        )? {
+            continue;
+        }
+        if !options.allow_damaged {
+            return Err(Error::pdf(
+                ErrorKind::Malformed,
+                repair.object.range.offset,
+                Some((
+                    repair.object.reference.number,
+                    repair.object.reference.generation,
+                )),
+                "malformed source path is not exclusively retained Page QITE metadata",
+            ));
+        }
+        let refused = limits.allocation_refused(
+            "CAJ damaged metadata index",
+            ((scan.damaged.len() + 1) * size_of::<(Option<PdfRef>, u64)>()) as u64,
+        );
+        reserve(&mut scan.damaged, 1, refused)?;
+        scan.damaged
+            .push((Some(repair.object.reference), repair.object.range.offset));
+        scan.objects
+            .retain(|object| object.object.reference != repair.object.reference);
+    }
+    source_paths.retain(|repair| {
+        scan.objects
+            .iter()
+            .any(|object| object.object == repair.object)
+    });
     let (damaged_suffix, omitted_pages) = if options.allow_damaged && !scan.damaged.is_empty() {
         substitute_damaged_pages(&mut counted, &metadata, &mut scan, limits, cancellation)?
     } else {
@@ -783,6 +833,16 @@ pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
             replace_object(&mut objects, &mut suffix, base, replacement, limits)?;
             candidate.replacement = Vec::new();
         }
+    }
+
+    for repair in source_paths {
+        replace_object(
+            &mut objects,
+            &mut suffix,
+            base,
+            (repair.object.reference, &repair.replacement),
+            limits,
+        )?;
     }
 
     let bookmarks = if options.include_bookmarks {

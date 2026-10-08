@@ -841,3 +841,40 @@ converter implementation, private migration, new product dependency or external
 document/PDF/font/pixel bytes are included. The
 [conformance checkpoint](conformance.md#absent-optional-link-appearance-checkpoint-417)
 records whole-original comparisons and their renderer scope.
+
+## Unescaped QITE source paths (#419)
+
+The unchanged [139-page CAJ original](https://github.com/pbbbb12/caj2pdf-actions/blob/07567b3c2a864fa89161ef3753d823cd71f0aed1/file.caj)
+(SHA-256 `b206e40da6df3fbe07ea6c7b40e900de5fe35b16f7e25029c3cfde38eb603d03`)
+contains two malformed source-path strings: object 25588 at byte 451,327 and
+object 25357 at 1,675,263. Each has an unescaped ASCII opening parenthesis
+inside its single-line path, followed by the GBK bytes A3 A9 for a full-width
+closing parenthesis. This leaves the PDF literal unclosed. The later reported
+string-nesting error falls inside a correctly bounded JPEG; it does not prove
+an image-length problem. The 138 incoming references are sole target occurrences
+in retained Pages' direct QITE_pageid/F metadata (one and 137 respectively).
+No source path is interpreted as a local file or accessed by the converter.
+
+[Adobe's string documentation](https://opensource.adobe.com/dc-acrobat-sdk-docs/library/plugin/Plugins_Cos.html#literal-strings)
+describes literal escaping and hexadecimal string syntax. Original MIT code
+preserves each measured raw path byte by writing a hexadecimal string, only
+after proving its exclusive metadata use. A 32-byte prefix probe precedes a
+640-byte object bound; complete graph validation is capped at 64 path repairs
+and retained bytes remain subject to Limits. Generation-zero, drive-prefixed
+single-line .pdf paths with this exact unmatched-parenthesis profile qualify.
+Backslashes, ASCII closing parentheses, other malformed strings and rendering
+references do not. Correctly escaped strings and ordinary indexed PDF parsing
+retain their existing behavior. Invalid candidates remain explicit damage
+in partial mode, with dependent pages blanked; source changes and cancellation remain failures.
+
+The independent original MIT oracle copies body `[218836, 13028326)` unchanged,
+builds an explicit classic xref from 538 unique measured object headers and
+adds only missing Pages root 2 (source children 25525/25524) and Catalog 25608.
+The explicit xref avoids repair scans absorbing later objects into malformed
+strings. All 139 source page-table identities and 258 raw streams are readable;
+source warnings for the two path strings remain recorded. Converted page text,
+boxes/rotation, all RGB renders at 72 dpi and link destinations match that
+source framing in PyMuPDF 1.27.2.2. This establishes scoped page preservation,
+not validity of the malformed original strings in every renderer. No foreign
+converter implementation or private-source migration was used; no new dependency
+or external document, PDF, pixel or font bytes are committed.

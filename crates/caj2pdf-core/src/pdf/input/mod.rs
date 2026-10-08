@@ -11,6 +11,8 @@ mod link_repair;
 mod object_stream;
 mod parser;
 mod resource_repair;
+mod source_path;
+pub(crate) use source_path::validate as validate_source_path_repair;
 
 pub(crate) use link_repair::{
     LinkRepairCandidate, LinkRepairKind, LinkRepairTarget, inspect_link_destination_candidate,

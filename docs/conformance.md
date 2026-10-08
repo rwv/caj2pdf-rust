@@ -889,3 +889,22 @@ source rendering baseline. These scoped source-body comparisons do not claim
 CAJViewer or every-renderer/font/resolution fidelity. Source integrity and
 failed-output controls remain required; this checkpoint does not resolve the
 other #406 recovery or correctness criteria.
+
+### Unescaped QITE source-path checkpoint (#419)
+
+The unchanged 139-page CAJ original recorded in
+[provenance](provenance.md#unescaped-qite-source-paths-419) converts after two
+malformed source-path literals are preserved as hexadecimal strings. Every
+incoming reference is confined to retained Page QITE metadata. All 139 source
+page IDs, 258 raw streams, text, page boxes/rotation, link destinations and
+RGB renders at 72 dpi match an independent byte-preserved source-body PDF in
+PyMuPDF 1.27.2.2. That oracle adds explicit xref framing and the missing root
+from source Page parent links; warnings for the original malformed path
+objects remain explicit. The output passes qpdf. These are scoped source-PDF
+comparisons, not CAJViewer or all-renderer/resolution claims.
+
+Original controls check exact raw byte preservation, correct strings left
+unchanged, rendering/shared/indirect/wrong-key references, partial damage,
+short reads, source mutation, cancellation and allocation/count bounds.
+Whole-corpus/runtime evidence is recorded against the final PR candidate;
+this checkpoint does not classify other refused originals as irrecoverable.

@@ -973,6 +973,114 @@ fn missing_appearance_does_not_waive_required_or_unmeasured_references() {
     }
 }
 
+fn source_path_body(page_metadata: &str, path: &[u8]) -> Vec<u8> {
+    let body = String::from_utf8(one_page_body(None, None)).unwrap();
+    let mut body = body
+        .replace(
+            "/Type /Page /Parent",
+            &format!("/Type /Page {page_metadata} /Parent"),
+        )
+        .into_bytes();
+    body.extend_from_slice(b"13 0 obj\n");
+    body.extend_from_slice(path);
+    body.extend_from_slice(b"\nendobj\n");
+    body
+}
+
+#[test]
+fn raw_source_path_metadata_is_escaped_without_changing_page_pixels() {
+    let raw = b"(/C/report(draft\xa3\xa9.pdf)";
+    let body = source_path_body("/QITE_pageid << /F 13 0 R /P 1 >>", raw);
+    let input = fragment_caj(&body, &[9]);
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let (output, report) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert!(report.omitted_pages.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output).contains("<2F432F7265706F7274286472616674A3A92E706466>")
+    );
+    let repaired = TempPdf::write("raw-path-repaired", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&repaired.0), "qpdf");
+    let baseline = fragment_caj(&one_page_body(None, None), &[9]);
+    let (expected, _) = convert(&baseline, ConversionOptions::default(), &limits).unwrap();
+    let expected = TempPdf::write("raw-path-baseline", &expected);
+    assert_eq!(rendered_page(&repaired.0), rendered_page(&expected.0));
+    assert_eq!(inspect(&output).pages()[0].number, 9);
+
+    // A correctly escaped PDF string keeps its original spelling.
+    let valid = b"(/C/report\\(draft\xa3\xa9.pdf)";
+    let input = fragment_caj(
+        &source_path_body("/QITE_pageid << /F 13 0 R >>", valid),
+        &[9],
+    );
+    let (output, _) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    assert!(output.windows(valid.len()).any(|part| part == valid));
+}
+
+#[test]
+fn raw_source_paths_require_exclusive_retained_page_metadata_uses() {
+    let raw = b"(/C/report(draft\xa3\xa9.pdf)";
+    for metadata in [
+        "",
+        "/QITE_pageid << /Other 13 0 R >>",
+        "/QITE_pageid 13 0 R",
+        "/QITE_pageid << /F 13 0 R >> /Other 13 0 R",
+        "/QITE_pageid << /F 13 0 R /Other 13 0 R >>",
+        "/QITE_pageid << /F 13 0 R /F 13 0 R >>",
+        "/Other << /QITE_pageid << /F 13 0 R >> >>",
+    ] {
+        let input = fragment_caj(&source_path_body(metadata, raw), &[9]);
+        let error = rejected_without_output(&input, &Limits::default());
+        assert!(
+            matches!(error.kind, ErrorKind::Malformed),
+            "{metadata}: {error}"
+        );
+    }
+    // A rendering dependency cannot become a provenance-only string. Partial
+    // mode still replaces its dependent page explicitly, instead of hiding it.
+    let body = source_path_body("/QITE_pageid << /F 13 0 R >>", raw);
+    let body = body
+        .windows(b"/Contents 11 0 R".len())
+        .position(|p| p == b"/Contents 11 0 R")
+        .map(|at| {
+            let mut changed = body.clone();
+            changed[at + 11] = b'3';
+            changed
+        })
+        .unwrap();
+    let input = fragment_caj(&body, &[9]);
+    rejected_without_output(&input, &Limits::default());
+    let options = ConversionOptions {
+        allow_damaged: true,
+        ..ConversionOptions::default()
+    };
+    let (output, report) = convert(&input, options, &Limits::default()).unwrap();
+    assert_eq!(report.omitted_pages.len(), 1);
+    assert_eq!(inspect(&output).pages().len(), 1);
+}
+
+#[test]
+fn raw_source_path_repair_count_is_bounded() {
+    let mut body = one_page_body(None, None);
+    for number in 13..78 {
+        body.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
+        body.extend_from_slice(b"(/C/report(draft\xa3\xa9.pdf)\nendobj\n");
+    }
+    let input = fragment_caj(&body, &[9]);
+    let error = rejected_without_output(&input, &Limits::default());
+    assert!(matches!(
+        error.kind,
+        ErrorKind::LimitExceeded {
+            resource: "CAJ source path repairs",
+            limit: 64,
+            attempted: 65
+        }
+    ));
+}
+
 #[test]
 fn repairs_nearby_stream_length_without_changing_page_render() {
     const CONTENT_LEN: usize = "0 0 0 rg 10 10 30 30 re f".len();
