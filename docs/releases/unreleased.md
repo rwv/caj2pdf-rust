@@ -97,3 +97,21 @@ decoded source evidence; there are no outlines. Scoped source-viewer page 47
 matches, with a Form-content negative control. Original malformed-stream
 warnings and decoder framing disagreements remain documented; no general
 nested-object recovery or whole-document vendor-render claim is made.
+
+### Breaking edge case: conversion and spool cleanup both fail (#454)
+
+After a spooled conversion fails or is cancelled, `convertReadableStream`,
+`convertReadable` and `convertSpooled` now report a failed removal as an
+`AggregateError`. Previously these wrappers suppressed the removal error and
+returned only the conversion error, potentially hiding a remaining temporary
+file. `cause` and `errors[0]` preserve the original failure; `errors[1]` reports
+cleanup. Callers checking `name`/`code` should inspect `cause` for the original
+failure and also surface the cleanup error. Successful cleanup retains the
+original error object. No successful output or native/CLI behavior changes.
+
+Cancellation now changes the shared ACK counter before waking a backpressured
+Worker. This prevents a notification from being lost between its cancellation
+check and wait, allowing the Worker to close its input before spool removal.
+The fix preserves bounded writes and cancellation; no timeout, cleanup retry
+budget or empty-directory assertion is relaxed. A deterministic real-Chromium
+control reproduces the previous lost wakeup and verifies closure after repair.

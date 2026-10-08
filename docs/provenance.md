@@ -1447,3 +1447,32 @@ short I/O, cancellation and an invalid target after a source change.
 Full regression and reviewed-build receipts are tracked in
 [#449](https://github.com/rwv/caj2pdf-rust/issues/449). External document/PDF/text/
 pixel/font bytes remain outside Git; no release is performed.
+
+## Cancellation wakeup and spool cleanup recurrence (#213, #454)
+
+PR #453 CI on `fb8f800da082c019fe4f90bc1a128bdc9bac7c6d` twice retained an
+OPFS file after conversion abort (jobs 113447428919 and 113450266269 in run
+37816811594), with roughly ten-second delays and cascading empty-directory
+assertions. The original failures are retained, and #213 is reopened.
+
+Original MIT black-box scheduling instrumentation pauses the real Chromium
+Worker between its existing CANCEL load and ACKS wait. Aborting then releases
+that pause. The unmodified driver takes 10.087 seconds and leaves a spool;
+changing ACKS before notification makes the same control settle in 0.026
+seconds with no remaining entry. The wait's expected value changes, so a
+notification sent before waiting cannot be lost. This proves a reachable race
+matching the failure behavior; it does not reconstruct the historical CI
+scheduler trace or prove every earlier browser-cleanup failure had this cause.
+
+A visibility-only diagnostic retains the old lost wakeup while exposing the
+new combined error: AbortError plus NoModificationAllowedError from removal,
+with a remaining OPFS file. It is not a fixed-production pass.
+
+The permanent test hook wraps only the test Worker's first ACK wait, imports
+the original production Worker, and runs against an independently authored
+synthetic CAJ. It never ships in the package or alters production timing.
+Additional original controls exercise synchronous/asynchronous removal errors
+and awaited cleanup. No vendor code, external document, private migration,
+dependency or native conversion change is involved. The conversion wrapper's
+new AggregateError behavior is documented as a breaking edge case; no release
+is performed by this change.
