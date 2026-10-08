@@ -972,13 +972,41 @@ renderer warnings and fails complete raw-to-hex pixel/text agreement.
 The unchanged original still fails strict conversion; explicit partial recovery
 blanks pages 24, 25, 27 and 31. No diagnostic is counted as a new corpus pass.
 
-This records an unresolved missing-color boundary, not a production repair or
-proof that every reconstruction is impossible. Fix-specific full-regression,
-Node and Chromium checks remain unrun. Only original observations and external
-tool behavior were used; no foreign converter, private HN/JBIG or vendor
-implementation was inspected or migrated. No document, PDF, palette, font,
-pixel or vendor binary data is committed. APIs, dependencies, support claims
-and release behavior remain unchanged.
+The [follow-up loss diagnostic and accepted-output audit](https://github.com/rwv/caj2pdf-samples/blob/73e56cc579a48b9f2d8309f044bf6e5daa71c4e3/research/notes/indexed-palette-loss-20261008.md)
+measure at least 12,405 absent raw component bytes across the 64 short CMYK
+lookups. None of the six complete explicit CMYK tables supplies a matching
+prefix with sufficient length. Three pinned historical GitHub copies share
+the original's Git blob; scoped searches found no intact alternative, without
+proving that none exists elsewhere.
+
+An original MIT diagnostic preserves object 319's three available decoded
+bytes and all 495 original pixel indices while supplying two different
+completions of its 173 missing bytes. Both PDFs pass qpdf and render differently
+in Poppler and MuPDF. The surviving prefix and indices cannot uniquely specify
+the missing colors. Neither completion is a repair. Prior viewer omissions and
+80-page diagnostics remain qualified as above.
+
+A read-only audit of 1,252 accepted output PDFs checks Indexed lookup lengths,
+including inline images in complete page content sequences, Forms and tiling
+patterns. Its original MIT controls detect short tables, split-stream parsing
+and nonfatal parser warnings. Independent zlib/ASCII85 decoding is compared
+with pikepdf's qpdf decoder. The external Python research worker has explicit
+memory/time/graph limits; production I/O and dependencies do not change.
+Lookup sufficiency does not establish image use, intended colors or complete
+source/output content equivalence. The receipt preserves initial harness
+failures and a separate duplicate-annotation warning.
+
+Fresh strict-refusal checks on the unchanged #420 original use reviewed #457
+native/WASM artifacts. Native publishes no PDF; Node and Chromium emit zero
+bytes, agree on `MALFORMED_PDF` at byte 898,312 and preserve source hashes.
+Browser OPFS cleanup passes. These are expected-refusal checks, not successful
+conversion or fix-specific regression. #420 remains open for intended-color
+recovery or an independently justified complete recovery policy.
+
+Only source observations, public PDF syntax and external tool behavior were
+used; no foreign converter, private HN/JBIG or vendor implementation was
+inspected or migrated. No document, PDF, palette, font, pixel or vendor binary
+data is committed. APIs, dependencies, support claims and releases are unchanged.
 
 ## Redundant CAJ framing (#409, #434)
 
