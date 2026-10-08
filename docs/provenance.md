@@ -707,3 +707,33 @@ records the comparison scope and an observed qpdf-rewrite render difference.
 All code and controls are independently authored MIT, with no private-source
 migration, new dependency, foreign converter implementation or committed
 external document/PDF/render/font bytes.
+
+
+## Interrupted live PDF object prefixes (#410)
+
+The unchanged KDH source `6cf520441256d3d0e8749cb4b49275bbfc57ff962839cd7e131055c99cca992e`
+(`Extra2001/caj2pdf-actions/file.caj`) contains 12 interrupted object prefixes
+between indexed objects. Independent offset-254 KDH decoding and qpdf's xref
+inventory locate gaps of 8–68 bytes. Each trimmed prefix exactly matches the
+complete generation-zero object selected by that xref; the counterparts are
+page dictionaries and unsigned integers. The two dictionary gaps end inside
+`/Type` and a nested font reference. An initial first-key-only candidate did
+not complete this source and is not counted as a successful fix.
+
+The implementation reuses the bounded PDF object parser and existing gap-patch
+storage/copy-time byte checks. Only exact proper prefixes of complete non-stream
+dictionaries/unsigned integers qualify for the new 128-byte rule. The original
+64-byte free/adjacent orphan rule and shared retained-byte/allocation budgets
+remain in place. No stream extent or payload search is introduced.
+
+Original MIT controls cover indexed counterparts before/after the gap, partial
+keys/references/integers, conflicts, missing/free targets, generation mismatch,
+complete objects, excluded stream/other scalar profiles, one-byte reads,
+128/129-byte bounds, exact PDF whitespace (including NUL, excluding vertical
+TAB), cancellation checkpoints and source mutation during copy.
+The [conformance checkpoint](conformance.md#interrupted-live-object-prefix-checkpoint-410)
+compares the entire original through an independent decoded PDF oracle.
+Existing CR stream-separator normalization and validated stale-parent repair
+also apply to this document; these are separate, previously supported repairs.
+No new dependency, foreign converter source, private-source migration, external
+document, derived PDF, font or render bytes are included.

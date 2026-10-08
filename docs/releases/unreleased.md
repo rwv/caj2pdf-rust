@@ -1,5 +1,26 @@
 # Unreleased
 
+## Interrupted live PDF prefixes (#410)
+
+- A measured seven-page KDH file now converts after bounded validation and
+  whitespace replacement of inactive object prefixes. Only exact prefixes of
+  xref-selected complete non-stream dictionaries/integers qualify; conflicts,
+  stream objects and unrelated gap contents remain errors.
+- Native, Node.js and Chromium outputs match; all page renders, text, geometry
+  and 22 raw streams match the independent source PDF. See the
+  [checkpoint](../conformance.md#interrupted-live-object-prefix-checkpoint-410).
+  No public API or dependencies change; reads, parser metadata and retained
+  patches remain bounded under existing limits.
+
+## Corpus runtime and order verification (#406)
+
+- All 1,232 accepted originals at PR #408 pass native/Node/Chromium byte parity
+  and browser cleanup. All 26 formerly failing applicable order checks pass
+  after correcting bitmap row conventions and adding native glyph checks.
+- The [checkpoint](../conformance.md#accepted-corpus-runtime-and-order-checkpoint-406)
+  records the scope and remaining source-fidelity/refusal work. Conversion and
+  runtime parity do not close #406 or change released v0.4.0 artifacts.
+
 ## Identical CAJ fragment page boxes (#407)
 
 - CAJ reconstruction now removes the second of two identical direct

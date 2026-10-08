@@ -88,7 +88,15 @@ replacement is an incremental object update. Short incomplete object prefixes
 in one observed input are permitted in otherwise whitespace-only gaps only
 when the named object is free or is the immediately following live object.
 Their exact bytes are checked during copying and replaced by the same number
-of spaces. Other gap content remains an error. These repairs do not accept
+of spaces. A second measured profile (#410) permits a gap of at most 128 bytes
+when its trimmed bytes are an exact proper prefix of a complete generation-zero
+dictionary or unsigned integer selected by the validated xref, even when that
+object is elsewhere in the file. The same bounded parser verifies the live
+counterpart; stream objects, other scalars, missing/compressed targets, complete
+objects and conflicting prefixes do not qualify. The earlier free/adjacent
+orphan rule retains its 64-byte cap; both share the existing retained-patch
+budget and copy-time source checks. Other gap content remains an error.
+These repairs do not accept
 unrelated dangling references, duplicate page-tree children, or cycles.
 
 Existing outlines accept direct `/Dest` arrays and direct local

@@ -40,6 +40,7 @@ const MAX_XREF_SECTIONS: usize = 64;
 const MAX_XREF_INDEX_VALUES: usize = 8192;
 const MAX_XREF_STREAM_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ORPHAN_GAP_BYTES: u64 = 64;
+const MAX_LIVE_PREFIX_GAP_BYTES: u64 = 128;
 const MAX_ORPHAN_GAP_TOTAL: u64 = 64 * 1024;
 
 /// A complete indirect object in a PDF input, relative to the PDF range.
@@ -2444,45 +2445,46 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
                 _ => {
                     let length = end - start;
-                    if length <= MAX_ORPHAN_GAP_BYTES {
+                    if length <= MAX_LIVE_PREFIX_GAP_BYTES {
                         let original = self.bytes(start, length as usize)?;
-                        if let Some(number) = parse_orphan_gap(&original) {
-                            let free = matches!(
-                                slots.get(number as usize).and_then(|slot| *slot),
-                                Some(XrefSlot {
-                                    kind: XrefKind::Free,
-                                    ..
-                                })
-                            );
-                            if free || next_live == Some(number) {
-                                let failure =
-                                    self.malformed(start, None, "orphan gap repair size overflows");
-                                let retained = index
-                                    .retained_gap_bytes
-                                    .checked_add(length)
-                                    .ok_or(failure)?;
-                                let cap =
-                                    MAX_ORPHAN_GAP_TOTAL.min(self.limits.max_allocation_bytes / 8);
-                                if retained > cap {
-                                    return Err(self.locate_limit(
-                                        start,
-                                        None,
-                                        Error::limit("PDF orphan gap repair bytes", cap, retained),
-                                    ));
-                                }
-                                push_bounded(
-                                    &mut index.gap_patches,
-                                    GapPatch {
-                                        offset: start,
-                                        original,
-                                    },
-                                    cap,
-                                    "PDF orphan gap repair index",
-                                )
-                                .map_err(self.locator(start, None))?;
-                                index.retained_gap_bytes = retained;
-                                return Ok(());
+                        let orphan = length <= MAX_ORPHAN_GAP_BYTES
+                            && parse_orphan_gap(&original).is_some_and(|number| {
+                                matches!(
+                                    slots.get(number as usize).and_then(|slot| *slot),
+                                    Some(XrefSlot {
+                                        kind: XrefKind::Free,
+                                        ..
+                                    })
+                                ) || next_live == Some(number)
+                            });
+                        if orphan || self.matches_live_object_prefix(&original, index)? {
+                            let failure =
+                                self.malformed(start, None, "orphan gap repair size overflows");
+                            let retained = index
+                                .retained_gap_bytes
+                                .checked_add(length)
+                                .ok_or(failure)?;
+                            let cap =
+                                MAX_ORPHAN_GAP_TOTAL.min(self.limits.max_allocation_bytes / 8);
+                            if retained > cap {
+                                return Err(self.locate_limit(
+                                    start,
+                                    None,
+                                    Error::limit("PDF orphan gap repair bytes", cap, retained),
+                                ));
                             }
+                            push_bounded(
+                                &mut index.gap_patches,
+                                GapPatch {
+                                    offset: start,
+                                    original,
+                                },
+                                cap,
+                                "PDF orphan gap repair index",
+                            )
+                            .map_err(self.locator(start, None))?;
+                            index.retained_gap_bytes = retained;
+                            return Ok(());
                         }
                     }
                     return Err(self.malformed(
@@ -2494,6 +2496,51 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
         }
         Ok(())
+    }
+
+    /// A short interrupted dictionary/integer may refer to a live object
+    /// elsewhere. Only that xref-selected object's exact bytes justify a patch.
+    fn matches_live_object_prefix(&mut self, bytes: &[u8], index: &PdfIndex) -> Result<bool> {
+        let start = bytes
+            .iter()
+            .position(|&byte| !parser::is_space(byte))
+            .unwrap_or(bytes.len());
+        let end = bytes
+            .iter()
+            .rposition(|&byte| !parser::is_space(byte))
+            .map_or(start, |at| at + 1);
+        let prefix = &bytes[start..end];
+        let mut syntax = Syntax::new(prefix);
+        let Ok(number) = syntax.unsigned() else {
+            return Ok(false);
+        };
+        if number == 0 || number > u64::from(MAX_PDF_OBJECTS) || syntax.unsigned() != Ok(0) {
+            return Ok(false);
+        }
+        let Some(Some((0, location))) = index.object_locations.get(number as usize) else {
+            return Ok(false);
+        };
+        if prefix.len() as u64 >= location.length {
+            return Ok(false);
+        }
+        // Reuse the bounded object parser: stream headers/payloads and other
+        // scalar profiles are excluded even when their leading bytes match.
+        let head = self.load_head(
+            location.offset,
+            Some(PdfRef {
+                number: number as u32,
+                generation: 0,
+            }),
+        )?;
+        let ObjectTail::EndObject { end } = head.tail else {
+            return Ok(false);
+        };
+        let supported = head.dictionary.is_some()
+            || head
+                .scalar
+                .as_ref()
+                .is_some_and(|span| exact_unsigned(&head.bytes[span.clone()]).is_some());
+        Ok(supported && prefix.len() < end && head.bytes.starts_with(prefix))
     }
 }
 
