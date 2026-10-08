@@ -313,6 +313,12 @@ Tests invoke installed `qpdf`, MuPDF `mutool`, Poppler (`pdfinfo`, `pdfimages`,
 `pdftoppm`) and libjpeg-turbo (`cjpeg`, `djpeg`) as independent black-box
 validators. They are not linked, vendored or distributed; required CI
 installs them and prints their versions before tests and coverage.
+The HN-B type-3 regression uses the existing project-authored synthetic
+fixture; #422 separates its portable assertions from external rendering.
+Validator-less guests explicitly filter rendering as documented in
+[platform validation](platforms.md#what-each-target-checks); filtered tests
+are not compatibility passes. No fixture bytes, format facts, dependencies
+or external source code were added.
 
 `sha2` hashes the selected JPEG bytes read during marker preflight against
 the bytes streamed into the PDF image object (fixed-size state), and pinned

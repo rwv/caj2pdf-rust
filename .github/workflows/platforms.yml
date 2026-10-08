@@ -305,10 +305,10 @@ jobs:
       matrix:
         include:
           # Guests with PDF validator packages run every core test; FreeBSD
-          # RISC-V64/PowerPC64 have none and skip the three that need them.
+          # RISC-V64/PowerPC64 have none and skip the four that need them.
           - {os: freebsd, arch: aarch64, target: aarch64-unknown-freebsd, release: '14.3', validators: 'pkg install -y qpdf mupdf', skip: ''}
-          - {os: freebsd, arch: riscv64, target: riscv64gc-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
-          - {os: freebsd, arch: powerpc64, target: powerpc64-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
+          - {os: freebsd, arch: riscv64, target: riscv64gc-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order --skip hnc8::compose::tests::native_document::independent_render_checks_hnb_type3_after_text'}
+          - {os: freebsd, arch: powerpc64, target: powerpc64-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order --skip hnc8::compose::tests::native_document::independent_render_checks_hnb_type3_after_text'}
           - os: netbsd
             arch: aarch64
             target: aarch64-unknown-netbsd
@@ -579,7 +579,7 @@ jobs:
             export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
             rustc --version
             cargo --version
-            cargo test --locked -p caj2pdf-core --lib -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order
+            cargo test --locked -p caj2pdf-core --lib -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order --skip hnc8::compose::tests::native_document::independent_render_checks_hnb_type3_after_text
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
             target/release/caj2pdf tests/fixtures/valid_nested_outline.pdf -o dist/illumos-smoke.pdf
@@ -683,7 +683,7 @@ jobs:
             python3 scripts/android-ready.py
             adb push target/${{ matrix.target }}/release/caj2pdf /data/local/tmp/caj2pdf
             adb shell chmod 755 /data/local/tmp/caj2pdf
-            cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}' -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order
+            cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}' -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order --skip hnc8::compose::tests::native_document::independent_render_checks_hnb_type3_after_text
             cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
             adb push tests/fixtures/valid_nested_outline.pdf /data/local/tmp/input.pdf
             adb shell 'TMPDIR=/data/local/tmp /data/local/tmp/caj2pdf /data/local/tmp/input.pdf -o /data/local/tmp/output.pdf'

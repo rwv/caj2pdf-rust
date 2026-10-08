@@ -48,11 +48,12 @@ binaries are not notarized; local OS trust prompts may apply.
 
 Core unit tests include independent qpdf/MuPDF rendering. On illumos, Android
 and cross-built FreeBSD RISC-V64/PowerPC64,
-the three tests requiring local PDF validators are explicitly filtered because
+the four tests requiring local PDF validators are explicitly filtered because
 those packages are unavailable; target-produced PDFs are instead checked and
-rendered on the host. The new mixed-image codec/draw-order test runs separately
-without validators. Run reports distinguish executed and filtered tests; the
-499-test count in the published baseline predates this addition. Portable CLI tests
+rendered on the host. The mixed-image codec/draw-order test and HN-B type-3
+conversion, draw-order and malformed-payload checks run separately without
+validators. Run reports distinguish executed and filtered tests; the
+499-test count in the published baseline predates these additions. Portable CLI tests
 execute Unicode paths, inspect/page counts, stdin/stdout conversion equality,
 existing-output refusal, hard-link/input protection and failed-output cleanup.
 Cross-platform tests do not use Unix-only `/dev` test fixtures. QEMU validates
@@ -117,7 +118,7 @@ Alongside the checkout, the VM receives the staged core test executable,
 portable CLI tests, CLI and original PDF fixture; temporary sysroot/build
 files are removed before transfer. The tested executable is packaged on the
 host after qpdf/page-count/MuPDF checks. Guests with PDF validator packages
-run every core test. FreeBSD RISC-V64 and PowerPC64 have none, so three
+run every core test. FreeBSD RISC-V64 and PowerPC64 have none, so four
 validator-dependent core tests are explicitly filtered there and never
 counted as passes. The RISC-V64/PowerPC64 route was first verified in run
 [37164189357](https://github.com/rwv/caj2pdf-rust/actions/runs/37164189357).
