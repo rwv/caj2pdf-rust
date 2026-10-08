@@ -126,3 +126,28 @@ in the package settings. Do not add long-lived registry credentials to CI.
 GitHub artifact publication does not imply registry publication. Keep the npm
 package private and installation instructions pointing to tested release
 artifacts until registry publication and clean-machine installs are verified.
+
+## v0.5.0 registry bootstrap and subsequent OIDC releases
+
+The v0.5.0 release commit removes npm `private`, sets explicit public registry
+publication, and bumps the Rust/JS packages together. Publish the first core,
+then CLI from the reviewed release commit using owner authentication, and the
+exact tested GitHub npm tarball. Never store owner tokens in GitHub secrets,
+issues, chat, or committed files. Run clean registry installs and the pinned
+two-page fixture before changing README installation instructions.
+
+After those packages exist, configure a trusted publisher on each package:
+GitHub owner `rwv`, repository `caj2pdf-rust`, workflow `release.yml`, with no
+GitHub environment (the job does not declare one). For npm explicitly allow
+`npm publish`; the stage-only default does not authorize direct publication.
+Then set repository variable `REGISTRY_TRUSTED_PUBLISHING=true`. Subsequent
+version tags publish only after the complete GitHub release job succeeds.
+The crates.io auth action mints a scoped short-lived token and revokes it in
+its post step; npm obtains OIDC credentials and provenance directly. No
+standalone Rust WASM crate is uploaded. New npm trust configurations must be
+used within the registry's validation window (currently two days), so bind
+trust when the next publication is ready rather than long in advance.
+
+The first manual uploads are bootstrap evidence, not proof of a tagged OIDC
+publication. Keep #293's tagged-publication criterion open until an actual
+trusted-publisher release and clean registry installations are verified.

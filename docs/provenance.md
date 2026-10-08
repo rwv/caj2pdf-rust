@@ -884,3 +884,13 @@ source framing in PyMuPDF 1.27.2.2. This establishes scoped page preservation,
 not validity of the malformed original strings in every renderer. No foreign
 converter implementation or private-source migration was used; no new dependency
 or external document, PDF, pixel or font bytes are committed.
+
+## Registry publishing action (#293)
+
+The release workflow pins `rust-lang/crates-io-auth-action` v1 at
+`c6f97d42243bad5fab37ca0427f495c86d5b1a18`. Its upstream MIT license is selected
+from MIT OR Apache-2.0. It is CI-only authentication code, not linked into or
+included in converter packages; no upstream source is copied. The action
+exchanges GitHub OIDC identity for a temporary crates.io token and revokes it
+when the job ends. npm uses its official CLI's OIDC and provenance support.
+No new format facts, fixtures, product dependencies or private migrations.

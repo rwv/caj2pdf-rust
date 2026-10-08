@@ -194,6 +194,11 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       }
     });
     const manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
+    assert.notEqual(manifest.private, true);
+    assert.equal(manifest.repository.url, "git+https://github.com/rwv/caj2pdf-rust.git");
+    assert.equal(manifest.repository.directory, "js");
+    assert.equal(manifest.publishConfig.access, "public");
+    assert.equal(manifest.publishConfig.registry, "https://registry.npmjs.org/");
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.exports["./caj2pdf_wasm.wasm"], "./caj2pdf_wasm.wasm");
     assert.equal(manifest.exports["./internal/spool-write.mjs"], undefined);
