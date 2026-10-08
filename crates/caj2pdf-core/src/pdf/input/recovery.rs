@@ -12,13 +12,15 @@
 use super::fragment_scan::{Failure, FragmentCandidate, Pass, ScannedObject, StreamFailure};
 use super::{ObjectTail, Reader, exact_name, exact_reference, exact_unsigned, media_box};
 use crate::caj::{CajMetadata, CajPageRow};
-use crate::fallible::{checked_read_count, reserve};
+use crate::fallible::{checked_read_count, reserve, reserve_exact};
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Context, Error, ErrorKind, Limits, OmittedPage, RangedSource, Result};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The latest start, after an interrupted stream, of its complete replay.
 const MAX_REPLAY_DISTANCE: u64 = 64 * 1024;
+/// Maximum exact prefix compared against an independently framed copy.
+const MAX_COPY_PREFIX: u64 = 64 * 1024;
 /// How far past an understated direct `/Length` a terminator may be found.
 const MAX_STREAM_LENGTH_REPAIR: u64 = 64;
 
@@ -102,7 +104,7 @@ fn syntax_recovery<S: RangedSource, C: Cancellation>(
     if let Some(end) = adjacent_header_end(reader, start, error, &pass.objects)? {
         return Ok(Some(Recovery::Resume(end)));
     }
-    if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
+    if let Some(end) = candidate_prefix_end(reader, start, pass.candidates, None)? {
         return Ok(Some(Recovery::Resume(end)));
     }
     if let Some((resume, prefix)) = super::orphan::opener(reader, start, error)? {
@@ -131,6 +133,12 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
     if let Some((object, end)) = super::empty_form::candidate(reader, start, stream)? {
         return Ok(Some(Recovery::Embedded { object, end }));
     }
+    if stream.reference.generation == 0
+        && let Some(original) = unique(&pass.objects, |r| r == stream.reference)
+        && let Some(end) = copy_prefix_end(reader, start, original, stream.data_start)?
+    {
+        return Ok(Some(Recovery::Resume(end)));
+    }
     if let Some((resume, prefix)) = super::orphan::image_prefix(reader, pass, start, stream)? {
         return Ok(Some(Recovery::Orphan { resume, prefix }));
     }
@@ -138,7 +146,9 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
         if let Some(end) = replay_end(reader, start, &pass.objects, &pass.lengths)? {
             return Ok(Some(Recovery::Resume(end)));
         }
-        if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
+        if let Some(end) =
+            candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
+        {
             return Ok(Some(Recovery::Resume(end)));
         }
         return Ok(match stream_replay(reader, start, stream)? {
@@ -150,7 +160,8 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
         Replay::Found(recovery) => return Ok(Some(recovery)),
         // A replayed header is no understated Length: never repair it.
         Replay::Unproven => {
-            let end = candidate_prefix_end(reader, start, pass.candidates)?;
+            let end =
+                candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?;
             return Ok(end.map(Recovery::Resume));
         }
         Replay::Absent => {}
@@ -161,7 +172,9 @@ fn stream_recovery<S: RangedSource, C: Cancellation>(
         match repair_stream_length(reader, data_at + length, data_at, stream.reference) {
             Ok(repair) => repair,
             Err(error) if error.is_malformed_pdf() => {
-                if let Some(end) = candidate_prefix_end(reader, start, pass.candidates)? {
+                if let Some(end) =
+                    candidate_prefix_end(reader, start, pass.candidates, Some(stream.data_start))?
+                {
                     return Ok(Some(Recovery::Resume(end)));
                 }
                 return Err(error);
@@ -670,57 +683,138 @@ pub(super) fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     candidates: &mut [FragmentCandidate],
+    data_start: Option<u64>,
 ) -> Result<Option<u64>> {
     if candidates.is_empty() {
         return Ok(None);
     }
-    let bytes = reader.bytes(start, 256.min(reader.range.length - start) as usize)?;
+    let bytes = reader.bytes(start, 64.min(reader.range.length - start) as usize)?;
     let Some((reference, header_end)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
     let mut matches = candidates
         .iter_mut()
-        .filter(|candidate| candidate.object.reference == reference);
+        .filter(|c| c.object.reference == reference);
     let Some(candidate) = matches.next() else {
         return Ok(None);
     };
-    if matches.next().is_some() {
+    if matches.next().is_some() || candidate.object.range.offset <= reader.absolute(start) {
         return Ok(None);
     }
-    let original = candidate.object;
-    let Some(relative) = original.range.offset.checked_sub(reader.range.offset) else {
+    let end = copy_prefix_end(
+        reader,
+        start,
+        candidate.object,
+        data_start.unwrap_or(header_end as u64),
+    )?;
+    if end.is_some() {
+        // The full scan must reach this exact framed object, not just a header
+        // encountered inside another payload during a speculative row scan.
+        candidate.used = true;
+    }
+    Ok(end)
+}
+
+pub(super) fn shared_prefix<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    left_at: u64,
+    right_at: u64,
+    bound: u64,
+) -> Result<u64> {
+    let mut matched = 0;
+    while matched < bound {
+        let count = (bound - matched)
+            .min(256)
+            .min(reader.limits.io_chunk_bytes as u64) as usize;
+        reader.limits.check_allocation(count as u64 * 2)?;
+        let left = reader.bytes(left_at + matched, count)?;
+        // A candidate anchored by a later CAJ row can be outside this row's
+        // scan range. Read only its proved prefix, without widening syntax or
+        // stream-tail searches beyond the normal fragment boundary.
+        let mut right = Vec::new();
+        reserve_exact(
+            &mut right,
+            count,
+            reader
+                .limits
+                .allocation_refused("copy prefix", count as u64),
+        )?;
+        right.resize(count, 0);
+        crate::read_exact_at(
+            reader.source,
+            reader.absolute(right_at + matched),
+            &mut right,
+            reader.limits,
+            reader.cancellation,
+        )
+        .map_err(reader.locator(right_at + matched, None))?;
+        let equal = left.iter().zip(&right).take_while(|(a, b)| a == b).count();
+        matched += equal as u64;
+        if equal != count {
+            break;
+        }
+    }
+    Ok(matched)
+}
+
+/// First mismatch against one independently framed counterpart, followed only
+/// by bounded PDF whitespace and a complete next object header. Never search
+/// the interrupted payload for a marker or materialize the compared prefix.
+fn copy_prefix_end<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    original: FragmentObject,
+    minimum_shared: u64,
+) -> Result<Option<u64>> {
+    let Some(at) = original.range.offset.checked_sub(reader.range.offset) else {
         return Ok(None);
     };
-    if relative <= start || original.range.length > reader.range.length.saturating_sub(relative) {
+    if at == start
+        || original.range.offset > reader.source.size()
+        || original.range.length > reader.source.size() - original.range.offset
+        || (at < start && original.range.length > start - at)
+    {
         return Ok(None);
     }
-    let original_bytes = reader.bytes(
-        relative,
-        original.range.length.min(bytes.len() as u64) as usize,
-    )?;
-    let shared = bytes
-        .iter()
-        .zip(&original_bytes)
-        .take_while(|(a, b)| a == b)
-        .count();
-    if shared <= header_end || shared as u64 >= original.range.length {
+    let bound = (MAX_COPY_PREFIX + 1)
+        .min(reader.range.length - start)
+        .min(original.range.length);
+    let shared = shared_prefix(reader, start, at, bound)?;
+    if shared <= minimum_shared || shared == bound || shared > MAX_COPY_PREFIX {
         return Ok(None);
     }
-    let mut boundary = shared;
-    while bytes.get(boundary).is_some_and(u8::is_ascii_whitespace) {
-        boundary += 1;
-    }
-    if !bytes.get(boundary).is_some_and(u8::is_ascii_digit) {
-        return Ok(None);
-    }
-    match reader.load_head(start + boundary as u64, None) {
-        Ok(_) => {
-            candidate.used = true;
-            Ok(Some(start + boundary as u64))
+    let boundary = start + shared;
+    let mut next = boundary;
+    // Preserve the existing interruption rule: a NUL may be stream data,
+    // so it cannot be treated as inserted boundary whitespace here.
+    while reader
+        .byte(next)?
+        .is_some_and(|b| matches!(b, b'\t' | b'\n' | 12 | b'\r' | b' '))
+    {
+        next += 1;
+        if next - boundary > 64 {
+            return Ok(None);
         }
-        Err(error) if error.is_malformed_pdf() => Ok(None),
-        Err(error) => Err(error),
     }
+    if !reader.byte(next)?.is_some_and(|b| b.is_ascii_digit()) {
+        return Ok(None);
+    }
+    let whitespace = reader.bytes(boundary, (next - boundary) as usize)?;
+    match reader.load_head(next, None) {
+        Ok(_) => {}
+        Err(error) if error.is_malformed_pdf() => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    if shared_prefix(reader, start, at, shared + 1)? != shared
+        || reader.bytes(boundary, whitespace.len())? != whitespace
+    {
+        return Err(reader.malformed(
+            start,
+            Some(original.reference),
+            "interrupted copy changed while reading",
+        ));
+    }
+    Ok(Some(next))
 }
 
 /// The one indexed object numbered `reference`, if it is unique.
@@ -802,7 +896,12 @@ fn known_prefix_end<S: RangedSource, C: Cancellation>(
         offset: Some(offset),
         context: Context::Pdf { .. },
         reason:
-            "expected PDF name" | "invalid PDF value token" | "PDF object lacks endobj or stream",
+            "expected PDF name"
+            | "invalid PDF value token"
+            | "PDF object lacks endobj or stream"
+            | "unexpected PDF keyword"
+            | "PDF number has no digits"
+            | "PDF keyword is truncated",
         ..
     } = error
     else {
@@ -839,6 +938,26 @@ fn known_prefix_end<S: RangedSource, C: Cancellation>(
     let mut boundary = shared;
     while bytes.get(boundary).is_some_and(u8::is_ascii_whitespace) {
         boundary += 1;
+    }
+    // The measured terminal case contains only a repeated `number 0` header
+    // and whitespace at actual source EOF. No dictionary or content is lost.
+    if start + boundary as u64 == reader.range.length
+        && reader.absolute(reader.range.length) == reader.source.size()
+        && matches!(original_head.tail, ObjectTail::EndObject { .. })
+    {
+        let prefix = bytes.trim_ascii_end();
+        let mut fields = prefix
+            .split(u8::is_ascii_whitespace)
+            .filter(|v| !v.is_empty());
+        if fields
+            .next()
+            .is_some_and(|v| v.iter().all(u8::is_ascii_digit))
+            && fields.next() == Some(b"0".as_slice())
+            && fields.next().is_none()
+            && original_head.bytes.starts_with(prefix)
+        {
+            return Ok(Some(reader.range.length));
+        }
     }
     // A cut may occur between the two dictionary-closing '>' bytes. Follow
     // only the exact shared prefix and its trailing whitespace, never search
@@ -1247,5 +1366,7 @@ pub(crate) fn substitute_damaged_pages<S: RangedSource, C: Cancellation>(
     Ok((suffix, omitted))
 }
 
+#[cfg(test)]
+mod copies;
 #[cfg(test)]
 mod tests;

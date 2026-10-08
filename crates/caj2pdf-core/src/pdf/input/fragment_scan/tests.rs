@@ -811,7 +811,7 @@ mod candidate_tests {
                 .unwrap();
         assert_eq!(scan.patches.len(), 1);
         assert!(
-            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER,)
+            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
                 .unwrap()
                 .is_empty()
         );
@@ -825,7 +825,7 @@ mod candidate_tests {
         let end = bytes.len() as u64;
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
         assert_eq!(
-            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER,)
+            collect_fragment_candidates(&mut source, 0, end, &Limits::default(), &NEVER, &mut [])
                 .unwrap()
                 .len(),
             1
@@ -871,6 +871,7 @@ mod candidate_tests {
             row_end,
             &Limits::default(),
             &NEVER,
+            &mut [],
         )
         .unwrap();
         assert_eq!(
@@ -1513,7 +1514,7 @@ mod candidate_tests {
                 &NEVER,
             )
             .unwrap();
-            candidate_prefix_end(&mut reader, 0, std::slice::from_mut(&mut item))
+            candidate_prefix_end(&mut reader, 0, std::slice::from_mut(&mut item), None)
         }
         let mut bytes = [PREFIX, NEXT].concat();
         let at = bytes.len();

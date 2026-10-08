@@ -339,8 +339,9 @@ fn push_synthetic(
 }
 
 /// Retry a malformed fragment using only independently parsed page-table
-/// spans. No payload is searched for headers, and the full scan must confirm
-/// every candidate used.
+/// spans, from last to first so later anchors can prove earlier prefixes.
+/// Each row is scanned once. No payload is searched for headers, and the full
+/// scan must confirm every candidate used.
 fn scan_caj_objects<S: RangedSource, C: Cancellation>(
     source: &mut S,
     metadata: &super::CajMetadata,
@@ -365,14 +366,16 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         .page_rows
         .iter()
         .skip(1)
+        .rev()
         .filter(|row| row.length != 0)
     {
-        let objects = match collect_fragment_candidates(
+        let mut objects = match collect_fragment_candidates(
             source,
             row.offset,
             row.offset + row.length,
             limits,
             cancellation,
+            &mut candidates,
         ) {
             Ok(objects) => objects,
             Err(error) if error.is_pdf_problem() => continue,
@@ -383,6 +386,9 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         }) {
             continue;
         }
+        // Rows are disjoint. A last object's tail can cross into the next
+        // row, but no object starting there belongs in this row's index.
+        objects.retain(|object| object.range.offset < row.offset + row.length);
         let bytes = ((candidates.len() + objects.len()) as u64)
             .saturating_mul(size_of::<FragmentCandidate>() as u64);
         limits.check_allocation(bytes)?;
