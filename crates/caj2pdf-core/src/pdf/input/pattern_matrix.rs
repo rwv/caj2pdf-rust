@@ -107,12 +107,15 @@ pub(super) fn candidate<S: RangedSource, C: Cancellation>(
     let inspection = inspect_head(&head, reader.range, start, reader.limits)?;
     // A Matrix repair cannot combine with an unproved stream boundary or a
     // second Length repair in this same object. Patch order stays monotonic.
-    let stream_end =
-        match reader.check_stream_tail(start + data_start as u64 + 45, Some(head.reference)) {
-            Ok(end) => end,
-            Err(error) if matches!(error.kind, ErrorKind::Malformed) => return Ok(None),
-            Err(error) => return Err(error),
-        };
+    let payload_end = data_start as u64 + 45;
+    if payload_end > remaining {
+        return Ok(None);
+    }
+    let stream_end = match reader.check_stream_tail(start + payload_end, Some(head.reference)) {
+        Ok(end) => end,
+        Err(error) if matches!(error.kind, ErrorKind::Malformed) => return Ok(None),
+        Err(error) => return Err(error),
+    };
     let mut checked = reader.bytes(start, data_start)?;
     checked[begin..end].copy_from_slice(&head.bytes[begin..end]);
     if checked != head.bytes[..data_start] {
@@ -376,5 +379,49 @@ mod tests {
                 ..
             })
         ));
+    }
+    #[test]
+    fn a_stream_near_the_u64_source_limit_cannot_wrap() {
+        struct Tail {
+            bytes: Vec<u8>,
+            start: u64,
+        }
+        impl RangedSource for Tail {
+            fn size(&self) -> u64 {
+                u64::MAX
+            }
+            fn read_at(&mut self, offset: u64, output: &mut [u8]) -> Result<usize> {
+                let at = usize::try_from(offset.checked_sub(self.start).unwrap()).unwrap();
+                let count = output.len().min(self.bytes.len().saturating_sub(at));
+                output[..count].copy_from_slice(&self.bytes[at..at + count]);
+                Ok(count)
+            }
+        }
+        let bytes = fixture();
+        let end = bytes
+            .windows(b"stream\n".len())
+            .position(|v| v == b"stream\n")
+            .unwrap()
+            + b"stream\n".len();
+        let mut source = Tail {
+            bytes: bytes[..end].to_vec(),
+            start: u64::MAX - end as u64,
+        };
+        let start = source.start;
+        let limits = Limits {
+            max_input_bytes: u64::MAX,
+            ..Limits::default()
+        };
+        let mut reader = Reader::new(
+            &mut source,
+            PdfRange {
+                offset: 0,
+                length: u64::MAX,
+            },
+            &limits,
+            &NeverCancel,
+        )
+        .unwrap();
+        assert!(candidate(&mut reader, start).unwrap().is_none());
     }
 }
