@@ -1,5 +1,16 @@
 # Unreleased
 
+## Unescaped CAJ source-path metadata (#419)
+
+- A measured 139-page CAJ original now converts after two malformed QITE
+  source-path strings are preserved as hexadecimal strings; all 35 source
+  bookmarks remain intact. All incoming
+  references must be confined to retained Page metadata; rendering strings
+  and unmeasured profiles remain strict.
+- The repair uses bounded reads, source rechecks and existing sequential
+  reconstruction. No public API or dependency changes. See the
+  [scoped conformance evidence](../conformance.md#unescaped-qite-source-path-checkpoint-419).
+
 ## Absent optional CAJ link appearances (#417)
 
 - A measured 109-page CAJ original now converts after proving two optional

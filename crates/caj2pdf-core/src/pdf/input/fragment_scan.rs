@@ -9,6 +9,7 @@
 //! `/Length` confirms. Damaged-input rules live in `recovery`.
 
 use super::recovery::{self, LengthPatch, Recovery, find_endstream};
+use super::source_path::{self, SourcePathRepair};
 use super::{
     FragmentInspection, ObjectTail, Reader, exact_reference, exact_unsigned, inspect_head,
 };
@@ -23,6 +24,8 @@ use std::collections::BTreeMap;
 const MAX_FRAGMENT_TAIL_EXTENSION: u64 = 64 * 1024;
 /// Re-scans that may move a searched stream end before the first error stands.
 const MAX_EXTENT_RETRIES: usize = 16;
+/// Bound complete-graph validation work for malformed source-file metadata.
+const MAX_SOURCE_PATH_REPAIRS: usize = 64;
 
 /// One indexed object and its single structural inspection. An inspection
 /// error is kept, not raised, so callers report it in object order.
@@ -36,6 +39,7 @@ pub(crate) struct ScannedObject {
 pub(crate) struct FragmentScan {
     pub objects: Vec<ScannedObject>,
     pub patches: Vec<LengthPatch>,
+    pub source_paths: Vec<SourcePathRepair>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
 }
 
@@ -57,7 +61,7 @@ pub(crate) fn collect_fragment_candidates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
 ) -> Result<Vec<FragmentObject>> {
     let scan = scan_fragment(source, start, end, limits, cancellation, Mode::Candidates)?;
-    Ok(if scan.patches.is_empty() {
+    Ok(if scan.patches.is_empty() && scan.source_paths.is_empty() {
         scan.objects.iter().map(|scanned| scanned.object).collect()
     } else {
         Vec::new()
@@ -166,12 +170,14 @@ pub(super) struct Pass<'p> {
     pub pending_lengths: Vec<PendingLength>,
     pub pending_prefixes: Vec<FragmentObject>,
     pub patches: Vec<LengthPatch>,
+    pub source_paths: Vec<SourcePathRepair>,
     pub damaged: Vec<(Option<PdfRef>, u64)>,
     pub candidates: &'p mut [FragmentCandidate],
     pub rows: Option<&'p [CajPageRow]>,
     /// Whether a failure may repeat the pass with another stream end; only
     /// a complete scan does, so row candidates and partial scans stay linear.
     retries: bool,
+    source_path_bytes: usize,
 }
 
 impl Pass<'_> {
@@ -254,6 +260,8 @@ fn scan_fragment<S: RangedSource, C: Cancellation>(
             pending_lengths: Vec::new(),
             pending_prefixes: Vec::new(),
             patches: Vec::new(),
+            source_paths: Vec::new(),
+            source_path_bytes: 0,
             damaged: Vec::new(),
             candidates: &mut *candidates,
             rows,
@@ -455,13 +463,54 @@ fn object_at<S, C>(
 /// a `Failure` for recovery; any other error ends the scan.
 fn frame_object<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
-    pass: &Pass<'_>,
+    pass: &mut Pass<'_>,
     start: u64,
     hints: &[(u64, Extent)],
 ) -> Result<std::result::Result<Framed, Failure>> {
     let head = match reader.load_head(start, None) {
         Ok(head) => head,
-        Err(error) if is_malformed(&error) => return Ok(Err(Failure::Syntax(error))),
+        Err(error)
+            if is_malformed(&error)
+                || matches!(
+                    error.kind,
+                    ErrorKind::LimitExceeded {
+                        resource: "PDF string nesting",
+                        ..
+                    }
+                ) =>
+        {
+            if let Some((repair, inspection)) = source_path::candidate(reader, start)? {
+                if pass.source_paths.len() == MAX_SOURCE_PATH_REPAIRS {
+                    return Err(Error::limit(
+                        "CAJ source path repairs",
+                        MAX_SOURCE_PATH_REPAIRS as u64,
+                        MAX_SOURCE_PATH_REPAIRS as u64 + 1,
+                    ));
+                }
+                let retained = pass
+                    .source_path_bytes
+                    .checked_add(repair.retained_bytes())
+                    .ok_or_else(|| Error::invalid("source path repair budget overflows"))?;
+                reader.limits.check_allocation(retained as u64)?;
+                let object = repair.object;
+                let end = start + object.range.length;
+                push_counted(&mut pass.source_paths, repair, "CAJ source path repairs")?;
+                pass.source_path_bytes = retained;
+                return Ok(Ok(Framed {
+                    object: ScannedObject {
+                        object,
+                        inspection: Ok(inspection),
+                    },
+                    end,
+                    integer: None,
+                    pending: None,
+                }));
+            }
+            if is_malformed(&error) {
+                return Ok(Err(Failure::Syntax(error)));
+            }
+            return Err(error);
+        }
         Err(error) => return Err(error),
     };
     let reference = head.reference;
@@ -720,6 +769,7 @@ fn finish<S: RangedSource, C: Cancellation>(
     Ok(Ok(FragmentScan {
         objects: pass.objects,
         patches: pass.patches,
+        source_paths: pass.source_paths,
         damaged: pass.damaged,
     }))
 }

@@ -356,3 +356,17 @@ The other 12 pinned CAJ files retained their v0.4.0 output SHA-256 hashes under
 both default options and `allowDamaged`. These are structural/hash checks,
 not a new whole-document CAJViewer pixel comparison. Original corpus bytes
 and resulting PDFs remain external to Git.
+
+### CAJ QITE source-path strings
+
+CAJ fragment recovery can hex-encode the measured unescaped source-file paths
+in retained Pages' direct QITE_pageid/F metadata (#419). Every incoming target
+reference must occur only once in such a Page. The scanner admits only a
+complete generation-zero, single-line drive path ending in .pdf, with one
+unescaped ASCII opening parenthesis and the observed GBK full-width closing
+parenthesis. It does not reinterpret escapes or repair rendering strings.
+A short prefix probe and a 640-byte object ceiling bound reads; at most 64
+candidates can require complete graph validation, and retained bytes remain
+under Limits. Every payload byte is preserved in the hexadecimal string.
+Source rechecks, cancellation, sequential output and strict required references
+remain in force. Ordinary indexed PDF strings retain their existing rules.
