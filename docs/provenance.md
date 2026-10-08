@@ -1529,4 +1529,57 @@ or migrated. External source/PDF/text/pixel/font bytes remain outside Git;
 only metadata receipts are published through [#452](https://github.com/rwv/caj2pdf-rust/issues/452).
 Native, CLI, Node and browser share the bounded core rules without API,
 dependency, license or release changes. Related unresolved `eacbcd…` is not
-covered by this accepted evidence profile.
+covered by this accepted evidence profile; its separate recovery is below.
+
+## Retained catalog and incomplete page tree (#456)
+
+The pinned [CAJSamples issue-25/2.caj](https://github.com/caj2pdf/CAJSamples/blob/7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07/issue-25/2.caj)
+has SHA-256 `eacbcd00c35a93f049350970d6b5a38010ca5633bdd615deb86db2ce03559444`,
+2,424,052 bytes, 78 pages and 40 CAJ bookmarks. A fresh GitHub content lookup
+and the local Git blob both identify `393747f96a21852e3d5c42df2a8d1217b2997c6b`.
+Independent original framing identifies 423 complete distinct objects,
+201 streams, 12 complete duplicates and all 78 page-table leaves. Of 60
+full-header interruptions, 56 are exact proper prefixes of complete copies.
+
+The four other full-header interruptions are metadata 450 at
+`[455462,455499)`, dictionary openers 321 and 234, and parent 209 at
+`[1189474,1189535)`. The last declares five children and stops inside the
+fifth child's number: four complete references plus the prefix of 166 agree
+with the five complete leaves' Parent fields and order. Separate bare headers
+include 54 with a trailing space and 324 with a complete intermediate child.
+
+Catalog 16 retains Pages 12, PageLabels 10, absent AcroForm 434 and interrupted
+Metadata 450. Root 12 lists missing nodes 325, 433 and 324. An earlier framing
+script could not place 325 in page order; it is a missing tree-node reference,
+not an additional leaf. The label number tree and its decimal-style dictionary
+are complete. All leaf pages explicitly supply the four inheritable values
+from PDF Table 30, and none has annotations. Existing nodes 183 and 291 each
+retain five independent leaf children. No opaque object/xref stream hides
+references. The missing optional targets' null semantics follow
+[ISO 32000-1:2008](https://raw.githubusercontent.com/adobe/dc-acrobat-sdk-docs/master/docs/standards/pdfstandards/pdf/PDF32000_2008.pdf)
+7.3.9–7.3.10; this does not recover unavailable historical metadata or form bytes.
+
+Four-, five-, six- and seven-span-muted diagnostics retain their subsequent
+failures. The eight-span diagnostic converts but loses the PageLabels catalog
+connection, so it is not a correct original compatibility pass. The independent
+framing retains all source body bytes, adds fresh tree/catalog IDs, and links
+the original label tree. Production replaces the old catalog/root while
+preserving the other 421 original values and 201 raw streams. Independent
+comparison covers all 78 pages' geometry, text, links and Poppler RGB pixels,
+all 78 labels and the 40 CAJ bookmark titles/depth/order/targets.
+
+Fresh isolated viewer comparisons cover original CAJ and independently framed
+PDF pages 1, 53 and 78 at 50% zoom. Complete selected-page crops agree; a
+painted page-53 negative differs by 484 pixels. Three captures per session,
+unchanged source hashes, no OOM and removal of all seven containers are
+recorded. Last-page cropping accounts for the end-of-document scroll limit.
+Other viewer pages are NOT_RUN; #441 remains open.
+
+Implementation, synthetic fixtures and failure/limit controls are original
+MIT work from public PDF semantics and measured source bytes. No foreign
+converter, private HN/JBIG or vendor implementation was read or migrated.
+External CAJ/PDF/text/render/font bytes remain outside Git. The
+[admission bounds](pdf-input.md#retained-catalog-and-incomplete-page-tree) and
+[issue](https://github.com/rwv/caj2pdf-rust/issues/456) record the strict scope,
+reviewed build, runtime and regression evidence. There is no API, dependency,
+license or publication change.

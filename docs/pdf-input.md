@@ -620,3 +620,40 @@ Parent openers are at most 64 bytes, with at most 64 pending parent records;
 unused metadata uses the existing 64-record interruption bound. Existing
 allocation limits, ranged reads, cancellation and sequential output apply.
 Clean indexed PDFs and public APIs are unchanged.
+
+## Retained catalog and incomplete page tree
+
+The #456 CAJ profile has one retained catalog with exactly Type, Pages,
+PageLabels, AcroForm and Metadata. Its old three-entry Pages root contains only
+Type, Count and Kids; every listed child is absent and no complete page/tree
+node points back to that root. The old root's Count must equal the complete
+leaf inventory. Catalog and root have no other incoming edges. The converter
+rebuilds the tree from complete leaves, existing validated intermediate nodes
+and CAJ table order, then emits a new catalog.
+
+The original two-object PageLabels tree remains connected to that catalog.
+Only the measured single range at index zero with an indirect, one-entry
+decimal style dictionary is admitted. AcroForm has no complete object or
+interruption; Metadata has only the measured positive-Length declaration
+ending inside `/Type/Metada`, followed by CRLF and a complete object. Neither
+optional target may have another incoming reference. Undefined optional
+references have null semantics under ISO 32000-1:2008 7.3.9–7.3.10; available
+form/metadata content is never discarded by this rule. Every leaf must have
+explicit MediaBox, CropBox, Rotate and Resources and no Annots entry.
+
+Catalog, old root, both label objects and the metadata declaration are each
+bounded to 256 bytes. The complete-graph/no-opaque-stream proof remains
+mandatory. Extra catalogs, keys, incoming edges, live optional targets,
+different label profiles and incomplete proofs remain errors.
+
+Parent recovery additionally recognizes the measured bare header with one
+space before CRLF. A Count/Kids interruption must end strictly inside the last
+child's decimal number, with the count and all preceding child references
+matching complete independent leaves in source order. A referenced complete
+intermediate Pages node may have only Type, Parent, Count and Kids, with a
+matching count and distinct independent leaf children. There is at most one
+such level and 64 children; no inherited value is inferred. The existing
+64-byte parent-prefix and 64-candidate bounds remain. Reads to the immediately
+following complete page are bounded to 256 bytes; no new payload search or
+whole-file buffer is used. Public APIs and ordinary indexed-PDF rules retain
+their existing behavior.

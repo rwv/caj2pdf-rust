@@ -40,6 +40,7 @@ pub(crate) struct ScannedObject {
 /// page table supplies the minimum body end and page order, never object spans.
 pub(crate) struct FragmentScan {
     pub objects: Vec<ScannedObject>,
+    pub page_labels: Option<PdfRef>,
     pub patches: Vec<FragmentPatch>,
     pub source_paths: Vec<SourcePathRepair>,
     pub substitutions: Vec<StreamSubstitution>,
@@ -939,11 +940,29 @@ fn finish<S: RangedSource, C: Cancellation>(
         }
     }
     compact_replays(reader, &mut pass.objects)?;
+    let catalog = if verify && pass.rows.is_none() {
+        super::catalog_recovery::inspect(
+            reader,
+            &pass.objects,
+            &pass.pending_prefixes,
+            &pass.pending_orphans,
+        )?
+    } else {
+        None
+    };
+    if let Some(recovery) = &catalog {
+        pass.objects.retain(|s| {
+            s.object.reference != recovery.catalog && s.object.reference != recovery.root
+        });
+    }
     let mut pending_parents = Vec::new();
     if verify {
         for (prefix, _) in std::mem::take(&mut pass.pending_prefixes) {
             match proves_prefix(reader, &pass.objects, prefix)? {
                 Some(true) => {}
+                None if catalog
+                    .as_ref()
+                    .is_some_and(|c| c.metadata == prefix.reference) => {}
                 None if super::orphan::parent_opener(reader, &pass.objects, prefix)? => {
                     reader.limits.check_allocation(
                         (pending_parents.len() as u64 + 1) * size_of::<FragmentObject>() as u64,
@@ -997,7 +1016,9 @@ fn finish<S: RangedSource, C: Cancellation>(
             return Err(error);
         }
     }
-    if verify && (!pass.pending_orphans.is_empty() || !pending_parents.is_empty()) {
+    if verify
+        && (!pass.pending_orphans.is_empty() || !pending_parents.is_empty() || catalog.is_some())
+    {
         if !pass.damaged.is_empty() {
             return Err(reader.malformed(
                 0,
@@ -1046,6 +1067,7 @@ fn finish<S: RangedSource, C: Cancellation>(
                         && (!parent
                             || !super::orphan::independent_child(
                                 reader,
+                                &pass.objects,
                                 scanned,
                                 orphan.reference,
                             )?))
@@ -1072,6 +1094,7 @@ fn finish<S: RangedSource, C: Cancellation>(
     }
     Ok(Ok(FragmentScan {
         objects: pass.objects,
+        page_labels: catalog.map(|c| c.labels),
         patches: pass.patches,
         source_paths: pass.source_paths,
         substitutions: pass.substitutions,

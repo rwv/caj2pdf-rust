@@ -2303,3 +2303,68 @@ fn interrupted_parents_use_table_order_without_inherited_page_values() {
         .is_err()
     );
 }
+
+#[test]
+fn retained_catalog_keeps_page_labels_bookmarks_and_table_order() {
+    let mut body = b"1 0 obj << /Length 3 >> stream\nq Q\nendstream\nendobj\n\
+        60 0 obj<</Type/Catalog/Pages 70 0 R/PageLabels 61 0 R/AcroForm 80 0 R/Metadata 90 0 R>>endobj\n\
+        70 0 obj<</Type/Pages/Count 3/Kids[71 0 R 50 0 R]>>endobj\n\
+        61 0 obj<</Nums[0 62 0 R]>>endobj\n\
+        62 0 obj<</S/D>>endobj\n\
+        90 0 obj<</Length 1234/Type/Metada\r\n91 0 obj 9 endobj\n\
+        8 0 obj<</Count 2/Kids[3 0 R 1\r\n".to_vec();
+    let page = |parent, width| {
+        format!(
+            "<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 {width} 80] /CropBox [0 0 90 70] /Rotate 0 /Resources << >> /Contents 1 0 R >>"
+        )
+    };
+    object(&mut body, 3, &page(8, 100));
+    object(&mut body, 14, &page(8, 200));
+    body.extend_from_slice(b"50 0 \r\n");
+    object(&mut body, 20, &page(30, 300));
+    object(
+        &mut body,
+        30,
+        "<< /Type /Pages /Parent 50 0 R /Count 1 /Kids [20 0 R] >>",
+    );
+    let mut input = fragment_caj(&body, &[14, 3, 20]);
+    put_u32(&mut input, 0x110, 2);
+    input[0x114..0x114 + 308].copy_from_slice(&toc_record(b"First", b'1', 1));
+    input[0x114 + 308..0x114 + 616].copy_from_slice(&toc_record(b"Last", b'3', 1));
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let (output, report) = convert(&input, ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(report.pages_converted, 3);
+    assert!(report.omitted_pages.is_empty());
+    assert_eq!(page_numbers(&output), [14, 3, 20]);
+    for preserved in [
+        b"/PageLabels 61 0 R".as_slice(),
+        b"61 0 obj<</Nums[0 62 0 R]>>endobj",
+        b"62 0 obj<</S/D>>endobj",
+        b"q Q",
+    ] {
+        assert!(output.windows(preserved.len()).any(|v| v == preserved));
+    }
+    let file = TempPdf::write("retained-catalog", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+    assert!(inspect(&output).has_outlines());
+    let options = ConversionOptions {
+        include_bookmarks: false,
+        ..ConversionOptions::default()
+    };
+    let (without_outlines, _) = convert(&input, options, &limits).unwrap();
+    assert!(!inspect(&without_outlines).has_outlines());
+    assert!(
+        without_outlines
+            .windows(b"/PageLabels 61 0 R".len())
+            .any(|v| v == b"/PageLabels 61 0 R")
+    );
+    // No extra/missing page, root-count guess or changed incomplete child ID.
+    rejected_without_output(&fragment_caj(&body, &[3, 20]), &limits);
+    let changed = String::from_utf8(body)
+        .unwrap()
+        .replace("/Kids[3 0 R 1", "/Kids[3 0 R 2");
+    rejected_without_output(&fragment_caj(changed.as_bytes(), &[14, 3, 20]), &limits);
+}

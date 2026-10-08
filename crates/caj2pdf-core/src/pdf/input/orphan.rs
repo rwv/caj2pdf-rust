@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Measured unused interruptions and payload-free parent openers. Omission
-//! requires a complete-graph proof of absence or an independent leaf-page role.
+//! Measured unused interruptions and incomplete parents. Omission requires a
+//! complete-graph proof of absence or self-contained descendant page values.
 
 use super::fragment_scan::{Pass, ScannedObject, StreamFailure};
 use super::parser::{Syntax, exact_name, exact_reference, exact_unsigned};
@@ -92,8 +92,9 @@ pub(super) fn metadata_prefix<S: RangedSource, C: Cancellation>(
     )))
 }
 
-/// These two measured openers contain no dictionary key or value. A complete
-/// following page fixes their boundary; the graph check below proves the role.
+/// Three measured openers contain no dictionary key or value; a partial Kids
+/// list must instead match all its known children. A complete following Page
+/// fixes the boundary, and the graph check below proves the parent role.
 pub(super) fn parent_opener<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     objects: &[ScannedObject],
@@ -104,38 +105,46 @@ pub(super) fn parent_opener<S: RangedSource, C: Cancellation>(
         return Ok(false);
     }
     let start = prefix.range.offset - reader.range.offset;
-    let length = prefix.range.length as usize + 2;
-    if length as u64 > reader.range.length - start {
+    let Some(next) = objects
+        .iter()
+        .filter(|s| s.object.range.offset > prefix.range.offset)
+        .min_by_key(|s| s.object.range.offset)
+    else {
         return Ok(false);
-    }
-    let bytes = reader.bytes(start, length)?;
-    let number = prefix.reference.number;
-    if bytes != format!("{number} 0\r\n").as_bytes()
-        && bytes != format!("{number} 0 obj<<\r\n").as_bytes()
+    };
+    let length = next.object.range.offset - prefix.range.offset;
+    if length > MAX_HEADER as u64
+        || !next
+            .inspection
+            .as_ref()
+            .is_ok_and(|i| !i.is_stream && matches!(i.kind, FragmentKind::Page { .. }))
     {
         return Ok(false);
     }
-    let framed = objects.iter().any(|scanned| {
-        scanned.object.range.offset == prefix.range.offset + length as u64
-            && scanned
-                .inspection
-                .as_ref()
-                .is_ok_and(|i| !i.is_stream && matches!(i.kind, FragmentKind::Page { .. }))
-    });
-    if framed && reader.bytes(start, length)? != bytes {
+    let length = length as usize;
+    let bytes = reader.bytes(start, length)?;
+    let number = prefix.reference.number;
+    if bytes != format!("{number} 0\r\n").as_bytes()
+        && bytes != format!("{number} 0 \r\n").as_bytes()
+        && bytes != format!("{number} 0 obj<<\r\n").as_bytes()
+        && !child_list_prefix(reader, objects, prefix, &bytes)?
+    {
+        return Ok(false);
+    }
+    if reader.bytes(start, length)? != bytes {
         return Err(reader.malformed(
             start,
             Some(prefix.reference),
             "interrupted parent opener changed while reading",
         ));
     }
-    Ok(framed)
+    Ok(true)
 }
 
 /// An incoming edge to an interrupted parent must be the sole Parent field of
 /// a leaf page with all four inheritable properties explicitly supplied. The
 /// CAJ converter then validates table membership and builds the existing tree.
-pub(super) fn independent_child<S: RangedSource, C: Cancellation>(
+pub(super) fn independent_leaf<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     scanned: &ScannedObject,
     parent: PdfRef,
@@ -173,6 +182,115 @@ pub(super) fn independent_child<S: RangedSource, C: Cancellation>(
             && d.value(b"Resources")
                 .is_some_and(|v| exact_reference(v).is_some() || v.starts_with(b"<<")),
     )
+}
+
+/// A measured parent list ends inside the final child's number. Every child
+/// is complete and self-contained; source order supplies the exact prefix.
+/// The converter subsequently checks the tree against the CAJ page table.
+fn child_list_prefix<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    objects: &[ScannedObject],
+    prefix: FragmentObject,
+    bytes: &[u8],
+) -> Result<bool> {
+    let Some(bytes) = bytes.strip_suffix(b"\r\n") else {
+        return Ok(false);
+    };
+    let mut children = [None; 64];
+    let mut count = 0;
+    for scanned in objects {
+        if scanned.inspection.as_ref().is_ok_and(
+            |i| matches!(i.kind, FragmentKind::Page { parent, .. } if parent == prefix.reference),
+        ) {
+            if count == children.len() || !independent_leaf(reader, scanned, prefix.reference)? {
+                return Ok(false);
+            }
+            children[count] = Some(scanned);
+            count += 1;
+        }
+    }
+    if count < 2 {
+        return Ok(false);
+    }
+    children[..count].sort_unstable_by_key(|s| s.unwrap().object.range.offset);
+    let expected = format!("{} 0 obj<</Count {count}/Kids[", prefix.reference.number);
+    let Some(mut digits) = bytes.strip_prefix(expected.as_bytes()) else {
+        return Ok(false);
+    };
+    for child in &children[..count - 1] {
+        let item = format!("{} 0 R ", child.unwrap().object.reference.number);
+        let Some(rest) = digits.strip_prefix(item.as_bytes()) else {
+            return Ok(false);
+        };
+        digits = rest;
+    }
+    let last = children[count - 1]
+        .unwrap()
+        .object
+        .reference
+        .number
+        .to_string();
+    Ok(!digits.is_empty() && digits.len() < last.len() && last.as_bytes().starts_with(digits))
+}
+
+/// Admit one complete intermediate node only when every direct child is an
+/// independent leaf. No recursion, inherited-property inference or empty node.
+pub(super) fn independent_child<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    objects: &[ScannedObject],
+    scanned: &ScannedObject,
+    parent: PdfRef,
+) -> Result<bool> {
+    let i = scanned.inspection.as_ref().expect("complete graph checked");
+    let FragmentKind::Pages {
+        parent: Some(p),
+        count,
+        kids,
+        ..
+    } = &i.kind
+    else {
+        return independent_leaf(reader, scanned, parent);
+    };
+    if *p != parent
+        || i.is_stream
+        || kids.is_empty()
+        || kids.len() > 64
+        || *count as usize != kids.len()
+        || i.references.iter().filter(|r| **r == parent).count() != 1
+    {
+        return Ok(false);
+    }
+    let head = reader.load_head(
+        scanned.object.range.offset - reader.range.offset,
+        Some(scanned.object.reference),
+    )?;
+    let Some(d) = head.dictionary.as_ref() else {
+        return Ok(false);
+    };
+    if !matches!(head.tail, ObjectTail::EndObject { end } if end as u64 == scanned.object.range.length)
+        || head.references != i.references
+        || d.entries.len() != 4
+        || d.value(b"Type").and_then(exact_name).as_deref() != Some(b"Pages")
+        || d.value(b"Parent").and_then(exact_reference) != Some(parent)
+        || d.value(b"Count").and_then(exact_unsigned) != Some(u64::from(*count))
+        || d.value(b"Kids")
+            .and_then(|v| super::parser::reference_array(v, 64))
+            .as_ref()
+            != Some(kids)
+    {
+        return Ok(false);
+    }
+    for (index, kid) in kids.iter().enumerate() {
+        let Some(child) = objects.iter().find(|s| s.object.reference == *kid) else {
+            return Ok(false);
+        };
+        if kids[..index].contains(kid)
+            || !independent_leaf(reader, child, scanned.object.reference)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 pub(super) fn opener<S: RangedSource, C: Cancellation>(
