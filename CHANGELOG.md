@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-No changes recorded after v0.6.1.
+- Recover measured redundant CAJ epilogues and unused interruptions after
+  complete-graph validation. Preserve declared stream payloads across bounded
+  trailing whitespace (#409, #434). No API or dependency changes.
 
 ## v0.6.1
 
