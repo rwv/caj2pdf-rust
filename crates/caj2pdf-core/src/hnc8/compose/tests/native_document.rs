@@ -398,54 +398,64 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
     }
 }
 
-#[test]
-fn hnb_type3_after_text_retains_pixels_and_rejects_malformed_payloads() {
-    for corrupt in [false, true] {
-        let record = type3_record(3, 2, 20, 40);
-        let mut fixture = fixture_with_text(Variant::HnB, &[vec![record]], native_text);
-        if corrupt {
-            fixture.bytes[fixture.payloads[0][0] as usize] = 0;
-        }
-        let mut source = Source::new(fixture.bytes);
-        source.short = 3;
-        let mut fonts = [C8FontSource {
-            source: Source::new(crate::pdf::drawing_font()),
-            face: 0,
-        }];
-        let mut sink = Sink::default();
-        let limits = Limits {
-            io_chunk_bytes: 64,
-            ..Limits::default()
-        };
-        let result = convert_c8_native_pdf(
-            &mut source,
-            &mut sink,
-            C8FontSources {
-                sources: &mut fonts,
-                roles: roles(),
-            },
-            None,
-            ComposeOptions::default(),
-            &limits,
-            &NeverCancel,
-        );
-        assert!(source.max_request <= 64);
-        if corrupt {
-            let error = result.unwrap_err();
-            assert_eq!(page_image(&error), (Some(1), Some(1)));
-            assert!(!sink.bytes.ends_with(b"%%EOF\n"));
-        } else {
-            let report = result.unwrap();
-            assert_eq!(report.type3_images, 1);
-            assert_eq!(report.output_pages, 1);
-            let text = crate::test_support::pdf_text(&sink.bytes);
-            assert!(text.contains("/BM /Multiply"));
-            let first = text.find("<0041> Tj").unwrap();
-            let image = text.find("/Im0 Do").unwrap();
-            let last = text.rfind("<0041> Tj").unwrap();
-            assert!(first < image && image < last);
-            let raster = render_original_pdf_at(&sink.bytes, "741.9");
-            assert!(raster.starts_with(b"P5\n100 200\n255\n"));
-        }
+fn check_hnb_type3_after_text(corrupt: bool) -> Vec<u8> {
+    let record = type3_record(3, 2, 20, 40);
+    let mut fixture = fixture_with_text(Variant::HnB, &[vec![record]], native_text);
+    if corrupt {
+        fixture.bytes[fixture.payloads[0][0] as usize] = 0;
     }
+    let mut source = Source::new(fixture.bytes);
+    source.short = 3;
+    let mut fonts = [C8FontSource {
+        source: Source::new(crate::pdf::drawing_font()),
+        face: 0,
+    }];
+    let mut sink = Sink::default();
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        ..Limits::default()
+    };
+    let result = convert_c8_native_pdf(
+        &mut source,
+        &mut sink,
+        C8FontSources {
+            sources: &mut fonts,
+            roles: roles(),
+        },
+        None,
+        ComposeOptions::default(),
+        &limits,
+        &NeverCancel,
+    );
+    assert!(source.max_request <= 64);
+    if corrupt {
+        let error = result.unwrap_err();
+        assert_eq!(page_image(&error), (Some(1), Some(1)));
+        assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+    } else {
+        let report = result.unwrap();
+        assert_eq!(report.type3_images, 1);
+        assert_eq!(report.output_pages, 1);
+        let text = crate::test_support::pdf_text(&sink.bytes);
+        assert!(text.contains("/BM /Multiply"));
+        let first = text.find("<0041> Tj").unwrap();
+        let image = text.find("/Im0 Do").unwrap();
+        let last = text.rfind("<0041> Tj").unwrap();
+        assert!(first < image && image < last);
+    }
+    sink.bytes
+}
+
+#[test]
+fn hnb_type3_after_text_keeps_order_and_rejects_malformed_payloads() {
+    for corrupt in [false, true] {
+        check_hnb_type3_after_text(corrupt);
+    }
+}
+
+#[test]
+fn independent_render_checks_hnb_type3_after_text() {
+    let pdf = check_hnb_type3_after_text(false);
+    let raster = render_original_pdf_at(&pdf, "741.9");
+    assert!(raster.starts_with(b"P5\n100 200\n255\n"));
 }
