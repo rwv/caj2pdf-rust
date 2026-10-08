@@ -982,6 +982,10 @@ and release behavior remain unchanged.
 
 ## Redundant CAJ framing (#409, #434)
 
+The [pinned report and per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/26720c5d76fbb05b39400a65b35b3974b31c1931/research/notes/redundant-caj-framing-20261008.md)
+record the measured source facts, original controls and final production
+verification at `20292ab805a9d2cef066270af549635dce753dc5`.
+
 Independent source-byte inspection of the unchanged 60-page CAJSamples
 `issue-90/4-[6].caj`, upstream revision
 `7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07`, SHA-256
@@ -1038,3 +1042,17 @@ profiles, every cancellation checkpoint, short reads, limits and changing
 sources. They contain no corpus bytes. Documents, derived PDFs, font/pixel
 data and vendor binaries stay external. No new dependency, private migration,
 foreign converter code or private HN/JBIG implementation is introduced.
+
+The final 1,277-original / 2,126-attempt native run adds this one PASS and
+preserves every previous successful PDF hash: 1,240 PASS, 28 FAIL and nine
+UNSUPPORTED. Raw qpdf warnings, old ordering labels and missing checks remain
+in the receipt; direct PDF hash comparisons retain the prior 936-source
+image/text and 26-source ordering proofs within their original scope. The
+unchanged original passes Node and Chromium with native-identical bytes and
+empty OPFS after cleanup. A newer 433-page NH also remains byte-identical on
+all three runtimes; 18 separate CAA descriptors retain intentional offline
+refusals, and NH source-viewer pixels remain unexecuted. These are not counted
+as additional frozen-corpus passes. Local checks pass 1,306 workspace and
+166 JavaScript tests, with seven optional-corpus tests ignored; eight required
+CI checks pass at the tested production commit. Review is self-review, not
+independent approval, and the wider #406 correctness goal remains open.
