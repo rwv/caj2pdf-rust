@@ -1733,3 +1733,51 @@ substitution, unknown C8/HN-B outlines and remaining recovery boundaries stay
 explicit. #406's runtime criterion is satisfied, while its other criteria
 and #303 remain open. This conformance-only update has no release-note or
 publication effect.
+
+## Source page extents and ordered image geometry (#406, samples #49)
+
+The [973-original geometry report](https://github.com/rwv/caj2pdf-samples/blob/7dd99d385d334815c49afedcfe7929f5412bed8d/research/notes/source-image-geometry-20261008.md)
+and its metadata-only per-input/page receipt compare all 16,548 accepted
+HN/C8/NH pages against unchanged reviewed #457 native PDFs. All declared page
+boxes and applicable ordered image transforms/resource identities pass. The
+ten native-text originals contribute 60 pages; their glyph/vector placement
+is outside this measurement. Corpus conversion totals remain 1,252 PASS,
+18 FAIL and 27 UNSUPPORTED across 1,297 catalog identities.
+
+The new original MIT POSIX Python tools reuse the original bounded source
+extractor, measured text framing and an optional image callback in the existing
+native glyph walk. Expected dimensions/placements come from source fields and
+the documented empirical `240/2473` point scale. The predeclared `1/20000`
+point tolerance covers serialization; it is not a new physical-unit or visual
+fidelity claim. Repeated descriptors require actual bounded payload-byte
+equality. PDF matrix stacks and image identities are checked together, with
+unmeasured clipping/graphics state retained as incomplete. The recorded native
+Multiply state does not independently prove source blend appearance.
+
+The [NH bitmap receipt](https://github.com/rwv/caj2pdf-samples/blob/7dd99d385d334815c49afedcfe7929f5412bed8d/research/notes/nh-bitmap-oracle-20261008.json)
+adds 430 previously missing bitmap identities to the independent source
+evidence: three type-0 and 427 type-3 descriptors, plus four unchanged JPEGs
+on the same 433-page original. Every page passes source bitmap/order checks.
+Type 0 uses the existing pinned external decoder binary with guarded fresh
+workers; type 3 wraps unchanged source payloads and requires Poppler/MuPDF
+agreement. The tools' underlying decoder independence remains unverified.
+Candidate-decoded pixels never supply expected source bits.
+
+The report pins unchanged source/PDF hashes, checker/dependency/oracle hashes,
+Python/pikepdf/qpdf/zlib versions, per-page metadata and full external result
+hashes. The public geometry receipt SHA-256 is
+`0ec675697686c5020c84320995ca4b21fd52359499f4b6dae01095fb4ddee150`.
+Hashing and source reads are bounded; text/content, images, stack and
+process memory have explicit caps. Original mutation controls reject changed
+boxes, placement, scale, order, omissions, resources and incomplete inputs.
+The 69 selected Catalog tests include 12 new geometry control groups. Earlier
+checker mismatches and incomplete NH checks remain recorded without being
+counted as successful content verification.
+
+Existing independently authored format notes and original MIT Rust code were
+consulted. No foreign converter, vendor decoder or private HN/JBIG source was
+read or migrated. Documents, PDFs, fonts, pixels and decoder bytes remain
+external. This research-only evidence changes no production dependency, API,
+supported format, output PDF or release note. Native glyph/font/vector fidelity,
+unknown C8/HN-B outlines, recovery exceptions and #441 viewer limits remain
+open under #406; no release is implied.
