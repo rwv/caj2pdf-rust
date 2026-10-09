@@ -1110,7 +1110,7 @@ checks pass; those are not conversion compatibility passes. The
 retains the source-history search, earlier viewer/whole-document limits and
 unmet recovery criteria. #420 and #406 remain open; no release is performed.
 
-## Complete current-build runtime checkpoint (#406)
+## Complete 2026-10-08 runtime checkpoint (#406)
 
 The [current per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/current-corpus-runtime-20261008.md)
 covers all 1,297 catalog identities: 1,252 conversion PASS, 18 FAIL and
@@ -1281,3 +1281,24 @@ exclude later asynchronous changes or establish full page fidelity. #303
 remains open for a positive original and measured layout; the unknown-outline
 warning stays. No converter behavior, runtime artifact or conversion ledger
 changes: 1,252 PASS / 18 FAIL / 27 UNSUPPORTED. #441 and #406 remain unresolved.
+
+## Public-web cohort and source checks (2026-10-09, #406)
+
+The [87-original acquisition/runtime receipt](https://github.com/rwv/caj2pdf-samples/blob/541745102686ce8ecc145b99f8a6e6c7f96a4b83/research/notes/public-web-sweep-20261009.md)
+extends the catalog to 1,384 identities. After #497/#498, all 87 new originals
+convert (701 pages), with exact native/Node/Chromium output parity and cleanup.
+Eighty outputs are qpdf-clean; seven retain source-content warnings under #499.
+All old 119 PDF/KDH regression outcomes and successful output hashes remain
+unchanged. The original 1,297-input full runtime checkpoint above and this new
+cohort have separate revision-scoped evidence; they are not a new full-corpus
+conversion run. Combined counts are 1,339 conversion PASS / 18 FAIL /
+27 UNSUPPORTED, with 36,288 accepted pages.
+
+The [source-correctness follow-up](https://github.com/rwv/caj2pdf-samples/blob/9bbb9f5ddfe1cd340d2f0f758a0104a4e1e95022/research/notes/public-web-correctness-20261009.md)
+checks the four new HN/C8 sources (203 pages / 236 image descriptors), the
+20-page KDH's selected objects/streams/navigation, and both new C8 displayed
+contents models. All 11 warning streams have complete compressed framing but
+incomplete PDF tokens. This adds scoped content/geometry evidence without
+recovering missing content, resolving unknown outlines or proving full
+font/rendering fidelity. The seven warning cases and older unresolved
+exceptions remain visible; #406 is not complete.
