@@ -1923,3 +1923,39 @@ Chromium, with source integrity and temporary cleanup. Native page/outline
 metadata stays unknown; JavaScript error type/code/format are unchanged.
 No core/WASM behavior, dependency, memory bound, supported conversion or PDF
 output changes. #468 and #406 remain open; no release is requested.
+
+
+## TEB public-certificate and opaque-field observations (#468)
+
+The [credential-boundary report](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.md) and [per-source receipt](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.json)
+identify parseable X.509 certificates in all eight complete TEB containers:
+two distinct 1,024-bit RSA public keys with exponent 65,537. Four opaque fields
+have canonical base64 encodings of measured sizes. A direct public-operation
+hypothesis matches neither tested padding shape on any source; full sequential
+scans of 61,126,169 declared-PDF bytes find no tested literal PDF/ZIP tokens.
+The damaged ninth source remains explicitly unchecked for unavailable fields.
+Receipt SHA-256:
+`4f3ac3d5205f9240c604abfcbee8fac39bd35d510fa538bd929a2001bef7d830`.
+
+The new research tool and six original control groups are MIT code, based on
+independent observations and public RFC 7468/5280/8017 structure/terminology;
+no RFC implementation code is copied. Installed OpenSSL is an external research
+utility, not a new production dependency. Generated control private keys are
+ephemeral and never printed or committed. No source certificate/key/credential
+values, document/font/pixel data or foreign converter/vendor/private HN/JBIG
+implementation enters either repository.
+
+The checker reuses bounded container metadata, 64 KiB payload chunks and the
+512 MiB source limit; DER is limited to 8 KiB and each local OpenSSL call to
+ten seconds. The report process/children inherit a 512 MiB address-space cap;
+parent VmHWM is 17,272 KiB. All 109 selected Catalog tests pass without skips.
+Source/tool hashes are checked before and after. Bounds, negative controls,
+failed hypotheses and primary-source scope are explicit.
+
+Parsing a public certificate does not verify trust/signature/authorization or
+establish a usable document credential. Field names, lengths, absent syntax
+and negative probes do not identify content wrapping or prove impossibility.
+#468's actual derivation/credential/recovery criteria remain open. This evidence
+changes no native/CLI/JavaScript API, memory bound, supported conversion, output
+PDF or release note. Existing runtime checks remain historical, not relabeled
+as a fresh full-corpus run; #406 remains open.
