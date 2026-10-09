@@ -1196,3 +1196,19 @@ The source with missing rights bytes remains NOT_CHECKED for those fields.
 These observations do not validate credentials, identify a cipher or establish
 irrecoverability; #468 remains open. No conversion count, support/API/output
 or runtime baseline changes.
+
+## Normal native caller-font subsets
+
+The [ten-original audit](https://github.com/rwv/caj2pdf-samples/blob/42d7a54de99e66f099252d029893d9cce761328f/research/notes/native-font-subsets-20261009.md)
+checks 60 normal-font pages, 83,432 ordinary glyph draws and 212 ornament marks.
+All 6,140 resource/CID pairs in ten CFF and ten TrueType programs match the
+pinned caller fonts' unhinted outlines and advances; PDF widths also agree.
+Six original mutation/control groups cover both font formats. This extends
+the earlier marker-role/model verification to the actual normal subsets.
+
+The chosen Noto Serif CJK/FreeSerif resources remain substitutes. Caller-font
+agreement does not prove source-font, hinting, ornament or full raster fidelity;
+one private-use ActualText approximation remains. Source/PDF/font hashes are
+unchanged, as are the existing runtime parity receipt and 1,252 PASS / 18 FAIL /
+27 UNSUPPORTED ledger. No converter defect or unavoidable exception is inferred.
+Samples #51 and #406 retain their remaining acceptance work.

@@ -73,3 +73,9 @@ opaque-field structure for eight complete sources, with bounded complete-payload
 scans and original cryptographic/encoding controls. Actual key derivation,
 validated credentials and whole-document recovery remain unknown under #468.
 No private/vendor implementation or source values are imported.
+
+The [normal caller-font subset audit](https://github.com/rwv/caj2pdf-samples/blob/42d7a54de99e66f099252d029893d9cce761328f/research/notes/native-font-subsets-20261009.md)
+verifies used CID outlines/advances and PDF widths for all ten native normal
+outputs: 6,140 resource/CID pairs across 83,644 draws. Generated TrueType/CFF
+controls detect deliberate mutations. Only external caller fonts are compared;
+original-viewer fonts, hinting, raster fidelity and #406 remain unresolved.
