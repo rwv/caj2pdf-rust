@@ -1229,3 +1229,20 @@ all counterexamples and cleanup. This changes neither production PDFs nor the
 is claimed. #441 still needs a reliable comparison criterion and investigation
 of the original PDF discrepancy; original-font/ornament appearance, remaining
 recovery work and complete #406 correctness are unresolved.
+
+The [public-buffer follow-up](https://github.com/rwv/caj2pdf-samples/blob/2cf840a94dd6cfd5b9b8e7414c7556692f19637b/research/notes/viewer-page-buffer-20261009.md)
+checks twelve additional original-control sessions: six native, four PDF
+without observation, and two PDF with buffer/pixmap observation. Both native
+variants already occur in buffers wrapped by Qt, with exact subsequent pixmap
+hash agreement. An original six-page PDF has 8,254 differing buffer pixels and
+21,073 differing transformed screenshot pixels, each at most one channel level;
+the instrumented pair reproduces the uninstrumented screenshot hashes.
+
+All sessions retain equal within-session captures, input hashes, no OOM and
+cleanup. A wrong five-page last-page crop is corrected and retained as a
+measurement error; different cross-document scroll positions do not isolate a
+page-count cause. Endpoint state and command durations do not identify the
+internal cause or establish readiness. Seven new original API/PDF control
+groups test the tools without a viewer or corpus. Historical sessions are not
+relabeled as final-tool runs or compatibility passes. The existing 1,252 PASS /
+18 FAIL / 27 UNSUPPORTED baseline and unresolved #441/#406 criteria remain.

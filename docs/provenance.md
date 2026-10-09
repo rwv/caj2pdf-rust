@@ -2025,3 +2025,36 @@ remain external. Receipt SHA-256:
 This establishes a reproducible measurement limitation, not a pixel tolerance,
 reliable readiness rule, converter defect or corpus fidelity pass. The original
 PDF discrepancy and the broader #441/#406 criteria remain open; no release.
+
+## Public page-buffer boundary and original PDF controls (#441)
+
+The [buffer report](https://github.com/rwv/caj2pdf-samples/blob/2cf840a94dd6cfd5b9b8e7414c7556692f19637b/research/notes/viewer-page-buffer-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/2cf840a94dd6cfd5b9b8e7414c7556692f19637b/research/notes/viewer-page-buffer-20261009.json)
+retain twelve further contained viewer sessions. Both native variants occur
+in public Qt5 RGB888 buffer constructors and match the selected display pixmaps.
+An original six-page PDF also differs across direct/prior-page routes: 8,254
+buffer pixels versus 21,073 transformed screenshot pixels, at most one channel
+level. These are separate measurement stages, not interchangeable counts.
+
+The original MIT observer forwards four documented public constructors, hashes
+selected rows without padding or whole-image copies, and caps images at 4 Mi
+pixels and metadata at 10,000 events plus an explicit limit. Its original API
+controls verify forwarding/cleanup, caller ownership, padding, format/dimension
+bounds and log failure. The original PDF generator writes two fixed documents
+below 160 KiB each, referencing standard Helvetica without importing a font
+program. Independent qpdf/pikepdf controls preserve both measured identities.
+Qt5 declarations and ABI names come from public distro headers and compilation
+of our own call sites; no vendor implementation, font outlines, foreign
+converter code or private module was inspected or migrated. Distro Qt is an
+external research dependency, not newly linked into the converter.
+
+All source/derived documents, pixels, fonts and binaries remain external. The
+receipt retains both native outcomes and corrects an initially wrong last-page
+PDF crop without discarding the original frames. Endpoint floating state does
+not establish earlier/internal state; UI logs lack absolute timing, and the
+observer can perturb timing. Measured prototype runs are distinguished from
+final-tool controls. Receipt SHA-256:
+`3349fdab8d3c6bbd3d78e666de3d2f6c67b3878d6d50ce461095a1e1bf2d6dba`.
+No production I/O, API, output, supported-format or release-note change follows.
+The original 7797 PDF discrepancy, reliable readiness and complete source
+fidelity remain open; these observations add no corpus conversion pass.
