@@ -2059,6 +2059,47 @@ No production I/O, API, output, supported-format or release-note change follows.
 The original 7797 PDF discrepancy, reliable readiness and complete source
 fidelity remain open; these observations add no corpus conversion pass.
 
+## Font-free viewer raster controls (#482)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/a69ac7caf21cb2f750d98734d1f7722712de906d/research/notes/viewer-raster-stages-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/a69ac7caf21cb2f750d98734d1f7722712de906d/research/notes/viewer-raster-stages-20261009.json)
+retain ten predeclared fresh sessions: seven confirmed public-buffer/display
+observations, two confirmed screenshots without any observer, and one baseline
+application abort. The aborted first bracket stays NOT_CONFIRMED, with its
+three pair comparisons NOT_COMPARABLE; no attempt was replaced or retried.
+All inputs remain unchanged, no OOM occurs, and every container is removed.
+
+An original six-page PDF with no fonts or text operators produces two
+397×561 buffer variants differing at 3,655 pixels, with channel deltas -1 to
++1. Its four authored panels contain solid gray cells, fractional triangles,
+an opaque gray image and a black image with a gray soft mask. The complete
+397×562 displayed page differs at 6,037 pixels after Qt's transform. Both
+variants recur byte-for-byte in the two no-observer screenshots. Font/text
+operators and the observer are therefore not required for this observation;
+its internal cause and general readiness remain unestablished under #441.
+The existing Standard-14 baseline reproduces its prior 8,254-buffer /
+21,073-display difference. Buffer and display counts are separate stages.
+
+The independent grayscale discriminator rejects one coordinate-independent
+lookup for the retained native/PDF pairs and the new font-free pair. It never
+fits a correction, pixel tolerance or alignment. Seven new original fixture
+and comparison tests pass without skips. The sequential fixed PDF generator
+stays below 160 KiB; PNG analysis hashes and decodes the same bytes, capped at
+16 MiB and 4 Mi pixels. PDF image/soft-mask interfaces come from published
+specifications linked in the report. All new source is original MIT; no vendor
+implementation/font program/outline, foreign converter code or private module
+was inspected or migrated. PDFs, pixels, fonts, binaries and raw logs remain
+external. The reused public-Qt prototype observer remains identified by SHA
+`1cfcddaa7d469caac728b4c25e93658146206896d7735f891e5ccea26c4747ea`;
+these sessions are not relabeled as runs of the later published observer.
+
+Receipt SHA-256:
+`e050ae36c0ed758d38ca30362d642ad0695a34497c7a00de94555bca0e9eb54e`.
+No conversion/runtime sweep or production I/O/API/CLI/JavaScript/output/support
+change occurs. The ledger remains 1,252 PASS / 18 FAIL / 27 UNSUPPORTED across
+1,297 originals. The original 7797 discrepancy, reliable readiness, native
+source fonts/ornaments and broader #441/#406 fidelity remain open; no release.
+
 ## Complete displayed-contents observation (#476)
 
 The [report](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.md), [receipt](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.json) and linked protocol
