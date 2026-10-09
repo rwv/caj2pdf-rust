@@ -24,9 +24,12 @@ const node = typeof process !== "undefined" && process.versions?.node != null;
 
 let post;
 if (node) {
-  const { parentPort } = await import("node:worker_threads");
-  post = (message, transfer) => parentPort.postMessage(message, transfer);
-  parentPort.once("message", (message) => start(message));
+  // Keep the module graph synchronous for bundlers' classic Worker output.
+  // Node queues messages until the listener is attached below.
+  import("node:worker_threads").then(({ parentPort }) => {
+    post = (message, transfer) => parentPort.postMessage(message, transfer);
+    parentPort.once("message", (message) => start(message));
+  });
 } else {
   post = (message, transfer) => self.postMessage(message, transfer ?? []);
   self.addEventListener("message", (event) => start(event.data), { once: true });
