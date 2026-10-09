@@ -49,4 +49,11 @@ source fidelity remains open under #406.
 The [native vector follow-up](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.md) verifies all 327 measured paths and
 their order among glyph/image operations on those 60 pages. Original negative
 controls, input/output hashes, process bounds and earlier checker refusals are
-retained. Glyph placement, fonts, ornaments and raster fidelity remain open.
+retained. That check excludes glyph placement, fonts, ornaments and raster fidelity.
+
+The [native glyph/ornament follow-up](https://github.com/rwv/caj2pdf-samples/blob/82054fbe12e7a222a4e8e8a54f3694ee44361306/research/notes/native-glyph-model-20261009.md) verifies all 83,432 ordinary
+glyphs and 212 ornament marks in both normal and original-marker PDF sets.
+Positions, dimensions, shear, gray, clipping and complete paint-kind order match
+existing measured models; diagnostic roles match original font programs and CID
+maps. This fills the model-check gap while retaining original-font, ornament
+appearance, raster, viewer, outline and remaining exception limits under #406.
