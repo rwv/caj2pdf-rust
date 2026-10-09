@@ -1302,3 +1302,19 @@ incomplete PDF tokens. This adds scoped content/geometry evidence without
 recovering missing content, resolving unknown outlines or proving full
 font/rendering fidelity. The seven warning cases and older unresolved
 exceptions remain visible; #406 is not complete.
+
+## Additional public TTKN original (#501)
+
+The [pinned follow-up](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.md)
+adds one distinct protected source to the previous web checkpoint. Frozen
+reviewed #498 CLI/WASM artifacts refuse it at byte 1,889,611 on native, Node
+and Chromium; no PDF is published, browser OPFS is empty and the source hash
+is unchanged. A separate offline diagnostic copy receives its author's
+matching disclosed response but still reports a rights-file error. Original
+PDF and protocol controls pass; no actual TTKN content recovery is established.
+
+Current catalog totals are **1,385 identities: 1,339 conversion PASS, 19 FAIL,
+27 UNSUPPORTED**, with 36,288 accepted pages unchanged. The previous 1,384
+rows retain their earlier revision-scoped results; no new full-catalog run is
+claimed. Refusal/cleanup checks and offline viewer errors do not establish
+unavoidable exceptions. #501, #415 and the overall #406 criteria remain open.
