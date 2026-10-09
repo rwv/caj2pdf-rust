@@ -2,6 +2,21 @@
 
 Changes after [v0.6.1](v0.6.1.md):
 
+### Breaking CLI inspection value: TEB support reason (#469)
+
+For TEB, `inspect --json` now reports `"unsupported_reason":"not-implemented"`
+in place of `"drm-encrypted"`. Update callers matching `drm-encrypted` to
+accept `not-implemented`; `format: "TEB"`, `conversion_supported: false` and
+unknown page/outline metadata are unchanged. CLI text and Node/browser errors
+now say conversion is unsupported. Recognizing a TEB prefix does not prove
+encryption, corruption or impossibility of recovery. JavaScript retains
+`UnsupportedFormatError`, `code: "UNSUPPORTED_FORMAT"` and `format: "teb"`;
+callers should match these fields instead of diagnostic prose. No supported
+conversion/PDF output, I/O limits, dependency or core/WASM API changes.
+
+
+### Other unreleased changes
+
 - Accept the measured named local outline destinations in indexed PDFs (#449):
   byte-string keys in an indirect Dests name tree, resolving through indirect
   XYZ arrays to live pages. Validate complete ordering, Limits and graph shape

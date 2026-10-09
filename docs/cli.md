@@ -459,7 +459,7 @@ added without changing version 1.
 | `bookmark_count` | integer or null | Number of outline entries that conversion writes; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
 | `outline_warnings` | integer or null | Number of [HN-A bookmark defects](#hn-a-bookmark-defects) skipped or re-parented; `0` for other listed outlines; null when `bookmark_count` is null. |
-| `unsupported_reason` | string | Present only when a recognized format is never converted: `"target-descriptor"` for CAA, which has no document pages, or `"drm-encrypted"` for TEB, whose document content is encrypted. |
+| `unsupported_reason` | string | Present when this version does not convert a recognized format: `"target-descriptor"` for CAA, or `"not-implemented"` for TEB. TEB detection does not inspect its container, encryption or recoverability. Before #469, TEB returned `"drm-encrypted"`; update callers that match that value. |
 | `application_info` | object | Present only for a C8 source with a readable [application-info package](#c8-application-info); omitted otherwise, including when a defective package is ignored. |
 
 The `application_info` object has these fields:

@@ -121,8 +121,6 @@ pub fn write_text<W: Write>(
             "experimental"
         } else if supported {
             "supported"
-        } else if info.format == InputFormat::Teb {
-            "not supported (DRM-encrypted container)"
         } else if info.format == InputFormat::Caa {
             "not supported (target descriptor; obtain the referenced document)"
         } else {

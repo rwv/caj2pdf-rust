@@ -693,7 +693,7 @@ The existing runner used 180-second, 1-GiB address-space and 512-MiB output-file
 limits per child. Tool/font versions and hashes are recorded in the receipt.
 
 All 50 remaining refusals are classified: 16 encrypted PDFs (14 also have
-HTML debris), nine encrypted TEB containers, and 25 PDF repair/profile/limit
+HTML debris), nine recognized TEB sources, and 25 PDF repair/profile/limit
 or CAJ-span cases. These are not 50 proven implementation defects. A valid
 xref Predictor 12 profile was explicitly unsupported at this checkpoint;
 its later fix is recorded [below](#png-up-xref-and-object-stream-checkpoint-402-404). The existing qpdf warning
@@ -1165,3 +1165,23 @@ viewer title/destination enumeration were not checked in this follow-up.
 The auxiliary HN-A control is outside the 1,297-input conversion ledger.
 C8/HN-B outline metadata remains unknown, omission warnings remain, and
 #303 and #441 stay open. No synthetic outline or zero-count inference is added.
+
+
+## TEB container integrity and unsupported diagnostics (#468, #469)
+
+The [nine-source boundary report](https://github.com/rwv/caj2pdf-samples/blob/7fc1c5d4ce1b8c0b45fef68831149844a53fee14/research/notes/teb-container-boundary-20261009.md)
+corrects earlier container/CRC assumptions: eight sources have intact entry
+checksums and readable metadata; one public attachment has an independently
+verified zero-filled suffix. None has a recovered PDF. Eleven fresh offline
+viewer sessions include all nine originals, an extension pair and an original
+positive control. The error observations do not prove general irrecoverability.
+
+CLI inspection now reports TEB `unsupported_reason: "not-implemented"` instead
+of `"drm-encrypted"`, and CLI/JavaScript errors state the current support limit.
+See the [breaking migration](releases/unreleased.md). All nine unchanged inputs
+still refuse conversion on native, Node and real Chromium with zero output and
+confirmed source/temporary integrity. These 27 refusal checks are not conversion
+passes; metadata-declared page counts are not imported into inspection.
+The ledger remains 1,252 PASS / 18 FAIL / 27 UNSUPPORTED and 35,587 accepted
+pages. TEB wrapping/credential/recovery requirements remain open under #468,
+and complete corpus correctness remains open under #406.

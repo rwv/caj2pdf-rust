@@ -56,7 +56,7 @@ await writer.close();
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
 | C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
 | CAA (unreleased) | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
-| TEB | Rejected: a DRM-encrypted container. |
+| TEB | Recognized, conversion not implemented; detection does not establish encryption or recoverability. |
 
 The [support matrix](docs/conformance.md#current-support-and-release-status)
 is the source of truth, with the verified profiles and remaining differences.

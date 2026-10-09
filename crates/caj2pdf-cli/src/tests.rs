@@ -523,7 +523,7 @@ fn text_report_describes_unknown_fields() {
         application_info: ApplicationInfoReport::default(),
         structure: None,
     };
-    let unknown = "Format: TEB\nConversion: not supported (DRM-encrypted container)\nPages: unknown\nOutline: unknown\n";
+    let unknown = "Format: TEB\nConversion: not supported\nPages: unknown\nOutline: unknown\n";
     assert_eq!(render(false, &info, false), unknown);
     assert_eq!(
         render(false, &info, true),
@@ -536,7 +536,10 @@ fn text_report_describes_unknown_fields() {
         unsupported(InputFormat::Nh),
         "NH input is recognized, but NH conversion is not supported"
     );
-    assert!(unsupported(InputFormat::Teb).contains("DRM-encrypted"));
+    assert_eq!(
+        unsupported(InputFormat::Teb),
+        "TEB input is recognized, but TEB conversion is not supported"
+    );
     info.format = InputFormat::Hn;
     info.variant = Some(Variant::HnA);
     info.has_outline = Some(false);

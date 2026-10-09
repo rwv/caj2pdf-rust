@@ -57,3 +57,12 @@ Positions, dimensions, shear, gray, clipping and complete paint-kind order match
 existing measured models; diagnostic roles match original font programs and CID
 maps. This fills the model-check gap while retaining original-font, ornament
 appearance, raster, viewer, outline and remaining exception limits under #406.
+
+
+The [TEB follow-up](https://github.com/rwv/caj2pdf-samples/blob/7fc1c5d4ce1b8c0b45fef68831149844a53fee14/research/notes/teb-container-boundary-20261009.md) verifies eight intact container inventories
+and one publicly uploaded zero-filled suffix, correcting old framing and CRC
+claims with original bounded controls. Readable metadata and valid stored-byte
+checksums do not establish plaintext PDF recovery. Fresh offline viewer opens
+and native/Node/Chromium refusals retain that boundary. #469 corrects the
+unsupported encryption diagnosis; wrapping/credential semantics and conversion
+remain open under #468 and #406.
