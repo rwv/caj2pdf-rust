@@ -1138,6 +1138,17 @@ control groups detect deliberate PDF mutations. This closes a vector-model
 measurement gap, while glyph transforms, fonts, ornaments and source-pixel
 fidelity remain unverified; samples #51 and #406 remain open.
 
+The [glyph and ornament follow-up](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.md) checks every ordinary native
+glyph and all four ornament records in both normal and original-marker PDFs:
+83,432 glyphs and 212 repeated marks per set. Existing-model position, dimensions,
+shear, gray, semantic order, ornament endpoint clipping and all 84,028 paint-kind
+events match; original diagnostic font roles also match. Nine original control
+groups detect deliberate geometry/resource/order/clip changes. This advances
+model coverage only. Normal font outlines, vendor ornament appearance, complete
+raster fidelity and the known visual replacement remain explicit; ten image-only
+pages add no glyph fidelity evidence. Samples #51 and #406 remain open, with
+unchanged conversion totals and production output hashes.
+
 ## Expanded C8/HN-B source-outline evidence (#303)
 
 The [expanded inventory](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/hnc8-outline-inventory-20261008.md)

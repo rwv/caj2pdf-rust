@@ -1844,3 +1844,42 @@ repeatability, unknown outlines and remaining exceptions still prevent #406
 completion. Earlier checker refusals and corrections are retained. No foreign
 converter, vendor/private HN/JBIG implementation, font outlines or corpus bytes
 are imported. No production dependency, memory/API/output or release change.
+
+
+## Native glyph and ornament model verification (#406, samples #51)
+
+The [glyph/ornament report](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.json)
+verify all 83,432 ordinary glyphs and 212 repeated ornament marks from four
+records on both normal and original-marker PDFs: ten unchanged originals,
+60 pages per set. Position, em dimensions, shear, gray and semantic order match
+the published original-control models. All 84,028 glyph/ornament/image/vector
+paint-kind events retain source order. Marker roles match actual CID mappings,
+original diagnostic contours, advance metrics and PDF widths, independently
+of resource names. The receipt SHA-256 is
+`3458d2b9d89b43e41581098445b850aac01104e8bcc30eefd39a9266c024a2f5`.
+
+New original MIT research code evaluates existing measured rules with rational
+arithmetic; original MIT Rust was consulted for coverage. This is model
+consistency, not an independent rediscovery of physical units or proof of source
+pixels. Only project-generated geometric marker outlines are inspected. No
+vendor outlines, foreign converter/private HN/JBIG implementation, document
+bytes/text, fonts, pixels or derived PDFs enter either checkout.
+
+Nine original control groups detect changes to geometry, color, character,
+font resource, CID mapping, widths, order, clipping, omission and duplication;
+neighboring unmeasured profiles and text contexts are refused. All 96 selected
+Catalog tests pass with zero skips. The 20-pair run is sequential under a
+2 GiB address-space cap (VmHWM 89,392 KiB), with bounded page content, source
+records, expanded events, font programs and font-resource count. Existing
+pikepdf/PyMuPDF/fonttools versions are reused. Source/PDF/font hashes are
+checked before and after reading. Maximum matrix delta is 2.811e-13 point
+against the existing 1/20000-point tolerance; gray uses 1/1000000.
+
+Normal font outlines are not checked. The one known private-use ActualText
+visual replacement remains; marker fonts need no replacement. Ornament clips
+and repetitions match, but the default arrow remains a substitute for the
+vendor shape. Earlier glyph-only runs and failed/no-new-evidence observer
+attempts remain explicit. Complete source-font/raster fidelity, #441 viewer
+repeatability, unknown outlines and remaining exceptions keep #406 open.
+No converter defect or unavoidable exception is inferred. Production behavior,
+native/CLI/JavaScript APIs, memory use, PDF bytes and release notes do not change.

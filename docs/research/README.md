@@ -50,3 +50,10 @@ The [native vector follow-up](https://github.com/rwv/caj2pdf-samples/blob/4744a9
 their order among glyph/image operations on those 60 pages. Original negative
 controls, input/output hashes, process bounds and earlier checker refusals are
 retained. Glyph placement, fonts, ornaments and raster fidelity remain open.
+
+The [native glyph/ornament follow-up](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.md) verifies all 83,432 ordinary
+glyphs and 212 ornament marks in both normal and original-marker PDF sets.
+Positions, dimensions, shear, gray, clipping and complete paint-kind order match
+existing measured models; diagnostic roles match original font programs and CID
+maps. This fills the model-check gap while retaining original-font, ornament
+appearance, raster, viewer, outline and remaining exception limits under #406.
