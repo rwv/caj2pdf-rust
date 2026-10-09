@@ -123,3 +123,11 @@ extend the unchanged 75-page pair to two fixed orders: 133 equal, nine differing
 and eight not-comparable source/output pairs. All 56 sessions, original controls,
 wrong-page preflights and one viewer abort are retained. Unchanged-input repeats
 also differ; #484 records this scoped evidence while #441/#406 remain open.
+
+The [original RGB interpolation controls](https://github.com/rwv/caj2pdf-samples/blob/574f5e912af56177a15f756f94892461fd2df2e9/research/notes/viewer-rgb-resampling-20261009.md)
+retain 18 original-only sessions and three analysis versions. Two exact RGB
+variants differ at 71,650 buffer pixels and 79,837 displayed pixels, including
+vector and image regions; no-observer sessions reproduce both. All 40
+same-route flag-swap comparisons are equal. Earlier page-ID check rejections
+remain recorded, and the final source-bit decoder never relaxes pixel equality.
+See #486 provenance; internal cause, #441 readiness and #406 fidelity stay open.
