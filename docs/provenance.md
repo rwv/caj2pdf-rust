@@ -2213,3 +2213,48 @@ No document/PDF/stream/font/title/raster/binary bodies enter Git. Stream program
 remain opaque; no vendor implementation/font outlines, foreign converter or
 private HN/JBIG code was inspected or migrated. No production dependency, API,
 I/O, output PDF, supported-format, conversion-count or release-note change.
+
+## Complete missing-box page observations (#484)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/89c9f1a1720d88c0cccaf220ce2c1fa449b34617/research/notes/viewer-page-box-coverage-20261009.md) and [receipt](https://github.com/rwv/caj2pdf-samples/blob/89c9f1a1720d88c0cccaf220ce2c1fa449b34617/research/notes/viewer-page-box-coverage-20261009.json)
+extend #480's selected-page viewer evidence to a fixed two-round attempt of
+all 75 pages. Source SHA-256 is
+`5d988d74a6e6a0c392eb58297e70d91ff2e1ad2c2887374a04adc67a253ac2ab`;
+the unchanged reviewed PDF is
+`17af66b3201925945c16cbfbda3b587cc3cd2369eafe9ddfcd2f71f15f72c1cf`.
+The 150 source/output pairs yield 133 equal, nine differing and eight not
+comparable results. One output-viewer session aborts with black captures;
+its eight pages remain unconfirmed. No session is retried or replaced.
+
+Same-input repetitions retain 20 CAJ and 17 PDF page differences. Eight of
+the nine source/output differences have the identical two RGB hashes in a
+predeclared repetition of unchanged input bytes, including page 42's larger
+color difference. Page 34 lacks its second PDF observation after the abort.
+These observations neither establish full 75-page fidelity nor identify an
+internal cause. The #441 readiness and broader #406 criteria remain open.
+
+Two new original MIT, font-free 75-page controls differ only in omitted versus
+explicit Letter MediaBox entries. Independent binary marks identify each page.
+Single-page navigation failures are retained; a separately frozen continuous
+preflight confirms all 14 state/marker observations and seven exact full-page
+pairs. Forty corpus sessions attempt 300 real page observations, followed by
+ten original-control observations in two postflight sessions; all five final
+control pairs match. The receipt retains all 56 sessions, including the earlier
+preflights, and a descriptive plan erratum without changing acquisition or grids.
+
+Six original fixture/state/marker/grid/pixel tests run without external corpus
+or viewer access. Fixed 651×843 RGB comparisons use the existing bounded PNG
+reader (16 MiB/file, 4 Mi pixels); generation and hashing remain streamed.
+No alignment fitting or pixel tolerance is applied. All offline nonroot viewer
+sessions have read-only inputs/root, 2 GiB memory/swap, two CPUs, 256 PIDs and a
+90-second lifetime. Input integrity, no OOM and cleanup are confirmed; viewer
+peak memory is separate from converter memory. No observer/preload is used.
+
+Receipt SHA-256: `dd14e699a9cd7fc325a313b8137d7214c251332a4f5880338ac4e2ade0b0a865`.
+All committed tools are original MIT. No vendor implementation/font program or
+outline, foreign converter or private HN/JBIG source is inspected or migrated.
+Document/PDF/pixel/font/binary bodies stay external. Source clipping does not
+recover lost geometry; selected-object preservation remains a separate proof.
+No production dependency, API, CLI, JavaScript, I/O, output PDF, supported-format,
+conversion-count or release-note change follows. The ledger remains 1,252 PASS /
+18 FAIL / 27 UNSUPPORTED; original native font/ornament/refusal work stays open.
