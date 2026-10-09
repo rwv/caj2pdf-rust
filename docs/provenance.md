@@ -2058,3 +2058,30 @@ final-tool controls. Receipt SHA-256:
 No production I/O, API, output, supported-format or release-note change follows.
 The original 7797 PDF discrepancy, reliable readiness and complete source
 fidelity remain open; these observations add no corpus conversion pass.
+
+## Complete displayed-contents observation (#476)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.md), [receipt](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.json) and linked protocol
+pin the complete 849-source C8/HN-B sweep. The original MIT Qt5 observer uses
+only public model/view calls, traversing collapsed children without reading
+item text/private roles or calling `fetchMore`. It caps widgets at 8,192,
+trees at 64, nodes per tree at 10,000, depth at 128 and timer samples at 60.
+The original runner validates source hashes/header counts, fresh read-only
+inputs, three time-bound observations, consecutive samples, requested stop,
+memory/OOM state and confirmed removal. Each offline nonroot container has
+2 GiB memory, two CPUs, 256 PIDs and a 90-second lifetime.
+
+Original nested/lazy/limit and receipt controls run without a viewer or corpus
+dependency in CI. Both real HN-A bracket controls retain 81 nodes at depth
+three; all 849 final models are empty. The initial unavailable-platform and
+lazy-baseline preparation failures are retained. The first prototype source
+was edited before archival and has no original source hash; its binary/logs,
+enhanced source and frozen final sources are explicitly separate.
+
+Receipt SHA-256: `03887247a96d3155c56d2efe3efca900a8886fa6eb6b7269fc5ede713e3882c2`.
+All documents, screenshots, generated fixture bodies, fonts and binaries stay
+external. No vendor implementation/font outlines, foreign converter code or
+private module was inspected or migrated. Public distro Qt is only a research
+dependency. Empty displayed contents are not evidence that all stored layouts
+are absent or that page rendering is correct. No production, supported-format,
+API, I/O, PDF output, release-note or conversion-count change follows.

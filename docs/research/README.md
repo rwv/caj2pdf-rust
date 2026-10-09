@@ -92,3 +92,10 @@ reproduce completed-raster disagreement with no converter involved. An identical
 route can also yield different results across fresh sessions. Original bounded
 fixtures, preflighted routes and all observations are retained; #441 readiness,
 PDF disagreement and broader #406 correctness remain open.
+
+The [complete displayed-contents sweep](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.md) covers all 849 C8/HN-B
+originals under the fixed public Qt model/view protocol, with populated HN-A
+controls before and after. Every selected model is empty; source identities,
+three checkpoints, intervening samples and cleanup are verified. The report
+retains preparation failures and original controls. #303 still needs a
+positive original; stored-layout absence, rendering and #406 remain unresolved.

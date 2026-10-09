@@ -1246,3 +1246,28 @@ internal cause or establish readiness. Seven new original API/PDF control
 groups test the tools without a viewer or corpus. Historical sessions are not
 relabeled as final-tool runs or compatibility passes. The existing 1,252 PASS /
 18 FAIL / 27 UNSUPPORTED baseline and unresolved #441/#406 criteria remain.
+
+## Complete C8/HN-B displayed-contents coverage (#476)
+
+The [complete report](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.md) and [per-input receipt](https://github.com/rwv/caj2pdf-samples/blob/449002c57e1694ec11813cd04ca97737f198ae6a/research/notes/viewer-outlines-20261009.json)
+record one fresh contained session for each of the 849 unchanged originals:
+845 C8 and four HN-B, with 2,855 declared pages. All have empty selected contents
+models and the measured empty caption at three separated checkpoints and
+every intervening sample. There are zero populated or unconfirmed outcomes,
+automatic retries, changed inputs, OOMs or unconfirmed container removals.
+Each session checks page one and its declared total, not every rendered page.
+
+Fresh 132-page HN-A controls before and after the sweep both show 81 nodes,
+13 root rows and depth three, including collapsed nodes. The three-source
+pilot and four preliminary real-viewer sessions remain separate repeated
+identities. Original Qt and receipt controls cover delayed/nested/empty/lazy/
+limited models, stale or ambiguous observations, input integrity and cleanup.
+The offscreen-plugin and initial lazy-test failures are retained as preparation
+failures, not compatibility passes.
+
+This completes the available contents-panel observation gap in samples #63.
+Empty displayed models do not prove the absence of another stored layout,
+exclude later asynchronous changes or establish full page fidelity. #303
+remains open for a positive original and measured layout; the unknown-outline
+warning stays. No converter behavior, runtime artifact or conversion ledger
+changes: 1,252 PASS / 18 FAIL / 27 UNSUPPORTED. #441 and #406 remain unresolved.
