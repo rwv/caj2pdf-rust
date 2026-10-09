@@ -258,20 +258,17 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     NativeRecord::Control { tag, value }
                 }
                 0x8067
-                    if matches!(value, 5 | 6 | 8 | 9)
-                        || (self.header.variant == Variant::HnB && matches!(value, 7 | 18)) =>
+                    if matches!(value, 0 | 4 | 5 | 6 | 7 | 8 | 9 | 11)
+                        || (self.header.variant == Variant::HnB && value == 18) =>
                 {
                     NativeRecord::Control { tag, value }
                 }
-                0x8070 | 0x8071 if matches!(value, 4 | 22 | 34 | 36 | 38 | 40) => {
+                0x8070 | 0x8071 if matches!(value, 1 | 4 | 22 | 34 | 36 | 38 | 40) => {
                     NativeRecord::Control { tag, value }
                 }
                 0x801c if matches!(value, 2..=4) => NativeRecord::Control { tag, value },
                 0x80ce if value <= 1 => NativeRecord::Control { tag, value },
-                0x8024
-                    if matches!(value, 0x2800 | 0x281c | 0x281d)
-                        || (self.header.variant == Variant::HnB && value == 0x2815) =>
-                {
+                0x8024 if matches!(value, 0x2800 | 0x2815 | 0x281c | 0x281d) => {
                     NativeRecord::Control { tag, value }
                 }
                 // Values were checked by the HN-B profile guard above.
@@ -280,7 +277,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 {
                     NativeRecord::Control { tag, value }
                 }
-                0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
+                0x8021 if matches!(value, 0x2000 | 0x2009) => NativeRecord::Control { tag, value },
                 0x80d3 if value <= 2 => NativeRecord::Control { tag, value },
                 0x80d0 | 0x80d2 | 0x80d5 | 0x9002 if value == 0 => {
                     NativeRecord::Control { tag, value }
@@ -333,11 +330,11 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 0xffff if value == 5 => NativeRecord::Control { tag, value },
                 _ if matches!(
                     (tag, value),
-                    (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b)
+                    (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa387 | 0xa38b | 0xa38d)
                         | (0x8010, 1 | 2 | 46 | 117)
                         | (0x8090, _)
                 ) || (self.header.variant == Variant::C8
-                    && matches!((tag, value), (0x8007, 0xa380 | 0xa382))) =>
+                    && matches!((tag, value), (0x8007, 0xa380 | 0xa382) | (0x8008, 0xa380))) =>
                 {
                     length = 12;
                     self.native_bytes(position + 4, end, &mut bytes[4..length], at)?;

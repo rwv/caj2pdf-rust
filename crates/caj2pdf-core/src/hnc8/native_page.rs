@@ -226,7 +226,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } if self.variant == Variant::C8 => self.gray = 0,
             NativeRecord::Control {
                 tag: 0x8021,
-                value: 0x2000,
+                value: 0x2000 | 0x2009,
             }
             | NativeRecord::Control {
                 tag: 0x80d0 | 0x80d2 | 0x80d5 | 0x9002,
@@ -255,7 +255,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2815,
-            } if self.variant == Variant::HnB => self.skew = 0.105,
+            } => self.skew = 0.105,
             NativeRecord::Control { tag: 0x8002, value } => {
                 self.style = Some(value);
                 self.axes = [None; 2];
@@ -269,7 +269,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 value,
             } if matches!(
                 (self.variant, value),
-                (Variant::C8, 4 | 22 | 34 | 36 | 38 | 40) | (Variant::HnB, 28 | 36 | 43)
+                (Variant::C8, 1 | 4 | 22 | 34 | 36 | 38 | 40) | (Variant::HnB, 28 | 36 | 43)
             ) =>
             {
                 self.axes[usize::from(tag - 0x8070)] = Some(value)
@@ -297,7 +297,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {
                 tag: 0x8067,
-                value: 5 | 6 | 8 | 9,
+                value: 0 | 4 | 5 | 6 | 7 | 8 | 9 | 11,
             } => (),
             // C8 zero mode persists across style/resource selections; one
             // restores the ordinary per-code resource and placement rules.
@@ -324,7 +324,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } => (),
             NativeRecord::Control {
                 tag: 0x8067,
-                value: 7 | 18,
+                value: 18,
             }
             | NativeRecord::Control {
                 tag: 0x8069,
@@ -353,6 +353,14 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 } else {
                     style
                 };
+                // Original paired C8 controls preserve resource and geometry
+                // under these exact flags; neighboring flags remain unmeasured.
+                let style = match (self.variant, style) {
+                    (Variant::C8, 0x6084) => 0x1084,
+                    (Variant::C8, 0x0508) => 0x1108,
+                    (Variant::C8, 0x64c6) => 0x10c6,
+                    _ => style,
+                };
                 if self.variant == Variant::HnB
                     && self.axes == [None; 2]
                     && matches!(style, 0x1001 | 0x1020)
@@ -368,7 +376,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     _ => decode_native_character(code)
                         .ok_or_else(|| invalid("unsupported C8 native character"))?,
                 };
-                if (style == 0x114a && self.variant != Variant::HnB)
+                if (style == 0x096b && self.variant != Variant::C8)
                     || (style == 0xb94c && self.variant != Variant::C8)
                 {
                     return Err(invalid("unverified C8 title style"));
@@ -389,6 +397,14 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         0x1041 => Some((24.0, 3.0)),
                         _ => None,
                     }
+                } else if self.variant == Variant::C8
+                    && style == 0x1084
+                    && self.axes == [None; 2]
+                    && matches!(code, 0xa1b2 | 0xa1b3)
+                {
+                    // Paired original controls match the field-4 opener
+                    // shifted left one and down six source units.
+                    Some((21.0, 6.0))
                 } else if self.variant == Variant::C8 && style == 0x10a5 && self.axes == [None; 2] {
                     match code {
                         0xa1b6 => Some((30.0, -4.0)),
@@ -691,10 +707,13 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 self.page.stroke_polyline(&path, 4.0 * unit, self.gray)?;
             }
             NativeRecord::Drawing {
-                tag: 0x8006 | 0x8007,
+                tag: tag @ 0x8006..=0x8008,
                 style,
                 points,
             } => {
+                if tag == 0x8008 && points.iter().flatten().any(|word| word & 0xc000 != 0) {
+                    return Err(invalid("unverified C8 segment coordinate flags"));
+                }
                 let [from, to] = empirical_c8_segment(self.geometry, self.origin, points, style)?;
                 self.page.segment(from, to, 0.0)?;
             }

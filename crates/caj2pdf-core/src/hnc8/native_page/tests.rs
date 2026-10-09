@@ -1392,7 +1392,9 @@ fn hnb_title_style_114a_matches_controlled_cjk_154a_geometry() {
     ];
     let (result, title, finished) = convert(&words, 0, &[], roles(), 12);
     assert!(result.is_ok() && finished);
-    assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    let (result, c8_title, finished) = convert(&words, 0, &[], roles(), 0);
+    assert!(result.is_ok() && finished);
+    assert_eq!(title, c8_title);
     words[1][1] = 0x154a;
     let (result, calibrated, finished) = convert(&words, 0, &[], roles(), 12);
     assert!(result.is_ok() && finished);
@@ -1528,7 +1530,10 @@ fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
                 let mut other = words;
                 other[1][1] = 0x1063;
                 assert!(convert(&other, 0, &[], fonts, 13).0.is_err());
-                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
+                assert_eq!(
+                    convert(&words, 0, &[], fonts, 11).0.is_ok(),
+                    style == 0x1084
+                );
             }
         }
     }
@@ -2641,3 +2646,5 @@ fn c8_8007_segments_match_controlled_strokes_without_consuming_following_text() 
         }
     }
 }
+
+mod nju_profiles;
