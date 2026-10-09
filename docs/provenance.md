@@ -2312,3 +2312,60 @@ with 35,587 accepted pages. Original native fonts/ornaments, remaining refusal
 evidence, #441 readiness and #406 correctness remain open. No production
 dependency, API, CLI, JavaScript, I/O, output PDF, supported-format or
 release-note change; no release is proposed.
+
+## Observed original page JPEG transitions (#488)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/d106296558ea3cbc7a78320190da4f77c6f6d6ea/research/notes/viewer-jpeg-roundtrip-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/d106296558ea3cbc7a78320190da4f77c6f6d6ea/research/notes/viewer-jpeg-roundtrip-20261009.json)
+connect the original RGB/gray controls' two page-buffer representations through
+public JPEG APIs: RGB A is encoded, identical JPEG bytes are read by a decoder,
+and its returned RGB B equals the selected QImage buffer and display pixmap.
+Both observed encoders use quality 100, integer DCT, 2×2/1×1/1×1 component
+sampling and unit quantizers. The encoded bytes also equal a separate external
+`cjpeg` invocation exactly. This establishes the measured representation change
+for these controls; it does not establish general readiness or explain the
+original `7797…` discrepancy under #441.
+
+A frozen 96-candidate diagnostic retains seven exact and 89 differing results,
+with no unavailable outcomes. The identified profile also reproduces separately
+retained original native-text and Standard-14 PDF A→B buffers exactly; both
+reverse holdout directions differ. Those numerical holdouts are distinct from
+the newly observed RGB/gray API chains. The tools share the libjpeg-turbo family;
+their role is byte/row identity, without an independent codec-conformance claim.
+
+All 12 original-only viewer sessions remain recorded. The initial eight confirm
+six buffers and two no-observer screenshots, but the first collector rejects
+six codec traces after assuming globally unique event counters. Read-only
+reanalysis marks the missing process namespace. The first observer also lacks
+decoder output hashes when the caller reads every row then destroys the codec
+without calling finish. A separately frozen four-session extension adds process
+IDs and a distinct complete-rows-at-destroy event. This proves returned rows,
+not finish/EOI validation. Both selected encoded-byte/RGB/display chains are
+complete in the extension; no failed or missing observation is replaced.
+
+An original one-component, one-level pixel change produces identical JPEG
+bytes and decoded output under the measured profile while preserving distinct
+pre-encoding hashes. Applying JPEG to both comparison sides would hide that
+real difference. No lossy normalization, fitted alignment or tolerance is used.
+“A” is before the observed page JPEG encode, not a claim of losslessness at
+every earlier renderer stage or of correct source fonts/ornaments.
+
+Ten original MIT API tests cover forwarding and exact identities, padding,
+process state, ABI and resource bounds, process namespaces, partial/complete
+destroy paths and the lossy-output counterexample. The public-interface observer
+keeps at most 16 contexts/10,000 events per process, hashes at most 4 Mi RGB
+pixels per selected image and at most 16 MiB encoded memory in 64 KiB chunks.
+Small/non-RGB/out-of-bound calls remain explicitly unmeasured. All contained
+offline sessions have intact inputs, no observed abort/OOM and complete cleanup;
+all 439 retained session-file hashes are verified. Viewer/observer memory is
+separate from converter memory. Documents, pixels, fonts, JPEGs and binaries
+stay external. No vendor/JPEG implementation, vendor font program/outline,
+foreign converter or private HN/JBIG source was inspected or migrated.
+
+Receipt SHA-256: `4aa5c68b6a6ff7540b06b0367277c4530a4b0a9b1658ef335022d8a86a5795bc`.
+No new corpus acquisition, conversion run or compatibility pass. Counts remain
+1,252 PASS / 18 FAIL / 27 UNSUPPORTED across 1,297 originals and 35,587 accepted
+pages. Original `7797…` evidence, reliable readiness, native source fonts/ornaments,
+remaining refusals and #406 correctness stay open. No production dependency,
+API, CLI, JavaScript, I/O, output PDF, supported-format or release-note change;
+no release is proposed.
