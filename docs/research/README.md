@@ -80,6 +80,13 @@ outputs: 6,140 resource/CID pairs across 83,644 draws. Generated TrueType/CFF
 controls detect deliberate mutations. Only external caller fonts are compared;
 original-viewer fonts, hinting, raster fidelity and #406 remain unresolved.
 
+The [public page-buffer follow-up](https://github.com/rwv/caj2pdf-samples/blob/2cf840a94dd6cfd5b9b8e7414c7556692f19637b/research/notes/viewer-page-buffer-20261009.md)
+locates both native variants in public Qt buffers and reproduces a difference
+in an original PDF. Twelve retained sessions and seven API/PDF control groups
+narrow the observation boundary; the corrected last-page crop and remaining
+timing/readiness limits are explicit. No converter behavior or corpus count
+changes.
+
 The [original native navigation controls](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.md)
 reproduce completed-raster disagreement with no converter involved. An identical
 route can also yield different results across fresh sessions. Original bounded
