@@ -393,3 +393,14 @@ export function pageText(pdf) {
   parts.push(bytes.subarray(from));
   return Buffer.concat(parts).toString("latin1");
 }
+
+// Original length-framed metadata; no external document or annotation bytes.
+export function syntheticFramedFooter(pdf) {
+  const metadata = Buffer.from("<Package>" + "original note ".repeat(1000) + "</Package>");
+  const encoded = deflateSync(metadata);
+  const lengths = Buffer.alloc(8);
+  lengths.writeUInt32LE(metadata.length, 0);
+  lengths.writeUInt32LE(encoded.length, 4);
+  return new Uint8Array(Buffer.concat([pdf, Buffer.from("WebFastLoad"), lengths,
+    encoded, Buffer.from(`APPINFOSIGN ${pdf.length + 11}`)]));
+}

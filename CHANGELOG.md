@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Accept validated length-framed `WebFastLoad` PDF download metadata with
+  an exact `APPINFOSIGN` offset (#494), preserving the source PDF body.
+
 - Recover measured redundant CAJ epilogues and unused interruptions after
   complete-graph validation. Preserve declared stream payloads across bounded
   trailing whitespace (#409, #434). No API or dependency changes.

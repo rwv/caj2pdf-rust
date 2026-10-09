@@ -28,6 +28,7 @@ import {
   fixture,
   largePdfBlob,
   syntheticCaj,
+  syntheticFramedFooter,
   syntheticAscii85Caj,
   syntheticFlateReplayCaj,
   syntheticRecoveredCaj,
@@ -45,6 +46,7 @@ async function inputs() {
   const pdf = await fixture("valid_out_of_order_objects.pdf");
   const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   return [
+    { name: "PDF framed download footer", format: "pdf", bytes: syntheticFramedFooter(pdf), expected: pdf, pages: 2, bookmarks: 0 },
     { name: "PDF download footer", format: "pdf", bytes: new Uint8Array([...pdf, ...footer]), expected: pdf, pages: 2, bookmarks: 0 },
     { name: "adjacent Flate CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: null }), pages: 2, bookmarks: 1 },
     { name: "array-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }), pages: 2, bookmarks: 1 },

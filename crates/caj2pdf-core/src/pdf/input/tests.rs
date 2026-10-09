@@ -3811,3 +3811,88 @@ fn fragment_page_box_repair_keeps_conflicts_and_other_duplicates_strict() {
         })
     ));
 }
+
+fn framed_download_footer(metadata: &[u8], position: u64) -> Vec<u8> {
+    let encoded = zlib(metadata);
+    let mut footer = b"WebFastLoad".to_vec();
+    footer.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
+    footer.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+    footer.extend_from_slice(&encoded);
+    footer.extend_from_slice(format!("APPINFOSIGN {position}").as_bytes());
+    footer
+}
+
+#[test]
+fn framed_download_metadata_preserves_pdf_pages_and_logical_extent() {
+    // Original metadata exercises multiple decoder scratch-buffer iterations.
+    let metadata = format!("<Package>{}</Package>", "original note ".repeat(1000));
+    let mut doc = build_pdf(&minimal_objects(), "");
+    let logical_end = doc.len() as u64;
+    doc.extend_from_slice(&framed_download_footer(
+        metadata.as_bytes(),
+        logical_end + 11,
+    ));
+    let index = open(doc).unwrap();
+    assert_eq!(index.logical_end(), logical_end);
+    assert_eq!(index.pages().len(), 1);
+}
+
+#[test]
+fn framed_download_metadata_rejects_malformed_neighbors() {
+    let original = framed_download_footer(b"<Package>original</Package>", 111);
+    let mut variants = Vec::new();
+    for (start, value) in [
+        (11, 0_u32),
+        (11, 4 * 1024 * 1024 + 1),
+        (11, 1),
+        (11, 100),
+        (15, u32::MAX),
+        (15, 0),
+    ] {
+        let mut changed = original.clone();
+        changed[start..start + 4].copy_from_slice(&value.to_le_bytes());
+        variants.push(changed);
+    }
+    // Bad checksum; non-zlib payload; truncated stream; extra encoded byte.
+    for mode in 0..4 {
+        let mut changed = original.clone();
+        let size = u32::from_le_bytes(changed[15..19].try_into().unwrap()) as usize;
+        match mode {
+            0 => changed[19 + size - 1] ^= 1,
+            1 => changed[19] = 0xff,
+            2 => {
+                changed.remove(19 + size - 5);
+                changed[15..19].copy_from_slice(&((size - 1) as u32).to_le_bytes());
+            }
+            _ => {
+                changed.insert(19 + size, 0);
+                changed[15..19].copy_from_slice(&((size + 1) as u32).to_le_bytes());
+            }
+        }
+        variants.push(changed);
+    }
+    variants.push(original[..18].to_vec());
+    variants.push(original[..original.len() - 3].to_vec());
+    let mut wrong_marker = original.clone();
+    let marker = find(&wrong_marker, b"APPINFOSIGN") as usize;
+    wrong_marker[marker] = b'X';
+    variants.push(wrong_marker);
+    let mut wrong_offset = original.clone();
+    *wrong_offset.last_mut().unwrap() = b'2';
+    variants.push(wrong_offset);
+    for trailer in [b"junk".as_slice(), b"\n", b"\n4 0 obj null endobj"] {
+        let mut changed = original.clone();
+        changed.extend_from_slice(trailer);
+        variants.push(changed);
+    }
+    for changed in variants {
+        assert!(!footer::recognized(&changed, 100, &NEVER).unwrap());
+    }
+    assert!(matches!(
+        footer::recognized(&original, 100, &CancelAfter::always()),
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
+}

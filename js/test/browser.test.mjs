@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, pageText, syntheticDamagedCaj, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, pageText, syntheticFramedFooter, syntheticDamagedCaj, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -31,6 +31,7 @@ before(async () => {
   const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   const fixtures = {
     "/fixtures/input.caa": await fixture("target_descriptor.caa"),
+    "/fixtures/framed-footer.pdf": syntheticFramedFooter(pdf),
     "/fixtures/footer.pdf": new Uint8Array([...pdf, ...footer]),
     "/fixtures/symbols.ttf": await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url)),
     "/fixtures/geometric.ttf": await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url)),
@@ -111,6 +112,7 @@ test("Chromium: CAA inspection succeeds and conversion refuses without writing",
 test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF", options, async (t) => {
   for (const [name, format, pages, bookmarks] of [
     ["footer.pdf", "pdf", 2, 0],
+    ["framed-footer.pdf", "pdf", 2, 0],
     ["input.caj", "caj", 2, 1],
     ["recovered.caj", "caj", 2, 1],
     ["input.kdh", "kdh", 2, 0],
@@ -126,7 +128,7 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
       assert.equal(result.report.outputBytesWritten, String(result.output.length));
       assert.ok(result.progress.length > 0 && result.progress.at(-1) === 1, JSON.stringify(result.progress));
       assert.ok(result.maxWrite > 0 && result.maxWrite <= 4096, `max write ${result.maxWrite}`);
-      if (name === "footer.pdf" || name === "profile1.kdh") assert.deepEqual(decode(result.output), await fixture("valid_out_of_order_objects.pdf"));
+      if (name === "footer.pdf" || name === "framed-footer.pdf" || name === "profile1.kdh") assert.deepEqual(decode(result.output), await fixture("valid_out_of_order_objects.pdf"));
       await validatePdf(t, decode(result.output), pages);
     });
   }
