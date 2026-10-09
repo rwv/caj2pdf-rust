@@ -2526,3 +2526,46 @@ release-note behavior change. Corpus totals remain 1,339 conversion PASS /
 18 FAIL / 27 UNSUPPORTED across 1,384 identities, with revision-scoped evidence.
 Unresolved source/font/ornament fidelity, viewer readiness, outline and refusal
 obligations under #406 remain open.
+
+## Public TTKN response sample (#501, samples #85)
+
+The [public-source report](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.md)
+and [metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.json)
+add one distinct public forum attachment, SHA-256
+`074cb4d57181e92826c37b549f811008c58c7b66366f9045e8985c58178263d8`,
+1,891,106 bytes. It is the seventeenth measured TTKN original and third
+server/authentication wrapper without a certificate/PFX. The existing original
+inventory finds the custom handler, fixed AppendCA marker, exact PDF/xref/XML
+framing and decoded field lengths; it does not establish key derivation.
+
+The attachment author's deliberately disclosed request identifier matches the
+source. One original loopback-only responder uses the disclosed response only
+for that matching attachment, inside a network-disabled contained viewer.
+A diagnostic copy changes only the authentication URL and declared XML length;
+independent comparison verifies all other bytes. The unchanged source reports
+a validation-server connection error offline; the diagnostic copy receives one
+matching HTTP 200 response and reports a rights-file error. An original two-page
+PDF control opens and displays both authored rectangles and outline nodes.
+Six generated protocol controls pass. All three fresh sessions retain every
+attempt, unchanged sources/copies, no OOM and removed containers. Values are
+absent from retained logs, and the private replay configuration is removed.
+
+No embedded external endpoint is contacted and no password search is performed.
+No foreign converter/decryption implementation, vendor implementation, font
+program or private HN/JBIG source is inspected or migrated.
+The author's cryptographic interpretation remains an unverified hypothesis.
+Only original MIT prose/metadata are published; documents, disclosed values,
+screenshots, logs, fonts and viewer binaries stay external. Existing bounded
+inventory/runtime methods and 64 KiB source-copy buffers are retained.
+Receipt SHA-256: `787cc681b171a84dc6b02a7ecc1d18707d65a8e21ae5129a8ccc194530159937`.
+
+Frozen reviewed #498 CLI/WASM artifacts refuse the original at the same footer
+boundary on native, Node and Chromium, with no published output and empty
+browser OPFS. This is not a compatibility pass or an irrecoverability proof.
+The catalog becomes 1,339 conversion PASS / 19 FAIL / 27 UNSUPPORTED across
+1,385 identities, with the previous 1,384 rows unchanged. The additional web
+search retains 300 successful academic-page observations with no new attachment
+links and two failed Wayback requests; 201 discovered pages remain unvisited.
+Recovery and the broader #415/#406 correctness criteria remain open. No
+production code, API, CLI, JavaScript, I/O, PDF, dependency, supported-format or
+release-note behavior changes; no release is proposed.

@@ -169,3 +169,10 @@ The [public-web source verification](https://github.com/rwv/caj2pdf-samples/blob
 and all 11 compressed streams behind #499's seven source-content warnings.
 It supplements the 87-original conversion/runtime receipt while retaining
 unknown outlines, missing content and broader #406 fidelity obligations.
+
+The [public TTKN response sample](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.md)
+adds one protected identity with native/Node/Chromium refusal and controlled
+offline viewer observations. The matching author-disclosed response produces
+a rights-file error in a diagnostic copy, without demonstrating recovery or
+irrecoverability. The report preserves controls, failed web/Wayback requests
+and the distinction between this copy and the unchanged source (#501/#415).
