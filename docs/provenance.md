@@ -2438,3 +2438,46 @@ Native source fonts/ornaments, remaining refusals and #406 correctness stay open
 No new converter run, corpus acquisition or compatibility pass: 1,252 PASS /
 18 FAIL / 27 UNSUPPORTED across 1,297 originals, 35,587 accepted pages. No production
 dependency/API/CLI/JavaScript/I/O/PDF/support/release-note change; no release.
+
+
+## Historical Windows CAA boundary (samples #79)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/f3cdf05e29bb2ac2627be3631e0309392c6194b0/research/notes/caa-windows-boundary-20261009.md) and [metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/f3cdf05e29bb2ac2627be3631e0309392c6194b0/research/notes/caa-windows-boundary-20261009.json) pin the official
+CAJViewer 7.3.151 Lite installer, Debian/Wine image, original controls and all
+18 unchanged CAA identities. Primary institutional guidance describes CAA as
+a link requiring Internet access. All 54 offline original-input checkpoints
+contain network/server/error UI keywords, unlike an original invalid-CAA
+control. The original two-page PDF opens, navigates and shows both authored
+rectangles. This extends the earlier two Linux 9 type refusals; it does not
+establish successful target retrieval, remote availability or credentials.
+
+The official installer is 66,352,960 bytes, SHA-256
+`92fd901042785cd6c8991bec73f7c2edb22b3a7989a7625dc635b07d0f2f0f84`.
+Transport/build failures are retained, including 61 rejected range attempts.
+The installer reports an MDAC-related prompt and early termination. Its
+unchanged executable and installed CAA open association remain; complete
+installation and native-Windows equivalence are not claimed. CJK interface
+pixels have missing glyphs, while original-control Unicode text is readable.
+
+Twenty frozen sessions use fresh copies of the same opaque prefix, no network,
+a read-only root/input, non-root UID, dropped capabilities, bounded memory/
+CPUs/PIDs and deadlines. Every session and probe completes without OOM; all
+source hashes are revalidated and containers/trial prefixes removed. An
+original bounded Win32 UI observer records fixed keyword labels only for CAA;
+a synthetic dialog confirms that a URL and unique marker are omitted. No CAA
+screenshots, arbitrary UI text, viewer output or generated target caches are
+retained. Opaque A2/D2 values are not decoded/logged and no target is contacted.
+
+Only public UI APIs, normal opaque execution, installed OS file-association
+metadata and public download configuration are observed. No vendor
+implementation/font program/outline, foreign converter or private HN/JBIG
+source is read or migrated. Notes and controls are original MIT; document,
+descriptor, installer, PDF, font, pixel and binary bodies remain external.
+Receipt SHA-256: `f7a4582ee6fe2d469c1bef9bf5dd74c8241c3537d2bbf15c0f66d3a5167698a4`.
+
+Counts remain 1,252 PASS / 18 FAIL / 27 UNSUPPORTED across 1,297 originals and
+35,587 accepted pages. Descriptor handling is distinct from conversion and
+irrecoverability. Actual document acquisition, target availability/credentials,
+native-Windows equivalence and broader #406 correctness remain unverified.
+No production dependency/API/CLI/JavaScript/I/O/PDF/support/release-note change;
+no release is proposed.

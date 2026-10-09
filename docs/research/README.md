@@ -153,3 +153,12 @@ target values agree; twelve sessions retain one abort and the first collector's
 corrected time-field assumption. The scoped #439 receipt is updated. See #490
 provenance; general readiness, all-page original-viewer coverage, source fonts/
 ornaments and broader #406 correctness remain open.
+
+
+The [historical Windows CAA report](https://github.com/rwv/caj2pdf-samples/blob/f3cdf05e29bb2ac2627be3631e0309392c6194b0/research/notes/caa-windows-boundary-20261009.md) records all 18 originals under
+a pinned offline Wine environment, with two-page PDF and invalid-CAA controls.
+All 54 source checkpoints contain network/server/error keywords. Download,
+build, MDAC installation and CJK display limits remain visible; no target,
+opaque field or vendor implementation is inspected. See the provenance entry
+for samples #79. Actual-document availability, credentials and native-Windows
+equivalence remain unverified; #406 and the conversion ledger are unchanged.
