@@ -2125,3 +2125,50 @@ No production dependency, API, I/O, PDF output, supported format, conversion
 count or release-note change follows. Selected-object agreement does not
 prove source recovery completeness or full visual fidelity. Samples #65,
 original-font/ornament/viewer limits and the broader #406 criteria remain open.
+
+## Complete PDF-family profile proofs (#480)
+
+The [follow-up report](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/pdf-source-profile-proofs-20261009.md) and [receipt](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/pdf-source-profile-proofs-20261009.json)
+resolve the ten unverified profiles from #478 within samples #65's selected-object
+scope. A fresh complete acquisition verifies all 279 unchanged original/output
+pairs: 19,039 pages, 222,640 selected objects, 112,410 opaque raw streams and
+11,976 outline nodes. Source-reader results retain 182 clean and 97 warning
+exits; all 279 candidate-reader exits are clean. The earlier 269/10 checkpoint
+is retained unchanged. No new conversion pass or full visual-fidelity claim
+follows; the 1,252 PASS / 18 FAIL / 27 UNSUPPORTED ledger is unchanged.
+
+Four profiles individually recheck pinned Matrix/AP/QITE repair reports and
+bounded original metadata witnesses; every unproved field/stream difference
+still fails. Six profiles use [source-only offset plans](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/caj-source-accounting-plan-20261009.json)
+with independent complete-body accounting: selected syntax and opaque stream
+extents, 13 identical duplicate copies, 40 strict proper prefixes and 67 partial
+headers with exclusive source-table Page or validated stream-Length roles.
+Every other byte must be accounted for, with no overlap or hidden ObjStm/XRef
+metadata. Four of these bodies prove missing Link targets from raw references
+and absent definitions/table pages; nulled indirect arrays have exclusively
+removed Link Dest consumers. Candidate bytes never select source offsets.
+
+New code and 15 new original controls are MIT work, reusing the public project's
+original bounded value grammar and existing framing/graph checks. All 46
+PDF-family controls pass without external corpus data or skips. New raw metadata
+is bounded at 16 KiB per object, depth 64, 4,096 array items, 64 dictionary keys
+and 128-byte names; partial-header gaps are at most 256 bytes. Existing 64 KiB
+I/O chunks and document/reader ceilings remain. Earlier syntax/prefix refusals
+and a corrected corruption-control setup are retained in the receipt.
+
+The earlier 75-page `5d988d74a6e6` page-reference diagnostic still has a qpdf
+warning: missing MediaBox inherits letter/ANSI A. Its clean new blank inventory
+does not establish all-page source-viewer geometry. The earlier
+[page-box controls](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/cajviewer-page-boxes.md)
+already establish missing-box/Letter control equality and identical source/output
+rasters for pages 1 and 75 of this exact pair; they do not cover all 75 pages.
+Complete source-body accounting is proved for six inputs only; prior rendering/
+recovery and 13-site reconstruction limits remain. Broader original-font/ornament/
+readiness/refusal work stays open under #406.
+
+Receipt SHA-256: `764098fbace2bf5e62a180de62cfe5020a45d35ab90c6f14befdcf7c4d2a7713`.
+Plan SHA-256: `303571123c8b38afa0107d5f66d88a7b7962df23f8d296b242c3e79161af1709`.
+No document/PDF/stream/font/title/raster/binary bodies enter Git. Stream programs
+remain opaque; no vendor implementation/font outlines, foreign converter or
+private HN/JBIG code was inspected or migrated. No production dependency, API,
+I/O, output PDF, supported-format, conversion-count or release-note change.
