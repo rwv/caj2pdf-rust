@@ -101,10 +101,11 @@ retains preparation failures and original controls. #303 still needs a
 positive original; stored-layout absence, rendering and #406 remain unresolved.
 
 
-The [PDF-family preservation audit](https://github.com/rwv/caj2pdf-samples/blob/547683140c44c421fdc25c631ab564b69118e40c/research/notes/pdf-source-preservation-20261009.md)
-attempts all 279 accepted PDF/KDH/CAJ originals and verifies selected-object,
-raw-stream and navigation scopes for 269 of them (18,100 pages). Ten profiles
-remain explicitly unverified; prior source-selection and reconstructed-recovery
-limits are retained. Original bounded tools and 31 negative/positive controls
-add no conversion pass or full-fidelity claim. See #478 provenance, samples
-#65 and the broader #406 obligations.
+The [complete PDF-family profile audit](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/pdf-source-profile-proofs-20261009.md)
+verifies selected-object, raw-stream and navigation scopes for all 279 accepted
+PDF/KDH/CAJ originals (19,039 pages). The ten remaining profiles have individual
+field proofs or complete source-body accounting; the earlier 269/10 checkpoint
+and reader/geometry/recovery limitations remain visible. All 46 original
+controls pass without corpus data or skips. See #480 provenance and samples
+#65; no conversion pass or full visual-fidelity verdict is added, and #406
+remains open.
