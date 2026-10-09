@@ -5,8 +5,8 @@ Changes after [v0.6.1](v0.6.1.md):
 ### Breaking CLI inspection value: TEB support reason (#469)
 
 For TEB, `inspect --json` now reports `"unsupported_reason":"not-implemented"`
-in place of `"drm-encrypted"`. Update callers matching the former string to
-accept the new value; `format: "TEB"`, `conversion_supported: false` and
+in place of `"drm-encrypted"`. Update callers matching `drm-encrypted` to
+accept `not-implemented`; `format: "TEB"`, `conversion_supported: false` and
 unknown page/outline metadata are unchanged. CLI text and Node/browser errors
 now say conversion is unsupported. Recognizing a TEB prefix does not prove
 encryption, corruption or impossibility of recovery. JavaScript retains

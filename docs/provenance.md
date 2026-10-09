@@ -1883,3 +1883,43 @@ attempts remain explicit. Complete source-font/raster fidelity, #441 viewer
 repeatability, unknown outlines and remaining exceptions keep #406 open.
 No converter defect or unavoidable exception is inferred. Production behavior,
 native/CLI/JavaScript APIs, memory use, PDF bytes and release notes do not change.
+
+
+## TEB container and diagnostic boundary (#468, #469)
+
+The [nine-source report](https://github.com/rwv/caj2pdf-samples/blob/7fc1c5d4ce1b8c0b45fef68831149844a53fee14/research/notes/teb-container-boundary-20261009.md) and [receipt](https://github.com/rwv/caj2pdf-samples/blob/7fc1c5d4ce1b8c0b45fef68831149844a53fee14/research/notes/teb-container-boundary-20261009.json)
+correct earlier framing/CRC and blanket encryption claims. Eight complete
+containers have independently measured 16/28/40-byte archive/local/central
+records, valid stored-payload CRCs and readable raw-deflate XML with matching
+decoded CRCs. Encryption declarations are not proof that every entry is
+unreadable. Actual declared-PDF wrapping and credential requirements remain
+unestablished. The receipt SHA-256 is
+`01e7d3bcfdcf59c6e6d986f8f7f0f0635d145d2ebe7ee13e736058dae1ed02ab`.
+
+The ninth source has a 1,507,965-byte zero-filled suffix after an exact 4 MiB
+prefix match with a separately cataloged intact candidate. A fresh upstream ZIP
+download and both outer member CRCs reproduce the damaged identity; it is not
+local acquisition damage. No candidate is silently substituted. Eleven fresh
+contained offline viewer sessions show eight complete-source connection errors,
+one damaged-source unknown error, the same connection error for a paired
+original extension, and a successful original two-page PDF control. These
+observations establish neither plaintext recovery nor general irrecoverability.
+
+The research checker and seven original control groups are MIT code built from
+independent bytes and the public ZIP record/CRC baseline. It uses bounded
+seekable metadata, sequential 64 KiB payload chunks, a 512 MiB source limit,
+64 KiB metadata expansion and 128 XML elements. The sequential report process
+has a 512 MiB address-space cap and VmHWM 60,828 KiB. All 103 selected Catalog
+tests pass without skips. No foreign converter/vendor/private HN/JBIG code,
+corpus, XML/credential values, fonts or captured pixels enter either checkout.
+
+Production TEB detection still only recognizes a prefix. #469 removes its
+unsupported inference of encryption/impossible conversion, reusing the existing
+generic unsupported paths. CLI JSON reason changes from `drm-encrypted` to
+`not-implemented`; [unreleased notes](releases/unreleased.md) document this
+breaking value migration. Existing minimal/truncated TEB controls cover it.
+All nine unchanged sources retain zero-output refusals on native, Node and
+Chromium, with source integrity and temporary cleanup. Native page/outline
+metadata stays unknown; JavaScript error type/code/format are unchanged.
+No core/WASM behavior, dependency, memory bound, supported conversion or PDF
+output changes. #468 and #406 remain open; no release is requested.
