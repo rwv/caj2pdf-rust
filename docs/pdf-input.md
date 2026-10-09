@@ -41,6 +41,11 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   `/FlateDecode` filter. Member numbers, offsets, xref ordinals, syntax and
   live references are checked before structure traversal. The final xref
   revision determines membership, including later standalone replacements.
+  Object-stream `/Extends` collection links are preserved and must form an
+  acyclic graph of live, standalone generation-zero ObjStm targets (#507).
+  They never inherit another stream's members or offsets. Validation includes
+  streams without live members, uses a separate `max_allocation_bytes / 8`
+  metadata cap, and observes cancellation without recursive traversal.
   Original stream bytes are retained. `PdfIndex::object_location` returns
   `UnsupportedFormat` for a compressed member, which has no standalone byte
   span; internal diagnostics identify the physical container.
@@ -50,7 +55,7 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   `max_allocation_bytes / 8` cap. Reads, inflation and member walks observe
   cancellation. Input remains ranged and output sequential.
   Encrypted input, other prediction algorithms, filter arrays, object-stream
-  `/DecodeParms`, `/Extends`, external streams, indirect object-stream lengths,
+  `/DecodeParms`, external streams, indirect object-stream lengths,
   compressed indirect stream-length values and unrecognized structural damage
   remain typed errors. This is the measured #402/#404 profile, not general
   object-stream or PNG-filter support.

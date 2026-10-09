@@ -12,6 +12,15 @@ pub(super) struct CompressedObject {
     bytes: Vec<u8>,
 }
 
+// Collected in live object-number order, including streams with no live members.
+// Extends describes a collection; it never changes a stream's own member index.
+pub(super) struct ObjectStreamLink {
+    reference: PdfRef,
+    offset: u64,
+    extends: Option<PdfRef>,
+    walk: usize,
+}
+
 impl PdfIndex {
     pub(super) fn compressed_object(&self, reference: PdfRef) -> Option<&CompressedObject> {
         self.compressed_objects
@@ -32,6 +41,91 @@ impl PdfIndex {
 }
 
 impl<S: RangedSource, C: Cancellation> Reader<'_, S, C> {
+    pub(super) fn record_object_stream_link(
+        &self,
+        head: &ObjectHead,
+        reference: PdfRef,
+        offset: u64,
+        links: &mut Vec<ObjectStreamLink>,
+    ) -> Result<()> {
+        let Some(dictionary) = head.dictionary.as_ref() else {
+            return Ok(());
+        };
+        if dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"ObjStm") {
+            return Ok(());
+        }
+        if reference.generation != 0 || !matches!(head.tail, ObjectTail::Stream { .. }) {
+            return Err(self.malformed(
+                offset,
+                Some(reference),
+                "ObjStm must be a generation-zero stream",
+            ));
+        }
+        let extends = dictionary
+            .value(b"Extends")
+            .map(|value| {
+                exact_reference(value)
+                    .filter(|target| target.generation == 0)
+                    .ok_or(self.malformed(
+                        offset,
+                        Some(reference),
+                        "object stream Extends must be a generation-zero reference",
+                    ))
+            })
+            .transpose()?;
+        push_bounded(
+            links,
+            ObjectStreamLink {
+                reference,
+                offset,
+                extends,
+                walk: 0,
+            },
+            self.limits.max_allocation_bytes / 8,
+            "PDF object stream collections",
+        )
+        .map_err(self.locator(offset, Some(reference)))
+    }
+
+    pub(super) fn validate_object_stream_collections(
+        &self,
+        links: &mut [ObjectStreamLink],
+    ) -> Result<()> {
+        // Each node has at most one outgoing edge. A per-walk marker detects
+        // cycles while reusing completed paths: no recursion or quadratic walks.
+        for start in 0..links.len() {
+            let marker = start + 1;
+            let mut current = start;
+            loop {
+                if self.cancellation.is_cancelled() {
+                    return Err(ErrorKind::Cancelled.into());
+                }
+                let link = &mut links[current];
+                if link.walk == marker {
+                    return Err(self.malformed(
+                        link.offset,
+                        Some(link.reference),
+                        "object stream Extends contains a cycle",
+                    ));
+                }
+                if link.walk != 0 {
+                    break;
+                }
+                link.walk = marker;
+                let Some(target) = link.extends else { break };
+                let failure = self.malformed(
+                    link.offset,
+                    Some(link.reference),
+                    "object stream Extends does not resolve to an ObjStm",
+                );
+                current = links
+                    .binary_search_by_key(&target.number, |link| link.reference.number)
+                    .map_err(|_| failure)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn load_indexed_object(
         &mut self,
         at: u64,
@@ -124,7 +218,7 @@ impl<S: RangedSource, C: Cancellation> Reader<'_, S, C> {
             if dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"ObjStm")
                 || dictionary.value(b"Filter").and_then(exact_name).as_deref()
                     != Some(b"FlateDecode")
-                || [b"DecodeParms".as_slice(), b"F", b"Extends"]
+                || [b"DecodeParms".as_slice(), b"F"]
                     .iter()
                     .any(|key| dictionary.value(key).is_some())
             {

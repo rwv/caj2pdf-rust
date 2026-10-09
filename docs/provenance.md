@@ -2680,3 +2680,33 @@ an allocation budget, and the existing PDF validator/repair layer checks the
 result. The public API additions are opt-in; existing conversion options are
 unchanged. Release-note impact is a compatible feature for a future minor
 release, with explicit support limits. This work publishes no release.
+
+## Object-stream collections from a public SSE attachment (#507)
+
+The publicly linked [Shanghai Stock Exchange attachment](https://www.sse.com.cn/aboutus/publication/actofcourt/law/list/c/10643464/files/9f66fd525ace4005b03ee2be1b60779b.pdf)
+has SHA-256 `e7f78ebc47de69356e364a4c90e47a9e93f61855d47a6ac0230ba6ae06880da1`,
+4,280,581 bytes and 26 pages. Its indexed title ends in `.caj`, but the actual
+signature is PDF 1.7. Of five Flate object streams, object 302 has
+`/Extends 301 0 R`, `/N 25`, `/First 195` and `/Length 231`.
+The [PDF 1.7 specification, section 3.4.6, Table 3.14](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)
+defines collection links as an acyclic graph. They do not concatenate streams
+or change member offsets; each stream retains its own N/First/index.
+
+The independent MIT implementation preserves Extends, validates live,
+standalone generation-zero ObjStm targets, and detects cycles iteratively.
+Collection metadata has a separate `max_allocation_bytes / 8` budget and
+observes cancellation. Streams without live compressed members participate
+in collection validation too. Existing per-stream decoding limits remain.
+The original controls in `pdf/input/tests/object_stream_collection_tests.rs`
+cover forward/backward/shared links, an unused ancestor, escaped names,
+malformed/missing/free/wrong-generation/wrong-type targets, cycles, cancellation
+and allocation limits. No external document bytes or foreign implementation
+were copied; no dependency or private-source migration is introduced.
+
+The unchanged original's 26 pages agree in boxes, rotation, words and 72-dpi
+MuPDF pixels. The output retains the entire source prefix, all 455 objects and
+all 295 raw streams, with no outline. Native, Node and Chromium output hashes
+match; browser OPFS cleanup passes. Source qpdf exits 3 with four linearization
+order/hint warnings; output qpdf exits 0 after existing incremental output
+normalization. These source warnings are retained as evidence, not classified
+as a clean input. No new format-wide or vendor-viewer fidelity claim is made.

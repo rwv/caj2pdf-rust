@@ -1365,3 +1365,18 @@ refusal for this one source only; they do not establish recovery of the other
 TTKN profiles or full vendor-renderer equivalence. The preceding catalog
 counts are historical and await the separately reviewed sample-status update.
 No release is included.
+
+## Public SSE object-stream collection (#507; unreleased)
+
+The [provenance measurement](provenance.md#object-stream-collections-from-a-public-sse-attachment-507)
+adds bounded validation of the PDF object-stream Extends collection graph.
+The unchanged public original now converts to 26 pages; its source prefix,
+455 objects and 295 raw streams are preserved. All page boxes/rotations,
+word positions and 72-dpi MuPDF pixels match. Native, Node and Chromium
+produce SHA-256 `4d32c240b5ec61e462a6809979c78be207f3529c8821484aee7a9bc7798f4f65`;
+the browser leaves no OPFS entries. Qpdf output validation is clean, while
+its four original linearization warnings remain recorded separately.
+Original MIT tests cover shared acyclic collections and strict malformed,
+cycle, cancellation and memory-bound cases. The external document is not
+committed or fetched by required CI; skipped optional corpus tests are not
+compatibility passes. Metadata-only catalog addition follows review/merge.
