@@ -2258,3 +2258,57 @@ recover lost geometry; selected-object preservation remains a separate proof.
 No production dependency, API, CLI, JavaScript, I/O, output PDF, supported-format,
 conversion-count or release-note change follows. The ledger remains 1,252 PASS /
 18 FAIL / 27 UNSUPPORTED; original native font/ornament/refusal work stays open.
+
+## Original RGB viewer observations (#486)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/574f5e912af56177a15f756f94892461fd2df2e9/research/notes/viewer-rgb-resampling-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/574f5e912af56177a15f756f94892461fd2df2e9/research/notes/viewer-rgb-resampling-20261009.json)
+retain 18 original-only sessions and all 150 comparisons. Two independently
+authored six-page, font-free PDFs differ only in four image interpolation
+flags. Original solid RGB cells, fractional triangles and identical patterns
+at two image resolutions reproduce two page-buffer variants: 71,650 pixels
+differ in the 397×561 buffer, with channel deltas -239 through +255. The
+397×562 displayed crop differs at 79,837 pixels. All ten instrumented page
+pixmaps match public Qt constructor buffer hashes and share the observed
+display transform; variation is already present before that transform.
+
+Eight sessions without observation hooks reproduce the same two displayed
+variants. All 40 same-route, swap-only comparisons are equal (eight buffers
+and 32 screenshots); vector panels nevertheless have substantial differences.
+No image-only interpolation explanation, universal flag-disregard claim or
+internal renderer mechanism follows. Interpolation is implementation-dependent
+under the public PDF specification. The unchanged gray brackets reproduce
+3,655-buffer/6,037-display differences. Route and two equal consecutive frames
+remain insufficient to establish general readiness under #441.
+
+Acquisition order, inputs, grids and panel bounds were frozen before launch.
+An initial page-marker check required exact black/white endpoints and rejected
+four buffers; a second exact-white guard check rejected eight observations.
+Both analysis versions remain recorded. The final original page-ID decoder
+uses the authored black/white midpoint 128 with fixed positions, counts and
+neighbor guards. This decodes logical identity only: every marker pixel still
+enters exact RGB comparison without correction, alignment or tolerance. All
+previously admitted measurements are unchanged, and no session was reacquired.
+The unlaunched first fixture design and corrected collector draft are retained.
+
+Four original fixture tests and three RGB/marker tests validate PDF graphs,
+raw image identities/replication, flags, exact signed metrics, limits and
+negative page-ID controls. They run without corpus or viewer access. Generation
+is sequential with a maximum 1,536-byte image row; analysis reuses the bounded
+16 MiB/4 Mi-pixel PNG reader. All offline nonroot viewer sessions keep read-only
+root/inputs, 2 GiB memory/swap, two CPUs, 256 PIDs and a 90-second lifetime.
+No abort or OOM was observed, every input remained intact and cleanup completed.
+The finalized public-interface observer is pinned separately from the earlier
+gray report's prototype; matching no-observer results do not prove timing
+noninterference. All 613 retained session-file identities were rechecked.
+
+Receipt SHA-256: `05cd37f2c288292491ad04764e3f82c814cdaf791290fb8d8562167a84183797`.
+All new source and generated controls are original MIT. No vendor implementation,
+font program/outline, foreign converter or private HN/JBIG source was inspected
+or migrated. Document/pixel/font/binary bodies and raw logs remain external.
+This adds no conversion run, real-document acquisition or compatibility pass.
+The corpus remains 1,252 PASS / 18 FAIL / 27 UNSUPPORTED across 1,297 originals,
+with 35,587 accepted pages. Original native fonts/ornaments, remaining refusal
+evidence, #441 readiness and #406 correctness remain open. No production
+dependency, API, CLI, JavaScript, I/O, output PDF, supported-format or
+release-note change; no release is proposed.
