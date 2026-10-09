@@ -140,3 +140,11 @@ first observer's missing evidence and a separately frozen extension. A lossy
 output counterexample prevents treating JPEG normalization as correctness.
 See #488 provenance; the original #441 document, general readiness and broader
 #406/native-source-font/ornament obligations remain open.
+
+The [actual #441 page JPEG report](https://github.com/rwv/caj2pdf-samples/blob/d62394ff564be6001996b890edf1626b7013eada/research/notes/viewer-original7797-jpeg-20261009.md)
+reproduces both historical source/PDF crops and links their pre-/post-JPEG values
+through real-document public API observations. All seven observed pre-encoding
+target values agree; twelve sessions retain one abort and the first collector's
+corrected time-field assumption. The scoped #439 receipt is updated. See #490
+provenance; general readiness, all-page original-viewer coverage, source fonts/
+ornaments and broader #406 correctness remain open.
