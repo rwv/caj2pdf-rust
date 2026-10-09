@@ -71,6 +71,15 @@ with one value. Conflicting values
 or other duplicate keys are ambiguous and fail. The original page content
 streams are not decoded or rewritten.
 
+Archive.org inputs also establish two narrow PDF profiles (#495, #496).
+A complete post-EOF block-padding suffix is accepted only when it contains
+1–16 copies of its own byte length and the PDF range length is a multiple
+of 16; ordinary PDF whitespace remains valid independently. The exact classic
+xref line `0000000000 65536 f ` followed by LF is tolerated only for unused
+object zero, internally treated as generation 65535. Source xref bytes are
+preserved; live or nonzero generation overflow and duplicate entries remain
+errors. No extra document reads or variable-sized buffers are introduced.
+
 The measured length-framed `WebFastLoad` profile (#494) is also accepted:
 two little-endian u32 lengths (decoded, encoded), one complete zlib stream,
 and exact `APPINFOSIGN <offset>` with the absolute decimal position of the
