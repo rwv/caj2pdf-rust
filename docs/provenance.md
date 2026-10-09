@@ -1995,3 +1995,33 @@ and negative probes do not identify content wrapping or prove impossibility.
 changes no native/CLI/JavaScript API, memory bound, supported conversion, output
 PDF or release note. Existing runtime checks remain historical, not relabeled
 as a fresh full-corpus run; #406 remains open.
+
+## Original native viewer navigation controls (#441)
+
+The [original-control report](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.json)
+reproduce different completed rasters for byte-identical native page records,
+without involving a converter. Six original controls vary total page count
+(5/6/12) and index width (12/20 bytes). Initial direct/prior-page pairs differ
+on the six- and twelve-page controls by 29,877 grayscale pixels, at most two
+levels per channel. A repeat of the identical twelve-page prior-page route
+returns the other raster; route alone is not a sufficient condition.
+
+All generator/capture changes and seven new control groups are original MIT
+work based on this project's independent HN-B framing/record observations.
+No document text/images, font outlines or foreign implementation are copied.
+Each generated input is at most 60 KiB. Explicit routes are bounded and checked
+before launch; the existing default full-page protocol is preserved. No new
+production dependency, API, conversion I/O path, output, supported format or
+private-source migration is introduced.
+
+The report retains 21 terminal contained sessions, including 14 from the final
+tool and three external index-swap observations, with unchanged input hashes,
+no OOM and complete cleanup. An overstrong repeat-equality report assertion is
+retained as a failure and corrected without retrying or discarding a viewer
+attempt. Generated inputs, source/derived documents, pixels, fonts and binaries
+remain external. Receipt SHA-256:
+`987ec84053ad8bddf10ef5a7b6eca6a35cd6a0acc261418fd06ab24e17b39981`.
+This establishes a reproducible measurement limitation, not a pixel tolerance,
+reliable readiness rule, converter defect or corpus fidelity pass. The original
+PDF discrepancy and the broader #441/#406 criteria remain open; no release.
