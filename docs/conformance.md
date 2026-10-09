@@ -1362,9 +1362,11 @@ remove staged output. Original MIT controls run in required tests, while the
 external original remains local and is not fetched in clean-clone CI. Optional
 corpus skips are not passes. These results supersede the earlier production
 refusal for this one source only; they do not establish recovery of the other
-TTKN profiles or full vendor-renderer equivalence. The preceding catalog
-counts are historical and await the separately reviewed sample-status update.
-No release is included.
+TTKN profiles or full vendor-renderer equivalence. Samples
+[PR #90](https://github.com/rwv/caj2pdf-samples/pull/90) updates only that row
+in the [pinned receipt](https://github.com/rwv/caj2pdf-samples/blob/d4be1c97d5ce75a4ec4e2024e473d86d7d148457/research/notes/ttkn-product-conversion-20261009.json):
+1,385 identities, 1,340 conversion PASS, 18 FAIL and 27 UNSUPPORTED at this
+checkpoint. The preceding counts remain historical. No release is included.
 
 ## Public SSE object-stream collection (#507; unreleased)
 
