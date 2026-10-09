@@ -176,3 +176,12 @@ offline viewer observations. The matching author-disclosed response produces
 a rights-file error in a diagnostic copy, without demonstrating recovery or
 irrecoverability. The report preserves controls, failed web/Wayback requests
 and the distinction between this copy and the unchanged source (#501/#415).
+
+
+The [TTKN observed-IV research recovery](https://github.com/rwv/caj2pdf-samples/blob/e4f54a1d3645983ea842a58298efb7aedbfd1b08/research/notes/ttkn-unaltered-wrapper-20261009.md) preserves the unchanged
+source during loopback-only replay, reproduces both wrapper layers and
+establishes the PDF-key recipe for this source. All 234 independently decrypted
+stream byte sequences match qpdf; 180 pages render and 97 outline destinations
+are valid. Initial-IV initialization, production three-runtime support and
+complete viewer equivalence remain unmet. The earlier URL-copy failures stay
+historical evidence; no conversion totals or format support claims change.
