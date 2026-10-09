@@ -25,6 +25,18 @@ pub(super) fn recognized<C: Cancellation>(
     {
         return Ok(false);
     }
+    if let Some(xml) =
+        suffix.strip_prefix(b"WebFastLoad\r\n<?xml version=\"1.0\" encoding=\"gb2312\"?>")
+    {
+        // This measured package uses only ASCII, a subset of GB2312. Other
+        // encodings and non-ASCII values require their own format evidence.
+        return Ok(xml.is_ascii()
+            && std::str::from_utf8(xml).is_ok_and(|xml| {
+                xml.strip_prefix("<FileProperty-Package>")
+                    .and_then(|xml| xml.strip_suffix("</FileProperty-Package>"))
+                    .is_some_and(|fields| plain_fields(fields, &["DOI", "SCODE", "PCODE", "DURL"]))
+            }));
+    }
     if suffix.starts_with(b"WebFastLoadP") || suffix.starts_with(b"WebFastLoadW") {
         return Ok(true);
     }
@@ -50,13 +62,17 @@ fn property(suffix: &[u8]) -> bool {
     let Ok(xml) = std::str::from_utf8(xml) else {
         return false;
     };
-    let Some(mut fields) = xml
+    let Some(fields) = xml
         .strip_prefix("<FileProperty>")
         .and_then(|value| value.strip_suffix("</FileProperty>"))
     else {
         return false;
     };
-    for tag in ["Doi", "FileName", "TableName", "Type"] {
+    plain_fields(fields, &["Doi", "FileName", "TableName", "Type"])
+}
+
+fn plain_fields(mut fields: &str, tags: &[&str]) -> bool {
+    for &tag in tags {
         let Some(rest) = fields.strip_prefix('<').and_then(|s| s.strip_prefix(tag)) else {
             return false;
         };
@@ -132,9 +148,11 @@ fn framed<C: Cancellation>(payload: &[u8], position: u64, cancellation: &C) -> R
     }
 }
 
-// Observed public PDFs have a complete 16-byte block-padding suffix after EOF.
+// Observed public PDFs have complete 16-byte block padding after EOF, either
+// alone or following an exact WebFastLoad marker.
 // Whitespace-only suffixes already use the ordinary PDF whitespace path.
 pub(super) fn block_padding(suffix: &[u8], extent: u64) -> bool {
+    let suffix = suffix.strip_prefix(b"WebFastLoad").unwrap_or(suffix);
     (1..=16).contains(&suffix.len())
         && extent.is_multiple_of(16)
         && suffix.iter().all(|&byte| usize::from(byte) == suffix.len())

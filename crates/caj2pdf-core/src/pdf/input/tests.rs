@@ -2205,6 +2205,71 @@ fn download_footers_preserve_the_pdf_logical_end() {
 }
 
 #[test]
+fn package_download_footer_requires_the_measured_plain_ascii_profile() {
+    let package = concat!(
+        "WebFastLoad\r\n<?xml version=\"1.0\" encoding=\"gb2312\"?>",
+        "<FileProperty-Package><DOI>original-test</DOI><SCODE>TEST</SCODE>",
+        "<PCODE>TEST</PCODE><DURL>https://example.invalid/</DURL>",
+        "</FileProperty-Package>"
+    );
+    let mut doc = build_pdf(&minimal_objects(), "");
+    let logical_end = doc.len() as u64;
+    doc.extend_from_slice(package.as_bytes());
+    let index = open_with(
+        doc.clone(),
+        &Limits {
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(index.logical_end(), logical_end);
+    assert_eq!(index.pages().len(), 1);
+    assert!(matches!(
+        open_cancellable(doc, &Limits::default(), &CancelAfter::always()),
+        Err(Error {
+            kind: ErrorKind::Cancelled,
+            ..
+        })
+    ));
+    for suffix in [
+        package.replace("WebFastLoad\r\n", ""),
+        package.replace("\r\n", "\n"),
+        package.replace("gb2312", "utf-8"),
+        package.replace("FileProperty-Package", "Package"),
+        package.replace("<DOI>", "<DOI attr=\"value\">"),
+        package.replace("<PCODE>TEST</PCODE>", ""),
+        package.replace(
+            "<PCODE>TEST</PCODE>",
+            "<PCODE>TEST</PCODE><PCODE>TEST</PCODE>",
+        ),
+        package.replace("<SCODE>TEST</SCODE>", "<PCODE>TEST</PCODE>"),
+        package.replace("original-test", "<nested />"),
+        package.replace("original-test", "&entity;"),
+        package.replace("original-test", "\0"),
+        package.replace("original-test", "\u{4e2d}"),
+        package.replace("original-test", "startxref"),
+        package.replace("original-test", "4 0 obj null endobj"),
+        package.replace("</DOI>", "</Other>"),
+        package.replace(
+            "<FileProperty-Package>",
+            "<!DOCTYPE x><FileProperty-Package>",
+        ),
+        format!("{package}junk"),
+        format!("{package}{package}"),
+    ] {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        doc.extend_from_slice(suffix.as_bytes());
+        let error = pdf_error(open(doc));
+        assert!(matches!(error.context, Context::Pdf { repair: true, .. }));
+        assert_eq!(
+            error.reason,
+            "bytes after PDF EOF are not a recognized CAJ footer"
+        );
+    }
+}
+
+#[test]
 fn download_footers_reject_unknown_or_ambiguous_neighbors() {
     let property = "\u{feff}<FileProperty><Doi /><FileName>test</FileName>\
                     <TableName>TEST</TableName><Type>1</Type></FileProperty>";
@@ -3930,6 +3995,9 @@ fn malformed_block_padding_is_not_accepted_as_a_footer() {
         (vec![2; 2], 31),
     ] {
         assert!(!footer::block_padding(&suffix, extent));
+        let mut prefixed = b"WebFastLoad".to_vec();
+        prefixed.extend_from_slice(&suffix);
+        assert!(!footer::block_padding(&prefixed, extent));
     }
     let mut doc = build_pdf(&minimal_objects(), "");
     while !(doc.len() + 2).is_multiple_of(16) {
@@ -3940,6 +4008,27 @@ fn malformed_block_padding_is_not_accepted_as_a_footer() {
         pdf_error(open(doc)).context,
         Context::Pdf { repair: true, .. }
     ));
+}
+
+#[test]
+fn exact_download_marker_accepts_only_complete_aligned_block_padding() {
+    for count in 1..=16 {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        while !(doc.len() + b"WebFastLoad".len() + count).is_multiple_of(16) {
+            doc.push(b' ');
+        }
+        let end = doc.len() as u64;
+        doc.extend_from_slice(b"WebFastLoad");
+        doc.extend(std::iter::repeat_n(count as u8, count));
+        let index = open(doc.clone()).unwrap();
+        assert_eq!(index.logical_end(), end);
+        assert_eq!(index.pages().len(), 1);
+        doc.push(0);
+        assert!(matches!(
+            pdf_error(open(doc)).context,
+            Context::Pdf { repair: true, .. }
+        ));
+    }
 }
 
 #[test]
