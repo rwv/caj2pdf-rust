@@ -1818,3 +1818,29 @@ The 80 selected Catalog tests include 11 new controls and no skipped tests.
 No production dependency, memory/API/output behavior, support or release note
 changes. Samples #51 and #406 remain open for causal composition work, original
 font fidelity, unknown outlines and unresolved exceptions.
+
+
+## Native vector model verification (#406, samples #51)
+
+The [vector report](https://github.com/rwv/caj2pdf-samples/blob/bb50d8ead6a81703707b5fccf57bd9cf326c8cbc/research/notes/native-vector-geometry-20261008.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/bb50d8ead6a81703707b5fccf57bd9cf326c8cbc/research/notes/native-vector-geometry-20261008.json)
+verify all 327 source-record paths across the ten accepted native originals
+(60 pages): 321 segments and six five-point radicals. Existing original-control
+models determine endpoints, widths and grayscale strokes; the category order
+among 83,432 ordinary glyphs and 57 images also agrees. The receipt SHA-256 is
+`4f5fd4960dadd922563767991988de9a9af04cc9b9d3dcd2420c2c5a35cc91d8`. Reviewed production PDF bytes are unchanged.
+
+New original MIT research code reuses bounded source framing and PDF decoding.
+It checks rational coordinates against the existing empirical scale and
+serialization tolerance, respects saved graphics state and inherited page
+boxes/rotation, and rejects unmeasured stroke contexts. Seven original control
+groups detect geometry, color, width, order, omission and duplication changes.
+All 87 selected Catalog tests pass without skips. The sequential external run
+uses a 2 GiB address-space cap and reports 45,796 KiB process VmHWM.
+
+The checker verifies existing models; it is not a new source-pixel or physical
+unit oracle. Ornament Artifact spans are excluded from category order. Glyph
+transforms, original typefaces, ornaments, raster differences, #441 viewer
+repeatability, unknown outlines and remaining exceptions still prevent #406
+completion. Earlier checker refusals and corrections are retained. No foreign
+converter, vendor/private HN/JBIG implementation, font outlines or corpus bytes
+are imported. No production dependency, memory/API/output or release change.
