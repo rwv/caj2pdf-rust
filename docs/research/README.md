@@ -131,3 +131,12 @@ vector and image regions; no-observer sessions reproduce both. All 40
 same-route flag-swap comparisons are equal. Earlier page-ID check rejections
 remain recorded, and the final source-bit decoder never relaxes pixel equality.
 See #486 provenance; internal cause, #441 readiness and #406 fidelity stay open.
+
+The [original page JPEG transition report](https://github.com/rwv/caj2pdf-samples/blob/d106296558ea3cbc7a78320190da4f77c6f6d6ea/research/notes/viewer-jpeg-roundtrip-20261009.md)
+connects original RGB/gray encoding input, JPEG bytes, returned decode rows and
+selected display buffers through public APIs. It retains 96 diagnostic cases,
+four native/PDF holdout directions and all 12 viewer sessions, including the
+first observer's missing evidence and a separately frozen extension. A lossy
+output counterexample prevents treating JPEG normalization as correctness.
+See #488 provenance; the original #441 document, general readiness and broader
+#406/native-source-font/ornament obligations remain open.
