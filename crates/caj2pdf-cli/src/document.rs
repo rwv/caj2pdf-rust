@@ -17,13 +17,11 @@ use caj2pdf_core::{
 use std::fs::File;
 use std::io::{self, Write};
 
-/// Why a recognized format is never converted, when that is known.
-///
-/// TEB is a CNKI DRM container whose document entries are encrypted
-/// (rwv/caj2pdf-samples research notes); this project does not decrypt it.
+/// Why this version does not convert a recognized format.
+/// Detection alone does not establish encryption, damage or recoverability.
 pub fn unsupported_reason(format: InputFormat) -> Option<&'static str> {
     match format {
-        InputFormat::Teb => Some("drm-encrypted"),
+        InputFormat::Teb => Some("not-implemented"),
         InputFormat::Caa => Some("target-descriptor"),
         _ => None,
     }
@@ -31,9 +29,6 @@ pub fn unsupported_reason(format: InputFormat) -> Option<&'static str> {
 
 pub(crate) fn unsupported(format: InputFormat) -> String {
     match format {
-        InputFormat::Teb => "TEB input is a DRM-encrypted CNKI container; \
-                    its document content is encrypted and cannot be converted"
-            .to_owned(),
         InputFormat::Caa => "CAA input is a target descriptor, not a document; \
                             obtain the referenced document and convert that file"
             .to_owned(),
