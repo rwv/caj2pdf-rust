@@ -162,3 +162,10 @@ build, MDAC installation and CJK display limits remain visible; no target,
 opaque field or vendor implementation is inspected. See the provenance entry
 for samples #79. Actual-document availability, credentials and native-Windows
 equivalence remain unverified; #406 and the conversion ledger are unchanged.
+
+
+The [public-web source verification](https://github.com/rwv/caj2pdf-samples/blob/9bbb9f5ddfe1cd340d2f0f758a0104a4e1e95022/research/notes/public-web-correctness-20261009.md) covers all four new HN/C8 originals
+(203 pages / 236 images), the 20-page KDH, both new C8 displayed-contents models
+and all 11 compressed streams behind #499's seven source-content warnings.
+It supplements the 87-original conversion/runtime receipt while retaining
+unknown outlines, missing content and broader #406 fidelity obligations.

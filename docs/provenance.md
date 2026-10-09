@@ -2483,3 +2483,46 @@ irrecoverability. Actual document acquisition, target availability/credentials,
 native-Windows equivalence and broader #406 correctness remain unverified.
 No production dependency/API/CLI/JavaScript/I/O/PDF/support/release-note change;
 no release is proposed.
+
+
+## Public-web source verification (#406, #499, samples #83)
+
+The [new source-correctness receipt](https://github.com/rwv/caj2pdf-samples/blob/9bbb9f5ddfe1cd340d2f0f758a0104a4e1e95022/research/notes/public-web-correctness-20261009.md) supplements the 87-original
+public-web acquisition and reviewed #497/#498 conversion results. Existing
+original MIT research tools independently check all four new HN/C8 sources:
+203 pages and 236 image descriptors, with source bitmap/JPEG identities, order,
+page boxes and image transforms. Type-0 uses the previously pinned external
+black-box decoder with two guarded prefills; type-3 uses original payload
+wrappers and Poppler/MuPDF agreement, without claiming independent decoder
+implementations. No foreign implementation is read or migrated.
+
+The new KDH is independently unwrapped with bounded sequential I/O. All 122
+selected object values, 60 opaque raw streams, 20 pages and navigation pass
+the existing source-preservation check. Its source-reader duplicate MediaBox
+warning is retained; both raw source occurrences independently equal
+`[0 0 612 792]`. Only checked trailer xref/identity fields differ.
+
+Both new C8 sources display empty contents under the existing fixed public
+Qt observer protocol, bracketed by fresh populated HN-A controls (81 nodes,
+13 roots, depth three). Every checkpoint, intervening sample, source identity
+and cleanup result is audited. This extends the separate 849-source inventory
+to 851 observed empty models, without establishing absent stored outlines or
+rendering readiness. #303 remains open.
+
+All 11 warning content streams in #499 have direct source-length/endstream
+framing, complete checksum-valid zlib data, no unused compressed bytes and
+matching independently decoded hashes. Every affected page has a single
+Contents stream; incomplete PDF tokens do not continue in a later member.
+These observations exclude those specific framing/continuation explanations,
+but do not reconstruct missing content or prove irrecoverability. Seven
+source warnings remain unresolved, with no guessed operator/token repair.
+
+All documents, decoded content, images, fonts, viewer and oracle binaries remain
+external. Only metadata/counts/hashes and original MIT prose are published;
+font programs/outlines and vendor implementation are not inspected. Existing
+bounded source/per-page runners and 1 MiB content-stream caps are retained.
+There is no production code, dependency, API, CLI, JavaScript, output, I/O or
+release-note behavior change. Corpus totals remain 1,339 conversion PASS /
+18 FAIL / 27 UNSUPPORTED across 1,384 identities, with revision-scoped evidence.
+Unresolved source/font/ornament fidelity, viewer readiness, outline and refusal
+obligations under #406 remain open.
