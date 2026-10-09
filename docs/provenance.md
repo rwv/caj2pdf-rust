@@ -948,3 +948,34 @@ ordinary indexed PDF parsing stay unchanged. Existing ranged patch output is
 reused, with source rechecks, cancellation and retained-allocation limits;
 stream content is never rewritten or buffered for this repair. No dependency
 or external document, PDF, font or pixel data is added to the repository.
+
+## Synchronous Worker module graph (#433)
+
+The original MIT startup change replaces the Node branch's top-level await
+with a dynamic-import continuation. The browser listener still attaches
+synchronously. Node's message queue retains requests sent before the Node
+listener attaches; the conversion protocol, bounded I/O and public APIs do
+not change.
+
+The original regression uses Node's
+[synchronous ESM loading](https://nodejs.org/download/release/v22.11.0/docs/api/modules.html#loading-ecmascript-modules-using-require)
+to reject top-level await throughout the Worker's static dependency graph.
+A shared gate guarantees that the first request is queued before that graph
+loads. The test verifies its normal failure reply without requiring WASM,
+external documents, a parser dependency or a test-only production hook.
+The experimental Node 22 flag is confined to this test Worker.
+
+An external Vite 8.0.0 build reproduces the old IIFE failure and succeeds with
+the startup change. Ten original-control conversions through its generated
+Worker match Node output bytes across isolated and non-isolated Chromium
+pages, covering CAJ, KDH, PDF, image C8 and native C8. This follows Vite's
+[documented default Worker format](https://vite.dev/config/worker-options).
+Vite is an external MIT build tool; it is not added to the npm package or
+the converter dependency graph. All 183 JavaScript tests pass without skips,
+including the actual packed-tarball and Chromium tests. Full current-catalog
+verification is tracked separately in
+[samples #101](https://github.com/rwv/caj2pdf-samples/issues/101).
+
+No source format rule, font resource, foreign converter implementation or
+private source is introduced. The patch-release criterion in #433 remains
+unmet until an authorized release; this change does not publish one.

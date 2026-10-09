@@ -229,6 +229,10 @@ thread only awaits the sink and reports progress, so a page stays responsive.
 The API also works from a caller's own Dedicated Worker, which then starts a
 nested Worker.
 
+Bundlers may emit the internal Worker as a classic script. Its module graph
+has no top-level `await`, so Vite's default `worker.format: "iife"` works;
+no global Worker-format override is needed.
+
 A shared control block (`SharedArrayBuffer`) carries cancellation and sink
 acknowledgements: the Worker pauses after eight chunks the sink has not yet
 taken, and an abort stops it at its next checkpoint, after which it closes
