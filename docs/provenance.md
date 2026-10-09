@@ -1927,7 +1927,7 @@ output changes. #468 and #406 remain open; no release is requested.
 
 ## TEB public-certificate and opaque-field observations (#468)
 
-The [credential-boundary report](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.md) and [per-source receipt](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.json)
+The [credential-boundary report](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.md) and [per-source receipt](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.json)
 identify parseable X.509 certificates in all eight complete TEB containers:
 two distinct 1,024-bit RSA public keys with exponent 65,537. Four opaque fields
 have canonical base64 encodings of measured sizes. A direct public-operation
@@ -1941,7 +1941,7 @@ The new research tool and six original control groups are MIT code, based on
 independent observations and public RFC 7468/5280/8017 structure/terminology;
 no RFC implementation code is copied. Installed OpenSSL is an external research
 utility, not a new production dependency. Generated control private keys are
-ephemeral and never printed or committed. No source certificate/key/credential
+ephemeral and never printed or committed. No source certificate bodies, key moduli or credential
 values, document/font/pixel data or foreign converter/vendor/private HN/JBIG
 implementation enters either repository.
 

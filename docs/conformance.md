@@ -1187,7 +1187,7 @@ pages. TEB wrapping/credential/recovery requirements remain open under #468,
 and complete corpus correctness remains open under #406.
 
 
-The [certificate/opaque-field follow-up](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.md)
+The [certificate/opaque-field follow-up](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.md)
 adds parseable X.509/RSA public-key structure for eight complete sources, bounded
 encoding/length checks and complete literal payload scans. Original private-
 operation controls validate the explicit public-operation padding probe, which

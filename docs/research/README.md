@@ -68,7 +68,7 @@ unsupported encryption diagnosis; wrapping/credential semantics and conversion
 remain open under #468 and #406.
 
 
-The [TEB certificate follow-up](https://github.com/rwv/caj2pdf-samples/blob/6127ea6d2c626c8f3e01b691c53e535725af5a46/research/notes/teb-credential-boundary-20261009.md) establishes X.509 public-key and
+The [TEB certificate follow-up](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.md) establishes X.509 public-key and
 opaque-field structure for eight complete sources, with bounded complete-payload
 scans and original cryptographic/encoding controls. Actual key derivation,
 validated credentials and whole-document recovery remain unknown under #468.
