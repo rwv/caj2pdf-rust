@@ -405,3 +405,14 @@ pub extern "C" fn caj2pdf_info_text_len(field: u32) -> u32 {
 pub extern "C" fn caj2pdf_reset() {
     with_session((), |session| *session = Session::default());
 }
+
+/// Set 32 case-sensitive response bytes, packed as four little-endian words.
+/// No pointer to caller-owned memory is retained.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_set_ttkn_response(a: u64, b: u64, c: u64, d: u64) -> u32 {
+    let mut bytes = [0_u8; 32];
+    for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip([a, b, c, d]) {
+        chunk.copy_from_slice(&word.to_le_bytes());
+    }
+    with_session(0, |session| session.set_ttkn_response(&bytes) as u32)
+}

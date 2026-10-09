@@ -50,7 +50,7 @@ await writer.close();
 
 | Input | Status |
 | --- | --- |
-| PDF | Supported: copied, with documented [repairs](docs/pdf-input.md). |
+| PDF | Supported: copied, with documented [repairs](docs/pdf-input.md). The unreleased [TTKN server profile](docs/ttkn-pdf.md) requires an explicit response. |
 | CAJ | Supported, with its bookmarks. |
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |

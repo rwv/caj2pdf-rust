@@ -878,7 +878,7 @@ pub(super) fn is_space(byte: u8) -> bool {
     matches!(byte, 0 | b'\t' | b'\n' | 12 | b'\r' | b' ')
 }
 
-fn is_delimiter(byte: u8) -> bool {
+pub(super) fn is_delimiter(byte: u8) -> bool {
     is_space(byte)
         || matches!(
             byte,

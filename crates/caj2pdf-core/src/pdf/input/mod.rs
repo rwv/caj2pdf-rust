@@ -17,6 +17,7 @@ mod pattern_matrix;
 mod resource_repair;
 mod source_path;
 pub(crate) mod stream_substitution;
+pub(crate) mod ttkn;
 pub(crate) use source_path::validate as validate_source_path_repair;
 
 pub(crate) use link_repair::{
@@ -352,6 +353,7 @@ struct Trailer {
     info: Option<PdfRef>,
     id: Option<Vec<u8>>,
     prev: Option<u64>,
+    encrypt: Option<PdfRef>,
 }
 
 struct Reader<'a, S, C> {
@@ -362,6 +364,7 @@ struct Reader<'a, S, C> {
     window: Vec<u8>,
     window_offset: u64,
     window_len: usize,
+    allow_encrypted: bool,
 }
 
 impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
@@ -387,6 +390,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             window: vec![0; size],
             window_offset: 0,
             window_len: 0,
+            allow_encrypted: false,
         })
     }
 
@@ -762,6 +766,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     info: trailer.info,
                     id: trailer.id.clone(),
                     prev: trailer.prev,
+                    encrypt: trailer.encrypt,
                 });
             }
             for record in records {
@@ -1143,7 +1148,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .value(name)
                 .ok_or(self.malformed(at, None, reason))
         };
-        if dictionary.value(b"Encrypt").is_some() {
+        if dictionary.value(b"Encrypt").is_some() && !self.allow_encrypted {
             return Err(self.problem(
                 at,
                 None,
@@ -1185,7 +1190,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         let prev = optional_entry(dictionary.value(b"Prev").map(exact_unsigned))
             .ok_or(self.malformed(at, None, "invalid PDF trailer Prev"))?;
+        let encrypt = optional_entry(dictionary.value(b"Encrypt").map(exact_reference))
+            .ok_or(self.malformed(at, None, "invalid PDF trailer Encrypt"))?;
         Ok(Trailer {
+            encrypt,
             size,
             root,
             info,
@@ -2146,7 +2154,33 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "outline item Prev link is invalid",
                 ));
             }
-            let destination = match (item.value(b"Dest"), item.value(b"A")) {
+            // An action may be one standalone indirect dictionary. Keep the
+            // object/reference unchanged and apply the same local-GoTo grammar.
+            let action_dictionary =
+                if let Some(reference) = item.value(b"A").and_then(exact_reference) {
+                    let action_location = index.metadata_location(reference)?;
+                    let (head, _) =
+                        self.load_indexed_object(action_location.offset, reference, slots, index)?;
+                    if !matches!(head.tail, ObjectTail::EndObject { .. }) {
+                        return Err(self.malformed(
+                            action_location.offset,
+                            Some(reference),
+                            "outline action is not a dictionary object",
+                        ));
+                    }
+                    Some(head.dictionary.ok_or(self.malformed(
+                        action_location.offset,
+                        Some(reference),
+                        "outline action is not a dictionary object",
+                    ))?)
+                } else {
+                    None
+                };
+            let action = action_dictionary
+                .as_ref()
+                .map(|dictionary| dictionary.bytes.as_slice())
+                .or_else(|| item.value(b"A"));
+            let destination = match (item.value(b"Dest"), action) {
                 (Some(_), Some(_)) => {
                     return Err(self.malformed(
                         location.offset,
@@ -2160,7 +2194,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         location.offset,
                         Some(task.reference),
                         ErrorKind::UnsupportedFormat,
-                        "outline action must be a direct local GoTo without chained actions",
+                        "outline action must be a local GoTo without chained actions",
                     )
                 })?),
             };

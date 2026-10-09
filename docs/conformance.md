@@ -1335,10 +1335,33 @@ two identical duplicate source MediaBox arrays. Repeat recovery outputs have
 identical page pixels, boxes and word counts.
 
 This external research result uses a privately observed wrapping IV and an
-explicitly modified Standard R4 diagnostic dictionary. The production converter
-still refuses the unchanged original on native, Node and Chromium. Initial-IV
+explicitly modified Standard R4 diagnostic dictionary. At that research checkpoint, the production converter
+refused the unchanged original on native, Node and Chromium. Initial-IV
 initialization, original-input implementation/runtime checks and complete
 vendor-viewer equivalence remain unresolved. Other TTKN profiles are not
 covered. The catalog viewer PASS means observed opening/first page/contents,
 not a conversion or full-fidelity pass. Conversion totals and accepted pages
 remain unchanged; #501/#415/#406 are open.
+
+
+## Explicit TTKN server-response conversion (#504, #505; unreleased)
+
+[The implementation profile](ttkn-pdf.md) records the wholly authored controls
+that established the fixed initializer, bounded KDF/PDF rules, explicit native,
+CLI/Node/browser response interfaces and support limits. The unchanged public
+source `074cb4d57181e92826c37b549f811008c58c7b66366f9045e8985c58178263d8`
+now converts with its matching author-disclosed response. All three runtimes
+produce byte-identical output. Qpdf passes without warnings; all 234 raw
+plaintext streams, 180 page geometries/word positions/rendered pages, and 97
+outline entries/destinations match the independent qpdf research recovery.
+Indirect local GoTo actions are preserved through the existing live-object
+index; nonlocal/chained/malformed actions remain refused.
+
+Wrong/missing responses fail without output writes; native path failures
+remove staged output. Original MIT controls run in required tests, while the
+external original remains local and is not fetched in clean-clone CI. Optional
+corpus skips are not passes. These results supersede the earlier production
+refusal for this one source only; they do not establish recovery of the other
+TTKN profiles or full vendor-renderer equivalence. The preceding catalog
+counts are historical and await the separately reviewed sample-status update.
+No release is included.

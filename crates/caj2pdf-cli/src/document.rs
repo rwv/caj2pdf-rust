@@ -70,18 +70,24 @@ pub fn convert<W: Write>(
     resources: &mut crate::hnc8::Resources,
     options: ConversionOptions<'_>,
     terminal: Option<&mut dyn Write>,
+    response: Option<&caj2pdf_core::pdf::TtknResponse>,
 ) -> Result<ConversionReport, CliError> {
     let result = (|| {
         let mut source = ranged(&mut input.file)?;
         let fonts = resources.fonts().map_err(|error| error.to_string())?;
         let mut progress = Progress::new(terminal);
-        let result = caj2pdf_core::convert(
-            &mut source,
-            &mut writer,
-            ConversionOptions { fonts, ..options },
-            limits,
-            &mut progress,
-        );
+        let options = ConversionOptions { fonts, ..options };
+        let result = match response {
+            Some(response) => caj2pdf_core::convert_with_ttkn_response(
+                &mut source,
+                &mut writer,
+                options,
+                response,
+                limits,
+                &mut progress,
+            ),
+            None => caj2pdf_core::convert(&mut source, &mut writer, options, limits, &mut progress),
+        };
         let empty = source.size() == 0;
         let result = result.map_err(|error| {
             describe(error, &progress, empty, |format, error| {
@@ -292,4 +298,25 @@ pub fn add_bookmarks<W: Write>(
             outline.name, pdf.name
         ))
     })
+}
+
+/// Keep the response bounded and avoid putting its contents into diagnostics.
+pub(crate) fn ttkn_response(
+    input: &mut Input,
+) -> Result<caj2pdf_core::pdf::TtknResponse, CliError> {
+    use std::io::Read;
+    let mut bytes = zeroize::Zeroizing::new([0_u8; 35]);
+    let mut length = 0;
+    while length < bytes.len() {
+        let read = input
+            .file
+            .read(&mut bytes[length..])
+            .map_err(|_| CliError::runtime("cannot read TTKN response file".to_owned()))?;
+        if read == 0 {
+            break;
+        }
+        length += read;
+    }
+    caj2pdf_core::pdf::TtknResponse::new(bytes[..length].trim_ascii())
+        .map_err(|error| CliError::runtime(error.to_string()))
 }

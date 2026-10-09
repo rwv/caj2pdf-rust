@@ -294,8 +294,8 @@ direct third-party Cargo dependencies in the current graph:
 
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
-| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
-| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | `clap`, `serde`, `serde_json`; Unix and Windows: `same-file`, `tempfile`; Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
+| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `aes`, `base64`, `flate2`, `md-5`, `quick-xml`, `sha1`, `sha2`, `xberg-ttf-parser`, `zeroize` (direct) |
+| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | `clap`, `serde`, `serde_json`, `zeroize`; Unix and Windows: `same-file`, `tempfile`; Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.88.0 | None |
 
 The Rust standard library and compiler-provided target components are not
@@ -2634,3 +2634,49 @@ validated by this source. #501/#415/#406 stay open. Conversion totals remain
 1,339 PASS / 19 FAIL / 27 UNSUPPORTED across 1,385 identities, with 36,288
 accepted pages. No production code, dependency, API, CLI, JavaScript, output,
 I/O policy, supported-format or release-note behavior changes; no release.
+
+
+## Original TTKN server-response implementation (#504, #505)
+
+[`ttkn-pdf.md`](ttkn-pdf.md) records the independent authored-control evidence,
+exact wrapping/KDF facts, standard AESV2 object-key rule, original-source
+comparison and remaining support limits. All Rust/JS/fixture changes are
+original MIT work. No vendor or differently licensed converter implementation
+was read, copied or translated; no private-source migration occurred.
+The initializer was established on two different wholly authored negative
+controls and verified by a third positive viewer control. Document-specific
+credentials and external corpus content are not committed.
+
+The fixture [`generate.py`](../crates/caj2pdf-core/tests/fixtures/ttkn/generate.py)
+is original MIT and uses OpenSSL only as an external standard AES oracle.
+The generated PDF, response and plaintext content are original MIT test data;
+CI verifies reproducibility. #505's indirect GoTo change applies the existing
+restricted local-action grammar after resolving one indexed object, retaining
+its reference and rejecting streams, scalars, wrong generations and chains.
+
+New locked dependencies were reviewed through their registry metadata and
+license files; no source was vendored. The selected grants are:
+
+| Package | Role | Declared / selected license |
+| --- | --- | --- |
+| `aes` 0.9.2 | AES-128/256, key-schedule zeroization | MIT OR Apache-2.0 / MIT |
+| `cipher` 0.5.2, `inout` 0.2.2 | RustCrypto block-cipher interfaces | MIT OR Apache-2.0 / MIT |
+| `cpubits` 0.1.1 | RustCrypto target word-size helper | MIT OR Apache-2.0 / MIT |
+| `base64` 0.23.1 | Bounded wrapper fields, alloc only | MIT OR Apache-2.0 / MIT |
+| `md-5` 0.11.0, `sha1` 0.11.0 | Legacy format-defined key derivation | MIT OR Apache-2.0 / MIT |
+| `quick-xml` 0.42.0 | Bounded XML event parsing, no optional features | MIT / MIT |
+| `zeroize` 1.9.1 | Clear owned responses, wrapping keys and file/object keys | Apache-2.0 OR MIT / MIT |
+
+AES is pinned to 0.9.2 because 0.9.3 requires Rust 1.89 while this repository's
+MSRV is 1.88. Existing `sha2`/`digest`/`crypto-common`/`hybrid-array`/`typenum`/
+`cfg-if`/`cpufeatures` and `memchr` provide shared transitive functionality;
+there is no duplicate dependency version or new npm dependency. CLI additionally
+uses `zeroize` for the bounded response-file buffer. These legacy hashes are
+used for the measured file format, not for new password-storage designs.
+
+Input remains ranged and output sequential. Stream payloads are decrypted
+on demand through a virtual PDF source; bounded metadata and indexes share
+an allocation budget, and the existing PDF validator/repair layer checks the
+result. The public API additions are opt-in; existing conversion options are
+unchanged. Release-note impact is a compatible feature for a future minor
+release, with explicit support limits. This work publishes no release.

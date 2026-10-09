@@ -134,7 +134,17 @@ mod cli {
                     }
                     resources.use_installed(&installed, &limits)?;
                 }
+                let mut response_input = options
+                    .ttkn_response_file
+                    .as_ref()
+                    .map(|path| open_input(&crate::command::Endpoint::Path(path.clone()), 34))
+                    .transpose()?;
+                let response = response_input
+                    .as_mut()
+                    .map(document::ttkn_response)
+                    .transpose()?;
                 let mut protected = vec![&input];
+                protected.extend(response_input.iter());
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
                 let mut terminal = (!options.quiet && io::stderr().is_terminal()).then(io::stderr);
@@ -149,6 +159,7 @@ mod cli {
                         ..Default::default()
                     },
                     terminal.as_mut().map(|err| err as &mut dyn io::Write),
+                    response.as_ref(),
                 )?;
                 output.commit()?;
                 warn(&report.outline, report.application_info);

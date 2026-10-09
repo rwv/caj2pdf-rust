@@ -19,6 +19,7 @@ pub enum Endpoint {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConvertOptions {
+    pub ttkn_response_file: Option<PathBuf>,
     pub no_bookmarks: bool,
     pub allow_damaged: bool,
     pub quiet: bool,
@@ -119,6 +120,9 @@ struct Cli {
 
 #[derive(Debug, Args)]
 struct ConvertArgs {
+    /// Read the case-sensitive TTKN response (32 hex ASCII bytes) from FILE
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    ttkn_response_file: Option<OsString>,
     /// Document to convert (- for standard input)
     #[arg(value_name = "INPUT", required = true)]
     input: Option<OsString>,
@@ -272,6 +276,10 @@ impl ConvertArgs {
             self.font_latin_state31,
         ];
         let mut options = ConvertOptions {
+            ttkn_response_file: font_path(
+                self.ttkn_response_file,
+                "--ttkn-response-file requires a nonempty file path, not standard input",
+            )?,
             no_bookmarks: self.no_bookmarks,
             allow_damaged: self.allow_damaged,
             quiet: self.quiet,
