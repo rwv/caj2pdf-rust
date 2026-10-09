@@ -590,7 +590,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             if logical_end < self.range.length {
                 let suffix = &tail[(logical_end - start) as usize..];
-                if !footer::recognized(suffix) {
+                if !footer::recognized(suffix, self.absolute(logical_end), self.cancellation)? {
                     return Err(self
                         .problem(
                             logical_end,

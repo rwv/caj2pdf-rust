@@ -71,6 +71,14 @@ with one value. Conflicting values
 or other duplicate keys are ambiguous and fail. The original page content
 streams are not decoded or rewritten.
 
+The measured length-framed `WebFastLoad` profile (#494) is also accepted:
+two little-endian u32 lengths (decoded, encoded), one complete zlib stream,
+and exact `APPINFOSIGN <offset>` with the absolute decimal position of the
+length fields. The checksum and both lengths must agree. Metadata is discarded
+through a 4 KiB scratch buffer with a 4 MiB decoded cap and cancellation checks;
+it is not interpreted as PDF, and its URLs are not followed. Unknown framing
+and arbitrary suffixes remain rejected.
+
 Recognized footers include the existing `WebFastLoadP` and `WebFastLoadW`
 profiles, exact `WebFastLoad`, and UTF-8 BOM plus `FileProperty` metadata,
 optionally preceded by `WebFastLoad`. The metadata profile requires the four
