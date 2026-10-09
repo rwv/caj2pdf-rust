@@ -1875,7 +1875,9 @@ pikepdf/PyMuPDF/fonttools versions are reused. Source/PDF/font hashes are
 checked before and after reading. Maximum matrix delta is 2.811e-13 point
 against the existing 1/20000-point tolerance; gray uses 1/1000000.
 
-Normal font outlines are not checked. The one known private-use ActualText
+Normal font outlines were not checked at that checkpoint; the later
+[caller-font subset audit](#normal-caller-font-subset-audit) adds that scope.
+The one known private-use ActualText
 visual replacement remains; marker fonts need no replacement. Ornament clips
 and repetitions match, but the default arrow remains a substitute for the
 vendor shape. Earlier glyph-only runs and failed/no-new-evidence observer
@@ -1883,6 +1885,40 @@ attempts remain explicit. Complete source-font/raster fidelity, #441 viewer
 repeatability, unknown outlines and remaining exceptions keep #406 open.
 No converter defect or unavoidable exception is inferred. Production behavior,
 native/CLI/JavaScript APIs, memory use, PDF bytes and release notes do not change.
+
+## Normal caller-font subset audit
+
+The [samples #57 report](https://github.com/rwv/caj2pdf-samples/blob/42d7a54de99e66f099252d029893d9cce761328f/research/notes/native-font-subsets-20261009.md)
+and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/42d7a54de99e66f099252d029893d9cce761328f/research/notes/native-font-subsets-20261009.json)
+check all ten unchanged normal-font native PDFs, 60 pages and 83,644 draws.
+All 6,140 used resource/CID pairs match the selected caller fonts in unhinted
+outlines, embedded advances and PDF widths. Actual CID-to-GID maps or CFF
+charsets select the outlines; PDF font names are not identity evidence.
+Receipt SHA-256:
+`550878e3a3f9de20fa0b163f80400fc9e6a6d47c6686ef15ea58bc822b6bd205`.
+
+New original MIT research code uses the existing fontTools 4.62.1 public APIs,
+pikepdf 10.5.1/PyMuPDF 1.27.2.2 visitors and previously measured source models.
+Original MIT Rust was consulted for documented default font fallback. Noto
+Serif CJK (SIL OFL 1.1) and FreeSerif (GPL-3+ with Special Font Exception) are
+external caller resources with pinned file hashes/face indices. Their used
+outlines are compared in memory but no contours/programs, document text, font
+files or derived PDFs enter either repository. No CAJViewer font outlines,
+vendor/foreign-converter implementation or private HN/JBIG code is inspected.
+
+Six original TrueType/CFF control groups detect changed CID/resource selection,
+outlines, advances, widths and malformed matrices/ranges; all 115 selected
+Catalog tests pass with zero skips. Processing is per page, with explicit
+font/program/CID/path/component bounds and a measured 2 GiB process cap
+(VmHWM 230,576 KiB). Source/PDF/font hashes remain unchanged. Initial local
+driver/dependency failures are retained, then the complete selected suite passes.
+
+This verifies caller-font subsetting, not source-font identity, hinting or
+raster fidelity. Shape-equivalent resources are not distinguished. The one
+private-use approximation and 212 default ornament aliases remain explicit.
+No production dependency, API, memory behavior, supported format, PDF output
+or release changes; full native appearance and the other #406 criteria remain
+open.
 
 
 ## TEB container and diagnostic boundary (#468, #469)
