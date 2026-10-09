@@ -1804,8 +1804,9 @@ The latter use six independently identified roles and one anonymous symbol
 group, with identical viewer/PDF outlines and metrics but different cmap
 aliases. Every marker page repeats across two cold sessions. Of the normal-font
 pages, 59 repeat and magnesium page 5 retains a 23,901-pixel disagreement;
-the earlier observer binary was separately rechecked. Cause remains unresolved
-under #441. Every one of the 120 source/PDF raster comparisons has differences.
+the earlier observer binary was separately rechecked. Cause was unresolved at
+this checkpoint; the numerical follow-up below adds evidence under #441. Every
+one of the 120 source/PDF raster comparisons has differences.
 No registration, per-document correction, fitted pass threshold, individual
 overlapping-glyph proof or complete source-typeface fidelity is claimed.
 
@@ -1818,6 +1819,28 @@ The 80 selected Catalog tests include 11 new controls and no skipped tests.
 No production dependency, memory/API/output behavior, support or release note
 changes. Samples #51 and #406 remain open for causal composition work, original
 font fidelity, unknown outlines and unresolved exceptions.
+
+
+The [retained native page-5 JPEG diagnostic](https://github.com/rwv/caj2pdf-samples/blob/0b67a13aa15854c9eb4b389dcb785aef9969b1c5/research/notes/native-page-jpeg-20261009.md) and
+[metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/0b67a13aa15854c9eb4b389dcb785aef9969b1c5/research/notes/native-page-jpeg-20261009.json) now connect the two exact `166d00147923…` raster
+values numerically. The previously measured quality-100, 2×2, integer-DCT
+profile maps A to B at every one of the 1,510,518 pixels; the fixed reverse
+direction differs at 32,658. The original 23,901-pixel disagreement, all old
+receipt fields and failed acquisitions remain unchanged. Twenty-four historical
+metadata/pixmap identities and both decoded-buffer metrics were rechecked.
+Receipt SHA-256: `48694eaf6321c67c165880edd3404d0e1bfbcd81b62c1bf6c440625818537391`.
+
+This uses the existing original MIT reader/comparator and black-box JPEG tools,
+with bounded codec children and page buffers. It adds no viewer session or
+source/PDF comparison, and does not observe historical JPEG calls. Existing
+original collision controls prohibit accepting JPEG-normalized equality;
+#441's reliable-readiness criterion remains open. Existing segment-axis controls
+also establish renderer-sensitive hairline darkness, so no fitted line width
+or gray compensation is introduced. Documents, pixels, fonts and binaries stay
+external; no vendor implementation/font outlines or foreign converter code is
+read or copied. No production behavior, dependency, format/API, conversion total
+or release changes. Original-font/ornament fidelity and broader #406 work remain
+open under samples #51.
 
 
 ## Native vector model verification (#406, samples #51)
