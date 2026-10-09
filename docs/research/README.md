@@ -117,3 +117,9 @@ and reader/geometry/recovery limitations remain visible. All 46 original
 controls pass without corpus data or skips. See #480 provenance and samples
 #65; no conversion pass or full visual-fidelity verdict is added, and #406
 remains open.
+
+The [complete missing-box page observations](https://github.com/rwv/caj2pdf-samples/blob/89c9f1a1720d88c0cccaf220ce2c1fa449b34617/research/notes/viewer-page-box-coverage-20261009.md)
+extend the unchanged 75-page pair to two fixed orders: 133 equal, nine differing
+and eight not-comparable source/output pairs. All 56 sessions, original controls,
+wrong-page preflights and one viewer abort are retained. Unchanged-input repeats
+also differ; #484 records this scoped evidence while #441/#406 remain open.
