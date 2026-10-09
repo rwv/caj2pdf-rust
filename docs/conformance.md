@@ -965,6 +965,16 @@ resolution is unverified. CAS is named in the 2002 vendor manual, but no
 authentic bytes were found; [sample research #28](https://github.com/rwv/caj2pdf-samples/issues/28)
 remains open, with no invented signature or conversion claim.
 
+The [historical Windows follow-up](https://github.com/rwv/caj2pdf-samples/blob/f3cdf05e29bb2ac2627be3631e0309392c6194b0/research/notes/caa-windows-boundary-20261009.md) observes all 18 unchanged CAA
+originals in contained offline Wine sessions: 54 checkpoints contain network/
+server/error UI keywords, unlike an original invalid-CAA control. An original
+PDF validates two-page opening and navigation. MDAC installation failure and
+CJK display limits remain explicit; native-Windows equivalence is unverified.
+No target is contacted or opaque value decoded/logged. Primary institutional
+link-file guidance supports requiring the actual document for offline
+conversion, without proving remote unavailability or irrecoverability. CAA
+stays inspection-only; no conversion count or runtime behavior changes.
+
 ## Indexed empty-Form checkpoint (#446)
 
 The unchanged 66-page KDH in [provenance](provenance.md#indexed-nested-empty-form-446)
