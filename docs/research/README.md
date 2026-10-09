@@ -46,6 +46,11 @@ all pixel differences, failed acquisition attempts and one normal-font cold
 disagreement. This is scoped evidence under samples #51 and #441; complete
 source fidelity remains open under #406.
 
+The [retained native JPEG diagnostic](https://github.com/rwv/caj2pdf-samples/blob/0b67a13aa15854c9eb4b389dcb785aef9969b1c5/research/notes/native-page-jpeg-20261009.md) numerically maps the two
+real-native page-5 rasters through the fixed JPEG profile. Historical API calls
+were not observed; original-font fidelity and reliable viewer readiness remain
+open. Old observations and all conversion totals are unchanged.
+
 The [native vector follow-up](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.md) verifies all 327 measured paths and
 their order among glyph/image operations on those 60 pages. Original negative
 controls, input/output hashes, process bounds and earlier checker refusals are
