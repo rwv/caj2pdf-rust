@@ -99,3 +99,12 @@ controls before and after. Every selected model is empty; source identities,
 three checkpoints, intervening samples and cleanup are verified. The report
 retains preparation failures and original controls. #303 still needs a
 positive original; stored-layout absence, rendering and #406 remain unresolved.
+
+
+The [PDF-family preservation audit](https://github.com/rwv/caj2pdf-samples/blob/547683140c44c421fdc25c631ab564b69118e40c/research/notes/pdf-source-preservation-20261009.md)
+attempts all 279 accepted PDF/KDH/CAJ originals and verifies selected-object,
+raw-stream and navigation scopes for 269 of them (18,100 pages). Ten profiles
+remain explicitly unverified; prior source-selection and reconstructed-recovery
+limits are retained. Original bounded tools and 31 negative/positive controls
+add no conversion pass or full-fidelity claim. See #478 provenance, samples
+#65 and the broader #406 obligations.

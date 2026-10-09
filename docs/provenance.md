@@ -2085,3 +2085,43 @@ private module was inspected or migrated. Public distro Qt is only a research
 dependency. Empty displayed contents are not evidence that all stored layouts
 are absent or that page rendering is correct. No production, supported-format,
 API, I/O, PDF output, release-note or conversion-count change follows.
+
+
+## PDF-family selected-object preservation (#478)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/547683140c44c421fdc25c631ab564b69118e40c/research/notes/pdf-source-preservation-20261009.md) and [receipt](https://github.com/rwv/caj2pdf-samples/blob/547683140c44c421fdc25c631ab564b69118e40c/research/notes/pdf-source-preservation-20261009.json)
+pin a complete 279-original PDF/KDH/CAJ preservation attempt against the
+reviewed accepted outputs. Scoped checks pass for 269 inputs: 18,100 pages,
+216,276 selected original objects, 109,132 raw streams and 11,288 outline
+nodes. Ten profiles remain explicitly NOT_VERIFIED under samples #65; this
+is an audit classification, not ten new conversion failures. All 176 CAJ
+page/outline inventories also retain their earlier independent source proof.
+
+The new Python tooling and 31 original control tests are independent MIT
+work from documented wrappers, public qpdf JSON v2 documentation and pinned
+prior source reports. External qpdf 12.2.0 supplies unchanged-object metadata
+and raw encoded bodies; its page-repair/inheritance flags must remain false.
+JSON omits stream Length, so encoded sizes/hashes are compared separately.
+Typed exact-decimal values, every object delta and all candidate references
+are checked. CAJ framing copies through EOF; KDH verifies every decoded-tail
+byte. Eight source-index profiles recheck reviewed offsets, extents and
+source/output/report identities. Their earlier omission and repair proofs
+retain their limits; the 13-site recovered reference is not an intact source.
+
+Document/reference and each reader output file are capped at 512 MiB, JSON
+at 32 MiB, objects at one million and graph depth at 128. Copies/hashes use
+64 KiB chunks. Qpdf children have 2 GiB address space, 110 CPU seconds and
+120 wall seconds. These POSIX research bounds are not a global disk quota.
+Negative controls cover changed streams/resources/order/precision, omissions,
+receipt tampering, xref selection, source ranges and decoded-tail integrity.
+The full run retains 99 source-reader warning outcomes and ten unverified
+profiles; a missing requested check is never counted as compatibility success.
+
+Receipt SHA-256: `ad61aaeb317a47e99121aff2aa8c4ede755fbb77287ccf5e6180cc906dd4db0f`.
+Source/PDF/stream/font/title/pixel/binary bodies remain external. Ordinary
+stream bytes are copied/hashed opaquely. No foreign converter, private HN/JBIG,
+vendor implementation or vendor font program/outline was inspected or migrated.
+No production dependency, API, I/O, PDF output, supported format, conversion
+count or release-note change follows. Selected-object agreement does not
+prove source recovery completeness or full visual fidelity. Samples #65,
+original-font/ornament/viewer limits and the broader #406 criteria remain open.
