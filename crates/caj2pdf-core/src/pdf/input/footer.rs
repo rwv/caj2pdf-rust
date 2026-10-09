@@ -131,3 +131,11 @@ fn framed<C: Cancellation>(payload: &[u8], position: u64, cancellation: &C) -> R
         }
     }
 }
+
+// Observed public PDFs have a complete 16-byte block-padding suffix after EOF.
+// Whitespace-only suffixes already use the ordinary PDF whitespace path.
+pub(super) fn block_padding(suffix: &[u8], extent: u64) -> bool {
+    (1..=16).contains(&suffix.len())
+        && extent.is_multiple_of(16)
+        && suffix.iter().all(|&byte| usize::from(byte) == suffix.len())
+}

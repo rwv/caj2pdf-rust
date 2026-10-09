@@ -3896,3 +3896,89 @@ fn framed_download_metadata_rejects_malformed_neighbors() {
         })
     ));
 }
+
+#[test]
+fn complete_block_padding_after_pdf_eof_is_accepted() {
+    for count in 1..=16 {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        // Ordinary post-EOF whitespace positions each authored pad length.
+        while !(doc.len() + count).is_multiple_of(16) {
+            doc.push(b' ');
+        }
+        let end = doc.len();
+        doc.extend(std::iter::repeat_n(count as u8, count));
+        let index = open(doc).unwrap();
+        assert_eq!(index.pages().len(), 1);
+        let expected = if matches!(count, 9 | 10 | 12 | 13) {
+            end + count
+        } else {
+            end
+        };
+        assert_eq!(index.logical_end(), expected as u64);
+    }
+}
+
+#[test]
+fn malformed_block_padding_is_not_accepted_as_a_footer() {
+    for (suffix, extent) in [
+        (vec![], 16),
+        (vec![17; 17], 32),
+        (vec![0; 16], 32),
+        (vec![3; 2], 32),
+        (vec![2, 3], 32),
+        (vec![2; 2], 31),
+    ] {
+        assert!(!footer::block_padding(&suffix, extent));
+    }
+    let mut doc = build_pdf(&minimal_objects(), "");
+    while !(doc.len() + 2).is_multiple_of(16) {
+        doc.push(b' ');
+    }
+    doc.extend_from_slice(&[2, 3]);
+    assert!(matches!(
+        pdf_error(open(doc)).context,
+        Context::Pdf { repair: true, .. }
+    ));
+}
+
+#[test]
+fn measured_free_object_zero_generation_overflow_has_no_live_semantics() {
+    let mut doc = build_pdf(&minimal_objects(), "");
+    replace_once(&mut doc, b"0000000000 65535 f \n", b"0000000000 65536 f \n");
+    let index = open(doc.clone()).unwrap();
+    assert_eq!(index.pages().len(), 1);
+    assert!(
+        index
+            .metadata_location(PdfRef {
+                number: 0,
+                generation: 0
+            })
+            .is_err()
+    );
+    assert!(
+        index
+            .metadata_location(PdfRef {
+                number: 0,
+                generation: u16::MAX
+            })
+            .is_err()
+    );
+    for replacement in [
+        b"0000000000 65536 n \n",
+        b"0000000001 65536 f \n",
+        b"0000000000 65537 f \n",
+    ] {
+        let mut changed = doc.clone();
+        replace_once(&mut changed, b"0000000000 65536 f \n", replacement);
+        assert_eq!(
+            pdf_error(open(changed)).reason,
+            "invalid fixed-width xref entry"
+        );
+    }
+    let mut nonzero = doc;
+    replace_once(&mut nonzero, b"xref\n0 4\n", b"xref\n1 3\n");
+    assert_eq!(
+        pdf_error(open(nonzero)).reason,
+        "invalid fixed-width xref entry"
+    );
+}

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Accept measured complete block padding and the unused object-zero xref
+  sentinel overflow in public Archive.org PDFs (#495, #496).
+
 - Accept validated length-framed `WebFastLoad` PDF download metadata with
   an exact `APPINFOSIGN` offset (#494), preserving the source PDF body.
 

@@ -590,7 +590,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             if logical_end < self.range.length {
                 let suffix = &tail[(logical_end - start) as usize..];
-                if !footer::recognized(suffix, self.absolute(logical_end), self.cancellation)? {
+                if !footer::block_padding(suffix, self.range.length)
+                    && !footer::recognized(suffix, self.absolute(logical_end), self.cancellation)?
+                {
                     return Err(self
                         .problem(
                             logical_end,
@@ -832,7 +834,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 let number = (start + step) as u32;
                 let line = self.bytes(cursor, 20)?;
                 let failure = self.malformed(cursor, None, "invalid fixed-width xref entry");
-                let slot = parse_xref_entry(&line).ok_or(failure)?;
+                // Measured producer overflow in the unused object-zero sentinel.
+                // No live or nonzero entry is allowed to exceed 16-bit generations.
+                let slot = if number == 0 && line == b"0000000000 65536 f \n" {
+                    XrefSlot {
+                        generation: u16::MAX,
+                        kind: XrefKind::Free,
+                    }
+                } else {
+                    parse_xref_entry(&line).ok_or(failure)?
+                };
                 if let XrefKind::InUse(offset) = slot.kind
                     && offset >= self.range.length
                 {

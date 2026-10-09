@@ -29,6 +29,8 @@ import {
   largePdfBlob,
   syntheticCaj,
   syntheticFramedFooter,
+  syntheticPaddedPdf,
+  syntheticOverflowSentinelPdf,
   syntheticAscii85Caj,
   syntheticFlateReplayCaj,
   syntheticRecoveredCaj,
@@ -46,6 +48,8 @@ async function inputs() {
   const pdf = await fixture("valid_out_of_order_objects.pdf");
   const footer = new TextEncoder().encode("WebFastLoad\uFEFF<FileProperty><Doi /><FileName>original-test</FileName><TableName>TEST</TableName><Type>1</Type></FileProperty>");
   return [
+    { name: "PDF block padding", format: "pdf", bytes: syntheticPaddedPdf(pdf), pages: 2, bookmarks: 0 },
+    { name: "PDF unused overflow sentinel", format: "pdf", bytes: syntheticOverflowSentinelPdf(pdf), pages: 2, bookmarks: 0 },
     { name: "PDF framed download footer", format: "pdf", bytes: syntheticFramedFooter(pdf), expected: pdf, pages: 2, bookmarks: 0 },
     { name: "PDF download footer", format: "pdf", bytes: new Uint8Array([...pdf, ...footer]), expected: pdf, pages: 2, bookmarks: 0 },
     { name: "adjacent Flate CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: null }), pages: 2, bookmarks: 1 },

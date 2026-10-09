@@ -404,3 +404,16 @@ export function syntheticFramedFooter(pdf) {
   return new Uint8Array(Buffer.concat([pdf, Buffer.from("WebFastLoad"), lengths,
     encoded, Buffer.from(`APPINFOSIGN ${pdf.length + 11}`)]));
 }
+
+export function syntheticPaddedPdf(pdf) {
+  const count = 16 - pdf.length % 16;
+  return new Uint8Array(Buffer.concat([pdf, Buffer.alloc(count, count)]));
+}
+
+export function syntheticOverflowSentinelPdf(pdf) {
+  const bytes = Buffer.from(pdf);
+  const entry = bytes.indexOf("0000000000 65535 f \n");
+  assert.ok(entry >= 0, "authored fixture has the expected free sentinel");
+  bytes[entry + 15] = "6".charCodeAt(0);
+  return new Uint8Array(bytes);
+}
