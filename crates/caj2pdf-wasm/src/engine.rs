@@ -250,6 +250,7 @@ impl<H: Host> Progress for HostProgress<'_, H> {
 /// session per WASM instance and resets it between operations.
 #[derive(Default)]
 pub struct Session {
+    response: Option<caj2pdf_core::pdf::TtknResponse>,
     fonts: fonts::Fonts,
     format: Option<InputFormat>,
     result: Option<Result<Outcome>>,
@@ -257,6 +258,23 @@ pub struct Session {
 }
 
 impl Session {
+    /// Set an explicit, case-sensitive TTKN response before conversion.
+    pub fn set_ttkn_response(&mut self, ascii: &[u8]) -> bool {
+        if self.result.is_some() {
+            return false;
+        }
+        match caj2pdf_core::pdf::TtknResponse::new(ascii) {
+            Ok(response) => {
+                self.response = Some(response);
+                true
+            }
+            Err(_) => {
+                self.response = None;
+                false
+            }
+        }
+    }
+
     /// Register one ranged font resource and its collection face (0 for a
     /// standalone font) before running. Returns its 1-based host resource
     /// ID, or 0 when registration is rejected.
@@ -308,7 +326,16 @@ impl Session {
         let fonts = std::mem::take(&mut self.fonts);
         let host = RefCell::new(host);
         let mut format = None;
-        let result = run(&host, source_size, &fonts, limits, operation, &mut format);
+        let response = self.response.take();
+        let result = run(
+            &host,
+            source_size,
+            &fonts,
+            response.as_ref(),
+            limits,
+            operation,
+            &mut format,
+        );
         self.format = format;
         let status = match &result {
             Ok(_) => Status::Done,
@@ -375,6 +402,7 @@ fn run<'h, H: Host>(
     host: &'h RefCell<&'h mut H>,
     source_size: u64,
     fonts: &fonts::Fonts,
+    response: Option<&caj2pdf_core::pdf::TtknResponse>,
     limits: Limits,
     operation: Operation,
     detected: &mut Option<InputFormat>,
@@ -393,15 +421,31 @@ fn run<'h, H: Host>(
                 ..options
             };
             let mut sink = HostSink { host };
-            caj2pdf_core::convert(&mut source, &mut sink, options, &limits, &mut progress).map(
-                |report| Outcome {
-                    outline_warnings: report.outline.defects,
-                    outline_omitted: report.outline.unverified,
-                    report,
-                    info: None,
-                    application_info: None,
-                },
-            )
+            let result = match response {
+                Some(response) => caj2pdf_core::convert_with_ttkn_response(
+                    &mut source,
+                    &mut sink,
+                    options,
+                    response,
+                    &limits,
+                    &mut progress,
+                ),
+                None => {
+                    caj2pdf_core::convert(&mut source, &mut sink, options, &limits, &mut progress)
+                }
+            };
+            result.map(|report| Outcome {
+                outline_warnings: report.outline.defects,
+                outline_omitted: report.outline.unverified,
+                report,
+                info: None,
+                application_info: None,
+            })
+        }
+        Operation::Inspect { .. } if response.is_some() => {
+            return Err(Error::invalid(
+                "TTKN response is only supported for conversion",
+            ));
         }
         Operation::Inspect { .. } if fonts.count() != 0 => {
             return Err(Error::invalid(FONTS_REQUIRE_HNC8));

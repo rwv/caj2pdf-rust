@@ -48,7 +48,9 @@ jobs:
       - name: Check fuzz targets compile
         run: cargo check --locked --manifest-path fuzz/Cargo.toml
       - name: Check generated MIT fixtures
-        run: python3 scripts/generate_fixtures.py --check
+        run: |
+          python3 scripts/generate_fixtures.py --check
+          python3 crates/caj2pdf-core/tests/fixtures/ttkn/generate.py --check
       - name: Synthetic fixture tests
         run: python3 -m unittest discover -s tests/fixtures -p 'test_*.py' -v
 

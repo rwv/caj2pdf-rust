@@ -25,6 +25,13 @@ Diagnostics shown on standard error replace invalid UTF-8 with U+FFFD.
 Arguments are parsed with [clap](https://crates.io/crates/clap); `--help` (or
 `caj2pdf COMMAND --help`) lists every option of a command.
 
+## TTKN response input (unreleased)
+
+`--ttkn-response-file FILE` supplies the matching case-sensitive 32-character
+ASCII response for the [measured TTKN PDF profile](ttkn-pdf.md). The converter
+performs no network authentication. The option applies to conversion only;
+other encrypted profiles remain unsupported.
+
 ## Formats
 
 The format comes from the first bytes of the input, never from its name.

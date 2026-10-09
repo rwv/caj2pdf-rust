@@ -1,0 +1,1 @@
+q 1 0 0 rg 20 20 70 40 re f 0 0 1 rg 120 20 70 40 re f Q BT /F1 20 Tf 20 180 Td (CONTROL 3) Tj ET

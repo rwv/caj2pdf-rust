@@ -37,5 +37,6 @@ pub use operations::{
     Bookmark, BookmarkVisitor, ConversionOptions, ConversionReport, Detection, DocumentInfo,
     FONTS_REQUIRE_HNC8, Fonts, ImageCounts, InputFormat, InspectOptions, OmittedPage,
     PDF_HEADER_SEARCH_BYTES, PageVisitor, Progress, SIGNATURE_BYTES, Structure, convert,
-    detect_format, detect_source, index_pdf, inspect, inspect_pages, needs_fonts, read_outline,
+    convert_with_ttkn_response, detect_format, detect_source, index_pdf, inspect, inspect_pages,
+    needs_fonts, read_outline,
 };

@@ -146,6 +146,15 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
   };
   const exports = (await WebAssembly.instantiate(module, imports)).exports;
   memory = exports.memory;
+  if (config.ttknResponse !== undefined) {
+    const bytes = new TextEncoder().encode(config.ttknResponse);
+    const view = new DataView(bytes.buffer);
+    const words = [0, 8, 16, 24].map((offset) => view.getBigUint64(offset, true));
+    const accepted = exports.caj2pdf_set_ttkn_response?.(...words);
+    bytes.fill(0);
+    words.fill(0n);
+    if (accepted !== 1) throw new TypeError("WASM module rejected the TTKN response configuration");
+  }
   if (fonts != null) {
     for (const [index, face] of fonts.faces.entries()) {
       if (exports.caj2pdf_c8_add_font(BigInt(inputs[index + 1].size), face) !== index + 1) {

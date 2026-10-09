@@ -92,6 +92,8 @@ export interface ConvertOptions<Input> extends OperationOptions {
   includeBookmarks?: boolean;
   /** Explicitly replace damaged CAJ pages with blanks; inspect omittedPages. */
   allowDamaged?: boolean;
+  /** Case-sensitive 32-character ASCII response for the measured TTKN server profile. No endpoint is contacted. */
+  ttknResponse?: string;
 }
 
 export interface ConversionReport {

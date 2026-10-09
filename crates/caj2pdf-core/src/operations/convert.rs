@@ -164,6 +164,32 @@ pub fn convert<S: RangedSource, W: Write>(
     limits: &Limits,
     progress: &mut dyn Progress,
 ) -> Result<ConversionReport> {
+    convert_inner(source, sink, options, None, limits, progress)
+}
+
+/// Convert the measured TTKN server-auth PDF profile using an explicit response.
+/// No authentication endpoint is contacted. The response is case-sensitive and
+/// is never included in errors. Other TTKN profiles remain unsupported.
+/// Atomic-output requirements are the same as for [`convert`].
+pub fn convert_with_ttkn_response<S: RangedSource, W: Write>(
+    source: &mut S,
+    sink: &mut W,
+    options: ConversionOptions<'_>,
+    response: &crate::pdf::TtknResponse,
+    limits: &Limits,
+    progress: &mut dyn Progress,
+) -> Result<ConversionReport> {
+    convert_inner(source, sink, options, Some(response), limits, progress)
+}
+
+fn convert_inner<S: RangedSource, W: Write>(
+    source: &mut S,
+    sink: &mut W,
+    options: ConversionOptions<'_>,
+    response: Option<&crate::pdf::TtknResponse>,
+    limits: &Limits,
+    progress: &mut dyn Progress,
+) -> Result<ConversionReport> {
     let observer = Observer::new(progress);
     let mut source = observer.track(source);
     let Detection {
@@ -174,10 +200,18 @@ pub fn convert<S: RangedSource, W: Write>(
     if options.fonts.is_some() && !matches!(format, InputFormat::Hn | InputFormat::C8) {
         return Err(Error::invalid(FONTS_REQUIRE_HNC8));
     }
+    if response.is_some() && format != InputFormat::Pdf {
+        return Err(Error::invalid("TTKN response requires a PDF input"));
+    }
     let mut report = match format {
         InputFormat::Pdf => {
             let range = pdf_range(source.size(), header_offset);
-            copy_pdf_range(&mut source, sink, range, limits, &observer)?
+            match response {
+                Some(response) => {
+                    crate::pdf::convert_ttkn(&mut source, sink, range, response, limits, &observer)?
+                }
+                None => copy_pdf_range(&mut source, sink, range, limits, &observer)?,
+            }
         }
         InputFormat::Caj => convert_caj(&mut source, sink, &options, limits, &observer)?,
         InputFormat::Kdh => convert_kdh(&mut source, sink, limits, &observer)?,

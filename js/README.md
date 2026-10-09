@@ -28,6 +28,14 @@ should handle `info.pageCount === null` before using it as a number; the
 `Format` union also includes `"caa"`. Existing successful document inspections
 still return numeric page counts.
 
+## TTKN response input (unreleased)
+
+For the [measured TTKN server profile](../docs/ttkn-pdf.md), pass
+`{ ttknResponse: response }` to `convert`. It must be exactly 32 hexadecimal
+ASCII characters with its original case. Node and browsers use the same
+option; no embedded authentication URL is contacted. `inspect` does not
+accept this option. Other encrypted profiles remain unsupported.
+
 ## Install
 
 ```sh

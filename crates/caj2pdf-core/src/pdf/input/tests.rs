@@ -3982,3 +3982,50 @@ fn measured_free_object_zero_generation_overflow_has_no_live_semantics() {
         "invalid fixed-width xref entry"
     );
 }
+
+#[test]
+fn indirect_outline_actions_preserve_one_live_local_dictionary() {
+    let make = |reference: &str, action: &str| {
+        build_pdf(
+            &[
+                (1, "<</Type/Catalog/Pages 2 0 R/Outlines 4 0 R>>"),
+                (2, "<</Type/Pages/Kids[3 0 R]/Count 1>>"),
+                (3, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 200]>>"),
+                (4, "<</First 5 0 R/Last 5 0 R>>"),
+                (5, &format!("<</Title(Local)/Parent 4 0 R/A {reference}>>")),
+                (6, action),
+            ],
+            "",
+        )
+    };
+    let input = make("6 0 R", "<</S/GoTo/D[3 0 R/Fit]>>");
+    let mut output = Vec::new();
+    crate::pdf::copy_pdf(
+        &mut input.as_slice(),
+        &mut output,
+        &Limits::default(),
+        &NEVER,
+    )
+    .unwrap();
+    assert_eq!(input, output);
+    for (reference, action, class) in [
+        ("6 1 R", "<</S/GoTo/D[3 0 R/Fit]>>", "malformed"),
+        ("7 0 R", "<</S/GoTo/D[3 0 R/Fit]>>", "malformed"),
+        ("6 0 R", "6 0 R", "malformed"),
+        ("6 0 R", "42", "malformed"),
+        ("6 0 R", "<</Length 0>>\nstream\n\nendstream", "malformed"),
+        (
+            "6 0 R",
+            "<</S/URI/URI(https://example.invalid)>>",
+            "unsupported",
+        ),
+        (
+            "6 0 R",
+            "<</S/GoTo/D[3 0 R/Fit]/Next 6 0 R>>",
+            "unsupported",
+        ),
+        ("6 0 R", "<</S/GoTo/D[2 0 R/Fit]>>", "malformed"),
+    ] {
+        expect_pdf_error(make(reference, action), class);
+    }
+}

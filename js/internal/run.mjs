@@ -99,8 +99,12 @@ export function operationConfig(options) {
     signal,
     includeBookmarks = true,
     allowDamaged = false,
+    ttknResponse,
     progress,
   } = options ?? {};
+  if (ttknResponse !== undefined && (typeof ttknResponse !== "string" || !/^[0-9a-fA-F]{32}$/.test(ttknResponse))) {
+    throw new TypeError("ttknResponse must contain exactly 32 hexadecimal ASCII characters");
+  }
   if (typeof allowDamaged !== "boolean") {
     throw new TypeError("allowDamaged must be a boolean");
   }
@@ -109,6 +113,7 @@ export function operationConfig(options) {
   }
   requireChunkLength(chunkSize);
   return {
+    ttknResponse,
     format: formatCode(format),
     limits: resolveLimits(limits, chunkSize),
     chunkSize,
@@ -205,6 +210,7 @@ export async function runOperation(platform, operation, wasm, source, sink, opti
   requireModule(wasm);
   if (operation === "convert") requireSink(sink);
   const config = operationConfig(options);
+  if (operation !== "convert" && config.ttknResponse !== undefined) throw new TypeError("ttknResponse is only supported for conversion");
   const fontSetup = operation === "convert" ? fontConfig(options?.hnc8) : undefined;
   const { signal } = config;
   checkAbort(signal);
@@ -373,6 +379,7 @@ export async function runOperation(platform, operation, wasm, source, sink, opti
         chunkSize: config.chunkSize,
         format: config.format,
         flags: config.flags,
+        ttknResponse: config.ttknResponse,
         limits: config.limits,
       },
       control,

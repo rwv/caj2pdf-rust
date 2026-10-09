@@ -15,6 +15,7 @@ name = "caj2pdf"
 path = "src/main.rs"
 
 [dependencies]
+zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
 caj2pdf-core = { version = "0.6.1", path = "../caj2pdf-core" }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }

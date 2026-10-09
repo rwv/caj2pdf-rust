@@ -2014,3 +2014,61 @@ fn damaged_mode_commits_partial_output_and_returns_three_even_when_quiet() {
     assert_eq!(piped.status.code(), Some(3));
     assert_eq!(piped.stdout, fs::read(scratch.path("partial.pdf")).unwrap());
 }
+
+#[test]
+fn ttkn_response_file_success_and_failed_output_cleanup() {
+    let scratch = Scratch::new("ttkn");
+    scratch.write(
+        "source.pdf",
+        include_bytes!("../../caj2pdf-core/tests/fixtures/ttkn/authored.pdf"),
+    );
+    let response = include_bytes!("../../caj2pdf-core/tests/fixtures/ttkn/response.txt");
+    scratch.write("response.txt", response);
+    let result = scratch.run([
+        "source.pdf",
+        "--ttkn-response-file",
+        "response.txt",
+        "-o",
+        "output.pdf",
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = fs::read(scratch.path("output.pdf")).unwrap();
+    assert!(output.starts_with(b"%PDF-"));
+    for secret in [
+        b"00000000000000000000000000000000".as_slice(),
+        b"not-a-credential",
+    ] {
+        scratch.write("response.txt", secret);
+        let failed = scratch.run([
+            "source.pdf",
+            "--ttkn-response-file",
+            "response.txt",
+            "-o",
+            "failed.pdf",
+        ]);
+        assert!(!failed.status.success());
+        assert!(!scratch.path("failed.pdf").exists());
+        assert!(
+            !String::from_utf8_lossy(&failed.stderr).contains(std::str::from_utf8(secret).unwrap())
+        );
+    }
+    scratch.write("response.txt", response);
+    let same = scratch.run([
+        "source.pdf",
+        "--ttkn-response-file",
+        "response.txt",
+        "-o",
+        "response.txt",
+        "--force",
+    ]);
+    assert!(!same.status.success());
+    assert_eq!(fs::read(scratch.path("response.txt")).unwrap(), response);
+    assert_eq!(
+        scratch.entries(),
+        ["output.pdf", "response.txt", "source.pdf"]
+    );
+}

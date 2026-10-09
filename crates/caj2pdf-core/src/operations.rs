@@ -11,7 +11,7 @@ mod observe;
 
 pub use convert::{
     ConversionOptions, ConversionReport, FONTS_REQUIRE_HNC8, Fonts, ImageCounts, OmittedPage,
-    convert, needs_fonts,
+    convert, convert_with_ttkn_response, needs_fonts,
 };
 pub use inspect::{
     DocumentInfo, InspectOptions, PageVisitor, Structure, index_pdf, inspect, inspect_pages,

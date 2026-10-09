@@ -242,6 +242,8 @@ fn named_destinations_keep_missing_targets_views_and_actions_strict() {
             &[(5, &item)],
             if action == "/Dest (missing)" {
                 "name is absent"
+            } else if action == "/A 9 0 R" {
+                "action is not a dictionary object"
             } else if action.starts_with("/Dest(a)") {
                 "both Dest and A"
             } else {

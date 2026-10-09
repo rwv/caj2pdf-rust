@@ -25,6 +25,8 @@ pub use fragment::{FragmentObject, FragmentPlan, reconstruct_fragment_with_bookm
 pub(crate) use fragment::{
     InspectedObject, InspectedPlan, append_replacement, reconstruct_inspected,
 };
+pub use input::ttkn::TtknResponse;
+pub(crate) use input::ttkn::convert as convert_ttkn;
 pub use input::{PdfIndex, RepairObject};
 pub use outline::BookmarkView;
 pub use types::{PdfRange, PdfRef};

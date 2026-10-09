@@ -948,3 +948,55 @@ fn font_limits_incomplete_roles_and_wrong_operations_are_explicit_errors() {
         assert!(host.output.is_empty());
     }
 }
+
+#[test]
+fn ttkn_response_registration_is_explicit_consumed_and_conversion_only() {
+    let input = include_bytes!("../../../caj2pdf-core/tests/fixtures/ttkn/authored.pdf");
+    let response =
+        include_bytes!("../../../caj2pdf-core/tests/fixtures/ttkn/response.txt").trim_ascii();
+    let mut session = Session::default();
+    assert!(session.set_ttkn_response(response));
+    assert!(!session.set_ttkn_response(b"bad"));
+    assert!(session.response.is_none());
+    assert!(session.set_ttkn_response(response));
+    let mut host = Memory::new(input).short(7);
+    assert_eq!(
+        session.run(
+            &mut host,
+            input.len() as u64,
+            Limits::default(),
+            convert_op(None)
+        ),
+        Status::Done
+    );
+    assert!(session.response.is_none());
+    assert!(!session.set_ttkn_response(response));
+    assert_eq!(
+        session
+            .result()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .report
+            .pages_converted,
+        1
+    );
+    let mut session = Session::default();
+    assert!(session.set_ttkn_response(response));
+    let mut host = Memory::new(input);
+    assert_eq!(
+        session.run(
+            &mut host,
+            input.len() as u64,
+            Limits::default(),
+            Operation::Inspect { format: None }
+        ),
+        Status::Failed
+    );
+    assert!(host.output.is_empty());
+    assert!(
+        !session
+            .message()
+            .contains(std::str::from_utf8(response).unwrap())
+    );
+}
