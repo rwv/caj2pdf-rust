@@ -1123,6 +1123,14 @@ independent evidence keep their original scope. Source-content, outline,
 viewer-readiness and remaining-recovery limits do not disappear with byte
 parity. #406 stays open; no release or support change follows.
 
+The [native page composition receipt](https://github.com/rwv/caj2pdf-samples/blob/5a676fa58529249136b9b276e34ec466981067ac/research/notes/native-page-composition-20261008.md)
+extends this checkpoint with all 60 native pages, complete-page viewer rasters,
+original marker-font controls and unregistered pixel differences. All 60 marker
+pages repeat across cold sessions, while one normal-font page retains a cold
+disagreement. These observations establish no complete visual-fidelity pass,
+new converter defect or unavoidable input exception. Samples #51, #441 and
+#406 remain open; the runtime counts above are unchanged.
+
 ## Expanded C8/HN-B source-outline evidence (#303)
 
 The [expanded inventory](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/hnc8-outline-inventory-20261008.md)

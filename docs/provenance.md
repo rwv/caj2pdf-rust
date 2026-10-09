@@ -1781,3 +1781,40 @@ external. This research-only evidence changes no production dependency, API,
 supported format, output PDF or release note. Native glyph/font/vector fidelity,
 unknown C8/HN-B outlines, recovery exceptions and #441 viewer limits remain
 open under #406; no release is implied.
+
+## Native complete-page observations (#406, samples #51)
+
+The [native composition report](https://github.com/rwv/caj2pdf-samples/blob/5a676fa58529249136b9b276e34ec466981067ac/research/notes/native-page-composition-20261008.md)
+and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/5a676fa58529249136b9b276e34ec466981067ac/research/notes/native-page-composition-20261008.json)
+inventory all ten accepted native originals: 60 pages, 83,432 semantic glyphs,
+57 image draws and 327 PDF vector paths. The receipt SHA-256 is
+`7b78258fd27b793bc9401a2b7cc6424d52d6cd648f282c279642d1918b2a890a`.
+Reviewed production PDFs and the full corpus runtime counts are unchanged.
+
+Original MIT tooling observes only public Qt pixmap drawing/saving APIs in
+the pinned opaque viewer. Complete page rasters, fonts, documents and PDFs
+stay external. Bounded capture, exact page/zoom checks and an original
+12-page/78-glyph navigation control distinguish the current page from adjacent,
+partial or stale rasters. Initial invalid observations remain recorded.
+The observer-off/on and repeated cold two-glyph control pixels are identical;
+this is a scoped control, not a generic readiness guarantee.
+
+All 60 pages are compared with normal resources and with original marker fonts.
+The latter use six independently identified roles and one anonymous symbol
+group, with identical viewer/PDF outlines and metrics but different cmap
+aliases. Every marker page repeats across two cold sessions. Of the normal-font
+pages, 59 repeat and magnesium page 5 retains a 23,901-pixel disagreement;
+the earlier observer binary was separately rechecked. Cause remains unresolved
+under #441. Every one of the 120 source/PDF raster comparisons has differences.
+No registration, per-document correction, fitted pass threshold, individual
+overlapping-glyph proof or complete source-typeface fidelity is claimed.
+
+All 43 document sessions retain source integrity and confirmed cleanup, with
+no observed OOM. Sequential raster analysis reproduces under a 2 GiB address
+limit; its Linux process high-water mark is at most 254,292 KiB. External tools
+retain their own licenses. No vendor/private HN/JBIG implementation or external
+font outlines were read or migrated; new controls and code are original MIT.
+The 80 selected Catalog tests include 11 new controls and no skipped tests.
+No production dependency, memory/API/output behavior, support or release note
+changes. Samples #51 and #406 remain open for causal composition work, original
+font fidelity, unknown outlines and unresolved exceptions.
