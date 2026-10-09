@@ -1311,10 +1311,34 @@ reviewed #498 CLI/WASM artifacts refuse it at byte 1,889,611 on native, Node
 and Chromium; no PDF is published, browser OPFS is empty and the source hash
 is unchanged. A separate offline diagnostic copy receives its author's
 matching disclosed response but still reports a rights-file error. Original
-PDF and protocol controls pass; no actual TTKN content recovery is established.
+PDF and protocol controls pass; no TTKN content recovery was established at
+that checkpoint. The subsequent research recovery below retains those
+historical failures and their modified-input scope.
 
 Current catalog totals are **1,385 identities: 1,339 conversion PASS, 19 FAIL,
 27 UNSUPPORTED**, with 36,288 accepted pages unchanged. The previous 1,384
 rows retain their earlier revision-scoped results; no new full-catalog run is
 claimed. Refusal/cleanup checks and offline viewer errors do not establish
 unavoidable exceptions. #501, #415 and the overall #406 criteria remain open.
+
+
+## TTKN external research recovery (#501)
+
+The [unchanged-source follow-up](https://github.com/rwv/caj2pdf-samples/blob/e4f54a1d3645983ea842a58298efb7aedbfd1b08/research/notes/ttkn-unaltered-wrapper-20261009.md) now opens the matching public
+attachment offline without altering its bytes. An independent observed-IV
+wrapper reproduction and measured PDF-key recipe recover all 234 stream byte
+sequences, which exactly match qpdf as a multiset. All 232 Flate streams reach
+their end; 42 retain one trailing whitespace byte. All 180 output pages render
+without MuPDF warnings, and 97 outline entries have valid destinations.
+The output qpdf check passes; the decrypt operation retains a warning about
+two identical duplicate source MediaBox arrays. Repeat recovery outputs have
+identical page pixels, boxes and word counts.
+
+This external research result uses a privately observed wrapping IV and an
+explicitly modified Standard R4 diagnostic dictionary. The production converter
+still refuses the unchanged original on native, Node and Chromium. Initial-IV
+initialization, original-input implementation/runtime checks and complete
+vendor-viewer equivalence remain unresolved. Other TTKN profiles are not
+covered. The catalog viewer PASS means observed opening/first page/contents,
+not a conversion or full-fidelity pass. Conversion totals and accepted pages
+remain unchanged; #501/#415/#406 are open.

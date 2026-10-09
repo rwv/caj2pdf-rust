@@ -2529,6 +2529,10 @@ obligations under #406 remain open.
 
 ## Public TTKN response sample (#501, samples #85)
 
+Historical acquisition/refusal checkpoint. The unchanged-source research
+recovery below supersedes its uncertainty about the matching response; the
+URL-edited-copy failure remains scoped to that modified input.
+
 The [public-source report](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.md)
 and [metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/e5099249de1ff39a1e11f16bf047371ff1eb893a/research/notes/public-ttkn-response-20261009.json)
 add one distinct public forum attachment, SHA-256
@@ -2569,3 +2573,64 @@ links and two failed Wayback requests; 201 discovered pages remain unvisited.
 Recovery and the broader #415/#406 correctness criteria remain open. No
 production code, API, CLI, JavaScript, I/O, PDF, dependency, supported-format or
 release-note behavior changes; no release is proposed.
+
+## TTKN observed-IV research recovery (#501, samples #87)
+
+The [follow-up report](https://github.com/rwv/caj2pdf-samples/blob/e4f54a1d3645983ea842a58298efb7aedbfd1b08/research/notes/ttkn-unaltered-wrapper-20261009.md) and [redacted receipt](https://github.com/rwv/caj2pdf-samples/blob/e4f54a1d3645983ea842a58298efb7aedbfd1b08/research/notes/ttkn-unaltered-wrapper-20261009.json)
+keep the same public attachment byte-identical while routing its exact network
+target to an owned loopback responder inside `--network none`. The matching
+author-disclosed response opens page 1 with a 180-page counter and populated
+contents pane. The earlier URL edit changed metadata used in rights-key
+derivation, explaining why that diagnostic copy was not a test of the
+unchanged source with the response. No external embedded endpoint is contacted.
+
+Original MIT public OpenSSL API observers and independent `cryptography 44.0.3`
+comparisons reproduce all 48 password-plaintext and 704 rights-plaintext bytes.
+The first CBC layer uses the 32 ASCII response bytes as an AES-256 key; its
+16-byte initialization IV is privately observed, not yet independently derived.
+The rights key is SHA-256 of the first 32 password-plaintext bytes followed by
+raw original XML with only the rights base64 text removed. Nine recorded
+comparisons agree on all 519 metadata bytes. The second AES-256-CBC layer uses
+the first 16 decoded source-IV bytes and yields 700 bytes of XML plus four zeros.
+No source field, credential, initialization IV or decrypted rights value is
+published.
+
+For this source, SHA-1 of the 32 ASCII `encrypt` field bytes followed by the
+measured eight-byte `AppendCA` marker supplies the first 16 bytes of the PDF
+file key. Standard AESV2 object derivation passes all 234 padding checks.
+Every independently decrypted stream byte sequence agrees with qpdf as a
+multiset, including 42 single-whitespace tails after complete Flate streams.
+All 232 Flate streams reach their end; the two non-Flate streams are included
+in byte agreement but not counted as Flate passes. An authored PDF control
+validates qpdf's raw-key / replacement-dictionary diagnostic path.
+
+The external Standard R4 diagnostic copy produces a qpdf-clean 180-page output.
+Decryption itself retains a warning about duplicate source `/MediaBox` entries;
+both arrays are `[0 0 612 792]`. All 180 output pages render without MuPDF
+warnings, and all 97 outline entries have nonempty titles and valid page
+ranges. Two recovery runs have identical page pixels, boxes and word counts;
+pages 1, 90 and 180 were visually inspected. Stream-multiset equality does not
+by itself prove object-graph mapping or full vendor-viewer equivalence.
+
+Eighteen terminal viewer sessions preserve input/copy hashes, no-OOM results,
+container removal and deletion of private configurations/captures. Controls,
+failed compiles/driver attempts, TLS failures, strict xref assumptions and
+partial/failed key probes remain retained. The report distinguishes the initial
+one-of-three positive Flate result from subsequent all-stream verification.
+Comparison logs cap events per process; no complete API trace is claimed.
+
+Only original MIT prose/metadata enter the repository. Public API/specification
+documentation and external diagnostic libraries/tools are the sources; no
+vendor/foreign converter implementation or private HN/JBIG code is inspected
+or migrated. Source copies use 64 KiB buffers, and XML, object and inflation
+reads are bounded. Corpus, renders, secret-bearing captures, observed-IV and
+invalid intermediate outputs stay external.
+Receipt SHA-256: `51a92314b18fc26228cc3360e90b07f0f1d55d3b266524fbfe4f7ed3dfd1e7f0`.
+
+This is observed-IV research recovery, not production original-input conversion.
+The IV initialization rule, native/Node/Chromium implementation/parity and
+complete viewer equivalence remain unmet; the other TTKN profiles are not
+validated by this source. #501/#415/#406 stay open. Conversion totals remain
+1,339 PASS / 19 FAIL / 27 UNSUPPORTED across 1,385 identities, with 36,288
+accepted pages. No production code, dependency, API, CLI, JavaScript, output,
+I/O policy, supported-format or release-note behavior changes; no release.
