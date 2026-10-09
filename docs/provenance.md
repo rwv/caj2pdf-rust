@@ -2158,10 +2158,13 @@ and a corrected corruption-control setup are retained in the receipt.
 
 The earlier 75-page `5d988d74a6e6` page-reference diagnostic still has a qpdf
 warning: missing MediaBox inherits letter/ANSI A. Its clean new blank inventory
-does not establish source-viewer geometry. Complete source-body accounting is
-proved for six inputs only; prior rendering/recovery and 13-site reconstruction
-limits remain. Broader original-font/ornament/readiness/refusal work stays open
-under #406.
+does not establish all-page source-viewer geometry. The earlier
+[page-box controls](https://github.com/rwv/caj2pdf-samples/blob/d9016719872b394c88c5c67f616fbab699d9b100/research/notes/cajviewer-page-boxes.md)
+already establish missing-box/Letter control equality and identical source/output
+rasters for pages 1 and 75 of this exact pair; they do not cover all 75 pages.
+Complete source-body accounting is proved for six inputs only; prior rendering/
+recovery and 13-site reconstruction limits remain. Broader original-font/ornament/
+readiness/refusal work stays open under #406.
 
 Receipt SHA-256: `764098fbace2bf5e62a180de62cfe5020a45d35ab90c6f14befdcf7c4d2a7713`.
 Plan SHA-256: `303571123c8b38afa0107d5f66d88a7b7962df23f8d296b242c3e79161af1709`.
