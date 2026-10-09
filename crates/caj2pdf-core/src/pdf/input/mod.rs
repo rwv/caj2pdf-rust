@@ -1407,6 +1407,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     }
 
     fn validate_objects(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {
+        let mut object_stream_links = Vec::new();
         for (number, slot) in slots.iter().enumerate().skip(1) {
             let Some(slot) = slot else {
                 continue;
@@ -1480,6 +1481,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     &mut index.retained_repair_bytes,
                 )?;
             }
+            self.record_object_stream_link(&head, reference, offset, &mut object_stream_links)?;
             let stale_parent = head.dictionary.as_ref().and_then(|dictionary| {
                 (dictionary.value(b"Type").and_then(exact_name).as_deref() == Some(b"Page")
                     && matches!(&head.tail, ObjectTail::EndObject { .. }))
@@ -1528,7 +1530,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 index.object_locations[number] = Some((generation, location));
             }
         }
-        Ok(())
+        self.validate_object_stream_collections(&mut object_stream_links)
     }
 
     fn read_structure(&mut self, slots: &[Option<XrefSlot>], index: &mut PdfIndex) -> Result<()> {

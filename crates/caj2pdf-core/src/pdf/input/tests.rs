@@ -8,6 +8,7 @@ use recovery::blank_fragment_page;
 use std::io::Cursor;
 
 mod named_destination_tests;
+mod object_stream_collection_tests;
 
 /// Parse one planned object span and frame it with `resolve_length`.
 fn inspect_fragment_object<S: RangedSource, C: Cancellation>(
@@ -3584,7 +3585,7 @@ fn compressed_metadata_rejects_bad_headers_members_and_xref_ordinals() {
         );
         assert!(open(doc).is_err(), "mutation {mutation}");
     }
-    for extra in ["/Extends 4 0 R", "/DecodeParms << >>", "/F (external)"] {
+    for extra in ["/DecodeParms << >>", "/F (external)"] {
         assert!(
             matches!(
                 open(compressed_fixture(
