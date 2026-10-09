@@ -93,6 +93,19 @@ through a 4 KiB scratch buffer with a 4 MiB decoded cap and cancellation checks;
 it is not interpreted as PDF, and its URLs are not followed. Unknown framing
 and arbitrary suffixes remain rejected.
 
+The exact `WebFastLoad` marker may also be followed by complete block padding
+(#511): 1–16 identical bytes whose value equals their count, with the input
+extent divisible by 16. Partial, mismatched or unaligned padding and added
+metadata remain rejected; the marker and padding are outside logical EOF.
+
+The measured package XML suffix (#510) is also accepted: exact `WebFastLoad`
+plus CRLF, `<?xml version="1.0" encoding="gb2312"?>`, then a
+`FileProperty-Package` root with ordered `DOI`, `SCODE`, `PCODE`, `DURL`
+leaves. Only plain ASCII values are supported for this profile; non-ASCII
+GB2312, attributes, entities, nested markup, different declarations and extra
+bytes remain rejected. The bounded recognizer discards the metadata without
+following its URLs, preserving the PDF's logical EOF and ambiguity guards.
+
 Recognized footers include the existing `WebFastLoadP` and `WebFastLoadW`
 profiles, exact `WebFastLoad`, and UTF-8 BOM plus `FileProperty` metadata,
 optionally preceded by `WebFastLoad`. The metadata profile requires the four
