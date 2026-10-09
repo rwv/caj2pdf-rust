@@ -2369,3 +2369,49 @@ pages. Original `7797…` evidence, reliable readiness, native source fonts/orna
 remaining refusals and #406 correctness stay open. No production dependency,
 API, CLI, JavaScript, I/O, output PDF, supported-format or release-note change;
 no release is proposed.
+
+## Actual original page JPEG discrepancy (#490)
+
+The [report](https://github.com/rwv/caj2pdf-samples/blob/d62394ff564be6001996b890edf1626b7013eada/research/notes/viewer-original7797-jpeg-20261009.md)
+and [receipt](https://github.com/rwv/caj2pdf-samples/blob/d62394ff564be6001996b890edf1626b7013eada/research/notes/viewer-original7797-jpeg-20261009.json)
+reproduce both historical #441 page-3 crops on unchanged `7797fd3c…` CAJ and
+`d54f082…` PDF inputs. The old PDF is identical to the current accepted
+native/Node/Chromium baseline. The historical differing PDF crop equals the
+newly observed pre-JPEG page value A; the old source reference equals decoded
+JPEG value B. The CAJ also displays the exact old differing PDF crop, so that
+mismatch does not establish a converter content change. Historical API calls
+were not observed retroactively.
+
+All twelve frozen sessions remain recorded: seven confirmed buffer observations,
+four confirmed screenshots without observation hooks and one unconfirmed viewer
+abort, never replaced. All 33 confirmed target captures equal one of the two
+historical complete crops exactly. All seven observed target pre-encoding values
+agree across CAJ/PDF. One CAJ session connects A, identical encoded-memory hashes,
+returned B rows and a matching public QImage value in forward monotonic order.
+The final target pixmap equals B; its older QPainter trace has no time/PID and
+is not chronologically joined. Complete rows at destroy do not assert JPEG
+finish/EOI validation. Buffer differences are 2,499 pixels; displayed differences
+are 5,169 pixels. These are separate stages.
+
+The first collector's seven false timestamp-field rejections remain alongside
+the genuine abort. Read-only correction and final bounded-correlation refinement
+preserve all inputs/captures; the refinement leaves every observation, hash,
+metric and chain identical. Eight original MIT controls test process/time/grid/
+byte/row evidence, incomplete paths, limits and repeated-identity expansion.
+The reader bounds trace bytes to 16 MiB, records to 40,000, each line to 512
+characters and candidate pairs to 10,000. Existing public-interface observation
+bounds are unchanged; all 478 session-file hashes are verified, source bytes
+are intact and contained viewers are removed. No vendor/JPEG implementation,
+vendor font program/outline, foreign converter or private HN/JBIG source was
+inspected or migrated. Document/pixel/font/JPEG/binary bodies remain external.
+
+Receipt SHA-256: `d01723ca6618133da869ca924e2bdfa88e446b99ac58b2f7d9c7cfa7aa2e3d04`.
+The original #439 note/JSON retain old observations and add this scoped follow-up.
+This completes #441's reproduce/explain and evidence-update scope, while reliable
+readiness and complete original-viewer coverage remain open. No lossy
+normalization is used; equal decoded output does not prove equal source input.
+A is before this observed encode, not a guarantee about earlier stages or fonts.
+Native source fonts/ornaments, remaining refusals and #406 correctness stay open.
+No new converter run, corpus acquisition or compatibility pass: 1,252 PASS /
+18 FAIL / 27 UNSUPPORTED across 1,297 originals, 35,587 accepted pages. No production
+dependency/API/CLI/JavaScript/I/O/PDF/support/release-note change; no release.
