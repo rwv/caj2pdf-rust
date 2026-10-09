@@ -1848,7 +1848,7 @@ are imported. No production dependency, memory/API/output or release change.
 
 ## Native glyph and ornament model verification (#406, samples #51)
 
-The [glyph/ornament report](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/c2fd6dffd0f3a6f0205860518f4a938f1112c317/research/notes/native-glyph-model-20261009.json)
+The [glyph/ornament report](https://github.com/rwv/caj2pdf-samples/blob/82054fbe12e7a222a4e8e8a54f3694ee44361306/research/notes/native-glyph-model-20261009.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/82054fbe12e7a222a4e8e8a54f3694ee44361306/research/notes/native-glyph-model-20261009.json)
 verify all 83,432 ordinary glyphs and 212 repeated ornament marks from four
 records on both normal and original-marker PDFs: ten unchanged originals,
 60 pages per set. Position, em dimensions, shear, gray and semantic order match
@@ -1856,7 +1856,7 @@ the published original-control models. All 84,028 glyph/ornament/image/vector
 paint-kind events retain source order. Marker roles match actual CID mappings,
 original diagnostic contours, advance metrics and PDF widths, independently
 of resource names. The receipt SHA-256 is
-`3458d2b9d89b43e41581098445b850aac01104e8bcc30eefd39a9266c024a2f5`.
+`869470f8666ee34dcf51c635ebc7de63de538a7f1f91201f66bed380ef6c618c`.
 
 New original MIT research code evaluates existing measured rules with rational
 arithmetic; original MIT Rust was consulted for coverage. This is model
@@ -1869,7 +1869,7 @@ Nine original control groups detect changes to geometry, color, character,
 font resource, CID mapping, widths, order, clipping, omission and duplication;
 neighboring unmeasured profiles and text contexts are refused. All 96 selected
 Catalog tests pass with zero skips. The 20-pair run is sequential under a
-2 GiB address-space cap (VmHWM 89,392 KiB), with bounded page content, source
+2 GiB address-space cap (VmHWM 89,444 KiB), with bounded page content, source
 records, expanded events, font programs and font-resource count. Existing
 pikepdf/PyMuPDF/fonttools versions are reused. Source/PDF/font hashes are
 checked before and after reading. Maximum matrix delta is 2.811e-13 point
