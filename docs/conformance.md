@@ -1185,3 +1185,14 @@ passes; metadata-declared page counts are not imported into inspection.
 The ledger remains 1,252 PASS / 18 FAIL / 27 UNSUPPORTED and 35,587 accepted
 pages. TEB wrapping/credential/recovery requirements remain open under #468,
 and complete corpus correctness remains open under #406.
+
+
+The [certificate/opaque-field follow-up](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.md)
+adds parseable X.509/RSA public-key structure for eight complete sources, bounded
+encoding/length checks and complete literal payload scans. Original private-
+operation controls validate the explicit public-operation padding probe, which
+matches neither tested shape in the real fields. No key/plaintext was recovered.
+The source with missing rights bytes remains NOT_CHECKED for those fields.
+These observations do not validate credentials, identify a cipher or establish
+irrecoverability; #468 remains open. No conversion count, support/API/output
+or runtime baseline changes.

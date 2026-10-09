@@ -66,3 +66,10 @@ checksums do not establish plaintext PDF recovery. Fresh offline viewer opens
 and native/Node/Chromium refusals retain that boundary. #469 corrects the
 unsupported encryption diagnosis; wrapping/credential semantics and conversion
 remain open under #468 and #406.
+
+
+The [TEB certificate follow-up](https://github.com/rwv/caj2pdf-samples/blob/5a9c67885df2d1edf58aa429b99d8891abbcd265/research/notes/teb-credential-boundary-20261009.md) establishes X.509 public-key and
+opaque-field structure for eight complete sources, with bounded complete-payload
+scans and original cryptographic/encoding controls. Actual key derivation,
+validated credentials and whole-document recovery remain unknown under #468.
+No private/vendor implementation or source values are imported.
