@@ -68,6 +68,10 @@ HN-A bytes and converts through that path (433 pages, 365 bookmarks;
 CAJViewer documentation also names CAS, but no authentic sample has been found;
 [CAS research remains open](https://github.com/rwv/caj2pdf-samples/issues/28).
 
+The measured C8 subset includes the NJU title, resource-control and line-segment
+profiles documented in [provenance](docs/provenance.md#nju-native-c8-profiles-513-514).
+Other record/style combinations can still be refused.
+
 ## Fonts for C8 and HN-B text pages
 
 Native C8/HN-B text pages need a CJK and a Latin font. Nothing is bundled.

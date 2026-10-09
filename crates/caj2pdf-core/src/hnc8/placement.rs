@@ -189,11 +189,11 @@ pub enum C8GlyphClass {
 /// share field-4 geometry. `0x04c6` and `0x14c6` share field-6 geometry;
 /// `0x14a5` shares field-5 geometry. The observed `0xe58c` and `0x154a` CJK forms use
 /// measured sizes 109 and 84 respectively; their Latin baselines are unknown.
-/// `0xb94c` CJK uses unequal 84-by-109 axes.
+/// `0xb94c` CJK uses unequal 84-by-109 axes; exact `0x096b` CJK uses 95.
 /// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
-/// geometry and rasterization limits in `docs/research/c8-native-records.md`.
+/// geometry and rasterization limits in `docs/provenance.md`.
 ///
 /// `position` and `source_origin` are raw x/y words. Subtraction is signed;
 /// off-page glyphs remain off-page. Font selection, character decoding, color
@@ -210,6 +210,7 @@ pub(super) fn native_glyph_transform(
     let [left, _, _, top] = page.media_box()?;
     let (width, height, latin_offset) = if axes != [None; 2] {
         let (width, height, baseline) = match axes {
+            [Some(1), Some(1)] if class == C8GlyphClass::Cjk => (1.0, 1.0, 0.0),
             [Some(4), Some(4)] => (4.0, 4.0, 15.0),
             [Some(22), Some(22)] => (22.0, 22.0, 11.0),
             [Some(34), Some(34)] => (34.0, 34.0, 8.0),
@@ -240,6 +241,10 @@ pub(super) fn native_glyph_transform(
             _ => (28.0, 9.0),
         };
         (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
+    } else if style == 0x096b && class == C8GlyphClass::Cjk {
+        // Original NJU title controls match explicit 95, not adjacent 94/96.
+        // This profile does not infer other field-11 styles or Latin baselines.
+        (95.0 * 75.0 / 301.0, 95.0 * 75.0 / 301.0, 0.0)
     } else if matches!(style, 0xe58c | 0x114a | 0x154a | 0xb94c) && class == C8GlyphClass::Cjk {
         // Original controls distinguish explicit 109 and 84 from adjacent
         // sizes. Latin baselines and other size-field flags remain unverified.
@@ -419,14 +424,15 @@ pub fn empirical_c8_horizontal_decoration(
     })
 }
 
-/// Evaluate endpoints for observed native `8006/a381`, `a383`, `a385` and `a38b` segments.
+/// Evaluate endpoints for measured native `8006`, `8007` and `8008` segments.
 /// Callers must establish the record tag separately. Emit these endpoints with
 /// the existing PDF segment writer's zero width (device-dependent hairline).
 /// The empirical source margin is independent of text/decoration baselines.
 /// Raster width and antialiasing differ across PDF renderers; this is not a
 /// pixel-parity guarantee. For independently controlled `a385`, paired `c000`
 /// bits in the first x word mark its low 14-bit coordinate. Other words retain
-/// their raw values. Unknown styles are rejected.
+/// their raw values. New `a387`/`a38d` forms reject high coordinate bits;
+/// callers must reject those bits for `8008` too. Unknown styles are rejected.
 ///
 /// Endpoints retain order and signed off-page positions. This allocation-free
 /// evaluator performs no font selection or complete-page admission.
@@ -437,8 +443,14 @@ pub fn empirical_c8_segment(
     style: u16,
 ) -> Result<[[f64; 2]; 2]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style, 0xa380 | 0xa381 | 0xa382 | 0xa383 | 0xa385 | 0xa38b) {
+    if !matches!(
+        style,
+        0xa380 | 0xa381 | 0xa382 | 0xa383 | 0xa385 | 0xa387 | 0xa38b | 0xa38d
+    ) {
         return Err(Error::invalid("unverified C8 segment style"));
+    }
+    if matches!(style, 0xa387 | 0xa38d) && points.iter().flatten().any(|word| word & 0xc000 != 0) {
+        return Err(Error::invalid("unverified C8 segment coordinate flags"));
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let mut points = points;

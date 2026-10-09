@@ -217,7 +217,7 @@ fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
         [0x8071, 0],
         [0x8075, 0],
         [0x801d, 1],
-        [0x8067, 0],
+        [0x8067, 1],
         [0x800a, 0],
         [0xffff, 4],
     ] {
@@ -1601,9 +1601,9 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     }
     // These values remain HN-B-only. Independently admitted C8 numeric
     // controls and a385 drawings have their own positive tests above.
-    // Explicit axis 36 is now shared; native-page tests cover both orders.
+    // Explicit axis 36 and resource value 7 are now independently shared.
     for control in [
-        [0x8067, 7],
+        [0x8067, 18],
         [0x8069, 0x1084],
         [0x8070, 0x002b],
         [0x8071, 0x002b],

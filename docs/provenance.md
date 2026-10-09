@@ -2712,3 +2712,47 @@ match; browser OPFS cleanup passes. Source qpdf exits 3 with four linearization
 order/hint warnings; output qpdf exits 0 after existing incremental output
 normalization. These source warnings are retained as evidence, not classified
 as a clean input. No new format-wide or vendor-viewer fidelity claim is made.
+
+## NJU native C8 profiles (#513, #514)
+
+Three unchanged originals from the [Nanjing University attachment page](https://eduwx.nju.edu.cn/46/ad/c22766a345773/page.htm)
+(SHA-256 prefixes `9a50414e`, `4447375e`, `a286d812`; 5, 5 and 7 pages)
+expose additional native profiles. The ZIP identity and historical refusals
+are recorded in the [acquisition report](https://github.com/rwv/caj2pdf-samples/blob/main/research/notes/archive-nju-followup-20261009.md).
+The [measurement report](https://github.com/rwv/caj2pdf-samples/blob/main/research/notes/nju-native-profiles-20261009.md)
+and [samples #97](https://github.com/rwv/caj2pdf-samples/issues/97) record the
+148 original controls, hashes, independent page checks and retained failed attempts.
+
+The original MIT generator `research/cajviewer/c8_nju_profiles_fixture.py`
+in that repository extends existing original controls and geometric marker
+fonts. The pinned opaque viewer runs offline, non-root, with read-only input,
+no capabilities and bounded resources. Original interposers observe public
+FreeType/Qt APIs; no viewer or foreign converter implementation is inspected,
+copied or transliterated. External document bytes, captures and generated
+binary controls remain outside both repositories. No private code, font
+outlines or dependencies are migrated.
+
+| Measured C8 profile | Bounded implementation and limits |
+| --- | --- |
+| Exact title style `096b` | CJK-class axes match explicit 95, distinct from 94/96/97; use the existing empirical `75/301` point model. Other field-11 styles and Latin baselines remain refused. |
+| Glyph flags `6084`, `0508`, `64c6` | Exact aliases of `1084`, `1108`, `10c6`; neighboring flags are not inferred. |
+| Title `114a`; explicit axes `1/1` | Extend existing 84-unit title geometry to C8; tiny axes admit only measured CJK-class geometry. HN-B does not inherit C8-only profiles. |
+| `8067/0,4,7,11`; `8021/2009` | Preserve active resources and geometry in paired mixed text/vector/decoration/image controls, including state and mode changes. |
+| `8024/2815` | Extend the independently controlled existing HN-B skew model to C8. |
+| `8006/a387,a38d`; `8008/a380` | Twelve-byte single segments, measured horizontally, vertically, diagonally and reversed. Unknown high coordinate bits are refused; `8008` is not treated as a rectangle. |
+| `1084` tortoise brackets `a1b2/a1b3` | Exact no-explicit-axis offset `(21,6)`, distinguished from adjacent positions using a known opener and original marker fonts. |
+
+The fixed record buffer, ranged input, page limits, cancellation and sequential
+output are unchanged. No native, CLI or JavaScript API changes. Original MIT
+regressions exercise aliases, resource transitions, resets, neighboring values,
+variant boundaries and coordinate flags. Three original conversions add 17
+pages; native, Node and Chromium agree byte-for-byte. Independent source/PDF
+checks cover all 29,986 glyphs, 27 vectors and paint order; ten previously
+accepted native originals (60 pages) retain identical PDFs. Three near-neighbor
+mutants are rejected, with CLI rollback and caller-managed browser cleanup.
+Streaming JavaScript sinks can receive partial bytes before an error.
+
+The 17 marker-viewer pages have repeated equal cached observations, not a full
+font or pixel-fidelity proof. Original fonts, renderer readiness and C8/HN-B
+outlines remain unverified (#441, #303). Skipped optional corpus tests are
+reported separately. This compatible format fix has no release publication.

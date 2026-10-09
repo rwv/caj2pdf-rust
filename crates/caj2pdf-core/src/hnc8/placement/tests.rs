@@ -862,3 +862,37 @@ fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
         );
     }
 }
+
+#[test]
+fn nju_title_matches_measured_95_without_inferring_neighboring_styles() {
+    let p = page();
+    let m = native_glyph_transform(
+        p,
+        [4652, 4274],
+        [4672, 4334],
+        0x096b,
+        C8GlyphClass::Cjk,
+        [None; 2],
+    )
+    .unwrap();
+    close(m[0], 7125.0 / 301.0);
+    close(m[3], 7125.0 / 301.0);
+    close(
+        m[4],
+        p.origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+    );
+    close(
+        m[5],
+        p.origin_points[1] + p.size.height_points
+            - 45.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT
+            - 7125.0 / 301.0,
+    );
+    for style in [0x096a, 0x098b, 0x116b] {
+        assert!(
+            native_glyph_transform(p, [0; 2], [0; 2], style, C8GlyphClass::Cjk, [None; 2]).is_err()
+        );
+    }
+    assert!(
+        native_glyph_transform(p, [0; 2], [0; 2], 0x096b, C8GlyphClass::Latin, [None; 2]).is_err()
+    );
+}
