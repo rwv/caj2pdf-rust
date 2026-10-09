@@ -45,3 +45,8 @@ image and font-state inventories for all ten native originals. It retains
 all pixel differences, failed acquisition attempts and one normal-font cold
 disagreement. This is scoped evidence under samples #51 and #441; complete
 source fidelity remains open under #406.
+
+The [native vector follow-up](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.md) verifies all 327 measured paths and
+their order among glyph/image operations on those 60 pages. Original negative
+controls, input/output hashes, process bounds and earlier checker refusals are
+retained. Glyph placement, fonts, ornaments and raster fidelity remain open.

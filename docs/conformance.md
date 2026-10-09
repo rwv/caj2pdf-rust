@@ -1131,6 +1131,13 @@ disagreement. These observations establish no complete visual-fidelity pass,
 new converter defect or unavoidable input exception. Samples #51, #441 and
 #406 remain open; the runtime counts above are unchanged.
 
+The [native vector report](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.md) additionally verifies all 327 paths on
+those 60 pages against the existing original-control geometry/stroke models,
+including their order among ordinary glyph/image operations. Seven original
+control groups detect deliberate PDF mutations. This closes a vector-model
+measurement gap, while glyph transforms, fonts, ornaments and source-pixel
+fidelity remain unverified; samples #51 and #406 remain open.
+
 ## Expanded C8/HN-B source-outline evidence (#303)
 
 The [expanded inventory](https://github.com/rwv/caj2pdf-samples/blob/9b4e708581cd7bf6953cc19500adaad583a71aa9/research/notes/hnc8-outline-inventory-20261008.md)
