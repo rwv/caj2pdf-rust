@@ -38,3 +38,10 @@ records source-declared page boxes and ordered image transforms/resource
 identities for 16,548 accepted pages, with new NH bitmap evidence. Native
 glyph/vector placement, complete rendered-page fidelity and unknown outlines
 remain separate open obligations under #406.
+
+The [60-page native composition checkpoint](https://github.com/rwv/caj2pdf-samples/blob/5a676fa58529249136b9b276e34ec466981067ac/research/notes/native-page-composition-20261008.md)
+adds complete-page normal/marker-font observations and per-page text, vector,
+image and font-state inventories for all ten native originals. It retains
+all pixel differences, failed acquisition attempts and one normal-font cold
+disagreement. This is scoped evidence under samples #51 and #441; complete
+source fidelity remains open under #406.
