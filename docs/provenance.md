@@ -1822,7 +1822,7 @@ font fidelity, unknown outlines and unresolved exceptions.
 
 ## Native vector model verification (#406, samples #51)
 
-The [vector report](https://github.com/rwv/caj2pdf-samples/blob/bb50d8ead6a81703707b5fccf57bd9cf326c8cbc/research/notes/native-vector-geometry-20261008.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/bb50d8ead6a81703707b5fccf57bd9cf326c8cbc/research/notes/native-vector-geometry-20261008.json)
+The [vector report](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.md) and [per-page receipt](https://github.com/rwv/caj2pdf-samples/blob/4744a9360354d119facc20e7bd93d916afc54d24/research/notes/native-vector-geometry-20261008.json)
 verify all 327 source-record paths across the ten accepted native originals
 (60 pages): 321 segments and six five-point radicals. Existing original-control
 models determine endpoints, widths and grayscale strokes; the category order
