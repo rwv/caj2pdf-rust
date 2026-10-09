@@ -79,3 +79,9 @@ verifies used CID outlines/advances and PDF widths for all ten native normal
 outputs: 6,140 resource/CID pairs across 83,644 draws. Generated TrueType/CFF
 controls detect deliberate mutations. Only external caller fonts are compared;
 original-viewer fonts, hinting, raster fidelity and #406 remain unresolved.
+
+The [original native navigation controls](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.md)
+reproduce completed-raster disagreement with no converter involved. An identical
+route can also yield different results across fresh sessions. Original bounded
+fixtures, preflighted routes and all observations are retained; #441 readiness,
+PDF disagreement and broader #406 correctness remain open.

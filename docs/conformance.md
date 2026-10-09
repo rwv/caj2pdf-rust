@@ -1212,3 +1212,20 @@ one private-use ActualText approximation remains. Source/PDF/font hashes are
 unchanged, as are the existing runtime parity receipt and 1,252 PASS / 18 FAIL /
 27 UNSUPPORTED ledger. No converter defect or unavoidable exception is inferred.
 Samples #51 and #406 retain their remaining acceptance work.
+
+## Original viewer navigation disagreement
+
+The [original native controls](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.md)
+reproduce differing complete page-5 rasters without a converter. Initial
+six-/twelve-page direct versus prior-page pairs differ by 29,877 grayscale
+pixels; five-page controls match. Both index layouts agree. Repeating the same
+prior-page route can also yield the other raster, while both captures within
+each session match. Two equal cached captures therefore do not establish
+readiness or fidelity; no ±2 threshold or retry-to-match rule is introduced.
+
+The pinned receipt retains 21 contained sessions, input/runner/raster hashes,
+all counterexamples and cleanup. This changes neither production PDFs nor the
+1,252 PASS / 18 FAIL / 27 UNSUPPORTED ledger. No fresh full-corpus runtime pass
+is claimed. #441 still needs a reliable comparison criterion and investigation
+of the original PDF discrepancy; original-font/ornament appearance, remaining
+recovery work and complete #406 correctness are unresolved.
