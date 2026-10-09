@@ -87,6 +87,14 @@ narrow the observation boundary; the corrected last-page crop and remaining
 timing/readiness limits are explicit. No converter behavior or corpus count
 changes.
 
+The [font-free raster follow-up](https://github.com/rwv/caj2pdf-samples/blob/a69ac7caf21cb2f750d98734d1f7722712de906d/research/notes/viewer-raster-stages-20261009.md)
+retains ten fresh sessions, including one aborted baseline. An original PDF
+with no fonts/text operators differs by 3,655 buffer pixels; both displayed
+variants recur without an observer (6,037 different pixels). Seven original
+control tests pass. The measurements narrow font-only hypotheses without
+establishing an internal cause, readiness, source-font fidelity or a new
+conversion pass. #441/#406 and samples #51 remain open.
+
 The [original native navigation controls](https://github.com/rwv/caj2pdf-samples/blob/0f608447ecf1df6eae204473fc31f77e5dad9779/research/notes/native-viewer-navigation-20261009.md)
 reproduce completed-raster disagreement with no converter involved. An identical
 route can also yield different results across fresh sessions. Original bounded
