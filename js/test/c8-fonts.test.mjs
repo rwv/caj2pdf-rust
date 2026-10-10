@@ -273,3 +273,40 @@ test("HN-B profile retains private codes and reports visual substitution", async
     await validatePdf(t, pdf, 1);
   }
 });
+
+// symbols.ttf labels a rectangle U+0020 and a triangle U+FF1A. Swapping them
+// for the mode-0 space and colon codes keeps the decoded text.
+test("HN-B mode-0 symbol glyphs select source shapes independently of text", async (t) => {
+  const font = source(fontBytes);
+  const parts = [];
+  const result = await convert(await wasmModule(), source(syntheticNativeHnb(0)), sink(parts), {
+    includeBookmarks: false,
+    hnc8: { fonts: { ...roles(font), symbols: source(symbolBytes), symbolGlyphs: [{ code: 0xa1a1, glyph: "：" }, { code: 0xa3ba, glyph: " " }] } },
+  });
+  assert.equal(result.pagesConverted, 2);
+  const pdf = Buffer.concat(parts);
+  const text = pageText(pdf);
+  assert.ok(!/<0020> Tj|<FF1A> Tj/.test(text));
+  assert.equal(text.match(/<0001> Tj/g).length, 2);
+  assert.equal(text.match(/<0002> Tj/g).length, 2);
+  assert.ok(text.includes("/CajMappedUnicode"));
+  assert.ok(text.includes("<0001> <0020>\n<0002> <FF1A>"));
+  await validatePdf(t, pdf, 2);
+});
+
+test("HN-B mode-0 symbol glyph configuration is validated", async () => {
+  const wasm = await wasmModule();
+  const font = source(fontBytes);
+  const fonts = (symbolGlyphs) => ({ ...roles(font), symbols: source(symbolBytes), symbolGlyphs });
+  const run = (value) => convert(wasm, source(syntheticNativeHnb(0)), sink(), { includeBookmarks: false, hnc8: { fonts: value } });
+  await assert.rejects(run({ ...roles(font), symbolGlyphs: [{ code: 0xa1a1, glyph: " " }] }), TypeError);
+  await assert.rejects(run(fonts([{ code: 0x10000, glyph: " " }])), RangeError);
+  for (const glyph of ["ab", "\ud800", "😀", 32]) {
+    await assert.rejects(run(fonts([{ code: 0xa1a1, glyph }])), TypeError);
+  }
+  for (const symbolGlyphs of [[{ code: 0xa3c1, glyph: " " }], [{ code: 0xa1a1, glyph: " " }, { code: 0xa1a1, glyph: "：" }]]) {
+    await assert.rejects(run(fonts(symbolGlyphs)), (error) => /symbol glyph/.test(error.message));
+  }
+  // The symbols font must map every selected glyph; nothing falls back.
+  await assert.rejects(run(fonts([{ code: 0xa1a1, glyph: "A" }])), { code: "HNC8" });
+});

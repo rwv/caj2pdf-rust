@@ -871,6 +871,30 @@ fn native_c8_font_resources_are_read_as_host_resources() {
     assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     assert_eq!(session.add_font_source(10, 0), 0);
     assert!(!session.set_c8_latin_state(3, 0));
+    assert!(!session.add_hnb_symbol_glyph(0xa1af, 0x41));
+}
+
+#[test]
+fn symbol_glyphs_need_the_symbols_role_and_distinct_symbol_codes() {
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(!session.add_hnb_symbol_glyph(0xa1af, 0x41));
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    assert!(!session.add_hnb_symbol_glyph(0xa1af, 0x41));
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, 0));
+    for (code, glyph) in [
+        (0xa3c1, 0x41),
+        (0x1_a1af, 0x41),
+        (0xa1af, 0x10000),
+        (0xa1af, 0xd800),
+    ] {
+        assert!(!session.add_hnb_symbol_glyph(code, glyph));
+    }
+    assert!(session.add_hnb_symbol_glyph(0xa1af, 0xe000));
+    assert!(session.add_hnb_symbol_glyph(0xa3a7, 0xe000));
+    assert!(!session.add_hnb_symbol_glyph(0xa1af, 0xe001));
 }
 
 #[test]

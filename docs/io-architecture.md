@@ -149,7 +149,10 @@ zero-based role indices with `caj2pdf_c8_set_fonts(cjk, latin, alternate,
 decoration, alias)` or `caj2pdf_c8_set_fonts_with_symbols(..., symbols)`
 (`0xffffffff` marks an absent optional role), and supplies the optional
 state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
-index)`. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
+index)`. After the roles, `caj2pdf_hnb_add_symbol_glyph(code, glyph)` maps a
+raw HN-B mode-0 symbol code to a BMP glyph of the symbols role (1 on
+success). It rejects other codes, repeated codes and a missing symbols
+role. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
 glyph missing from that font fails with its location.
 
 `convert` chooses the composer once per document: it reads the header and

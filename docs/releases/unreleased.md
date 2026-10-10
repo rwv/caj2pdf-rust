@@ -32,9 +32,20 @@ whose font maps every glyph, and applies only to HN-B mode-0 native text.
 Native conversion refuses anything else before a PDF is finished, with no
 fallback to another glyph or font. Like the fonts themselves, the map is
 unread for documents routed to image composition. A `symbols` source shared
-with other roles is embedded as one mapped font for all of them. The core ships no mappings. CLI and JavaScript
-options, resource identity binding and verification against measured source
-resources remain open in #518. No fonts are bundled, fetched or inferred.
+with other roles is embedded as one mapped font for all of them. The core
+ships no mappings. Binding a map to a pinned resource identity and
+verification against measured source resources remain open in #518. No fonts
+are bundled, fetched or inferred.
+
+### CLI and JavaScript symbol glyph options (#518)
+
+The CLI accepts repeatable `--symbol-glyph CODE=CHAR` (four hex digits, then
+one BMP character or `U+XXXX`) with `--font-symbols` or `--fonts DIR`.
+Node and browser accept `hnc8.fonts.symbolGlyphs`, an iterable of
+`{ code, glyph }` that requires `symbols`. The raw WASM ABI adds
+`caj2pdf_hnb_add_symbol_glyph(code, glyph)` after the role calls. All three
+use the same core map: the listed codes draw exactly the chosen glyph, and
+text keeps the decoded character. Existing options and outputs are unchanged.
 
 ### Other unreleased changes
 

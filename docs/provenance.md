@@ -2852,7 +2852,13 @@ document. As with fonts, image-only documents leave the map unread. A map
 holds at most 21 entries because codes must be distinct symbol codes; lookups
 are bounded scans and fonts remain ranged.
 
-Still open under #518: CLI and JavaScript configuration, binding a map to a
-pinned resource identity, the 21 measured mappings against the actual source
-resource, and native/Node/Chromium validation. No font program, vendor
+CLI (`--symbol-glyph`), Node/browser (`hnc8.fonts.symbolGlyphs`) and the
+raw WASM call `caj2pdf_hnb_add_symbol_glyph` pass the same map to the core.
+Their controls swap the original `symbols.ttf` rectangle and triangle for
+the mode-0 space and colon codes. Node and real Chromium produce identical
+PDFs; the CLI test checks the selected advance and atomic failure.
+
+Still open under #518: binding a map to a pinned resource identity, the 21
+measured mappings against the actual source resource, and native/Node/Chromium
+validation with that resource. No font program, vendor
 outline, foreign converter or private module is introduced, read or translated.

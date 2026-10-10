@@ -239,6 +239,15 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
     with_session(0, |session| session.set_c8_latin_state(state, index) as u32)
 }
 
+/// Map an HN-B mode-0 symbol code to a BMP glyph of the symbols role, after
+/// the roles. Rejects other codes, duplicates and a missing symbols role.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_hnb_add_symbol_glyph(code: u32, glyph: u32) -> u32 {
+    with_session(0, |session| {
+        session.add_hnb_symbol_glyph(code, glyph) as u32
+    })
+}
+
 /// Numeric error category of a failed operation (1..=16), else 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_error_kind() -> u32 {

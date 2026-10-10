@@ -135,6 +135,10 @@ function requireModule(wasm) {
   }
 }
 
+function isBmpScalar(character) {
+  return typeof character === "string" && character.length === 1 && (character.charCodeAt(0) < 0xd800 || character.charCodeAt(0) > 0xdfff);
+}
+
 /**
  * Collect the explicit C8 font roles. A role is an input, or
  * `{ source, face }` for one face of a collection; equal inputs and faces
@@ -142,7 +146,7 @@ function requireModule(wasm) {
  */
 function fontConfig(options) {
   if (options?.fonts === undefined) return undefined;
-  const { cjk, latin, alternateLatin, decoration, symbols, latinState3, latinState28, latinState31 } = options.fonts ?? {};
+  const { cjk, latin, alternateLatin, decoration, symbols, symbolGlyphs, latinState3, latinState28, latinState31 } = options.fonts ?? {};
   const sources = [];
   const faces = [];
   const index = (font) => {
@@ -163,15 +167,24 @@ function fontConfig(options) {
     roles.push(MAX_U32, 0);
   } else {
     const character = decoration?.character;
-    if (typeof character !== "string" || [...character].length !== 1 || character.codePointAt(0) > 0xffff || (character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff)) {
+    if (!isBmpScalar(character)) {
       throw new TypeError("decoration character must be one BMP Unicode scalar");
     }
     roles.push(index(decoration.source), character.codePointAt(0));
   }
   const optional = (font) => (font === undefined ? undefined : index(font));
+  // The core validates codes, duplicates and glyph coverage per document.
+  const glyphs = symbolGlyphs === undefined ? [] : [...symbolGlyphs].map((entry) => {
+    const { code, glyph } = entry ?? {};
+    if (!Number.isInteger(code) || code < 0 || code > 0xffff) throw new RangeError("symbol glyph code must be an unsigned 16-bit integer");
+    if (!isBmpScalar(glyph)) throw new TypeError("symbol glyph must be one BMP Unicode scalar");
+    return [code, glyph.codePointAt(0)];
+  });
+  if (glyphs.length > 0 && symbols === undefined) throw new TypeError("symbolGlyphs require a symbols font");
   const fonts = {
     roles,
     symbols: optional(symbols),
+    symbolGlyphs: glyphs,
     latinState3: optional(latinState3),
     latinState28: optional(latinState28),
     latinState31: optional(latinState31),

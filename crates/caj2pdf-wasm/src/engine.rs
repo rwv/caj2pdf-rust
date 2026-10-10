@@ -309,6 +309,12 @@ impl Session {
         self.result.is_none() && self.fonts.set_latin_state(state, index)
     }
 
+    /// Map an HN-B mode-0 symbol code to a glyph of the symbols role, after
+    /// the roles and before running.
+    pub fn add_hnb_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {
+        self.result.is_none() && self.fonts.add_symbol_glyph(code, glyph)
+    }
+
     /// Run `operation` over a document of `source_size` bytes to completion.
     pub fn run<H: Host>(
         &mut self,

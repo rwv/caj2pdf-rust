@@ -542,6 +542,8 @@ await convert(wasm, documentSource, outputSink, {
       alternateLatin: alternateFontSource, // 801d/4 Latin resource.
       decoration: { source: decorationFontSource, character: "►" },
       symbols: symbolFontSource, // Semantic HN-B mode-0 symbols/space.
+      // Explicit symbols glyphs by raw HN-B mode-0 code; text is unchanged.
+      symbolGlyphs: [{ code: 0xa1af, glyph: "\ue000" }],
       latinState3: state3FontSource, // HN-B/C8 801d/3 Latin resource.
       latinState28: state28FontSource, // C8 801d/28 resource.
       latinState31: state31FontSource, // C8 801d/31 resource.
@@ -549,6 +551,13 @@ await convert(wasm, documentSource, outputSink, {
   },
 });
 ```
+
+`symbolGlyphs` selects, by its BMP character-map entry, the `symbols` glyph
+drawn for each listed raw HN-B mode-0 symbol code. Extracted text keeps the
+decoded character, so codes that decode alike can keep distinct source
+shapes. It requires `symbols`. A non-symbol or repeated code, a glyph the
+font lacks, or a native document other than HN-B mode-0 rejects the
+conversion; listed codes never fall back. No mapping is built in (#518).
 
 **Fallback rule** (implemented in the core, so CLI, Node and browser
 behave the same): each glyph uses the font of the role the source selects.

@@ -1588,6 +1588,72 @@ fn native_hnb() -> Vec<u8> {
     input
 }
 
+/// A one-page HN-B mode-0 document drawing the symbol space `a1a1`.
+fn mode_zero_symbol_hnb() -> Vec<u8> {
+    let mut input = native_hnb();
+    put_u32(&mut input, 144, 1);
+    put_u32(&mut input, 148, 0);
+    let text = input[216..220].try_into().map(u32::from_le_bytes).unwrap() as usize;
+    input[text + 10..text + 12].copy_from_slice(&0xa1a1_u16.to_le_bytes());
+    input
+}
+
+#[test]
+fn hnb_symbol_glyphs_select_the_symbols_font_glyph_or_fail_atomically() {
+    let scratch = Scratch::new("symbol-glyphs");
+    scratch.write("input.hn", &mode_zero_symbol_hnb());
+    scratch.write(
+        "font.ttf",
+        include_bytes!("../../../tests/fonts/geometric.ttf"),
+    );
+    // A rectangle labelled U+0020 and a triangle labelled U+FF1A.
+    scratch.write(
+        "symbols.ttf",
+        include_bytes!("../../../tests/fonts/symbols.ttf"),
+    );
+    let fonts = [
+        "input.hn",
+        "--font-cjk=font.ttf",
+        "--font-latin=font.ttf",
+        "--font-symbols=symbols.ttf",
+        "--no-bookmarks",
+        "-o",
+    ];
+    for (output, glyph, width) in [
+        ("plain.pdf", None, "/W [ 32 [ 600 ] ]"),
+        (
+            "mapped.pdf",
+            Some("--symbol-glyph=a1a1=U+FF1A"),
+            "/W [ 1 [ 1000 ] ]",
+        ),
+    ] {
+        let mut args = fonts.to_vec();
+        args.push(output);
+        args.extend(glyph);
+        assert_success(&scratch.run(args));
+        let pdf = fs::read(scratch.path(output)).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains(width), "{output}");
+        assert_eq!(validate_pdf(&scratch.path(output)).0, 1);
+    }
+    for glyph in ["--symbol-glyph=a1a1=A", "--symbol-glyph=a3c1=U+0020"] {
+        let mut args = fonts.to_vec();
+        args.extend(["failed.pdf", glyph]);
+        let output = scratch.run(args);
+        assert_eq!(output.status.code(), Some(1), "{glyph}");
+        assert!(stderr(&output).contains("symbol"), "{}", stderr(&output));
+    }
+    assert_eq!(
+        scratch.entries(),
+        [
+            "font.ttf",
+            "input.hn",
+            "mapped.pdf",
+            "plain.pdf",
+            "symbols.ttf"
+        ]
+    );
+}
+
 #[test]
 fn native_text_without_font_options_uses_installed_fonts() {
     let scratch = Scratch::new("installed-fonts");

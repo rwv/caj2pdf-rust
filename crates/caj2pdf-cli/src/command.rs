@@ -5,6 +5,7 @@
 //! tokens, help and version; [`parse`] then checks the rules clap cannot
 //! express and keeps the documented `caj2pdf: error:` messages.
 
+use caj2pdf_core::hnc8::NativeSymbolGlyph;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -27,6 +28,8 @@ pub struct ConvertOptions {
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
     pub font_dir: Option<PathBuf>,
     pub decoration_char: Option<char>,
+    /// Explicit symbols-font glyphs for raw HN-B mode-0 symbol codes.
+    pub symbol_glyphs: Vec<NativeSymbolGlyph>,
     /// Never search the installed fonts for native C8/HN-B text.
     pub no_system_fonts: bool,
 }
@@ -171,6 +174,9 @@ struct ConvertArgs {
     /// Decoration alias (default: ►; not document text)
     #[arg(long, value_name = "CHAR", allow_hyphen_values = true)]
     decoration_char: Option<OsString>,
+    /// Draw the symbols-font glyph CHAR (or U+XXXX) for HN-B mode-0 raw CODE (hex); repeatable
+    #[arg(long, value_name = "CODE=CHAR", allow_hyphen_values = true)]
+    symbol_glyph: Vec<OsString>,
     /// Do not search installed fonts for native C8/HN-B text
     #[arg(long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
@@ -262,6 +268,29 @@ fn decoration_char(value: Option<OsString>) -> Result<Option<char>, String> {
     Ok(Some(character))
 }
 
+/// `CODE=CHAR`: four hexadecimal digits and one BMP character, given
+/// literally or as `U+XXXX`. The core checks the code and the font.
+fn symbol_glyph(value: OsString) -> Result<NativeSymbolGlyph, String> {
+    const ERROR: &str =
+        "--symbol-glyph requires CODE=CHAR: four hex digits and one BMP character or U+XXXX";
+    let hex = |digits: &str| {
+        (digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| u16::from_str_radix(digits, 16).ok())
+            .flatten()
+    };
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (code, glyph) = value.split_once('=').ok_or(ERROR)?;
+    let mut chars = glyph.chars();
+    let glyph = match glyph.strip_prefix("U+") {
+        Some(digits) => hex(digits).and_then(|value| char::from_u32(value.into())),
+        None => chars.next().filter(|_| chars.next().is_none()),
+    };
+    match (hex(code), glyph.filter(|c| u32::from(*c) <= 0xffff)) {
+        (Some(code), Some(glyph)) => Ok(NativeSymbolGlyph { code, glyph }),
+        _ => Err(ERROR.into()),
+    }
+}
+
 impl ConvertArgs {
     fn into_command(self) -> Result<Command, String> {
         const FONT: &str = "font resources require a nonempty path, not standard input";
@@ -288,6 +317,11 @@ impl ConvertArgs {
                 "--fonts requires a nonempty directory path, not standard input",
             )?,
             decoration_char: decoration_char(self.decoration_char)?,
+            symbol_glyphs: self
+                .symbol_glyph
+                .into_iter()
+                .map(symbol_glyph)
+                .collect::<Result<_, _>>()?,
             no_system_fonts: self.no_system_fonts,
             ..ConvertOptions::default()
         };
@@ -307,6 +341,12 @@ impl ConvertArgs {
             && options.font_dir.is_none()
         {
             return Err("--decoration-char requires --font-decoration or --fonts DIR".into());
+        }
+        if !options.symbol_glyphs.is_empty()
+            && options.fonts[4].is_none()
+            && options.font_dir.is_none()
+        {
+            return Err("--symbol-glyph requires --font-symbols or --fonts DIR".into());
         }
         Ok(Command::Convert {
             input: endpoint(self.input.expect("clap requires INPUT"))?,

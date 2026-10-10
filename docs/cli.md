@@ -266,6 +266,16 @@ The decoration alias defaults to `►`. Use `--decoration-char CHAR` to pick
 a different single BMP Unicode scalar from the decoration font. It requires
 `--font-decoration` or `--fonts DIR`, and `DIR` must then contain
 `decoration.ttf`. The alias is not emitted as document text.
+
+`--symbol-glyph CODE=CHAR` (repeatable) draws the symbols font's glyph for
+CHAR wherever an HN-B mode-0 page uses the raw symbol CODE. CODE is four hex
+digits. CHAR is one BMP character or `U+XXXX`, for example
+`--symbol-glyph a1af=U+E000`. The extracted text stays the decoded character,
+so two codes that decode alike can keep distinct source shapes. The option
+requires `--font-symbols` or `--fonts DIR`. Conversion fails, without
+committing output, on a non-symbol or repeated code, a glyph the symbols
+font lacks, or a native document that is not HN-B mode-0. No mapping is
+built in or inferred (#518).
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.
 See the [C8 same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).

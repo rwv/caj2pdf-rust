@@ -25,6 +25,7 @@ pub struct Resources {
     pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
     /// Collection face of each opened font source.
     pub font_faces: [u32; 8],
+    pub symbol_glyphs: Vec<caj2pdf_core::hnc8::NativeSymbolGlyph>,
 }
 
 impl Resources {
@@ -50,7 +51,7 @@ impl Resources {
         Ok(Some(Fonts {
             sources,
             roles: Some(roles),
-            ..Fonts::default()
+            symbol_glyphs: self.symbol_glyphs.clone(),
         }))
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
@@ -60,6 +61,7 @@ impl Resources {
             *font = path.as_deref().map(font_face).transpose()?;
         }
         resources.open_fonts(&fonts, options.decoration_char, limits)?;
+        resources.symbol_glyphs.clone_from(&options.symbol_glyphs);
         Ok(resources)
     }
 

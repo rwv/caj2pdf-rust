@@ -51,6 +51,11 @@ try {
     if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);
   }
+  // Swapped symbol glyphs keep the decoded space and colon as text.
+  const symbolGlyphPdf = [];
+  await convert(module, new Blob([syntheticNativeHnb(0)]), collect(symbolGlyphPdf), { includeBookmarks: false, chunkSize: 32, hnc8: {
+    fonts: { cjk: font, latin: font, alternateLatin: font, symbols, symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }] },
+  } });
   let profilePdf;
   for (const padded of [false, true]) {
     const pdf = [];
@@ -115,7 +120,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { hnbProfilePdf, profilePdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

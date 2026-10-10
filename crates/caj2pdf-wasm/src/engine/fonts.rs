@@ -6,7 +6,7 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8FontSource, C8PageFonts},
+    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph, is_mode_zero_symbol},
 };
 use std::cell::RefCell;
 
@@ -17,6 +17,8 @@ pub(super) struct Fonts {
     faces: [u32; 8],
     count: usize,
     roles: Option<C8PageFonts>,
+    /// Distinct mode-0 symbol codes, so at most 21 entries.
+    symbol_glyphs: Vec<NativeSymbolGlyph>,
 }
 
 impl Fonts {
@@ -48,6 +50,22 @@ impl Fonts {
             return false;
         }
         *role = Some(index as usize);
+        true
+    }
+
+    /// Map one HN-B mode-0 symbol code to a BMP glyph of the symbols role.
+    pub(super) fn add_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {
+        let (Ok(code), Some(glyph)) = (u16::try_from(code), char::from_u32(glyph)) else {
+            return false;
+        };
+        if self.roles.is_none_or(|roles| roles.symbols.is_none())
+            || !is_mode_zero_symbol(code)
+            || glyph > '\u{ffff}'
+            || self.symbol_glyphs.iter().any(|entry| entry.code == code)
+        {
+            return false;
+        }
+        self.symbol_glyphs.push(NativeSymbolGlyph { code, glyph });
         true
     }
 
@@ -121,7 +139,7 @@ impl Fonts {
                 })
                 .collect(),
             roles: self.roles,
-            ..FontResources::default()
+            symbol_glyphs: self.symbol_glyphs.clone(),
         })
     }
 }
