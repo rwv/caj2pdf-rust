@@ -43,6 +43,40 @@ pub struct C8PageFonts {
 /// Nonsemantic decoration alias drawn when no decoration role is supplied.
 pub const C8_DEFAULT_DECORATION_ALIAS: char = '\u{25ba}';
 
+/// A caller-selected source glyph for one raw HN-B mode-0 symbol code.
+///
+/// The decoded character remains the extracted text; `glyph` only selects the
+/// outline through the `symbols` font's character map. Distinct codes may
+/// decode to one character yet draw different source glyphs, and one glyph may
+/// carry different characters. The core never infers these choices.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeSymbolGlyph {
+    /// A raw code that [`is_mode_zero_symbol`] admits.
+    pub code: u16,
+    /// A BMP character the `symbols` font maps to the intended outline.
+    pub glyph: char,
+}
+
+/// Whether HN-B mode-0 draws `code` with the `symbols` role.
+pub fn is_mode_zero_symbol(code: u16) -> bool {
+    matches!(
+        code,
+        0x9ff5
+            | 0xa1a1..=0xa1a3
+            | 0xa1aa
+            | 0xa1ae..=0xa1b1
+            | 0xa3a7
+            | 0xa3ab..=0xa3ae
+            | 0xa3ba
+            | 0xa3bb
+            | 0xa3bf
+            | 0xa3db
+            | 0xa3dd
+            | 0xaab1
+            | 0xaab2
+    )
+}
+
 /// Whether native glyph font fallback treats `character` as CJK-coded.
 ///
 /// This covers CJK radicals, ideographic punctuation, kana, Han, compatibility
@@ -90,6 +124,7 @@ pub fn write_c8_native_page<S, W, C>(
     document: &mut PdfDocument<'_, W, C>,
     fonts: &[&FontObject],
     roles: C8PageFonts,
+    symbol_glyphs: &[NativeSymbolGlyph],
     images: &[ImageObject],
     top_first: &[bool],
 ) -> Result<u32>
@@ -147,6 +182,7 @@ where
         page: &mut page,
         fonts,
         roles,
+        symbol_glyphs,
         geometry,
         origin,
         top_first,
@@ -174,6 +210,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     page: &'p mut ContentPageWriter<'d, 'a, 'r, W, C>,
     fonts: &'r [&'r FontObject],
     roles: C8PageFonts,
+    /// Explicit source glyphs for mode-0 symbol codes, drawn without fallback.
+    symbol_glyphs: &'r [NativeSymbolGlyph],
     geometry: EmpiricalPageGeometry,
     origin: [u16; 2],
     top_first: &'r [bool],
@@ -879,19 +917,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 // The raw alphabet selects its resource independently of 801d.
                 // Digits have a separate matrix; remaining symbols need another resource.
                 let (class, font) = match code {
-                    0x9ff5
-                    | 0xa1a1..=0xa1a3
-                    | 0xa1aa
-                    | 0xa1ae..=0xa1b1
-                    | 0xa3a7
-                    | 0xa3ab..=0xa3ae
-                    | 0xa3ba
-                    | 0xa3bb
-                    | 0xa3bf
-                    | 0xa3db
-                    | 0xa3dd
-                    | 0xaab1
-                    | 0xaab2 => {
+                    _ if is_mode_zero_symbol(code) => {
                         let class = if matches!(code, 0xa3ba | 0xa3db | 0xa3dd) {
                             C8GlyphClass::Cjk
                         } else {
@@ -909,7 +935,6 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     // alphabet and symbol classes handled above.
                     _ => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
                 };
-                let font = self.font(font, character);
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(
                         self.geometry,
@@ -937,8 +962,19 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     };
                     transform[4] -= left * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                self.page
-                    .glyph_with_gray(font, character, transform, 68)?;
+                if let Some(entry) = self.symbol_glyphs.iter().find(|entry| entry.code == code) {
+                    // Never fall back: only the mapped symbols font draws it.
+                    let symbols = self
+                        .roles
+                        .symbols
+                        .ok_or_else(|| invalid("native symbol glyphs require a symbols font role"))?;
+                    self.page
+                        .mapped_glyph(symbols, entry.glyph, character, transform, 68)?;
+                } else {
+                    let font = self.font(font, character);
+                    self.page
+                        .glyph_with_gray(font, character, transform, 68)?;
+                }
             }
             _ => return Err(invalid("unverified HN-B mode-0 rendering record")),
         }
@@ -947,6 +983,6 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
 }
 
 #[cfg(test)]
-pub(crate) use tests::mixed_page;
+pub(crate) use tests::{labelled_font, mixed_page};
 #[cfg(test)]
 mod tests;

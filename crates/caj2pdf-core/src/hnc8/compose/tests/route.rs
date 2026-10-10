@@ -23,6 +23,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport>, Vec<u8>) {
         fonts.then(|| C8FontSources {
             sources: &mut font,
             roles: roles(),
+            symbol_glyphs: &[],
         }),
         Some(&table()),
         &mut Visitor::default(),
@@ -117,6 +118,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: roles(),
+                symbol_glyphs: &[],
             },
             Some(&table()),
             ComposeOptions::default(),
@@ -242,6 +244,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         Some(C8FontSources {
             sources: &mut fonts,
             roles: roles(),
+            symbol_glyphs: &[],
         }),
         Some(&table()),
         &mut (),

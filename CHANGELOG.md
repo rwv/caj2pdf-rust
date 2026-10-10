@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Breaking (Rust API):** `Fonts` and `hnc8::C8FontSources` gain
+  `symbol_glyphs`, a caller-supplied map from raw HN-B mode-0 symbol codes
+  to source glyphs of the `symbols` font, kept separate from the decoded text
+  (#518). `Fonts` implements `Default`. Add `symbol_glyphs: Vec::new()` (or
+  `&[]`), or use `..Fonts::default()`. Empty maps leave output unchanged; CLI
+  and JavaScript are unchanged. See the
+  [unreleased notes](docs/releases/unreleased.md#breaking-rust-api-native-symbol-glyph-maps-518).
+
 - Accept measured complete block padding and the unused object-zero xref
   sentinel overflow in public Archive.org PDFs (#495, #496).
 

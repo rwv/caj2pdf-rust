@@ -2824,3 +2824,35 @@ their prior output hashes, byte sizes and page counts; all are qpdf-clean.
 This is scoped regression evidence, not a new full-catalog or vendor-render
 fidelity run. Workspace tests, JavaScript/Chromium tests and CI are recorded
 in the implementation PR; skipped optional corpus tests are kept separate.
+
+## Native HN-B mode-0 symbol glyph maps (#518)
+
+The `NativeSymbolGlyph` map in `caj2pdf_core::Fonts` and
+`hnc8::C8FontSources` and its controls are original MIT work. It binds a raw
+HN-B mode-0 code drawn by the `symbols` role to a caller-supplied BMP
+character-map entry of that resource. The extracted text remains the
+independently established decoded character. Drawing uses the #519 mapped-font
+writer, so ToUnicode records the semantic character for every glyph choice.
+The core contains no glyph aliases, vendor cmap arguments or glyph IDs, and it
+infers no mapping from appearance. Default conversion output is unchanged when
+the map is empty.
+
+The admitted codes are exactly the 21 existing mode-0 `symbols` role codes.
+The motivating source observation is in
+[samples #109](https://github.com/rwv/caj2pdf-samples/pull/109). It found that
+raw `a1af` and `a3a7` both decode to U+2019 but select distinct source glyphs,
+and that `a1aa` (U+2014) and `a3ad` (U+FF0D) share one. The committed controls
+reuse the original drawing font, relabelled at two private-use code points. A
+rectangle (width 600) and a triangle (width 1000) stand in for the paired and
+shared choices, in forward and swapped assignments. The tests check CID order,
+widths and ToUnicode entries. They also check that each refusal happens before
+a finished PDF: a missing `symbols` role, a non-symbol code, a duplicate code,
+a glyph the resource does not map, and an HN-B mode-2 or C8 native
+document. As with fonts, image-only documents leave the map unread. A map
+holds at most 21 entries because codes must be distinct symbol codes; lookups
+are bounded scans and fonts remain ranged.
+
+Still open under #518: CLI and JavaScript configuration, binding a map to a
+pinned resource identity, the 21 measured mappings against the actual source
+resource, and native/Node/Chromium validation. No font program, vendor
+outline, foreign converter or private module is introduced, read or translated.

@@ -100,6 +100,7 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                     C8FontSources {
                         sources: &mut fonts,
                         roles: roles(),
+                        symbol_glyphs: &[],
                     },
                     None,
                     ComposeOptions::default(),

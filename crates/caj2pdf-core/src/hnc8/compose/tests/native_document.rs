@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::hnc8::C8PageFonts;
+use crate::hnc8::{C8PageFonts, NativeSymbolGlyph};
 use crate::test_support::page_image;
 
 pub(super) fn native_text(records: &[Record]) -> Vec<u8> {
@@ -91,6 +91,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: font_roles,
+                symbol_glyphs: &[],
             },
             Some(&table()),
             ComposeOptions::default(),
@@ -140,6 +141,7 @@ fn native_document_checks_resource_contract_before_output() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: role,
+                symbol_glyphs: &[],
             },
             None,
             ComposeOptions::default(),
@@ -168,6 +170,7 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
         C8FontSources {
             sources: &mut fonts,
             roles: roles(),
+            symbol_glyphs: &[],
         },
         None,
         ComposeOptions::default(),
@@ -201,6 +204,7 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: role,
+                symbol_glyphs: &[],
             },
             None,
             ComposeOptions {
@@ -262,6 +266,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: role,
+                symbol_glyphs: &[],
             },
             None,
             options,
@@ -302,6 +307,7 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: roles(),
+                symbol_glyphs: &[],
             },
             None,
             ComposeOptions::default(),
@@ -377,6 +383,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             C8FontSources {
                 sources: &mut fonts,
                 roles: roles(),
+                symbol_glyphs: &[],
             },
             None,
             ComposeOptions::default(),
@@ -421,6 +428,7 @@ fn check_hnb_type3_after_text(corrupt: bool) -> Vec<u8> {
         C8FontSources {
             sources: &mut fonts,
             roles: roles(),
+            symbol_glyphs: &[],
         },
         None,
         ComposeOptions::default(),
@@ -458,4 +466,181 @@ fn independent_render_checks_hnb_type3_after_text() {
     let pdf = check_hnb_type3_after_text(false);
     let raster = render_original_pdf_at(&pdf, "741.9");
     assert!(raster.starts_with(b"P5\n100 200\n255\n"));
+}
+
+/// Mode-0 symbols: two codes decoding to U+2019, and U+2014/U+FF0D codes.
+fn mode_zero_symbol_text(_: &[Record]) -> Vec<u8> {
+    [
+        [0x8001, 60],
+        [0x8002, 0x1084],
+        [10, 0xa1af],
+        [40, 0xa3a7],
+        [70, 0xa1aa],
+        [100, 0xa3ad],
+        [130, 0xa3a7],
+        [0x8004, 1],
+    ]
+    .into_iter()
+    .flatten()
+    .flat_map(u16::to_le_bytes)
+    .collect()
+}
+
+fn convert_mode_zero_symbols(
+    variant: Variant,
+    mode: u8,
+    symbols: Option<usize>,
+    symbol_glyphs: &[NativeSymbolGlyph],
+) -> (Result<ComposeReport>, Vec<u8>) {
+    let mut fixture = fixture_with_text(variant, &[vec![]], mode_zero_symbol_text);
+    let count_at = if variant == Variant::C8 { 8 } else { 0x90 };
+    fixture.bytes[count_at + 4] = mode;
+    // Original rectangle (width 600) at U+E000 and triangle (1000) at U+E001.
+    let mut fonts = [
+        C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        },
+        C8FontSource {
+            source: Source::new(crate::hnc8::labelled_font([0xe000, 0xe001])),
+            face: 0,
+        },
+    ];
+    let mut sink = Sink::default();
+    let result = convert_c8_native_pdf(
+        &mut Source::new(fixture.bytes),
+        &mut sink,
+        C8FontSources {
+            sources: &mut fonts,
+            roles: C8PageFonts { symbols, ..roles() },
+            symbol_glyphs,
+        },
+        None,
+        ComposeOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    );
+    (result, sink.bytes)
+}
+
+fn symbol_glyphs(entries: &[(u16, char)]) -> Vec<NativeSymbolGlyph> {
+    entries
+        .iter()
+        .map(|&(code, glyph)| NativeSymbolGlyph { code, glyph })
+        .collect()
+}
+
+#[test]
+fn mode_zero_symbol_glyphs_keep_source_shapes_independent_of_text() {
+    let width = |glyph| if glyph == '\u{e000}' { 600 } else { 1000 };
+    for (quote, apostrophe, dash) in [
+        ('\u{e000}', '\u{e001}', '\u{e000}'),
+        ('\u{e001}', '\u{e000}', '\u{e001}'),
+    ] {
+        // Two codes share U+2019 but not a glyph; one glyph carries U+2014
+        // and U+FF0D.
+        let map = symbol_glyphs(&[
+            (0xa1af, quote),
+            (0xa3a7, apostrophe),
+            (0xa1aa, dash),
+            (0xa3ad, dash),
+        ]);
+        let (result, bytes) = convert_mode_zero_symbols(Variant::HnB, 0, Some(1), &map);
+        assert_eq!(result.unwrap().output_pages, 1);
+        let pdf = crate::test_support::pdf_text(&bytes);
+        assert!(!pdf.contains("/ActualText"));
+        let symbol_draws: Vec<_> = pdf
+            .lines()
+            .filter(|line| line.starts_with("BT /F4 1 Tf"))
+            .collect();
+        assert_eq!(symbol_draws.len(), 5);
+        let shown = pdf.split("BT /F4 1 Tf").skip(1).map(|draw| {
+            draw.split(" Tj ET")
+                .next()
+                .unwrap()
+                .rsplit(' ')
+                .next()
+                .unwrap()
+        });
+        assert_eq!(
+            shown.collect::<Vec<_>>(),
+            ["<0001>", "<0002>", "<0003>", "<0004>", "<0002>"]
+        );
+        let widths = [quote, apostrophe, dash, dash].map(width);
+        assert!(pdf.contains(&format!(
+            "/W [ 1 [ {} {} {} {} ] ]",
+            widths[0], widths[1], widths[2], widths[3]
+        )));
+        let unicode = pdf
+            .split("/ToUnicode ")
+            .skip(1)
+            .map(|tail| {
+                let object = tail.split(' ').next().unwrap();
+                crate::test_support::inflated_stream(&bytes, format!("\n{object} 0 obj").as_bytes())
+            })
+            .find(|cmap| cmap.windows(16).any(|part| part == b"CajMappedUnicode"))
+            .unwrap();
+        let unicode = String::from_utf8(unicode).unwrap();
+        assert!(
+            unicode.contains(
+                "4 beginbfchar\n<0001> <2019>\n<0002> <2019>\n<0003> <2014>\n<0004> <FF0D>\n"
+            ),
+            "{unicode}"
+        );
+    }
+}
+
+#[test]
+fn mode_zero_symbol_glyph_maps_refuse_missing_ambiguous_or_inapplicable_entries() {
+    let valid = symbol_glyphs(&[(0xa1af, '\u{e000}')]);
+    for (variant, mode, symbols, map, reason) in [
+        (
+            Variant::HnB,
+            0,
+            None,
+            valid.clone(),
+            "native symbol glyphs require a symbols font role",
+        ),
+        (
+            Variant::HnB,
+            0,
+            Some(1),
+            symbol_glyphs(&[(0xa3c1, '\u{e000}')]),
+            "native symbol glyph code is not an HN-B mode-0 symbol",
+        ),
+        (
+            Variant::HnB,
+            0,
+            Some(1),
+            symbol_glyphs(&[(0xa1af, '\u{e000}'), (0xa1af, '\u{e001}')]),
+            "native symbol glyph code is mapped more than once",
+        ),
+        (
+            Variant::HnB,
+            0,
+            Some(1),
+            symbol_glyphs(&[(0xa1af, 'B')]),
+            "symbols font does not map a native symbol glyph",
+        ),
+        (
+            Variant::HnB,
+            2,
+            Some(1),
+            valid.clone(),
+            "native symbol glyphs apply only to HN-B mode-0 text",
+        ),
+        (
+            Variant::C8,
+            2,
+            Some(1),
+            valid,
+            "native symbol glyphs apply only to HN-B mode-0 text",
+        ),
+    ] {
+        let (result, bytes) = convert_mode_zero_symbols(variant, mode, symbols, &map);
+        let error = result.unwrap_err();
+        assert_eq!(error.reason, reason);
+        assert!(matches!(error.kind, ErrorKind::Malformed), "{error:?}");
+        assert!(!bytes.ends_with(b"%%EOF\n"));
+    }
 }

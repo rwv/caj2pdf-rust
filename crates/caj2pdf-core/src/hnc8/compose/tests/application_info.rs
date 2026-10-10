@@ -159,6 +159,7 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             C8FontSources {
                 sources: &mut fonts,
                 roles: roles(),
+                symbol_glyphs: &[],
             },
             None,
             ComposeOptions::default(),

@@ -15,6 +15,27 @@ callers should match these fields instead of diagnostic prose. No supported
 conversion/PDF output, I/O limits, dependency or core/WASM API changes.
 
 
+### Breaking Rust API: native symbol glyph maps (#518)
+
+`caj2pdf_core::Fonts` gains `symbol_glyphs: Vec<NativeSymbolGlyph>` and now
+implements `Default`; `hnc8::C8FontSources` gains
+`symbol_glyphs: &[NativeSymbolGlyph]`. Each entry selects the `symbols`
+font character-map entry drawn for one raw HN-B mode-0 symbol code
+(`hnc8::is_mode_zero_symbol`) while extracted text keeps the decoded
+character. Codes that decode alike can draw distinct glyphs, and one glyph
+can carry different text. Rust callers building these structs with literals
+add `symbol_glyphs: Vec::new()` / `symbol_glyphs: &[]`, or use
+`..Fonts::default()`. An empty map leaves output byte-identical.
+
+A non-empty map must name distinct symbol codes, needs a `symbols` role
+whose font maps every glyph, and applies only to HN-B mode-0 native text.
+Native conversion refuses anything else before a PDF is finished, with no
+fallback to another glyph or font. Like the fonts themselves, the map is
+unread for documents routed to image composition. A `symbols` source shared
+with other roles is embedded as one mapped font for all of them. The core ships no mappings. CLI and JavaScript
+options, resource identity binding and verification against measured source
+resources remain open in #518. No fonts are bundled, fetched or inferred.
+
 ### Other unreleased changes
 
 - The Rust PDF writer can register an explicit mapped font with

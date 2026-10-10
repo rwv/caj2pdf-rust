@@ -3,7 +3,7 @@
 //! Native C8 document orchestration using the shared image codecs and writer.
 
 use super::*;
-use crate::hnc8::{C8PageFonts, write_c8_native_page};
+use crate::hnc8::{C8PageFonts, NativeSymbolGlyph, is_mode_zero_symbol, write_c8_native_page};
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
 use std::io::Write;
 
@@ -15,6 +15,12 @@ use std::io::Write;
 pub struct C8FontSources<'a, F> {
     pub sources: &'a mut [C8FontSource<F>],
     pub roles: C8PageFonts,
+    /// Explicit HN-B mode-0 symbol glyphs from the `symbols` font. Each code
+    /// appears once and draws exactly its glyph; other codes keep the
+    /// [`C8PageFonts`] rules. Must be empty for any other native profile.
+    /// A shared `symbols` source is embedded as one mapped font for every
+    /// role that uses it.
+    pub symbol_glyphs: &'a [NativeSymbolGlyph],
 }
 
 /// One font resource: a ranged source and its face index, zero for a
@@ -66,6 +72,26 @@ where
             Error::invalid("C8 font roles require 1..=8 explicit resources with valid indices"),
         ));
     }
+    let symbol_glyphs = fonts.symbol_glyphs;
+    let mapped_symbols = if symbol_glyphs.is_empty() {
+        None
+    } else {
+        Some(roles.symbols.ok_or_else(|| {
+            At::NONE.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("native symbol glyphs require a symbols font role"),
+            )
+        })?)
+    };
+    for (index, entry) in symbol_glyphs.iter().enumerate() {
+        let refuse = |reason| Err(At::NONE.error(Hnc8Stage::Preflight, Error::invalid(reason)));
+        if !is_mode_zero_symbol(entry.code) {
+            return refuse("native symbol glyph code is not an HN-B mode-0 symbol");
+        }
+        if symbol_glyphs[..index].iter().any(|e| e.code == entry.code) {
+            return refuse("native symbol glyph code is mapped more than once");
+        }
+    }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
@@ -82,20 +108,40 @@ where
             unsupported("native composition requires C8 or HN-B"),
         ));
     }
+    if mapped_symbols.is_some() && (header.variant, header.native_mode) != (Variant::HnB, Some(0)) {
+        return Err(at.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("native symbol glyphs apply only to HN-B mode-0 text"),
+        ));
+    }
     let mut document =
         PdfDocument::new(sink, limits, cancellation).map_err(at.locator(Hnc8Stage::Pdf))?;
     let mut handles: Vec<FontObject> =
         page_vector(count, limits, "C8 font handles").map_err(at.locator(Hnc8Stage::Preflight))?;
     let mut font_bytes = 0u64;
-    for C8FontSource { source, face } in fonts.sources.iter_mut() {
+    for (index, C8FontSource { source, face }) in fonts.sources.iter_mut().enumerate() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Preflight))?;
-        handles.push(
-            document
-                .add_font(&font)
-                .map_err(at.locator(Hnc8Stage::Pdf))?,
-        );
+        let mapped = mapped_symbols == Some(index);
+        let handle = if mapped {
+            document.add_mapped_font(&font)
+        } else {
+            document.add_font(&font)
+        }
+        .map_err(at.locator(Hnc8Stage::Pdf))?;
+        // A missing source glyph is refused, never drawn by fallback.
+        if mapped
+            && !symbol_glyphs
+                .iter()
+                .all(|entry| handle.supports(entry.glyph))
+        {
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("symbols font does not map a native symbol glyph"),
+            ));
+        }
+        handles.push(handle);
     }
     // Fixed profile bound avoids a second allocation for references.
     let references = [
@@ -182,6 +228,7 @@ where
             &mut document,
             &references,
             page_roles,
+            symbol_glyphs,
             &images,
             &top_first,
         )
