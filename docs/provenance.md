@@ -2894,3 +2894,16 @@ be bound to the resource with `--symbol-font-identity HGFX_CNKI:9a2b73d3`
 conversion yields the identical PDF. Changing the checksum by one or the name
 by one letter is refused at preflight. No font program, vendor outline,
 foreign converter or private module is introduced, read or translated.
+
+## Unfinished content hex tokens (#499)
+
+`unfinished_content_hex_tokens_are_preserved_without_repair` in
+`crates/caj2pdf-core/tests/pdf_input_validation.rs` builds original MIT
+one-page PDFs. Each content stream ends inside a hex string with 0, 1, 2 or
+4 digits and a CRLF, in an open text object and saved graphics state. That
+matches the lexical profile measured in the seven public originals (see the
+[samples study](https://github.com/rwv/caj2pdf-samples/blob/main/research/notes/content-eof-ambiguity-20261009.md)).
+The surviving bytes do not determine the missing text, so conversion must
+preserve the source byte for byte. qpdf must still report
+`EOF while reading token`, which keeps the source defect visible rather than
+hiding it behind a guessed repair. No external document bytes are used.
