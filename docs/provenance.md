@@ -2924,3 +2924,16 @@ Archive.org originals:
 
 Missing source bytes are never invented, and no header, object or page is
 guessed. No external document bytes are used.
+
+## Unterminated Indexed lookup literal stays refused (#420)
+
+`an_unterminated_indexed_lookup_literal_is_refused_without_guessing_colors`
+in `crates/caj2pdf-core/tests/caj_conversion.rs` builds an original MIT
+one-page CAJ. Its page resources name a `/Indexed /DeviceCMYK 43` color
+space whose literal lookup `(xb\)` leaves the string unterminated, the
+lexical profile measured in #420's object 320. Conversion must fail as
+malformed and write no output: the string is never re-escaped and no
+palette bytes are invented. The same lookup, correctly terminated, converts
+in the control. The test does not set a policy for well-formed short tables,
+whose intended colors remain open under #420. No external document bytes
+are used.
