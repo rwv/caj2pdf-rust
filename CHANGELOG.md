@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-No changes recorded after v0.6.1.
+No changes recorded after v0.6.2.
+
+## v0.6.2
+
+- Fix bundling the JavaScript package as a classic Worker (#433, #517): the
+  Worker no longer uses a top-level `await`, so Vite/Rolldown production
+  builds with the default `iife` worker format succeed. Node and browser
+  behavior is unchanged; a static regression test keeps the Worker module
+  graph free of top-level `await`.
+- No API, CLI, WASM ABI, conversion or dependency changes since v0.6.1. This
+  patch is cut from v0.6.1 on `release/v0.6.x`; the breaking changes on
+  `main` ship separately in v0.7.0.
+
+See [v0.6.2 release notes](docs/releases/v0.6.2.md) for evidence and limits.
 
 ## v0.6.1
 
