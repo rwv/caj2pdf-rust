@@ -894,6 +894,34 @@ fn symbol_glyphs_need_the_symbols_role_and_bmp_glyphs() {
 }
 
 #[test]
+fn symbol_font_identity_is_set_once_with_a_printable_name_after_the_symbols_role() {
+    let name = |text: &[u8]| {
+        let mut bytes = [0u8; 64];
+        bytes[..text.len()].copy_from_slice(text);
+        std::array::from_fn(|i| u64::from_le_bytes(bytes[i * 8..i * 8 + 8].try_into().unwrap()))
+    };
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(!session.set_hnb_symbol_font(1, 4, name(b"Name")));
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_hnb_symbol_font(1, 4, name(b"Name")));
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, 0));
+    for (length, text) in [
+        (0, &b""[..]),
+        (64, &[b'A'; 64][..]),
+        (4, b"Na e"),
+        (4, b"N\xffme"),
+        (3, b"A/B"),
+    ] {
+        assert!(!session.set_hnb_symbol_font(1, length, name(&text[..text.len().min(64)])));
+    }
+    assert!(session.set_hnb_symbol_font(0x79f4_2dc3, 10, name(b"CajFixture")));
+    assert!(!session.set_hnb_symbol_font(0x79f4_2dc3, 10, name(b"CajFixture")));
+}
+
+#[test]
 fn font_configuration_rejects_invalid_resources_and_roles() {
     let mut session = Session::default();
     assert_eq!(session.add_font_source(0, 0), 0);

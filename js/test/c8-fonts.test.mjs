@@ -310,3 +310,28 @@ test("HN-B mode-0 symbol glyph configuration is validated", async () => {
   // The symbols font must map every selected glyph; nothing falls back.
   await assert.rejects(run(fonts([{ code: 0xa1a1, glyph: "A" }])), { code: "HNC8" });
 });
+
+// symbols.ttf: PostScript name CajFixture, head checkSumAdjustment 0x79f42dc3.
+test("HN-B symbol glyph maps bound to a font identity refuse other fonts", async () => {
+  const wasm = await wasmModule();
+  const font = source(fontBytes);
+  const symbolGlyphs = [{ code: 0xa1a1, glyph: "：" }, { code: 0xa3ba, glyph: " " }];
+  const run = async (symbolFontIdentity) => {
+    const parts = [];
+    await convert(wasm, source(syntheticNativeHnb(0)), sink(parts), {
+      includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols: source(symbolBytes), symbolGlyphs, symbolFontIdentity } },
+    });
+    return Buffer.concat(parts);
+  };
+  assert.deepEqual(await run({ postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 }), await run(undefined));
+  for (const identity of [{ postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc4 }, { postscriptName: "Other", checksumAdjustment: 0x79f42dc3 }]) {
+    await assert.rejects(run(identity), (error) => error.code === "HNC8" && /expected identity/.test(error.message));
+  }
+  for (const identity of [{ postscriptName: "", checksumAdjustment: 1 }, { postscriptName: "a b", checksumAdjustment: 1 }, { postscriptName: "x".repeat(64), checksumAdjustment: 1 }, { postscriptName: "A(B)", checksumAdjustment: 1 }]) {
+    await assert.rejects(run(identity), TypeError);
+  }
+  await assert.rejects(run({ postscriptName: "CajFixture", checksumAdjustment: 2 ** 32 }), RangeError);
+  await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
+    includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols: source(symbolBytes), symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 1 } } },
+  }), TypeError);
+});

@@ -57,6 +57,24 @@ pub struct NativeSymbolGlyph {
     pub glyph: char,
 }
 
+/// The `symbols` font a [`NativeSymbolGlyph`] map was measured on: its `head`
+/// table checkSumAdjustment and PostScript name (name ID 6). A map bound to
+/// an identity is refused for any other font instead of drawing its glyphs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymbolFontIdentity {
+    pub checksum_adjustment: u32,
+    pub postscript_name: String,
+}
+
+impl SymbolFontIdentity {
+    /// Whether `name` can be a font's PostScript name as the converter
+    /// accepts it: 1 to 63 printable ASCII characters without PDF delimiters.
+    /// Adapters validate caller identities with this rule.
+    pub fn is_valid_postscript_name(name: &str) -> bool {
+        crate::pdf::is_valid_postscript_name(name)
+    }
+}
+
 /// Whether HN-B mode-0 draws `code` with the `symbols` role.
 pub fn is_mode_zero_symbol(code: u16) -> bool {
     matches!(

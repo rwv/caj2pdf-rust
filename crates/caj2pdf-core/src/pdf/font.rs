@@ -288,6 +288,14 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         .map_err(|_| invalid("invalid required TrueType face metadata"))
     }
 
+    /// The `head` table's checkSumAdjustment, from the retained metadata.
+    pub fn checksum_adjustment(&self) -> Result<u32> {
+        self.tables[0]
+            .get(8..12)
+            .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            .ok_or(invalid("invalid required TrueType face metadata"))
+    }
+
     /// Whether the font has CFF rather than TrueType outlines.
     pub(crate) fn is_cff(&self) -> bool {
         self.cff.is_some()
@@ -356,14 +364,19 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         let name = name
             .to_string()
             .ok_or(invalid("font PostScript name is invalid UTF-16"))?;
-        if !name
-            .bytes()
-            .all(|byte| (33..=126).contains(&byte) && !b"[](){}<>/%".contains(&byte))
-        {
+        if !is_valid_postscript_name(&name) {
             return Err(invalid("font PostScript name contains invalid characters"));
         }
         Ok(name)
     }
+}
+
+/// 1 to 63 printable ASCII characters without PDF delimiters.
+pub(crate) fn is_valid_postscript_name(name: &str) -> bool {
+    (1..=63).contains(&name.len())
+        && name
+            .bytes()
+            .all(|byte| (33..=126).contains(&byte) && !b"[](){}<>/%".contains(&byte))
 }
 
 /// The face count and DSIG header bytes of a TrueType collection header, or

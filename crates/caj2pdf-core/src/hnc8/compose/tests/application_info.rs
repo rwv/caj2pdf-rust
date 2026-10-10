@@ -160,6 +160,7 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             ComposeOptions::default(),

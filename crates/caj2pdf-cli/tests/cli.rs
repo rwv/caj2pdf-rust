@@ -1635,6 +1635,34 @@ fn hnb_symbol_glyphs_select_the_symbols_font_glyph_or_fail_atomically() {
         assert!(String::from_utf8_lossy(&pdf).contains(width), "{output}");
         assert_eq!(validate_pdf(&scratch.path(output)).0, 1);
     }
+    // symbols.ttf identity: PostScript name CajFixture, checkSumAdjustment 79f42dc3.
+    for (identity, accepted) in [
+        ("CajFixture:79f42dc3", true),
+        ("CajFixture:79f42dc4", false),
+        ("Other:79f42dc3", false),
+    ] {
+        let mut args = fonts.to_vec();
+        let flag = format!("--symbol-font-identity={identity}");
+        args.extend(["bound.pdf", "--force", "--symbol-glyph=a1a1=U+FF1A", &flag]);
+        let output = scratch.run(args);
+        assert_eq!(
+            output.status.success(),
+            accepted,
+            "{identity}: {}",
+            stderr(&output)
+        );
+        if accepted {
+            let bound = fs::read(scratch.path("bound.pdf")).unwrap();
+            assert_eq!(bound, fs::read(scratch.path("mapped.pdf")).unwrap());
+            fs::remove_file(scratch.path("bound.pdf")).unwrap();
+        } else {
+            assert!(
+                stderr(&output).contains("expected identity"),
+                "{}",
+                stderr(&output)
+            );
+        }
+    }
     for glyph in ["--symbol-glyph=a1a1=A", "--symbol-glyph=a3c1=U+0020"] {
         let mut args = fonts.to_vec();
         args.extend(["failed.pdf", glyph]);

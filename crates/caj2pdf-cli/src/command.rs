@@ -5,7 +5,7 @@
 //! tokens, help and version; [`parse`] then checks the rules clap cannot
 //! express and keeps the documented `caj2pdf: error:` messages.
 
-use caj2pdf_core::hnc8::NativeSymbolGlyph;
+use caj2pdf_core::hnc8::{NativeSymbolGlyph, SymbolFontIdentity};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -30,6 +30,8 @@ pub struct ConvertOptions {
     pub decoration_char: Option<char>,
     /// Explicit symbols-font glyphs for raw HN-B mode-0 symbol codes.
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
+    /// The symbols font the glyph map was measured on.
+    pub symbol_font: Option<SymbolFontIdentity>,
     /// Never search the installed fonts for native C8/HN-B text.
     pub no_system_fonts: bool,
 }
@@ -177,6 +179,9 @@ struct ConvertArgs {
     /// Draw the symbols-font glyph CHAR (or U+XXXX) for HN-B mode-0 raw CODE (hex); repeatable
     #[arg(long, value_name = "CODE=CHAR", allow_hyphen_values = true)]
     symbol_glyph: Vec<OsString>,
+    /// Require the symbols font NAME (PostScript) with head checkSumAdjustment CHECKSUM (8 hex digits)
+    #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
+    symbol_font_identity: Option<OsString>,
     /// Do not search installed fonts for native C8/HN-B text
     #[arg(long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
@@ -292,6 +297,25 @@ fn symbol_glyph(value: OsString) -> Result<NativeSymbolGlyph, String> {
     }
 }
 
+/// `NAME:CHECKSUM`: a PostScript name and an eight-digit hexadecimal `head`
+/// checkSumAdjustment. The name may itself contain `:`.
+fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
+    const ERROR: &str =
+        "--symbol-font-identity requires NAME:CHECKSUM: a PostScript name and eight hex digits";
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (name, checksum) = value.rsplit_once(':').ok_or(ERROR)?;
+    if !SymbolFontIdentity::is_valid_postscript_name(name)
+        || checksum.len() != 8
+        || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(ERROR.into());
+    }
+    Ok(SymbolFontIdentity {
+        checksum_adjustment: u32::from_str_radix(checksum, 16).map_err(|_| ERROR)?,
+        postscript_name: name.to_owned(),
+    })
+}
+
 impl ConvertArgs {
     fn into_command(self) -> Result<Command, String> {
         const FONT: &str = "font resources require a nonempty path, not standard input";
@@ -323,6 +347,10 @@ impl ConvertArgs {
                 .into_iter()
                 .map(symbol_glyph)
                 .collect::<Result<_, _>>()?,
+            symbol_font: self
+                .symbol_font_identity
+                .map(symbol_font_identity)
+                .transpose()?,
             no_system_fonts: self.no_system_fonts,
             ..ConvertOptions::default()
         };
@@ -348,6 +376,9 @@ impl ConvertArgs {
             && options.font_dir.is_none()
         {
             return Err("--symbol-glyph requires --font-symbols or --fonts DIR".into());
+        }
+        if options.symbol_font.is_some() && options.symbol_glyphs.is_empty() {
+            return Err("--symbol-font-identity requires --symbol-glyph".into());
         }
         Ok(Command::Convert {
             input: endpoint(self.input.expect("clap requires INPUT"))?,

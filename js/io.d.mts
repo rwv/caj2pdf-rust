@@ -181,6 +181,9 @@ export interface C8Fonts<Input> {
   /** Explicit `symbols` glyphs for raw HN-B mode-0 symbol codes. Extracted
    * text keeps the decoded character; requires `symbols`. */
   symbolGlyphs?: Iterable<C8SymbolGlyph>;
+  /** The `symbols` font `symbolGlyphs` was measured on; any other font is
+   * refused. Requires `symbolGlyphs`. */
+  symbolFontIdentity?: C8SymbolFontIdentity;
   /** Optional explicit font selected by HN-B/C8 state 801d/3. */
   latinState3?: C8Font<Input>;
   /** Distinct caller-supplied resources for verified C8 Latin states. */
@@ -195,6 +198,12 @@ export interface C8Fonts<Input> {
 export interface C8SymbolGlyph {
   code: number;
   glyph: string;
+}
+
+/** A font's PostScript name (name ID 6) and `head` table checkSumAdjustment. */
+export interface C8SymbolFontIdentity {
+  postscriptName: string;
+  checksumAdjustment: number;
 }
 
 export interface Hnc8Options<Input> {

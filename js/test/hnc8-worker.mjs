@@ -54,7 +54,8 @@ try {
   // Swapped symbol glyphs keep the decoded space and colon as text.
   const symbolGlyphPdf = [];
   await convert(module, new Blob([syntheticNativeHnb(0)]), collect(symbolGlyphPdf), { includeBookmarks: false, chunkSize: 32, hnc8: {
-    fonts: { cjk: font, latin: font, alternateLatin: font, symbols, symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }] },
+    fonts: { cjk: font, latin: font, alternateLatin: font, symbols, symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }],
+      symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 } },
   } });
   let profilePdf;
   for (const padded of [false, true]) {

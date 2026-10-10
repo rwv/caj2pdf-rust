@@ -245,7 +245,7 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   const font = new Blob([fontBytes]);
   const nodeParts = [];
   await convert(await wasmModule(), new Blob([syntheticNativeHnb(0)]), { async writeChunk(bytes) { nodeParts.push(bytes.slice()); return bytes.length; }, async flush() {} }, {
-    includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font, symbols: new Blob([await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url))]), symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }] } },
+    includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font, symbols: new Blob([await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url))]), symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }], symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 } } },
   });
   const symbolGlyphPdf = Buffer.from(result.symbolGlyphPdf);
   assert.deepEqual(symbolGlyphPdf, Buffer.concat(nodeParts));

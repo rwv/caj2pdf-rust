@@ -39,6 +39,20 @@ ships no mappings. Binding a map to a pinned resource identity and
 verification against measured source resources remain open in #518. No fonts
 are bundled, fetched or inferred.
 
+### Symbol font identity binding (#518)
+
+A map can be bound to the font it was measured on. Rust `Fonts::symbol_font`
+and `C8FontSources::symbol_font`, CLI `--symbol-font-identity NAME:CHECKSUM`,
+JavaScript `symbolFontIdentity` and raw WASM `caj2pdf_hnb_set_symbol_font`
+all take the font's PostScript name and `head` checkSumAdjustment. A
+different `symbols` font is refused before output is finished, and an
+identity without a map is refused. The check uses retained metadata, so no
+full-font hash is computed. This guards against using the wrong font by
+mistake, not against deliberate tampering: a tool that edits outlines but
+leaves the checksum field unchanged would still pass. Rust struct literals
+of `C8FontSources`, and `Fonts` literals without `..Fonts::default()`, add
+`symbol_font: None`.
+
 ### CLI and JavaScript symbol glyph options (#518)
 
 The CLI accepts repeatable `--symbol-glyph CODE=CHAR` (four hex digits, then
