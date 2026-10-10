@@ -1421,6 +1421,36 @@ fn symbol_glyphs_parse_hex_codes_and_bmp_characters() {
     let mut with_symbols = without_symbols.to_vec();
     with_symbols.push("--font-symbols=b");
     assert!(parse_str(&with_symbols).is_ok());
+    // A bound map: the name may contain ':', the checksum is the last field.
+    let mut bound = with_symbols.clone();
+    bound.push("--symbol-font-identity=Ab:c:79f42DC3");
+    let Command::Convert { options, .. } = parse_str(&bound).unwrap() else {
+        panic!()
+    };
+    let identity = options.symbol_font.unwrap();
+    assert_eq!(identity.postscript_name, "Ab:c");
+    assert_eq!(identity.checksum_adjustment, 0x79f4_2dc3);
+    for value in [
+        "Name",
+        ":79f42dc3",
+        "Name:79f42dc",
+        "Name:79f42dc3a",
+        "Na me:79f42dc3",
+        "Name:+9f42dc3",
+    ] {
+        let mut args = with_symbols.clone();
+        args.push("--symbol-font-identity");
+        args.push(value);
+        assert!(parse_str(&args).is_err(), "{value}");
+    }
+    let unmapped = [
+        "input.hn",
+        "--font-cjk=a",
+        "--font-latin=a",
+        "--font-symbols=b",
+        "--symbol-font-identity=N:00000000",
+    ];
+    assert!(parse_str(&unmapped).is_err());
 }
 
 #[test]

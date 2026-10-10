@@ -2888,6 +2888,9 @@ OPFS is empty afterwards, and the font hash is unchanged. The font, document
 and PDF stay outside Git.
 
 This verifies the explicit-map path for these 21 codes only. It is not full
-native-font fidelity, and the core still ships no mappings. Binding a map to
-the font's identity remains open under #518. No font program, vendor outline,
+native-font fidelity, and the core still ships no mappings. The map can now
+be bound to the resource with `--symbol-font-identity HGFX_CNKI:9a2b73d3`
+(PostScript name and `head` checkSumAdjustment). With that binding the same
+conversion yields the identical PDF. Changing the checksum by one or the name
+by one letter is refused at preflight. No font program, vendor outline,
 foreign converter or private module is introduced, read or translated.

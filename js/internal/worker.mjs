@@ -174,6 +174,15 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
         return { invalid: `WASM rejected the state-${state} Latin font role` };
       }
     }
+    if (fonts.symbolFontIdentity !== undefined) {
+      const { postscriptName, checksumAdjustment } = fonts.symbolFontIdentity;
+      const view = new DataView(new ArrayBuffer(64));
+      for (let i = 0; i < postscriptName.length; i++) view.setUint8(i, postscriptName.charCodeAt(i));
+      const words = Array.from({ length: 8 }, (_, i) => view.getBigUint64(i * 8, true));
+      if (exports.caj2pdf_hnb_set_symbol_font?.(checksumAdjustment, postscriptName.length, ...words) !== 1) {
+        return { invalid: "WASM rejected the symbol font identity" };
+      }
+    }
     for (const [code, glyph] of fonts.symbolGlyphs) {
       if (exports.caj2pdf_hnb_add_symbol_glyph?.(code, glyph) !== 1) {
         return { invalid: `WASM rejected the symbol glyph for code ${code.toString(16)}` };

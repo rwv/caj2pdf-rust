@@ -315,6 +315,12 @@ impl Session {
         self.result.is_none() && self.fonts.add_symbol_glyph(code, glyph)
     }
 
+    /// Bind the symbol glyph map to the symbols font's identity, after the
+    /// roles and before running.
+    pub fn set_hnb_symbol_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
+        self.result.is_none() && self.fonts.set_symbol_font(checksum, length, words)
+    }
+
     /// Run `operation` over a document of `source_size` bytes to completion.
     pub fn run<H: Host>(
         &mut self,

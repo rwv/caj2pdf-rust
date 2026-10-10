@@ -146,7 +146,7 @@ function isBmpScalar(character) {
  */
 function fontConfig(options) {
   if (options?.fonts === undefined) return undefined;
-  const { cjk, latin, alternateLatin, decoration, symbols, symbolGlyphs, latinState3, latinState28, latinState31 } = options.fonts ?? {};
+  const { cjk, latin, alternateLatin, decoration, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
   const sources = [];
   const faces = [];
   const index = (font) => {
@@ -181,10 +181,23 @@ function fontConfig(options) {
     return [code, glyph.codePointAt(0)];
   });
   if (glyphs.length > 0 && symbols === undefined) throw new TypeError("symbolGlyphs require a symbols font");
+  let identity;
+  if (symbolFontIdentity != null) {
+    const { postscriptName, checksumAdjustment } = symbolFontIdentity;
+    if (glyphs.length === 0) throw new TypeError("symbolFontIdentity requires symbolGlyphs");
+    if (typeof postscriptName !== "string" || !/^[\x21-\x7e]{1,63}$/.test(postscriptName)) {
+      throw new TypeError("symbol font PostScript name must be 1 to 63 printable ASCII characters");
+    }
+    if (!Number.isInteger(checksumAdjustment) || checksumAdjustment < 0 || checksumAdjustment > MAX_U32) {
+      throw new RangeError("symbol font checksumAdjustment must be an unsigned 32-bit integer");
+    }
+    identity = { postscriptName, checksumAdjustment };
+  }
   const fonts = {
     roles,
     symbols: optional(symbols),
     symbolGlyphs: glyphs,
+    symbolFontIdentity: identity,
     latinState3: optional(latinState3),
     latinState28: optional(latinState28),
     latinState31: optional(latinState31),

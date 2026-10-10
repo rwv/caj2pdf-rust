@@ -8,7 +8,8 @@ use super::{Detection, InputFormat, detect_source, pdf_range};
 use crate::caj::convert_caj;
 use crate::hnc8::{
     ApplicationInfoStatus, C8FontSource, C8FontSources, C8PageFonts, ComposeOptions, ComposePage,
-    ComposeVisitor, NativeSymbolGlyph, OutlineReport, convert_document_pdf, uses_native_text,
+    ComposeVisitor, NativeSymbolGlyph, OutlineReport, SymbolFontIdentity, convert_document_pdf,
+    uses_native_text,
 };
 use crate::jbig2::text::TextHeaderPolicy;
 use crate::kdh::convert_kdh;
@@ -37,6 +38,9 @@ pub struct Fonts<'a> {
     /// documents of another profile refuse a non-empty map; like the fonts,
     /// it is unread for documents routed to image composition.
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
+    /// The font `symbol_glyphs` was measured on; a different `symbols` font
+    /// is refused. Requires a nonempty map.
+    pub symbol_font: Option<SymbolFontIdentity>,
 }
 
 /// What [`convert`] produces from a document.
@@ -263,24 +267,26 @@ fn convert_hnc8<S: RangedSource, W: Write>(
             sources,
             roles,
             symbol_glyphs,
+            symbol_font,
         }) => {
             let roles = roles.ok_or(Error::invalid("C8 font resources require explicit roles"))?;
             for font in &sources {
                 limits.check_input_size(font.source.size())?;
             }
-            Some((sources, roles, symbol_glyphs))
+            Some((sources, roles, symbol_glyphs, symbol_font))
         }
     };
     let report = convert_document_pdf(
         source,
         sink,
-        fonts
-            .as_mut()
-            .map(|(sources, roles, symbol_glyphs)| C8FontSources {
+        fonts.as_mut().map(
+            |(sources, roles, symbol_glyphs, symbol_font)| C8FontSources {
                 sources,
                 roles: *roles,
                 symbol_glyphs,
-            }),
+                symbol_font: symbol_font.as_ref(),
+            },
+        ),
         Some(&QmTable::standard()),
         &mut CompletePages,
         compose,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::hnc8::{C8PageFonts, NativeSymbolGlyph};
+use crate::hnc8::{C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity};
 use crate::test_support::page_image;
 
 pub(super) fn native_text(records: &[Record]) -> Vec<u8> {
@@ -92,6 +92,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
                 sources: &mut fonts,
                 roles: font_roles,
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             Some(&table()),
             ComposeOptions::default(),
@@ -142,6 +143,7 @@ fn native_document_checks_resource_contract_before_output() {
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -171,6 +173,7 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
             sources: &mut fonts,
             roles: roles(),
             symbol_glyphs: &[],
+            symbol_font: None,
         },
         None,
         ComposeOptions::default(),
@@ -205,6 +208,7 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             ComposeOptions {
@@ -267,6 +271,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             options,
@@ -308,6 +313,7 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -384,6 +390,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
+                symbol_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -429,6 +436,7 @@ fn check_hnb_type3_after_text(corrupt: bool) -> Vec<u8> {
             sources: &mut fonts,
             roles: roles(),
             symbol_glyphs: &[],
+            symbol_font: None,
         },
         None,
         ComposeOptions::default(),
@@ -492,6 +500,16 @@ fn convert_mode_zero_symbols(
     symbols: Option<usize>,
     symbol_glyphs: &[NativeSymbolGlyph],
 ) -> (Result<ComposeReport>, Vec<u8>) {
+    convert_bound_symbols(variant, mode, symbols, symbol_glyphs, None)
+}
+
+fn convert_bound_symbols(
+    variant: Variant,
+    mode: u8,
+    symbols: Option<usize>,
+    symbol_glyphs: &[NativeSymbolGlyph],
+    symbol_font: Option<&SymbolFontIdentity>,
+) -> (Result<ComposeReport>, Vec<u8>) {
     let mut fixture = fixture_with_text(variant, &[vec![]], mode_zero_symbol_text);
     let count_at = if variant == Variant::C8 { 8 } else { 0x90 };
     fixture.bytes[count_at + 4] = mode;
@@ -514,6 +532,7 @@ fn convert_mode_zero_symbols(
             sources: &mut fonts,
             roles: C8PageFonts { symbols, ..roles() },
             symbol_glyphs,
+            symbol_font,
         },
         None,
         ComposeOptions::default(),
@@ -641,6 +660,57 @@ fn mode_zero_symbol_glyph_maps_refuse_missing_ambiguous_or_inapplicable_entries(
         let error = result.unwrap_err();
         assert_eq!(error.reason, reason);
         assert!(matches!(error.kind, ErrorKind::Malformed), "{error:?}");
+        assert!(!bytes.ends_with(b"%%EOF\n"));
+    }
+}
+
+#[test]
+fn symbol_glyph_maps_bound_to_a_font_identity_refuse_other_fonts() {
+    let mut source = Source::new(crate::hnc8::labelled_font([0xe000, 0xe001]));
+    let font =
+        crate::pdf::OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).unwrap();
+    let identity = SymbolFontIdentity {
+        checksum_adjustment: font.checksum_adjustment().unwrap(),
+        postscript_name: font.postscript_name().unwrap(),
+    };
+    let map = symbol_glyphs(&[
+        (0xa1af, '\u{e000}'),
+        (0xa3a7, '\u{e001}'),
+        (0xa1aa, '\u{e000}'),
+        (0xa3ad, '\u{e000}'),
+    ]);
+    let (result, bytes) = convert_bound_symbols(Variant::HnB, 0, Some(1), &map, Some(&identity));
+    assert_eq!(result.unwrap().output_pages, 1);
+    assert!(bytes.ends_with(b"%%EOF\n"));
+    let other_checksum = SymbolFontIdentity {
+        checksum_adjustment: identity.checksum_adjustment ^ 1,
+        ..identity.clone()
+    };
+    let other_name = SymbolFontIdentity {
+        postscript_name: identity.postscript_name.clone() + "X",
+        ..identity.clone()
+    };
+    for (map, symbol_font, reason) in [
+        (
+            map.clone(),
+            other_checksum,
+            "symbols font does not match the expected identity",
+        ),
+        (
+            map.clone(),
+            other_name,
+            "symbols font does not match the expected identity",
+        ),
+        (
+            vec![],
+            identity,
+            "symbol font identity requires native symbol glyphs",
+        ),
+    ] {
+        let (result, bytes) =
+            convert_bound_symbols(Variant::HnB, 0, Some(1), &map, Some(&symbol_font));
+        let error = result.unwrap_err();
+        assert_eq!(error.reason, reason);
         assert!(!bytes.ends_with(b"%%EOF\n"));
     }
 }

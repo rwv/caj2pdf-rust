@@ -3,7 +3,9 @@
 //! Native C8 document orchestration using the shared image codecs and writer.
 
 use super::*;
-use crate::hnc8::{C8PageFonts, NativeSymbolGlyph, is_mode_zero_symbol, write_c8_native_page};
+use crate::hnc8::{
+    C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol, write_c8_native_page,
+};
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
 use std::io::Write;
 
@@ -21,6 +23,8 @@ pub struct C8FontSources<'a, F> {
     /// A shared `symbols` source is embedded as one mapped font for every
     /// role that uses it.
     pub symbol_glyphs: &'a [NativeSymbolGlyph],
+    /// The font `symbol_glyphs` was measured on; requires a nonempty map.
+    pub symbol_font: Option<&'a SymbolFontIdentity>,
 }
 
 /// One font resource: a ranged source and its face index, zero for a
@@ -83,6 +87,12 @@ where
             )
         })?)
     };
+    if fonts.symbol_font.is_some() && mapped_symbols.is_none() {
+        return Err(At::NONE.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("symbol font identity requires native symbol glyphs"),
+        ));
+    }
     for (index, entry) in symbol_glyphs.iter().enumerate() {
         let refuse = |reason| Err(At::NONE.error(Hnc8Stage::Preflight, Error::invalid(reason)));
         if !is_mode_zero_symbol(entry.code) {
@@ -130,6 +140,17 @@ where
             document.add_font(&font)
         }
         .map_err(at.locator(Hnc8Stage::Pdf))?;
+        if mapped
+            && let Some(identity) = fonts.symbol_font
+            && (font.checksum_adjustment().ok() != Some(identity.checksum_adjustment)
+                || font.postscript_name().ok().as_deref()
+                    != Some(identity.postscript_name.as_str()))
+        {
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("symbols font does not match the expected identity"),
+            ));
+        }
         // A missing source glyph is refused, never drawn by fallback.
         if mapped
             && !symbol_glyphs

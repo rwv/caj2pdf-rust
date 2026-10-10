@@ -6,7 +6,7 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph},
+    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity},
 };
 use std::cell::RefCell;
 
@@ -22,6 +22,7 @@ pub(super) struct Fonts {
     roles: Option<C8PageFonts>,
     /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
     symbol_glyphs: Vec<NativeSymbolGlyph>,
+    symbol_font: Option<SymbolFontIdentity>,
 }
 
 impl Fonts {
@@ -69,6 +70,27 @@ impl Fonts {
             return false;
         }
         self.symbol_glyphs.push(NativeSymbolGlyph { code, glyph });
+        true
+    }
+
+    /// Bind the symbol glyph map to a PostScript name (1 to 63 printable ASCII
+    /// bytes, little-endian in `words`) and `head` checkSumAdjustment, once.
+    pub(super) fn set_symbol_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
+        let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+        let Some(name) = bytes.get(..length as usize) else {
+            return false;
+        };
+        if self.roles.is_none_or(|roles| roles.symbols.is_none())
+            || self.symbol_font.is_some()
+            || !(1..=63).contains(&length)
+            || !name.iter().all(|byte| (33..=126).contains(byte))
+        {
+            return false;
+        }
+        self.symbol_font = Some(SymbolFontIdentity {
+            checksum_adjustment: checksum,
+            postscript_name: String::from_utf8_lossy(name).into_owned(),
+        });
         true
     }
 
@@ -143,6 +165,7 @@ impl Fonts {
                 .collect(),
             roles: self.roles,
             symbol_glyphs: self.symbol_glyphs.clone(),
+            symbol_font: self.symbol_font.clone(),
         })
     }
 }

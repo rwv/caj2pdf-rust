@@ -57,6 +57,15 @@ pub struct NativeSymbolGlyph {
     pub glyph: char,
 }
 
+/// The `symbols` font a [`NativeSymbolGlyph`] map was measured on: its `head`
+/// table checkSumAdjustment and PostScript name (name ID 6). A map bound to
+/// an identity is refused for any other font instead of drawing its glyphs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymbolFontIdentity {
+    pub checksum_adjustment: u32,
+    pub postscript_name: String,
+}
+
 /// Whether HN-B mode-0 draws `code` with the `symbols` role.
 pub fn is_mode_zero_symbol(code: u16) -> bool {
     matches!(
