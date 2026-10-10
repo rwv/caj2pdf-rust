@@ -174,7 +174,12 @@ fn subset_with<S: RangedSource>(
 ) -> Result<Vec<u8>> {
     (|| {
         let mut font = OpenTypeFont::read(source, 0, limits, &NEVER)?;
-        let plan = font.plan_subset(&used(characters), u64::MAX, limits, &NEVER)?;
+        let plan = font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used(characters)),
+            u64::MAX,
+            limits,
+            &NEVER,
+        )?;
         let mut output = Bytes::default();
         font.write_subset(&plan, &mut output, limits, &NEVER)?;
         assert_eq!(output.0.len() as u64, plan.length());
@@ -288,7 +293,12 @@ fn plan_maps_used_characters_to_subset_glyphs() {
     {
         let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
         let plan = font
-            .plan_subset(&used(&['D', 'A']), u64::MAX, &limits, &NEVER)
+            .plan_subset(
+                crate::pdf::font::Characters::Unicode(&used(&['D', 'A'])),
+                u64::MAX,
+                &limits,
+                &NEVER,
+            )
             .unwrap();
         let face = font.face().unwrap();
         assert_eq!(plan.glyph(&face, 'A'), 1);
@@ -376,7 +386,12 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     let mut font = OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER).unwrap();
     // Six glyphs need 6 * (2 + 12) bytes of glyph tables.
     assert!(matches!(
-        font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER),
+        font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used(&['A'])),
+            u64::MAX,
+            &limits,
+            &NEVER
+        ),
         Err(Error {
             kind: ErrorKind::LimitExceeded { attempted: 84, .. },
             ..
@@ -388,14 +403,24 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     };
     // Glyph 4 with its instructions is 10 + 14 + 2 + 100 bytes.
     assert!(matches!(
-        font.plan_subset(&used(&['C']), u64::MAX, &limits, &NEVER),
+        font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used(&['C'])),
+            u64::MAX,
+            &limits,
+            &NEVER
+        ),
         Err(Error {
             kind: ErrorKind::LimitExceeded { attempted: 126, .. },
             ..
         })
     ));
-    font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)
-        .unwrap();
+    font.plan_subset(
+        crate::pdf::font::Characters::Unicode(&used(&['B'])),
+        u64::MAX,
+        &limits,
+        &NEVER,
+    )
+    .unwrap();
 }
 
 /// Serves `patched` bytes for reads at `trigger` after `after` such reads.
@@ -468,21 +493,44 @@ fn projected_program_length_is_bounded_before_measuring() {
     {
         let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
         let used = used(&['C']);
-        let plan = font.plan_subset(&used, u64::MAX, &limits, &NEVER).unwrap();
+        let plan = font
+            .plan_subset(
+                crate::pdf::font::Characters::Unicode(&used),
+                u64::MAX,
+                &limits,
+                &NEVER,
+            )
+            .unwrap();
         let length = plan.length();
         let read = font.subset_bytes_read();
         assert!(read > 0);
-        font.plan_subset(&used, length, &limits, &NEVER).unwrap();
+        font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used),
+            length,
+            &limits,
+            &NEVER,
+        )
+        .unwrap();
         assert_eq!(font.subset_bytes_read(), 2 * read);
         // Glyph data alone fits; the other tables push the program over.
-        let error = font.plan_subset(&used, length - 1, &limits, &NEVER);
+        let error = font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used),
+            length - 1,
+            &limits,
+            &NEVER,
+        );
         assert!(matches!(
             error,
             Err(Error { kind: ErrorKind::LimitExceeded { limit, attempted, .. }, .. })
                 if limit == length - 1 && attempted == length
         ));
         // The glyph data bound applies while components are still found.
-        let error = font.plan_subset(&used, 40, &limits, &NEVER);
+        let error = font.plan_subset(
+            crate::pdf::font::Characters::Unicode(&used),
+            40,
+            &limits,
+            &NEVER,
+        );
         assert!(matches!(
             error,
             Err(Error {

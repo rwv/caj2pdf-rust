@@ -4,7 +4,9 @@
 //! TrueType or CFF outlines, standalone or in a collection.
 
 mod cff;
+mod encoding;
 mod subset;
+pub(crate) use encoding::{CharacterMap, Characters, GlyphCharacters};
 pub(crate) use subset::{Subset, SubsetOutput};
 
 use crate::fallible::reserve_exact;
@@ -306,22 +308,35 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         hash.finalize().into()
     }
 
-    /// The `(glyph, code)` of each character set in `used`, a BMP bitmap, in
-    /// code order. A character the font no longer maps means its source
+    /// The `(glyph, CID)` of each used character, in CID order.
+    /// A character the font no longer maps means its source
     /// changed after the metadata was read.
-    pub(super) fn used_glyphs(&self, used: &[u8]) -> Result<Vec<(u16, u16)>> {
+    pub(super) fn used_glyphs(
+        &self,
+        used: Characters<'_>,
+        limits: &Limits,
+    ) -> Result<Vec<(u16, u16)>> {
         let face = self.face()?;
         let count = face.number_of_glyphs();
-        (0..used.len() * 8)
-            .filter(|code| has_code(used, *code))
-            .map(|code| {
-                char::from_u32(code as u32)
-                    .and_then(|character| face.glyph_index(character))
-                    .filter(|id| id.0 != 0 && id.0 < count)
-                    .map(|id| (id.0, code as u16))
-                    .ok_or(invalid(CHANGED))
-            })
-            .collect()
+        let length = used.codes().count();
+        let bytes = length as u64 * size_of::<(u16, u16)>() as u64;
+        limits.check_allocation(bytes)?;
+        let mut glyphs = Vec::new();
+        reserve_exact(
+            &mut glyphs,
+            length,
+            limits.allocation_refused("font used glyphs", bytes),
+        )?;
+        for code in used.codes() {
+            let glyph = used
+                .glyph(usize::from(code))
+                .and_then(|character| face.glyph_index(character))
+                .filter(|id| id.0 != 0 && id.0 < count)
+                .map(|id| (id.0, code))
+                .ok_or(invalid(CHANGED))?;
+            glyphs.push(glyph);
+        }
+        Ok(glyphs)
     }
 
     /// The face's PostScript name (name ID 6), validated as 1 to 63

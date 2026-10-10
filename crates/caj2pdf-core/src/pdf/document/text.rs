@@ -4,7 +4,9 @@
 
 use super::*;
 use crate::pdf::OpenTypeFont;
-use crate::pdf::font::{CHANGED, Subset, SubsetOutput, has_code, mark_code};
+use crate::pdf::font::{
+    CHANGED, CharacterMap, Characters, GlyphCharacters, Subset, SubsetOutput, has_code, mark_code,
+};
 use std::io::Write;
 
 const BMP_BITMAP_BYTES: usize = 8192;
@@ -15,6 +17,46 @@ enum GlyphText {
     Character,
     Decoration,
     Replacement(char),
+    /// Exact text for a glyph selected from a separately encoded font slot.
+    Mapped(char),
+}
+
+enum FontEncoding {
+    Unicode(Vec<u8>),
+    Mapped(CharacterMap),
+}
+
+impl FontEncoding {
+    fn characters(&self) -> Characters<'_> {
+        match self {
+            Self::Unicode(used) => Characters::Unicode(used),
+            Self::Mapped(map) => Characters::Mapped(&map.entries),
+        }
+    }
+
+    fn code(&mut self, glyph: char, text: GlyphText, limits: &Limits) -> Result<u16> {
+        match self {
+            Self::Unicode(used) => {
+                if matches!(text, GlyphText::Mapped(_)) {
+                    return Err(Error::invalid(
+                        "separate glyph/text selection requires a mapped PDF font",
+                    ));
+                }
+                mark_code(used, glyph as usize);
+                Ok(glyph as u16)
+            }
+            Self::Mapped(map) => map.code(
+                GlyphCharacters {
+                    glyph,
+                    text: match text {
+                        GlyphText::Mapped(text) => text,
+                        _ => glyph,
+                    },
+                },
+                limits,
+            ),
+        }
+    }
 }
 
 /// A font added to a document, usable only in the document that created it.
@@ -44,8 +86,8 @@ pub(super) struct PendingFont {
     name: String,
     /// Identifies the font when its source is read again for embedding.
     fingerprint: [u8; 32],
-    /// BMP characters drawn with this font; only these glyphs are embedded.
-    used: Vec<u8>,
+    /// Used CIDs and their source glyph/text characters.
+    encoding: FontEncoding,
     embedded: bool,
 }
 
@@ -93,6 +135,28 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// and [`Self::embed_font`] must embed the subset before [`Self::finish`].
     /// No system lookup or glyph substitution is performed.
     pub fn add_font<S: RangedSource>(&mut self, font: &OpenTypeFont<'_, S>) -> Result<FontObject> {
+        self.register_font(font, false)
+    }
+
+    /// Register a font whose glyph selection is independent of semantic text.
+    /// Each distinct `(font character, text character)` receives a first-use
+    /// CID and its own ToUnicode entry. At most 65,535 pairs (65,534 for CFF)
+    /// are retained within `Limits`; outlines remain ranged and output stays
+    /// sequential. The glyph character must be a supported BMP cmap entry;
+    /// semantic text may be any Unicode scalar.
+    /// Ordinary glyph calls on this font map their character to itself.
+    pub fn add_mapped_font<S: RangedSource>(
+        &mut self,
+        font: &OpenTypeFont<'_, S>,
+    ) -> Result<FontObject> {
+        self.register_font(font, true)
+    }
+
+    fn register_font<S: RangedSource>(
+        &mut self,
+        font: &OpenTypeFont<'_, S>,
+        mapped: bool,
+    ) -> Result<FontObject> {
         self.ensure_image_page_intact()?;
         let name = font.postscript_name()?.replace('#', "#23");
         let face = font.face()?;
@@ -102,7 +166,12 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
                 mark_code(&mut characters, code as usize);
             }
         }
-        let used = self.bitmap("PDF font used-character bitmap")?;
+        let encoding = if mapped {
+            // A CFF1 INDEX also needs one entry for .notdef.
+            FontEncoding::Mapped(CharacterMap::new(u16::MAX - u16::from(font.is_cff())))
+        } else {
+            FontEncoding::Unicode(self.bitmap("PDF font used-character bitmap")?)
+        };
         let refused = self
             .limits
             .allocation_refused("PDF fonts", size_of::<PendingFont>() as u64);
@@ -117,7 +186,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             mapping,
             name,
             fingerprint: font.fingerprint(),
-            used,
+            encoding,
             embedded: false,
         });
         Ok(FontObject {
@@ -187,7 +256,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let mapping = pending.mapping;
         let before = font.subset_bytes_read();
         let plan = font.subset(
-            &pending.used,
+            pending.encoding.characters(),
             MAX_PDF_INTEGER,
             self.limits,
             self.cancellation,
@@ -198,7 +267,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let mut deflate = self.take_deflate()?;
         let before = font.subset_bytes_read();
         self.image_page_failed = true;
-        let unicode = self.unicode_cmap(&mut deflate)?;
+        let unicode = self.font_unicode_cmap(handle.slot, &mut deflate)?;
         let (program, file_key, subtype) = match &plan {
             Subset::TrueType(_) => (
                 format!("/Length1 {}", plan.length()),
@@ -227,12 +296,12 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             self.writer
                 .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")?;
             let mut stream = FontStream::new(&mut self.writer, &mut deflate);
-            let used = &self.fonts[handle.slot].used;
+            let used = self.fonts[handle.slot].encoding.characters();
             // CID-to-glyph entries up to the highest drawn CID.
-            let last = (0..65536).rev().find(|code| has_code(used, *code));
-            for code in last.map_or(0..0, |last| 0..last + 1) {
-                let glyph = char::from_u32(code as u32)
-                    .filter(|_| has_code(used, code))
+            let last = used.codes().next_back();
+            for code in last.map_or(0..0, |last| 0..usize::from(last) + 1) {
+                let glyph = used
+                    .glyph(code)
                     .map_or(0, |character| plan.glyph(&face, character));
                 stream.put(&glyph.to_be_bytes())?;
             }
@@ -261,9 +330,9 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         // One width array per 256-character block that contains drawn
         // characters, spanning its first to last drawn character. Both the
         // outer and inner arrays stay below PDF's recommended size limit.
-        let used = &self.fonts[handle.slot].used;
+        let used = self.fonts[handle.slot].encoding.characters();
         for first in (0..65536).step_by(256) {
-            let mut drawn = (first..first + 256).filter(|code| has_code(used, *code));
+            let mut drawn = (first..first + 256).filter(|code| used.contains(*code));
             let Some(low) = drawn.next() else {
                 continue;
             };
@@ -271,8 +340,9 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             let mut widths = format!(" {low} [");
             for code in low..=high {
                 // Undrawn characters inside the span are never shown.
-                let glyph = has_code(used, code)
-                    .then(|| bmp_glyph(&face, code as u32))
+                let glyph = used
+                    .glyph(code)
+                    .map(|character| bmp_glyph(&face, character as u32))
                     .transpose()?
                     .flatten();
                 let width = glyph.map_or(1000.0, |glyph| f64::from(glyph.advance) * scale);
@@ -319,6 +389,35 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         stream.put(cmap.as_bytes())?;
         stream.finish()?;
         self.to_unicode = Some(unicode);
+        Ok(unicode)
+    }
+
+    fn font_unicode_cmap(&mut self, slot: usize, deflate: &mut Deflate) -> Result<ObjectId> {
+        let FontEncoding::Mapped(map) = &self.fonts[slot].encoding else {
+            return self.unicode_cmap(deflate);
+        };
+        self.writer.prepare_objects(2)?;
+        let unicode = self.writer.reserve_object()?;
+        let length = self.writer.reserve_object()?;
+        self.writer
+            .begin_stream(unicode, length, b"/Filter /FlateDecode")?;
+        let mut stream = FontStream::new(&mut self.writer, deflate);
+        stream.put(b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /CajMappedUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")?;
+        for (block, entries) in map.entries.chunks(100).enumerate() {
+            stream.put(format!("{} beginbfchar\n", entries.len()).as_bytes())?;
+            for (index, pair) in entries.iter().enumerate() {
+                let cid = block * 100 + index + 1;
+                let mut line = format!("<{cid:04X}> <");
+                for unit in pair.text.encode_utf16(&mut [0; 2]) {
+                    line += &format!("{unit:04X}");
+                }
+                line += ">\n";
+                stream.put(line.as_bytes())?;
+            }
+            stream.put(b"endbfchar\n")?;
+        }
+        stream.put(b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")?;
+        stream.finish()?;
         Ok(unicode)
     }
 
@@ -451,6 +550,28 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         )
     }
 
+    /// Draw an explicitly selected BMP font character with independent text.
+    /// The font must have been registered with `PdfDocument::add_mapped_font`.
+    /// ToUnicode records `text`, including supplementary characters, without
+    /// treating the source glyph as a lossy replacement or requiring ActualText.
+    pub fn mapped_glyph(
+        &mut self,
+        font: usize,
+        glyph_character: char,
+        text: char,
+        transform: [f64; 6],
+        gray: u8,
+    ) -> Result<()> {
+        self.draw_glyph(
+            font,
+            glyph_character,
+            transform,
+            Some(gray),
+            None,
+            GlyphText::Mapped(text),
+        )
+    }
+
     /// Draw a visual alias while retaining the source character for extraction.
     /// ActualText is UTF-16BE with a BOM, including for supplementary values.
     pub(crate) fn glyph_with_replacement_text(
@@ -533,10 +654,11 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 "PDF font has no supported BMP glyph for the character",
             ));
         }
-        mark_code(
-            &mut self.document.fonts[resource.slot].used,
-            character as usize,
-        );
+        let code = self.document.fonts[resource.slot].encoding.code(
+            character,
+            text,
+            self.document.limits,
+        )?;
         let matrix = decimals(&transform)?;
         if gray.is_some() || clip.is_some() {
             self.emit(b"q ")?;
@@ -554,7 +676,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             self.emit(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())?;
         }
         match text {
-            GlyphText::Character => (),
+            GlyphText::Character | GlyphText::Mapped(_) => (),
             GlyphText::Decoration => {
                 self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?
             }
@@ -568,9 +690,9 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         }
         self.emit(format!("BT /F{font} 1 Tf\n").as_bytes())?;
         self.emit(matrix.as_bytes())?;
-        self.emit(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())?;
+        self.emit(format!(" Tm <{code:04X}> Tj ET\n").as_bytes())?;
         match text {
-            GlyphText::Character => (),
+            GlyphText::Character | GlyphText::Mapped(_) => (),
             GlyphText::Decoration => self.emit(b"EMC\nEMC\n")?,
             GlyphText::Replacement(_) => {
                 self.emit(b"EMC\n")?;

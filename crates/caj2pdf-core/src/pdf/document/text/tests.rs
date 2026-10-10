@@ -617,7 +617,13 @@ fn subset_reads_count_toward_the_input_limit() {
     used[0x4e2d / 8] |= 1 << (0x4e2d % 8);
     let mut source = FontSource::new();
     let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
-    font.plan_subset(&used, u64::MAX, &limits, &NEVER).unwrap();
+    font.plan_subset(
+        crate::pdf::font::Characters::Unicode(&used),
+        u64::MAX,
+        &limits,
+        &NEVER,
+    )
+    .unwrap();
     let planned = font.subset_bytes_read();
     assert!(planned < total);
     // Exceeding the limit while planning leaves the document usable;
@@ -899,6 +905,200 @@ fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
     assert_eq!(text.matches("BDC\n").count(), 2);
     assert_eq!(text.matches("EMC\n").count(), 2);
     assert_eq!(text.matches("<0041> Tj").count(), 3);
+}
+
+#[test]
+fn mapped_fonts_keep_glyphs_widths_and_text_independent_across_pages() {
+    use crate::pdf::font::tests::{CffOptions, build, otf, tables};
+    for cff in [false, true] {
+        let bytes = if cff {
+            otf(&CffOptions::default())
+        } else {
+            drawing_font()
+        };
+        let original = xberg_ttf_parser::Face::parse(&bytes, 0).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        let limits = Limits {
+            io_chunk_bytes: 31,
+            ..Limits::default()
+        };
+        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
+        let mut sink = Sink::default();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+        let handle = document.add_mapped_font(&font).unwrap();
+        let fonts = [&handle];
+        // Distinct outlines share text; one outline also carries distinct text.
+        let pairs = [('A', '’'), ('中', '’'), ('A', '😀'), ('A', 'X')];
+        for reverse in [false, true] {
+            let mut content = document.begin_content_page(page(), &fonts, &[]).unwrap();
+            for position in 0..pairs.len() {
+                let index = if reverse {
+                    pairs.len() - 1 - position
+                } else {
+                    position
+                };
+                let (glyph, text) = pairs[index];
+                content
+                    .mapped_glyph(0, glyph, text, matrix(10.0 + 25.0 * position as f64), 0)
+                    .unwrap();
+            }
+            content.glyph(0, 'A', matrix(110.0)).unwrap();
+            content.finish().unwrap();
+        }
+        document.embed_font(&handle, &mut font).unwrap();
+        let report = document.finish().unwrap();
+        assert_eq!(report.substituted_glyphs, 0);
+        assert_eq!(report.pages_converted, 2);
+        assert!(sink.max_request <= 31);
+        let text = pdf_text(&sink.bytes);
+        assert!(!text.contains("/ActualText"));
+        let cids: Vec<_> = text
+            .lines()
+            .filter(|line| line.contains(" Tj ET"))
+            .map(|line| line.split('<').nth(1).unwrap().split('>').next().unwrap())
+            .collect();
+        assert_eq!(
+            cids,
+            [
+                "0001", "0002", "0003", "0004", "0005", "0004", "0003", "0002", "0001", "0005"
+            ]
+        );
+        let object = text
+            .split("/ToUnicode ")
+            .nth(1)
+            .unwrap()
+            .split(' ')
+            .next()
+            .unwrap();
+        let unicode = inflated_stream(&sink.bytes, format!("\n{object} 0 obj").as_bytes());
+        let unicode = String::from_utf8(unicode).unwrap();
+        assert!(unicode.contains("5 beginbfchar\n<0001> <2019>\n<0002> <2019>\n<0003> <D83DDE00>\n<0004> <0058>\n<0005> <0041>\nendbfchar"));
+        let a_width = if cff { 500 } else { 600 };
+        assert!(text.contains(&format!(
+            "/W [ 1 [ {a_width} 1000 {a_width} {a_width} {a_width} ] ]"
+        )));
+        let (program, gids) = if cff {
+            assert!(!text.contains("/CIDToGIDMap"));
+            let program = inflated_stream(&sink.bytes, b"/Subtype /CIDFontType0C");
+            let mut metadata = tables(&bytes);
+            metadata.retain(|(tag, _)| tag != b"CFF ");
+            metadata.push((*b"CFF ", program));
+            metadata
+                .iter_mut()
+                .find(|(tag, _)| tag == b"maxp")
+                .unwrap()
+                .1[4..6]
+                .copy_from_slice(&6_u16.to_be_bytes());
+            let mut wrapped = build(metadata);
+            wrapped[..4].copy_from_slice(b"OTTO");
+            (wrapped, [1, 2, 3, 4, 5])
+        } else {
+            let object = text
+                .split("/CIDToGIDMap ")
+                .nth(1)
+                .unwrap()
+                .split(' ')
+                .next()
+                .unwrap();
+            let map = inflated_stream(&sink.bytes, format!("\n{object} 0 obj").as_bytes());
+            assert_eq!(map, [0, 0, 0, 1, 0, 2, 0, 1, 0, 1, 0, 1]);
+            (inflated_stream(&sink.bytes, b"/Length1 "), [1, 2, 1, 1, 1])
+        };
+        let subset = xberg_ttf_parser::Face::parse(&program, 0).unwrap();
+        assert_eq!(subset.number_of_glyphs(), if cff { 6 } else { 3 });
+        for (gid, character) in gids.into_iter().zip(['A', '中', 'A', 'A', 'A']) {
+            assert_eq!(
+                subset.glyph_bounding_box(xberg_ttf_parser::GlyphId(gid)),
+                original.glyph_bounding_box(original.glyph_index(character).unwrap())
+            );
+        }
+        if let Some(root) = std::env::var_os("CAJ2PDF_FONT_TEST_OUTPUT") {
+            let root = std::path::PathBuf::from(root);
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(
+                root.join(if cff {
+                    "mapped-cff.pdf"
+                } else {
+                    "mapped-ttf.pdf"
+                }),
+                &sink.bytes,
+            )
+            .unwrap();
+            std::fs::write(
+                root.join(if cff {
+                    "source-cff.otf"
+                } else {
+                    "source-ttf.ttf"
+                }),
+                &bytes,
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn mapped_glyph_refuses_ordinary_fonts_or_missing_glyphs_and_fails_the_page() {
+    for mapped in [false, true] {
+        let limits = Limits::default();
+        let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+        let font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
+        let mut sink = Sink::default();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+        let handle = if mapped {
+            document.add_mapped_font(&font)
+        } else {
+            document.add_font(&font)
+        }
+        .unwrap();
+        let fonts = [&handle];
+        let mut content = document.begin_content_page(page(), &fonts, &[]).unwrap();
+        let error = content
+            .mapped_glyph(0, if mapped { 'B' } else { 'A' }, 'X', matrix(10.0), 0)
+            .unwrap_err();
+        assert_eq!(
+            error.reason,
+            if mapped {
+                "PDF font has no supported BMP glyph for the character"
+            } else {
+                "separate glyph/text selection requires a mapped PDF font"
+            }
+        );
+        assert!(content.finish().is_err());
+        assert!(document.finish().is_err());
+    }
+}
+
+#[test]
+fn mapped_pair_allocation_failure_prevents_finishing_the_document() {
+    let defaults = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+    let font = OpenTypeFont::read(&mut source, 0, &defaults, &NEVER).unwrap();
+    let limits = Limits {
+        max_allocation_bytes: 524288,
+        ..Limits::default()
+    };
+    let mut sink = Sink::default();
+    let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+    let handle = document.add_mapped_font(&font).unwrap();
+    let fonts = [&handle];
+    let mut content = document.begin_content_page(page(), &fonts, &[]).unwrap();
+    let error = (0..32768)
+        .find_map(|value| {
+            content
+                .mapped_glyph(
+                    0,
+                    'A',
+                    char::from_u32(0x10000 + value).unwrap(),
+                    matrix(10.0),
+                    0,
+                )
+                .err()
+        })
+        .expect("pair storage must stay within the allocation limit");
+    assert!(matches!(error.kind, ErrorKind::LimitExceeded { .. }));
+    assert!(content.finish().is_err());
+    assert!(document.finish().is_err());
 }
 
 #[test]
