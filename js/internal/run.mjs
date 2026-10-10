@@ -185,8 +185,9 @@ function fontConfig(options) {
   if (symbolFontIdentity != null) {
     const { postscriptName, checksumAdjustment } = symbolFontIdentity;
     if (glyphs.length === 0) throw new TypeError("symbolFontIdentity requires symbolGlyphs");
-    if (typeof postscriptName !== "string" || !/^[\x21-\x7e]{1,63}$/.test(postscriptName)) {
-      throw new TypeError("symbol font PostScript name must be 1 to 63 printable ASCII characters");
+    // The core's PostScript name rule: printable ASCII without PDF delimiters.
+    if (typeof postscriptName !== "string" || !/^[\x21-\x7e]{1,63}$/.test(postscriptName) || /[[\](){}<>/%]/.test(postscriptName)) {
+      throw new TypeError("symbol font PostScript name must be 1 to 63 printable ASCII characters without PDF delimiters");
     }
     if (!Number.isInteger(checksumAdjustment) || checksumAdjustment < 0 || checksumAdjustment > MAX_U32) {
       throw new RangeError("symbol font checksumAdjustment must be an unsigned 32-bit integer");

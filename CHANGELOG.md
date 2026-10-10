@@ -5,8 +5,8 @@
 - Symbol glyph maps can be bound to the font they were measured on (#518).
   The binding is the PostScript name plus the `head` checkSumAdjustment, set
   with CLI `--symbol-font-identity`, JavaScript `symbolFontIdentity` or Rust
-  `symbol_font`. A different font is refused. Rust literals of
-  `C8FontSources` add `symbol_font: None`.
+  `symbol_font`. A different font is refused. Rust struct literals of
+  `C8FontSources` and exhaustive `Fonts` literals add `symbol_font: None`.
 
 - CLI `--symbol-glyph CODE=CHAR`, JavaScript `hnc8.fonts.symbolGlyphs` and
   the raw WASM call `caj2pdf_hnb_add_symbol_glyph` expose the HN-B mode-0

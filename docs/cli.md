@@ -282,7 +282,9 @@ they were measured on. NAME is the symbols font's PostScript name and
 CHECKSUM its `head` table checkSumAdjustment as eight hex digits, for example
 `--symbol-font-identity HGFX_CNKI:9a2b73d3`. Any other symbols font is then
 refused before output is committed. The check uses metadata the converter
-already reads, so the font is not hashed in full. It requires `--symbol-glyph`.
+already reads, so the font is not hashed in full. It catches a wrong font,
+not deliberate tampering that keeps the checksum field. It requires
+`--symbol-glyph`.
 
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.

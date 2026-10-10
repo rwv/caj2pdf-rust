@@ -134,23 +134,26 @@ where
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mapped = mapped_symbols == Some(index);
+        if mapped && let Some(identity) = fonts.symbol_font {
+            let checksum = font.checksum_adjustment();
+            let name = font.postscript_name();
+            let (checksum, name) = (
+                checksum.map_err(at.locator(Hnc8Stage::Preflight))?,
+                name.map_err(at.locator(Hnc8Stage::Preflight))?,
+            );
+            if checksum != identity.checksum_adjustment || name != identity.postscript_name {
+                return Err(at.error(
+                    Hnc8Stage::Preflight,
+                    Error::invalid("symbols font does not match the expected identity"),
+                ));
+            }
+        }
         let handle = if mapped {
             document.add_mapped_font(&font)
         } else {
             document.add_font(&font)
         }
         .map_err(at.locator(Hnc8Stage::Pdf))?;
-        if mapped
-            && let Some(identity) = fonts.symbol_font
-            && (font.checksum_adjustment().ok() != Some(identity.checksum_adjustment)
-                || font.postscript_name().ok().as_deref()
-                    != Some(identity.postscript_name.as_str()))
-        {
-            return Err(at.error(
-                Hnc8Stage::Preflight,
-                Error::invalid("symbols font does not match the expected identity"),
-            ));
-        }
         // A missing source glyph is refused, never drawn by fallback.
         if mapped
             && !symbol_glyphs

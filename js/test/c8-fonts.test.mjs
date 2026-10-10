@@ -327,7 +327,7 @@ test("HN-B symbol glyph maps bound to a font identity refuse other fonts", async
   for (const identity of [{ postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc4 }, { postscriptName: "Other", checksumAdjustment: 0x79f42dc3 }]) {
     await assert.rejects(run(identity), (error) => error.code === "HNC8" && /expected identity/.test(error.message));
   }
-  for (const identity of [{ postscriptName: "", checksumAdjustment: 1 }, { postscriptName: "a b", checksumAdjustment: 1 }, { postscriptName: "x".repeat(64), checksumAdjustment: 1 }]) {
+  for (const identity of [{ postscriptName: "", checksumAdjustment: 1 }, { postscriptName: "a b", checksumAdjustment: 1 }, { postscriptName: "x".repeat(64), checksumAdjustment: 1 }, { postscriptName: "A(B)", checksumAdjustment: 1 }]) {
     await assert.rejects(run(identity), TypeError);
   }
   await assert.rejects(run({ postscriptName: "CajFixture", checksumAdjustment: 2 ** 32 }), RangeError);

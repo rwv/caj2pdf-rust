@@ -304,9 +304,7 @@ fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
         "--symbol-font-identity requires NAME:CHECKSUM: a PostScript name and eight hex digits";
     let value = value.into_string().map_err(|_| ERROR)?;
     let (name, checksum) = value.rsplit_once(':').ok_or(ERROR)?;
-    if name.is_empty()
-        || name.len() > 63
-        || !name.bytes().all(|byte| (33..=126).contains(&byte))
+    if !SymbolFontIdentity::is_valid_postscript_name(name)
         || checksum.len() != 8
         || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
     {

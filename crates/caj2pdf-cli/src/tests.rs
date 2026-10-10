@@ -1437,6 +1437,8 @@ fn symbol_glyphs_parse_hex_codes_and_bmp_characters() {
         "Name:79f42dc3a",
         "Na me:79f42dc3",
         "Name:+9f42dc3",
+        "A/B:79f42dc3",
+        "A(B):79f42dc3",
     ] {
         let mut args = with_symbols.clone();
         args.push("--symbol-font-identity");

@@ -66,6 +66,15 @@ pub struct SymbolFontIdentity {
     pub postscript_name: String,
 }
 
+impl SymbolFontIdentity {
+    /// Whether `name` can be a font's PostScript name as the converter
+    /// accepts it: 1 to 63 printable ASCII characters without PDF delimiters.
+    /// Adapters validate caller identities with this rule.
+    pub fn is_valid_postscript_name(name: &str) -> bool {
+        crate::pdf::is_valid_postscript_name(name)
+    }
+}
+
 /// Whether HN-B mode-0 draws `code` with the `symbols` role.
 pub fn is_mode_zero_symbol(code: u16) -> bool {
     matches!(

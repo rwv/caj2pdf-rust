@@ -73,23 +73,28 @@ impl Fonts {
         true
     }
 
-    /// Bind the symbol glyph map to a PostScript name (1 to 63 printable ASCII
-    /// bytes, little-endian in `words`) and `head` checkSumAdjustment, once.
+    /// Bind the symbol glyph map to a PostScript name (`length` bytes,
+    /// little-endian in `words`) and `head` checkSumAdjustment, once.
     pub(super) fn set_symbol_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
-        let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
-        let Some(name) = bytes.get(..length as usize) else {
-            return false;
-        };
         if self.roles.is_none_or(|roles| roles.symbols.is_none())
             || self.symbol_font.is_some()
-            || !(1..=63).contains(&length)
-            || !name.iter().all(|byte| (33..=126).contains(byte))
+            || length > 64
         {
+            return false;
+        }
+        let mut bytes = [0u8; 64];
+        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        let Ok(name) = std::str::from_utf8(&bytes[..length as usize]) else {
+            return false;
+        };
+        if !SymbolFontIdentity::is_valid_postscript_name(name) {
             return false;
         }
         self.symbol_font = Some(SymbolFontIdentity {
             checksum_adjustment: checksum,
-            postscript_name: String::from_utf8_lossy(name).into_owned(),
+            postscript_name: name.to_owned(),
         });
         true
     }

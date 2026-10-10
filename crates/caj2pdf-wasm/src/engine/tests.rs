@@ -913,6 +913,7 @@ fn symbol_font_identity_is_set_once_with_a_printable_name_after_the_symbols_role
         (64, &[b'A'; 64][..]),
         (4, b"Na e"),
         (4, b"N\xffme"),
+        (3, b"A/B"),
     ] {
         assert!(!session.set_hnb_symbol_font(1, length, name(&text[..text.len().min(64)])));
     }
