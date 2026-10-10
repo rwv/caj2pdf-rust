@@ -2953,3 +2953,68 @@ fn fragment_identical_page_boxes_preserve_content_order_and_geometry() {
         );
     }
 }
+
+/// Original one-page PDF whose content stream ends inside a hex string in an
+/// open text object and saved graphics state, like the measured #499 tails.
+fn incomplete_hex_tail_pdf(tail: &[u8]) -> Vec<u8> {
+    let mut content = b"q 0 g\nBT /F1 24 Tf 30 620 Td (BEFORE) Tj 0 -40 Td\n".to_vec();
+    content.extend_from_slice(tail);
+    let objects: [Vec<u8>; 5] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Count 1 /Kids [4 0 R] >>".to_vec(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>".to_vec(),
+        [format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(), &content, b"\nendstream"].concat(),
+    ];
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        pdf.extend_from_slice(body);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = pdf.len();
+    pdf.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    pdf
+}
+
+/// #499: an unfinished content token cannot be repaired uniquely, so the
+/// source is preserved byte for byte and its validator warning remains.
+#[test]
+fn unfinished_content_hex_tokens_are_preserved_without_repair() {
+    for tail in [&b"<\r\n"[..], b"<4\r\n", b"<41\r\n", b"<4142\r\n"] {
+        let input = incomplete_hex_tail_pdf(tail);
+        let mut output = Vec::new();
+        let report = caj2pdf_core::convert(
+            &mut SeekableSource::new(Cursor::new(input.clone())).unwrap(),
+            &mut output,
+            caj2pdf_core::ConversionOptions::default(),
+            &Limits::default(),
+            &mut caj2pdf_core::NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(report.pages_converted, 1);
+        assert_eq!(output, input, "no bytes are appended or repaired");
+        let temp = TempPdf::new("incomplete-hex");
+        (&temp.file).write_all(&output).unwrap();
+        let qpdf = Command::new("qpdf")
+            .arg("--check")
+            .arg(&temp.path)
+            .output()
+            .unwrap();
+        assert_eq!(
+            qpdf.status.code(),
+            Some(3),
+            "the source warning remains visible"
+        );
+        let messages = [qpdf.stdout, qpdf.stderr].concat();
+        assert!(String::from_utf8_lossy(&messages).contains("EOF while reading token"));
+    }
+}
