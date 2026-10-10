@@ -133,7 +133,7 @@ fn convert(
 
 /// Original drawing font with its rectangle and triangle relabelled, in
 /// ascending code order. No external glyph data is introduced.
-fn labelled_font(codes: [u32; 2]) -> Vec<u8> {
+pub(crate) fn labelled_font(codes: [u32; 2]) -> Vec<u8> {
     let mut bytes = crate::pdf::drawing_font();
     let table = bytes[12..]
         .as_chunks::<16>()
@@ -293,8 +293,15 @@ fn convert_with_fonts(
             reader.source_mut().signal_on_read = Some((112, output_fault.clone()));
         }
         let slice = if mode == 8 { &[][..] } else { &images[..] };
-        let outcome =
-            write_c8_native_page(&mut reader, &mut document, &fonts, roles, slice, top_first);
+        let outcome = write_c8_native_page(
+            &mut reader,
+            &mut document,
+            &fonts,
+            roles,
+            &[],
+            slice,
+            top_first,
+        );
         cancel.0.set(false);
         input_fault.set(false);
         output_fault.set(false);

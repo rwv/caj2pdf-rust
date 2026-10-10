@@ -8,7 +8,7 @@ use super::{Detection, InputFormat, detect_source, pdf_range};
 use crate::caj::convert_caj;
 use crate::hnc8::{
     ApplicationInfoStatus, C8FontSource, C8FontSources, C8PageFonts, ComposeOptions, ComposePage,
-    ComposeVisitor, OutlineReport, convert_document_pdf, uses_native_text,
+    ComposeVisitor, NativeSymbolGlyph, OutlineReport, convert_document_pdf, uses_native_text,
 };
 use crate::jbig2::text::TextHeaderPolicy;
 use crate::kdh::convert_kdh;
@@ -27,10 +27,15 @@ pub const FONTS_REQUIRE_HNC8: &str =
 /// Up to eight ranged resources and their collection faces; `roles` index
 /// into `sources`, and several roles may share one resource. Absent optional
 /// roles and unmapped characters follow the [`C8PageFonts`] fallback rule.
+#[derive(Default)]
 pub struct Fonts<'a> {
     pub sources: Vec<C8FontSource<Box<dyn RangedSource + 'a>>>,
     /// Which source draws each role; sources without roles are refused.
     pub roles: Option<C8PageFonts>,
+    /// Explicit source glyphs for HN-B mode-0 symbol codes, drawn from the
+    /// `symbols` role without fallback. Semantic text is unchanged. Must be
+    /// empty unless the document is HN-B mode-0 native text.
+    pub symbol_glyphs: Vec<NativeSymbolGlyph>,
 }
 
 /// What [`convert`] produces from a document.
@@ -253,21 +258,28 @@ fn convert_hnc8<S: RangedSource, W: Write>(
     };
     let mut fonts = match options.fonts {
         None => None,
-        Some(Fonts { sources, roles }) => {
+        Some(Fonts {
+            sources,
+            roles,
+            symbol_glyphs,
+        }) => {
             let roles = roles.ok_or(Error::invalid("C8 font resources require explicit roles"))?;
             for font in &sources {
                 limits.check_input_size(font.source.size())?;
             }
-            Some((sources, roles))
+            Some((sources, roles, symbol_glyphs))
         }
     };
     let report = convert_document_pdf(
         source,
         sink,
-        fonts.as_mut().map(|(sources, roles)| C8FontSources {
-            sources,
-            roles: *roles,
-        }),
+        fonts
+            .as_mut()
+            .map(|(sources, roles, symbol_glyphs)| C8FontSources {
+                sources,
+                roles: *roles,
+                symbol_glyphs,
+            }),
         Some(&QmTable::standard()),
         &mut CompletePages,
         compose,

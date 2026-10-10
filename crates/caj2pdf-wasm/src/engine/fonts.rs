@@ -121,6 +121,7 @@ impl Fonts {
                 })
                 .collect(),
             roles: self.roles,
+            ..FontResources::default()
         })
     }
 }

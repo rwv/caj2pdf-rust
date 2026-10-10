@@ -50,6 +50,7 @@ impl Resources {
         Ok(Some(Fonts {
             sources,
             roles: Some(roles),
+            ..Fonts::default()
         }))
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {

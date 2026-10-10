@@ -34,8 +34,12 @@ pub(crate) use native::{
     NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate,
 };
+#[cfg(test)]
+pub(crate) use native_page::labelled_font;
 pub(crate) use native_page::write_c8_native_page;
-pub use native_page::{C8_DEFAULT_DECORATION_ALIAS, C8PageFonts};
+pub use native_page::{
+    C8_DEFAULT_DECORATION_ALIAS, C8PageFonts, NativeSymbolGlyph, is_mode_zero_symbol,
+};
 pub use outline::{MAX_RECORDED_OUTLINE_DEFECTS, OutlineDefect, OutlineRepair, OutlineReport};
 pub(crate) use placement::{
     C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EmpiricalPageGeometry,
