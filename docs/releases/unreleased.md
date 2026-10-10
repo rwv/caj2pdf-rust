@@ -17,6 +17,19 @@ conversion/PDF output, I/O limits, dependency or core/WASM API changes.
 
 ### Other unreleased changes
 
+- The Rust PDF writer can register an explicit mapped font with
+  `PdfDocument::add_mapped_font` and draw it with
+  `ContentPageWriter::mapped_glyph(font, glyph_character, text, transform, gray)`
+  (#519). A supported BMP font cmap character selects the outline; an
+  independent Unicode scalar supplies extracted text through ToUnicode.
+  Distinct glyphs may carry the same text, and one glyph may carry different
+  text. Ordinary font registration and conversion defaults remain unchanged.
+  Pair storage is bounded to 65,535 entries for TrueType or 65,534 for CFF,
+  subject to `Limits`; fonts still use ranged input and sequential output.
+  This additive low-level API does not yet provide native CAJ raw-code maps
+  or CLI/JavaScript options. Those integrations and source-font verification
+  remain in #518. No fonts are bundled, fetched or inferred.
+
 - Accept the measured named local outline destinations in indexed PDFs (#449):
   byte-string keys in an indirect Dests name tree, resolving through indirect
   XYZ arrays to live pages. Validate complete ordering, Limits and graph shape

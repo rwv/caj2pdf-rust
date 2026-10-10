@@ -54,13 +54,79 @@ fn plan_within(font: &[u8], characters: &[char], limits: &Limits) -> Result<(Cff
     (|| {
         let mut font = OpenTypeFont::read(&mut source, 0, &Limits::default(), &NEVER)?;
         let cff = font.cff.clone().unwrap();
-        let subset = font.plan_cff(&cff, &used(characters), u64::MAX, limits, &NEVER)?;
+        let subset = font.plan_cff(
+            &cff,
+            crate::pdf::font::Characters::Unicode(&used(characters)),
+            u64::MAX,
+            limits,
+            &NEVER,
+        )?;
         Ok((subset, font.subset_bytes_read))
     })()
 }
 
 fn subset(font: &[u8], characters: &[char]) -> Result<Vec<u8>> {
     plan(font, characters).map(|(subset, _)| subset.parts().concat())
+}
+
+#[test]
+fn mapped_cff_capacity_includes_notdef_and_checks_pair_allocation() {
+    use crate::pdf::font::{Characters, GlyphCharacters};
+    let limits = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(otf(&Options::default()))).unwrap();
+    let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER).unwrap();
+    let cff = Rc::clone(font.cff.as_ref().unwrap());
+    let entries = vec![
+        GlyphCharacters {
+            glyph: 'A',
+            text: 'X'
+        };
+        usize::from(u16::MAX)
+    ];
+    let error = font
+        .plan_cff(
+            &cff,
+            Characters::Mapped(&entries),
+            u64::MAX,
+            &limits,
+            &NEVER,
+        )
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.reason,
+        "CFF subset exceeds 65535 glyphs including .notdef"
+    );
+    let small = Limits {
+        max_allocation_bytes: 1,
+        ..Limits::default()
+    };
+    assert!(matches!(
+        font.plan_cff(
+            &cff,
+            Characters::Mapped(&entries[..2]),
+            u64::MAX,
+            &small,
+            &NEVER
+        ),
+        Err(Error {
+            kind: ErrorKind::LimitExceeded { .. },
+            ..
+        })
+    ));
+    let plan = font
+        .plan_cff(
+            &cff,
+            Characters::Mapped(&entries[..entries.len() - 1]),
+            u64::MAX,
+            &limits,
+            &NEVER,
+        )
+        .unwrap();
+    let (_, cids, _) = structure(&plan.parts().concat());
+    assert_eq!(cids.len(), usize::from(u16::MAX) - 1);
+    assert_eq!(cids.first(), Some(&1));
+    assert_eq!(cids.last(), Some(&(u16::MAX - 1)));
 }
 
 /// Wrap a subset CFF in the source's metadata so it can be outlined.

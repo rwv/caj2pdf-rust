@@ -2787,3 +2787,40 @@ verification is tracked separately in
 No source format rule, font resource, foreign converter implementation or
 private source is introduced. The patch-release criterion in #433 remains
 unmet until an authorized release; this change does not publish one.
+
+## Independent glyph/text PDF encoding (#519)
+
+The explicit mapped-font writer and its controls are original MIT work.
+They implement separate source-font cmap selection and semantic Unicode
+using PDF 1.7 Type 0 fonts, CIDToGIDMap and ToUnicode CMaps (sections
+5.6 and 5.9), and the existing independently authored TrueType/CFF subsetters.
+CFF1 INDEX counts include `.notdef`, limiting mapped pairs to 65,534;
+TrueType permits 65,535 pairs. No foreign converter or vendor implementation
+was read or translated; no new dependency, font program or private module
+is introduced.
+
+Existing original geometric TrueType/CFF builders supply the controls.
+Two ordered pages retain independent outlines, widths and text when two
+glyphs share text, when one glyph has different text, and when semantic
+text needs a UTF-16 surrogate pair. Ordinary calls reuse their own glyph/text
+pair. Tests inspect embedded subset bounds, CID maps and ToUnicode entries,
+exercise maximum CFF INDEX size and allocation refusal, and reject missing
+glyphs or mapped draws on ordinary fonts without allowing a failed page
+to finish. Pair tables use bounded fallible allocations; output streams are
+incremental and font outlines remain ranged.
+
+The motivation is the independently authored paired controls in
+[samples #109](https://github.com/rwv/caj2pdf-samples/pull/109), not an inferred
+CAJ font mapping. Native raw-code/font-context maps, all 21 source-resource
+symbol checks and their native/Node/Chromium integration remain under
+[#518](https://github.com/rwv/caj2pdf-rust/issues/518). The new low-level Rust
+API does not change conversion defaults or add font acquisition/bundling.
+
+Local independent checks of both generated two-page PDFs pass qpdf and
+agree on semantic text in MuPDF and Poppler. FontTools compares every selected
+source/subset outline command, including the repeated glyphs, without
+redistributing font programs. The 18 existing font-option originals retain
+their prior output hashes, byte sizes and page counts; all are qpdf-clean.
+This is scoped regression evidence, not a new full-catalog or vendor-render
+fidelity run. Workspace tests, JavaScript/Chromium tests and CI are recorded
+in the implementation PR; skipped optional corpus tests are kept separate.

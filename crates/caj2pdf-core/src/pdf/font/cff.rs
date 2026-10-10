@@ -5,8 +5,8 @@
 //! Only the structures a subset needs are read, by range and with bounds:
 //! the Top DICT, the Global Subr, CharStrings and FDArray INDEXes, FDSelect
 //! and each Private DICT with its local Subr INDEX. A subset is written as
-//! a CID-keyed CFF whose glyph `n` has CID equal to its Unicode code point,
-//! so a PDF `CIDFontType0` font needs no CID-to-glyph map. Type 2
+//! a CID-keyed CFF using the caller's Unicode or explicit pair CIDs, so a
+//! PDF `CIDFontType0` font needs no CID-to-glyph map. Type 2
 //! charstrings are desubroutinized: neither global nor local subroutines
 //! are carried, and no charstring is evaluated beyond operand counting.
 
@@ -573,13 +573,16 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
     pub(crate) fn plan_cff<C: Cancellation>(
         &mut self,
         cff: &Cff,
-        used: &[u8],
+        used: super::Characters<'_>,
         max_length: u64,
         limits: &Limits,
         cancellation: &C,
     ) -> Result<CffSubset> {
         let mut glyphs = vec![(0, 0)];
-        for glyph in self.used_glyphs(used)? {
+        if used.codes().count() >= usize::from(u16::MAX) {
+            return Err(invalid("CFF subset exceeds 65535 glyphs including .notdef"));
+        }
+        for glyph in self.used_glyphs(used, limits)? {
             glyphs.push(glyph);
         }
         let name = self.postscript_name()?;

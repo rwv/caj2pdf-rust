@@ -11,7 +11,7 @@
 //! written. Each selected glyph is read whole, once while planning (to find
 //! components and measure checksums) and once while writing.
 
-use super::{CHANGED, OUTLINE_TAGS, OpenTypeFont, invalid, read};
+use super::{CHANGED, Characters, OUTLINE_TAGS, OpenTypeFont, invalid, read};
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result};
 use sha2::{Digest, Sha256};
@@ -202,7 +202,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
     /// program is at most `max_length` bytes, in the font's outline format.
     pub(crate) fn subset<C: Cancellation>(
         &mut self,
-        used: &[u8],
+        used: Characters<'_>,
         max_length: u64,
         limits: &Limits,
         cancellation: &C,
@@ -264,7 +264,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
     /// twelve per subset glyph; each selected outline is read once here.
     pub(crate) fn plan_subset<C: Cancellation>(
         &mut self,
-        used: &[u8],
+        used: Characters<'_>,
         max_length: u64,
         limits: &Limits,
         cancellation: &C,
@@ -302,7 +302,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
             offset: 0,
             length: 0,
         });
-        for (glyph, _) in self.used_glyphs(used)? {
+        for (glyph, _) in self.used_glyphs(used, limits)? {
             add(&mut glyphs, glyph);
         }
         let mut scratch = Vec::new();
