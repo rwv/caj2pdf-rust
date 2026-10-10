@@ -18,6 +18,8 @@ pub struct C8FontSources<'a, F> {
     /// Explicit HN-B mode-0 symbol glyphs from the `symbols` font. Each code
     /// appears once and draws exactly its glyph; other codes keep the
     /// [`C8PageFonts`] rules. Must be empty for any other native profile.
+    /// A shared `symbols` source is embedded as one mapped font for every
+    /// role that uses it.
     pub symbol_glyphs: &'a [NativeSymbolGlyph],
 }
 
@@ -82,14 +84,13 @@ where
         })?)
     };
     for (index, entry) in symbol_glyphs.iter().enumerate() {
-        let reason = if !is_mode_zero_symbol(entry.code) {
-            "native symbol glyph code is not an HN-B mode-0 symbol"
-        } else if symbol_glyphs[..index].iter().any(|e| e.code == entry.code) {
-            "native symbol glyph code is mapped more than once"
-        } else {
-            continue;
-        };
-        return Err(At::NONE.error(Hnc8Stage::Preflight, Error::invalid(reason)));
+        let refuse = |reason| Err(At::NONE.error(Hnc8Stage::Preflight, Error::invalid(reason)));
+        if !is_mode_zero_symbol(entry.code) {
+            return refuse("native symbol glyph code is not an HN-B mode-0 symbol");
+        }
+        if symbol_glyphs[..index].iter().any(|e| e.code == entry.code) {
+            return refuse("native symbol glyph code is mapped more than once");
+        }
     }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);

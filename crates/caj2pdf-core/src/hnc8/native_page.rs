@@ -935,7 +935,6 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     // alphabet and symbol classes handled above.
                     _ => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
                 };
-                let font = self.font(font, character);
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(
                         self.geometry,
@@ -963,19 +962,18 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     };
                     transform[4] -= left * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                match self.symbol_glyphs.iter().find(|entry| entry.code == code) {
-                    // Composition admits a map only with a mapped symbols font;
-                    // the writer refuses any other font rather than falling back.
-                    Some(entry) => self.page.mapped_glyph(
-                        self.roles.symbols.unwrap_or(font),
-                        entry.glyph,
-                        character,
-                        transform,
-                        68,
-                    )?,
-                    None => self
-                        .page
-                        .glyph_with_gray(font, character, transform, 68)?,
+                if let Some(entry) = self.symbol_glyphs.iter().find(|entry| entry.code == code) {
+                    // Never fall back: only the mapped symbols font draws it.
+                    let symbols = self
+                        .roles
+                        .symbols
+                        .ok_or_else(|| invalid("native symbol glyphs require a symbols font role"))?;
+                    self.page
+                        .mapped_glyph(symbols, entry.glyph, character, transform, 68)?;
+                } else {
+                    let font = self.font(font, character);
+                    self.page
+                        .glyph_with_gray(font, character, transform, 68)?;
                 }
             }
             _ => return Err(invalid("unverified HN-B mode-0 rendering record")),

@@ -28,9 +28,11 @@ add `symbol_glyphs: Vec::new()` / `symbol_glyphs: &[]`, or use
 `..Fonts::default()`. An empty map leaves output byte-identical.
 
 A non-empty map must name distinct symbol codes, needs a `symbols` role
-whose font maps every glyph, and applies only to HN-B mode-0 documents.
-Anything else is refused before a PDF is finished, with no fallback to
-another glyph or font. The core ships no mappings. CLI and JavaScript
+whose font maps every glyph, and applies only to HN-B mode-0 native text.
+Native conversion refuses anything else before a PDF is finished, with no
+fallback to another glyph or font. Like the fonts themselves, the map is
+unread for documents routed to image composition. A `symbols` source shared
+with other roles is embedded as one mapped font for all of them. The core ships no mappings. CLI and JavaScript
 options, resource identity binding and verification against measured source
 resources remain open in #518. No fonts are bundled, fetched or inferred.
 

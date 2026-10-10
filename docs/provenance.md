@@ -2847,7 +2847,8 @@ rectangle (width 600) and a triangle (width 1000) stand in for the paired and
 shared choices, in forward and swapped assignments. The tests check CID order,
 widths and ToUnicode entries. They also check that each refusal happens before
 a finished PDF: a missing `symbols` role, a non-symbol code, a duplicate code,
-a glyph the resource does not map, and an HN-B mode-2 or C8 document. A map
+a glyph the resource does not map, and an HN-B mode-2 or C8 native
+document. As with fonts, image-only documents leave the map unread. A map
 holds at most 21 entries because codes must be distinct symbol codes; lookups
 are bounded scans and fonts remain ranged.
 

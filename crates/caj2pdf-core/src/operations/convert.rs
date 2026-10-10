@@ -33,8 +33,9 @@ pub struct Fonts<'a> {
     /// Which source draws each role; sources without roles are refused.
     pub roles: Option<C8PageFonts>,
     /// Explicit source glyphs for HN-B mode-0 symbol codes, drawn from the
-    /// `symbols` role without fallback. Semantic text is unchanged. Must be
-    /// empty unless the document is HN-B mode-0 native text.
+    /// `symbols` role without fallback. Semantic text is unchanged. Native
+    /// documents of another profile refuse a non-empty map; like the fonts,
+    /// it is unread for documents routed to image composition.
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
 }
 
