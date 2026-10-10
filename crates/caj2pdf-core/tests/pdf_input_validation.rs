@@ -3018,3 +3018,27 @@ fn unfinished_content_hex_tokens_are_preserved_without_repair() {
         assert!(String::from_utf8_lossy(&messages).contains("EOF while reading token"));
     }
 }
+
+/// #509: a zeroed prefix that hides the header beyond the search window is
+/// refused as unrecognized; no header or page table is guessed.
+#[test]
+fn a_header_hidden_by_a_zeroed_prefix_is_not_guessed() {
+    let pdf = incomplete_hex_tail_pdf(b"<41> Tj ET Q\n");
+    for prefix in [caj2pdf_core::PDF_HEADER_SEARCH_BYTES, 4096, 225_280] {
+        let input = [vec![0; prefix], pdf.clone()].concat();
+        let mut output = Vec::new();
+        let error = caj2pdf_core::convert(
+            &mut SeekableSource::new(Cursor::new(input)).unwrap(),
+            &mut output,
+            caj2pdf_core::ConversionOptions::default(),
+            &Limits::default(),
+            &mut caj2pdf_core::NeverCancel,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error.kind, ErrorKind::UnsupportedFormat),
+            "{prefix}: {error:?}"
+        );
+        assert!(output.is_empty());
+    }
+}

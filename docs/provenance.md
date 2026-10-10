@@ -2907,3 +2907,20 @@ The surviving bytes do not determine the missing text, so conversion must
 preserve the source byte for byte. qpdf must still report
 `EOF while reading token`, which keeps the source defect visible rather than
 hiding it behind a guessed repair. No external document bytes are used.
+
+## Zero-filled sources stay refused (#509, #515)
+
+Two original MIT tests pin the refusal boundary for the zero-filled
+Archive.org originals:
+
+- `an_accepted_download_footer_does_not_mask_a_zero_filled_object_body`
+  (`crates/caj2pdf-core/src/pdf/input/tests.rs`) combines #511's accepted
+  `WebFastLoad` and fourteen `0x0e` footer with an object body zero-filled in
+  place, as measured in #515. It requires a malformed refusal.
+- `a_header_hidden_by_a_zeroed_prefix_is_not_guessed`
+  (`crates/caj2pdf-core/tests/pdf_input_validation.rs`) places 1 KiB, 4 KiB
+  and #509's 225,280-byte zero prefix before an otherwise valid PDF. It
+  requires an unsupported-format refusal with no output.
+
+Missing source bytes are never invented, and no header, object or page is
+guessed. No external document bytes are used.

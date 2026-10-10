@@ -4119,3 +4119,26 @@ fn indirect_outline_actions_preserve_one_live_local_dictionary() {
         expect_pdf_error(make(reference, action), class);
     }
 }
+
+#[test]
+fn an_accepted_download_footer_does_not_mask_a_zero_filled_object_body() {
+    // #511's footer profile (marker + fourteen 0x0e) around #515's defect.
+    let mut doc = build_pdf(&minimal_objects(), "");
+    while !(doc.len() + b"WebFastLoad".len() + 14).is_multiple_of(16) {
+        doc.push(b' ');
+    }
+    doc.extend_from_slice(b"WebFastLoad");
+    doc.extend(std::iter::repeat_n(14, 14));
+    assert_eq!(open(doc.clone()).unwrap().pages().len(), 1);
+    // Zero the page tree object in place, keeping every xref offset valid.
+    let start = doc.windows(7).position(|w| w == b"2 0 obj").unwrap();
+    let end = start
+        + doc[start..]
+            .windows(6)
+            .position(|w| w == b"endobj")
+            .unwrap()
+        + 6;
+    doc[start..end].fill(0);
+    let error = pdf_error(open(doc));
+    assert!(matches!(error.kind, ErrorKind::Malformed), "{error:?}");
+}
