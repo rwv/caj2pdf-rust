@@ -1,6 +1,8 @@
 # Unreleased
 
-Changes after [v0.6.1](v0.6.1.md):
+Changes after [v0.6.1](v0.6.1.md). [v0.6.2](v0.6.2.md) was cut from v0.6.1 on
+`release/v0.6.x` and contains only the Worker fix (#517), which `main` also
+carries; everything below ships in v0.7.0:
 
 ### Breaking CLI inspection value: TEB support reason (#469)
 
