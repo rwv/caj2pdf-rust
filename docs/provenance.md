@@ -2858,7 +2858,36 @@ Their controls swap the original `symbols.ttf` rectangle and triangle for
 the mode-0 space and colon codes. Node and real Chromium produce identical
 PDFs; the CLI test checks the selected advance and atomic failure.
 
-Still open under #518: binding a map to a pinned resource identity, the 21
-measured mappings against the actual source resource, and native/Node/Chromium
-validation with that resource. No font program, vendor
-outline, foreign converter or private module is introduced, read or translated.
+### Verification against the pinned resource (2026-10-10)
+
+The pinned `HGFX_CNKI.ttf` (SHA-256
+`4ef6bcbe9c48ebff552a57e0bca245554dcb4d5bb12d580b95e0babdd736036c`) was taken
+unchanged from the CAJViewer 9.0.0-24093 Linux installer mirrored by
+rwv/cajviewer-binaries (installer SHA-256 `3142c633…26d3`). It was opaquely
+extracted outside the repository, and its outlines were only measured, never
+copied. An original 334-byte HN-B mode-0 document draws all 21 measured
+symbol codes once each. `caj2pdf` at `051eda0` converted it with the
+`--symbol-glyph CODE=U+XXXX` choices from the
+[measured receipt](https://github.com/rwv/caj2pdf-samples/blob/ffa5b715ab2fe42912b0b2799e72be6cc4df005d/research/notes/native-symbol-shapes-20261009.md).
+Without a map, the same conversion is refused: the resource has no slots for
+the semantic characters, so nothing falls back silently.
+
+FontTools checks of the qpdf-clean output found all 21 mappings consistent:
+
+- The source cmap selects the receipt's GID.
+- ToUnicode records the decoded semantic character.
+- Each embedded subset glyph's outline equals the source glyph.
+- Its exact outline bounds lie within one font unit of the receipt's bounds.
+- Its `/W` width equals the receipt advance scaled from 2,048 units per em.
+
+The two U+2019 codes keep distinct outlines. The U+2014 and U+FF0D codes share
+glyph 481 under distinct CIDs. MuPDF text extraction returns the semantic
+characters. Native, Node and real Chromium produce the identical PDF (SHA-256
+`b44dc44194800015cf13ae4a00bb99ad0cf46f9903e4b6e752fe386e8b3339e8`), browser
+OPFS is empty afterwards, and the font hash is unchanged. The font, document
+and PDF stay outside Git.
+
+This verifies the explicit-map path for these 21 codes only. It is not full
+native-font fidelity, and the core still ships no mappings. Binding a map to
+the font's identity remains open under #518. No font program, vendor outline,
+foreign converter or private module is introduced, read or translated.
