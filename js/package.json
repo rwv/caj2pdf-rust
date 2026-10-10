@@ -1,6 +1,6 @@
 {
   "name": "caj2pdf-rust",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "CAJ, KDH, HN/C8 and PDF to PDF conversion for browsers and Node.js through WebAssembly in a Worker",
   "license": "MIT",
   "repository": {
