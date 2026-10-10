@@ -2368,3 +2368,43 @@ fn retained_catalog_keeps_page_labels_bookmarks_and_table_order() {
         .replace("/Kids[3 0 R 1", "/Kids[3 0 R 2");
     rejected_without_output(&fragment_caj(changed.as_bytes(), &[14, 3, 20]), &limits);
 }
+
+/// One page drawing nothing, whose resources name an Indexed CMYK color space
+/// with the given lookup string (#420's measured hival-43 profile).
+fn indexed_lookup_body(lookup: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << /ColorSpace << /CS0 13 0 R >> >> /Contents 11 0 R >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    object(&mut body, 11, "<< /Length 7 >>\nstream\n0 0 m S\nendstream");
+    body.extend_from_slice(b"13 0 obj\n[/Indexed /DeviceCMYK 43 ");
+    body.extend_from_slice(lookup);
+    body.extend_from_slice(b"]\nendobj\n");
+    body
+}
+
+/// #420: a literal lookup whose escaped `)` leaves the string unterminated
+/// is refused without output; it is never re-escaped or completed.
+#[test]
+fn an_unterminated_indexed_lookup_literal_is_refused_without_guessing_colors() {
+    let terminated = fragment_caj(&indexed_lookup_body(b"(xb)"), &[9]);
+    let mut source = SeekableSource::new(Cursor::new(terminated)).unwrap();
+    let mut output = Vec::new();
+    convert_caj(
+        &mut source,
+        &mut &mut output,
+        &ConversionOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    )
+    .unwrap();
+    assert_eq!(inspect(&output).pages().len(), 1);
+    let error = rejected_without_output(
+        &fragment_caj(&indexed_lookup_body(b"(xb\\)"), &[9]),
+        &Limits::default(),
+    );
+    assert!(matches!(error.kind, ErrorKind::Malformed), "{error}");
+}
