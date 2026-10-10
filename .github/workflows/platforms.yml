@@ -343,7 +343,7 @@ jobs:
           python3 scripts/build-bsd-cross.py '${{ matrix.os }}' '${{ matrix.arch }}'
       - name: Execute cross-built tests in FreeBSD
         if: matrix.os == 'freebsd'
-        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc
         with:
           release: ${{ matrix.release }}
           arch: ${{ matrix.arch }}
@@ -355,7 +355,7 @@ jobs:
           run: ${{ env.TESTS }}
       - name: Execute cross-built tests in NetBSD
         if: matrix.os == 'netbsd'
-        uses: vmactions/netbsd-vm@1a9d3dcf49eedcece26f72fbacd0b54634d1811a
+        uses: vmactions/netbsd-vm@eddf442eb8c5c0acae2efc08d956cafe3fa459d9
         with:
           release: ${{ matrix.release }}
           arch: ${{ matrix.arch }}
@@ -367,7 +367,7 @@ jobs:
           run: ${{ env.TESTS }}
       - name: Execute cross-built tests in OpenBSD
         if: matrix.os == 'openbsd'
-        uses: vmactions/openbsd-vm@7a79478e7fec52039d0cfbdafd367d4ac946d093
+        uses: vmactions/openbsd-vm@91dde72a27bb93050206c6f7d731c9775aa58325
         with:
           release: ${{ matrix.release }}
           arch: ${{ matrix.arch }}
@@ -402,7 +402,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build and test in FreeBSD 14.3
-        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1 at adoption
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1 at adoption
         with:
           release: '14.3'
           arch: ${{ matrix.arch }}
@@ -476,7 +476,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in netbsd
-        uses: vmactions/netbsd-vm@1a9d3dcf49eedcece26f72fbacd0b54634d1811a
+        uses: vmactions/netbsd-vm@eddf442eb8c5c0acae2efc08d956cafe3fa459d9
         with:
           release: '11.0'
           arch: ${{ matrix.arch }}
@@ -521,7 +521,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in openbsd
-        uses: vmactions/openbsd-vm@7a79478e7fec52039d0cfbdafd367d4ac946d093
+        uses: vmactions/openbsd-vm@91dde72a27bb93050206c6f7d731c9775aa58325
         with:
           release: '7.9'
           arch: ${{ matrix.arch }}
@@ -562,7 +562,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in omnios
-        uses: vmactions/omnios-vm@298ae4d84d7a84bf5aeebd667bb3784895cfd9a9
+        uses: vmactions/omnios-vm@887011ffd412b7ffdc3b4ca1a1da73525916b9f7
         with:
           release: 'r151054-build'
           arch: ${{ matrix.arch }}
