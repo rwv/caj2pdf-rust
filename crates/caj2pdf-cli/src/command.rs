@@ -269,14 +269,15 @@ fn decoration_char(value: Option<OsString>) -> Result<Option<char>, String> {
 }
 
 /// `CODE=CHAR`: four hexadecimal digits and one BMP character, given
-/// literally or as `U+XXXX`. The core checks the code and the font.
+/// literally or as `U+XXXX`. The core checks codes, duplicates and the font
+/// for native documents, as for JavaScript.
 fn symbol_glyph(value: OsString) -> Result<NativeSymbolGlyph, String> {
     const ERROR: &str =
         "--symbol-glyph requires CODE=CHAR: four hex digits and one BMP character or U+XXXX";
     let hex = |digits: &str| {
-        (digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_hexdigit()))
-            .then(|| u16::from_str_radix(digits, 16).ok())
-            .flatten()
+        u16::from_str_radix(digits, 16)
+            .ok()
+            .filter(|_| digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_hexdigit()))
     };
     let value = value.into_string().map_err(|_| ERROR)?;
     let (code, glyph) = value.split_once('=').ok_or(ERROR)?;

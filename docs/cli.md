@@ -276,6 +276,7 @@ requires `--font-symbols` or `--fonts DIR`. Conversion fails, without
 committing output, on a non-symbol or repeated code, a glyph the symbols
 font lacks, or a native document that is not HN-B mode-0. No mapping is
 built in or inferred (#518).
+
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.
 See the [C8 same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).

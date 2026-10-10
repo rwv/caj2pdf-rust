@@ -175,7 +175,7 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
       }
     }
     for (const [code, glyph] of fonts.symbolGlyphs) {
-      if (exports.caj2pdf_hnb_add_symbol_glyph(code, glyph) !== 1) {
+      if (exports.caj2pdf_hnb_add_symbol_glyph?.(code, glyph) !== 1) {
         return { invalid: `WASM rejected the symbol glyph for code ${code.toString(16)}` };
       }
     }

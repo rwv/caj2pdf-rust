@@ -173,8 +173,8 @@ function fontConfig(options) {
     roles.push(index(decoration.source), character.codePointAt(0));
   }
   const optional = (font) => (font === undefined ? undefined : index(font));
-  // The core validates codes, duplicates and glyph coverage per document.
-  const glyphs = symbolGlyphs === undefined ? [] : [...symbolGlyphs].map((entry) => {
+  // The core checks codes, duplicates and glyph coverage for native documents.
+  const glyphs = symbolGlyphs == null ? [] : [...symbolGlyphs].map((entry) => {
     const { code, glyph } = entry ?? {};
     if (!Number.isInteger(code) || code < 0 || code > 0xffff) throw new RangeError("symbol glyph code must be an unsigned 16-bit integer");
     if (!isBmpScalar(glyph)) throw new TypeError("symbol glyph must be one BMP Unicode scalar");

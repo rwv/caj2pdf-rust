@@ -1575,6 +1575,14 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
             .message
             .contains("decoration.ttf")
     );
+    // Symbol glyphs likewise need symbols.ttf or --font-symbols.
+    let mut glyphs = font_options(&dir.0);
+    glyphs.symbol_glyphs = vec![caj2pdf_core::hnc8::NativeSymbolGlyph {
+        code: 0xa1af,
+        glyph: 'A',
+    }];
+    let error = load_fonts(&glyphs).err().unwrap().message;
+    assert!(error.contains("--symbol-glyph") && error.contains("symbols.ttf"));
     for name in crate::command::FONT_FILES {
         fs::write(dir.0.join(format!("{name}.ttf")), name).unwrap();
     }

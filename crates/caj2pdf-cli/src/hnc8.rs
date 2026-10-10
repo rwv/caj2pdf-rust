@@ -173,6 +173,12 @@ fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError
             missing(3)
         )));
     }
+    if !options.symbol_glyphs.is_empty() && paths[4].is_none() {
+        return Err(CliError::runtime(format!(
+            "--symbol-glyph requires a symbols font; {}",
+            missing(4)
+        )));
+    }
     Ok(paths)
 }
 

@@ -240,7 +240,8 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
 }
 
 /// Map an HN-B mode-0 symbol code to a BMP glyph of the symbols role, after
-/// the roles. Rejects other codes, duplicates and a missing symbols role.
+/// the roles. Rejects a non-BMP glyph, a missing symbols role and more than
+/// 21 entries; the core checks codes and duplicates per native document.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_hnb_add_symbol_glyph(code: u32, glyph: u32) -> u32 {
     with_session(0, |session| {

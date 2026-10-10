@@ -151,8 +151,8 @@ decoration, alias)` or `caj2pdf_c8_set_fonts_with_symbols(..., symbols)`
 state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
 index)`. After the roles, `caj2pdf_hnb_add_symbol_glyph(code, glyph)` maps a
 raw HN-B mode-0 symbol code to a BMP glyph of the symbols role (1 on
-success). It rejects other codes, repeated codes and a missing symbols
-role. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
+success). It rejects a non-BMP glyph, a missing symbols role and more than
+21 entries. The core checks codes and duplicates for native documents. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
 glyph missing from that font fails with its location.
 
 `convert` chooses the composer once per document: it reads the header and
