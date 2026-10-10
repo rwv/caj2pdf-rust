@@ -174,6 +174,11 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
         return { invalid: `WASM rejected the state-${state} Latin font role` };
       }
     }
+    for (const [code, glyph] of fonts.symbolGlyphs) {
+      if (exports.caj2pdf_hnb_add_symbol_glyph?.(code, glyph) !== 1) {
+        return { invalid: `WASM rejected the symbol glyph for code ${code.toString(16)}` };
+      }
+    }
   }
   const { size, chunkSize, format, flags, limits } = config;
   const status = operation === "convert"

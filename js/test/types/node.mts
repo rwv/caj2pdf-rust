@@ -35,6 +35,6 @@ export function nativeC8Fonts(
   font: string,
 ) {
   return convert(wasm, source, sink, { includeBookmarks: false, hnc8: {
-    fonts: { cjk: font, latin: { source: font, face: 1 }, alternateLatin: font, symbols: font, latinState3: font, latinState28: font, latinState31: font, decoration: { source: font, character: 'A' } },
+    fonts: { cjk: font, latin: { source: font, face: 1 }, alternateLatin: font, symbols: font, symbolGlyphs: [{ code: 0xa1af, glyph: '\ue000' }], latinState3: font, latinState28: font, latinState31: font, decoration: { source: font, character: 'A' } },
   } });
 }

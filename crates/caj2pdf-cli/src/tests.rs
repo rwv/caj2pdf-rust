@@ -1374,6 +1374,56 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
 }
 
 #[test]
+fn symbol_glyphs_parse_hex_codes_and_bmp_characters() {
+    use caj2pdf_core::hnc8::NativeSymbolGlyph;
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.hn",
+        "--fonts=dir",
+        "--symbol-glyph",
+        "a1AF=U+E000",
+        "--symbol-glyph=a3a7=-",
+        "--symbol-glyph=a1aa==",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    let glyph = |code, glyph| NativeSymbolGlyph { code, glyph };
+    assert_eq!(
+        options.symbol_glyphs,
+        [
+            glyph(0xa1af, '\u{e000}'),
+            glyph(0xa3a7, '-'),
+            glyph(0xa1aa, '=')
+        ]
+    );
+    for value in [
+        "a1af",
+        "a1af=",
+        "a1a=x",
+        "+1af=x",
+        "a1af0=x",
+        "a1af=xy",
+        "a1af=😀",
+        "a1af=U+D800",
+        "a1af=U+E00",
+        "a1af=U+10000",
+    ] {
+        let args = ["input.hn", "--fonts=dir", "--symbol-glyph", value];
+        assert!(parse_str(&args).is_err(), "{value}");
+    }
+    let without_symbols = [
+        "input.hn",
+        "--font-cjk=a",
+        "--font-latin=a",
+        "--symbol-glyph=a1af=x",
+    ];
+    assert!(parse_str(&without_symbols).is_err());
+    let mut with_symbols = without_symbols.to_vec();
+    with_symbols.push("--font-symbols=b");
+    assert!(parse_str(&with_symbols).is_ok());
+}
+
+#[test]
 fn native_font_options_preserve_paths_and_validate_roles() {
     let Command::Convert { options, .. } = parse_str(&[
         "input.c8",
@@ -1525,6 +1575,14 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
             .message
             .contains("decoration.ttf")
     );
+    // Symbol glyphs likewise need symbols.ttf or --font-symbols.
+    let mut glyphs = font_options(&dir.0);
+    glyphs.symbol_glyphs = vec![caj2pdf_core::hnc8::NativeSymbolGlyph {
+        code: 0xa1af,
+        glyph: 'A',
+    }];
+    let error = load_fonts(&glyphs).err().unwrap().message;
+    assert!(error.contains("--symbol-glyph") && error.contains("symbols.ttf"));
     for name in crate::command::FONT_FILES {
         fs::write(dir.0.join(format!("{name}.ttf")), name).unwrap();
     }

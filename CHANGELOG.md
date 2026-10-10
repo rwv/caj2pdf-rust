@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- CLI `--symbol-glyph CODE=CHAR`, JavaScript `hnc8.fonts.symbolGlyphs` and
+  the raw WASM call `caj2pdf_hnb_add_symbol_glyph` expose the HN-B mode-0
+  symbol glyph map (#518). This is additive; existing options and outputs
+  are unchanged.
+
 - **Breaking (Rust API):** `Fonts` and `hnc8::C8FontSources` gain
   `symbol_glyphs`, a caller-supplied map from raw HN-B mode-0 symbol codes
   to source glyphs of the `symbols` font, kept separate from the decoded text

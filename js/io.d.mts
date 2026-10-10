@@ -178,6 +178,9 @@ export interface C8Fonts<Input> {
   alternateLatin?: C8Font<Input>;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
   symbols?: C8Font<Input>;
+  /** Explicit `symbols` glyphs for raw HN-B mode-0 symbol codes. Extracted
+   * text keeps the decoded character; requires `symbols`. */
+  symbolGlyphs?: Iterable<C8SymbolGlyph>;
   /** Optional explicit font selected by HN-B/C8 state 801d/3. */
   latinState3?: C8Font<Input>;
   /** Distinct caller-supplied resources for verified C8 Latin states. */
@@ -185,6 +188,13 @@ export interface C8Fonts<Input> {
   latinState31?: C8Font<Input>;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
   decoration?: { source: C8Font<Input>; character: string };
+}
+
+/** Selects, by its BMP character-map entry, the `symbols` glyph drawn for one
+ * raw HN-B mode-0 symbol code, such as `{ code: 0xa1af, glyph: "\ue000" }`. */
+export interface C8SymbolGlyph {
+  code: number;
+  glyph: string;
 }
 
 export interface Hnc8Options<Input> {

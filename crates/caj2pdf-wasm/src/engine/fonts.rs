@@ -6,9 +6,12 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8FontSource, C8PageFonts},
+    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph},
 };
 use std::cell::RefCell;
+
+/// One entry per HN-B mode-0 symbol code; a longer map cannot be valid.
+const MAX_SYMBOL_GLYPHS: usize = 21;
 
 /// Explicitly registered font resources and their roles.
 #[derive(Default)]
@@ -17,6 +20,8 @@ pub(super) struct Fonts {
     faces: [u32; 8],
     count: usize,
     roles: Option<C8PageFonts>,
+    /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
+    symbol_glyphs: Vec<NativeSymbolGlyph>,
 }
 
 impl Fonts {
@@ -48,6 +53,22 @@ impl Fonts {
             return false;
         }
         *role = Some(index as usize);
+        true
+    }
+
+    /// Map one 16-bit code to a BMP glyph of the symbols role. Like the CLI,
+    /// leave code and duplicate checks to the core's native preflight.
+    pub(super) fn add_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {
+        let (Ok(code), Some(glyph)) = (u16::try_from(code), char::from_u32(glyph)) else {
+            return false;
+        };
+        if self.roles.is_none_or(|roles| roles.symbols.is_none())
+            || glyph > '\u{ffff}'
+            || self.symbol_glyphs.len() == MAX_SYMBOL_GLYPHS
+        {
+            return false;
+        }
+        self.symbol_glyphs.push(NativeSymbolGlyph { code, glyph });
         true
     }
 
@@ -121,7 +142,7 @@ impl Fonts {
                 })
                 .collect(),
             roles: self.roles,
-            ..FontResources::default()
+            symbol_glyphs: self.symbol_glyphs.clone(),
         })
     }
 }
