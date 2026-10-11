@@ -220,3 +220,9 @@ exclude vertical-metric changes and four equivalent PDF encodings as fixes.
 Across seven zooms, 156 relative CJK/Latin measurements support separate device
 rounding of the existing ten-unit offset. High-zoom and positive font controls
 retain the limits of that inference; production geometry remains unchanged.
+
+The [axis rasterization and character-origin study](wine-axis-rasterization-20261011.md)
+records 73 synthetic Wine sessions, four exact cold repeats and negative
+cross-zoom controls. Identical geometric glyphs isolate code-dependent Latin
+origins. Original source/font/PDF reproducers retain rejected partial cells
+and the limits of zoom-specific raster predictions.

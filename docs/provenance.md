@@ -3478,3 +3478,30 @@ reproduces six original controls without reading vendor fonts or code. Used
 original TTF bytes and selected TTC tables are verified independently of text
 order and glyph matrices. Fonts, external corpus, PDFs and screenshots remain
 outside this repository; no private parser/JBIG implementation is migrated.
+
+### Axis rasterization and character origins (#541, 2026-10-11)
+
+The [axis/origin study](research/wine-axis-rasterization-20261011.md) records
+73 fresh synthetic Wine visits and four exact cold source repeats. Eight
+independently authored HN-B mode-2 documents isolate equal/unequal font axes,
+character codes and positions. Zoom-specific PDF matrix diagnostics preserve
+original resource programs, glyph identity and semantic text; cross-zoom and
+equivalent Tf/Tz controls retain their negative results. They are not a
+production correction or additional actual-corpus compatibility evidence.
+
+Five project-authored geometric font profiles independently vary advance,
+outline width and x/y offsets; no vendor font is edited. Identical glyphs still
+exhibit character-dependent origins. Six first-grid frames have rejected
+truncated cell diagnostics; fresh expanded cells pass. Complete-page RGB scores
+remain unaligned and exact, with small-page component bounds independently
+checked against geometry and both capture audits.
+
+`scripts/research/wine_axis_rasters.py` and
+`scripts/research/wine_axis_pdf_diagnostic.py` are original MIT research code,
+reviewed per file. They use existing project-authored container writers,
+standard-library metadata and public fontTools/pikepdf APIs. The first reproduces
+eight source fixtures and optionally 25 checksum-pinned geometric font variants;
+the second reproduces 24 diagnostic content streams with unchanged font programs.
+No private HN/JBIG, vendor implementation or foreign converter source is read,
+copied or migrated. No runtime dependency, production geometry, API or font
+archive changes. Resource binaries, documents, PDFs and screenshots stay external.
