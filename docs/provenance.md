@@ -2969,3 +2969,34 @@ outputs agree, with 16 unchanged versus main. Seven ignored optional Rust
 tests are NOT_RUN. Native Windows equivalence, residual raster fidelity (#534)
 and broader #406 correctness remain unverified. All corpus/font/binary bodies
 stay external; committed changes and regressions are original MIT work.
+
+## Explicit C8 ornament resources in Wine 7.3 (#532)
+
+The [pinned resource study](https://github.com/rwv/caj2pdf-samples/blob/4fbc29dc2d15ed2aad3506772e52af8274a61d29/research/notes/wine73-ornament-resources-20261010.md)
+and metadata receipt establish different HGBZ cmap slots for source `8010`
+values 1/2/46/117. Original single-slot geometric fonts make all four Wine
+controls draw the same rectangle while preserving a neighboring line; absent
+slots remove the other patterns. Exploratory public FreeType calls supply the
+same numerical aliases/GIDs, but their Linux page-raster gates failed and remain
+NOT_CONFIRMED. No vendor glyph is copied into an original control or committed.
+
+The original `7e3f2c0faebb…` page 10 requests value 46, whose external
+`HGBZ_CNKI.ttf` slot U+5D41 selects GID 1909. Existing decoration options draw
+that pattern instead of the default U+25BA substitute, while empty ActualText
+and Artifact scope preserve its nonsemantic identity. Three other actual
+single-value documents independently exercise slots U+5D04/U+5D05/U+5D95.
+All four measured resources come from one pinned file; no mapping formula or
+unmeasured glyph/resource equivalence is inferred. The API still has one
+alias per document, so mixed-value documents remain outside this recipe.
+
+All 12 synthetic/actual PDFs agree across native, Node and real Chromium;
+font/source hashes and empty browser OPFS cleanup are verified. Independent
+fontTools checks preserve the selected outline, advance, alias and semantics.
+All 25 actual pages retain ordinary glyphs, image bytes, page geometry and
+paint-kind order outside ornament selection. Wine source cold repeats agree;
+the mixed document's nine image-only PDF crops remain unchanged. Fine pixels,
+repetition, ordinary text fonts and the mode-specific window failure remain
+#531/#533/#534 obligations. This is a scoped caller-resource recipe, not a
+production behavior, allocation, dependency, API or release change. All new
+controls and documentation are original MIT work; corpus/font/PDF/pixel/vendor
+bodies remain external. No private HN/JBIG or foreign converter source was read.

@@ -267,6 +267,27 @@ a different single BMP Unicode scalar from the decoration font. It requires
 `--font-decoration` or `--fonts DIR`, and `DIR` must then contain
 `decoration.ttf`. The alias is not emitted as document text.
 
+The default triangle is a substitute, not the original C8 ornament. The
+[Wine 7.3 resource controls](https://github.com/rwv/caj2pdf-samples/blob/4fbc29dc2d15ed2aad3506772e52af8274a61d29/research/notes/wine73-ornament-resources-20261010.md)
+identify four different glyph slots in external `HGBZ_CNKI.ttf` (SHA-256
+`c44abe24684e5c0ea849b43116dc97a97d2eeda5b36eb33d490090f7d0723758`):
+
+| Source `8010` value | Decoration alias |
+| ---: | --- |
+| 1 | U+5D04 |
+| 2 | U+5D05 |
+| 46 | U+5D41 |
+| 117 | U+5D95 |
+
+For the measured value-46 document, add
+`--font-decoration /external/HGBZ_CNKI.ttf --decoration-char '嵁'`
+to the chosen CJK/Latin recipe. The literal character is U+5D41, a font lookup
+alias with no text meaning here. Resources are supplied separately and are
+not downloaded or bundled. This corrects the selected pattern; ordinary text
+fonts and viewer-dependent repetition/raster differences remain separate.
+One global alias cannot represent multiple different ornament values within
+a document. The report records the exact four single-value documents tested.
+
 `--symbol-glyph CODE=CHAR` (repeatable) draws the symbols font's glyph for
 CHAR wherever an HN-B mode-0 page uses the raw symbol CODE. CODE is four hex
 digits. CHAR is one BMP character or `U+XXXX`, for example
