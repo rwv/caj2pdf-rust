@@ -276,3 +276,10 @@ every selected record. Source/PDF final bitmap dimensions match at four views,
 but glyph-query APIs seen in the positive probe are absent from the selected
 viewer traces. This narrows the observation boundary without identifying an
 internal renderer or fixing the remaining source/PDF pixel differences.
+
+The [native image endpoint study](wine-image-endpoints-20261011.md) records
+79 cold Wine sessions and 93 admitted visits. Original black grids isolate
+inclusive native endpoint sizing on 132 axes. Target-zoom extent diagnostics
+make six grid views exact and improve nine selected actual views, but two
+cross-zoom controls regress. No production fix is adopted; #543 tracks the
+remaining general endpoint/resampling correction under #406.

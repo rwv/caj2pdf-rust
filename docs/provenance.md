@@ -3689,3 +3689,32 @@ samples #115. Their existing image controls and baseline work are reused for
 future #406 fidelity work; they are not unfulfilled #534 classification steps.
 This correction changes scope/status wording only, not observations or hashes
 of measured inputs, fonts, outputs or captures.
+
+### Native image endpoint controls (#543, 2026-10-11)
+
+The [image endpoint study](research/wine-image-endpoints-20261011.md) records
+79 cold Wine sessions / 93 admitted complete, stable, numeric-confirmed visits.
+Original black JPEG grids distinguish inclusive native endpoints from PDF
+ceil-of-extent behavior on 132 axes. An explicit target-zoom extent diagnostic
+makes six black-grid views exact and improves all nine selected actual views,
+but two cross-zoom controls regress. No production correction is adopted;
+all 77 production cohort pages still differ. Closed #534's classification
+is not a resolution of these rendering differences; #543 tracks the fix.
+
+Per-file provenance review: `scripts/research/wine_image_endpoint_controls.py`
+is original MIT fixture-generation code using project-owned C8 framing facts
+and the original MIT asymmetric-image pattern pinned in the report;
+`wine_black_image_diagnostic.py` is original MIT Pillow/pikepdf research code
+for verified bounded solid-black images and PDF rectangle/stencil controls;
+`wine_image_device_grid.py` is original MIT rational-matrix research code,
+preserving payloads, font programs and nonimage operators while deliberately
+changing physical extents at a declared zoom. No vendor, foreign converter
+or private HN/JBIG implementation is inspected or migrated. Generated source,
+PDF, screenshot and font bytes remain external. Installed research libraries
+are not new production dependencies; production bounded I/O is unchanged.
+
+All six sources/current baseline PDFs reproduce byte-exactly. An initial
+diagnostic byte comparison failed because of nondeterministic trailer IDs.
+After requesting deterministic IDs, all 43 modified outputs reproduce every
+observed byte except the trailer ID; ten deterministic repeat outputs are
+byte-exact. The failure and original capture identities remain retained.
