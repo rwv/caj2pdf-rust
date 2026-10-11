@@ -3615,3 +3615,25 @@ file-truncation test. Original MIT change `d836ae7` attaches its rejection
 assertion before awaiting file I/O, preserving the assertion and runtime code.
 All 192 concurrent JS tests and the commit's four quality gates/nine regular
 native jobs pass; 17 optional/release skips are reported separately.
+
+### Form and transparency controls (#541, 2026-10-11)
+
+The [transparency study](research/wine-transparency-controls-20261011.md) retains
+38 cold Wine sessions over the existing four original axis fixtures. All 35
+full-opacity form/group frames retain their baseline pixels across seven views,
+including split-origin and normalized-axis decompositions. Both cold source
+repeats are exact. The half-opacity control changes 1,040 pixels but leaves
+31 of 42 glyph cells without visible ink; it is not a conformance/fidelity pass.
+All visits are complete, stable and numeric-confirmed, with intact inputs and
+removed containers. No remaining placement/raster defect is corrected.
+
+`scripts/research/wine_transparency_diagnostic.py` is independently authored MIT
+research code reviewed per file. It reuses the project's original axis fixtures
+and Type 3 diagnostic utilities, pikepdf/PyMuPDF APIs, qpdf and the public PDF
+transparency-group definitions. Original embedded font programs remain unchanged;
+decomposed transforms agree within 1e-25 points and semantic glyphs are preserved.
+All 21 diagnostic PDFs and their metadata reproduce exactly. Independent MuPDF
+renders respond differently to isolation and are not substituted for Wine.
+No vendor implementation, foreign converter or private HN/JBIG code is inspected
+or migrated. Fonts, fixtures, PDFs and screenshots stay external. No runtime
+dependency, API, I/O strategy or production behavior changes.

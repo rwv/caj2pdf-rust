@@ -254,3 +254,10 @@ Flate, explicit interpolation and their combination leave all 27 treatment
 frames identical to their PDF baselines across three zooms. An inverted-image
 control changes all three selected pages. Source differences remain, with no
 production change or general claim about renderer behavior.
+
+The [form and transparency controls](wine-transparency-controls-20261011.md)
+retain 38 cold Wine sessions. Ordinary forms, isolated groups and equivalent
+origin/axis decompositions preserve all 35 baseline frames across seven views.
+A separate half-opacity control changes the frame but loses visible ink in
+31 of 42 glyph cells. All 21 diagnostic PDFs reproduce exactly; neither
+alternative supplies a production fidelity correction.
