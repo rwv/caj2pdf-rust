@@ -3301,3 +3301,23 @@ content and width preservation pass; 9,905 used glyph pairs are independently
 checked per resource/document. Mode-0 full-program transport and bounded
 production integration remain open. There are no runtime dependency, memory,
 API or default-output changes in this research follow-up.
+
+
+### Unchanged original font programs (#541, 2026-10-11)
+
+The [15-session original-program follow-up](research/wine-original-font-inventory-20261011.json)
+restores original Latin TTF programs in the twelve complete-font diagnostic
+PDFs. It checks that only cmap and head checksum differ from their prepared
+counterparts, while original GIDs, other tables and all PDF text/geometry
+remain unchanged. All 73 mode-2 pages have matching extents; 63 improve and
+ten image-only pages remain unchanged against both the subset and prepared
+full-program baselines. None regress; seven cold repeated views agree exactly.
+All actual pages still differ. Mode-0 and production transport remain open.
+
+`scripts/research/wine_original_font_programs.py` is original MIT code, reviewed
+per file, using public fontTools/pikepdf APIs and explicit external font/PDF
+inputs. It reproduces all twelve output hashes, including qpdf, extracted-text
+and PDF-dictionary/content checks. Whole-file research processing is not a
+runtime dependency or production memory path. No vendor renderer, private
+HN/JBIG code or foreign converter implementation was copied or inspected;
+font binaries, documents, PDFs and screenshots remain outside Git.

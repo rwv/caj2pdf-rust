@@ -1,5 +1,11 @@
 # Wine font programs: full fonts and retained metadata
 
+**Latest result:** restoring unchanged original Latin font programs removes
+the four regressions from the prepared-font experiment. Across all 73 mode-2
+pages, 63 improve and ten image-only pages are unchanged, with no regressions
+against either baseline. See the original-program follow-up below. These
+remain diagnostic PDFs; bounded production integration is separate work.
+
 Embedding the complete prepared caller font programs reduces source/PDF
 pixel differences on four measured page views. Restoring only the omitted
 `cmap` recovers part of this improvement; `gasp`, `OS/2`, `name` and `post`
@@ -160,3 +166,55 @@ python3 scripts/research/wine_font_programs.py baseline.pdf /tmp/full-font \
 Output size and the four regressions require further implementation choices;
 font-program fidelity and viewer readiness are tracked separately. No font
 binaries, documents or screenshots enter Git.
+
+## Unchanged original font programs
+
+The [15-session original-program receipt](wine-original-font-inventory-20261011.json)
+replaces only the five prepared Latin roles with their unchanged source TTF
+programs. Prepared fonts add ordinary Unicode cmap aliases for the caller;
+although those aliases preserve glyph IDs and outlines, retaining the altered
+cmap in the PDF changes the observed raster. The original and prepared programs
+have identical table sets and byte-identical tables except `cmap` and the
+`head` checksum adjustment. CIDToGIDMap, names, widths, ToUnicode, content,
+page boxes and extracted text remain unchanged.
+
+All twelve diagnostic PDFs reproduce byte-for-byte with the new public script,
+and qpdf accepts them. All 73 page extents match Wine. Against production
+subsets at `72/742`, 63 pages improve, ten image-only pages are unchanged and
+none worsen: 1,368,449 fewer differing pixels in total. Against the complete
+prepared programs, the same 63 improve and ten are unchanged, with a further
+98,871 differing pixels removed. Every page still has nonzero differences.
+
+| Source prefix | Page | Subset | Prepared full | Original full |
+| --- | ---: | ---: | ---: | ---: |
+| `166d00147923` | 11 | 50,715 | 57,248 | 45,656 |
+| `166d00147923` | 12 | 41,472 | 44,416 | 37,248 |
+| `90e7b47716c3` | 2 | 26,933 | 27,136 | 22,438 |
+| `90e7b47716c3` | 5 | 16,505 | 16,566 | 14,834 |
+
+The four earlier regressions therefore disappear in this measured inventory.
+Seven page views across three inputs repeat exactly in separate cold sessions,
+including all four former regressions. All 15 sessions meet numeric readiness,
+two stable captures, complete bounds, unchanged source, no OOM and cleanup
+criteria. Earlier failed sessions remain in their previous receipt; these
+successes do not prove that the viewer cannot fail intermittently.
+
+Reproduce an original-program variant from its prepared-full diagnostic:
+
+```sh
+python3 scripts/research/wine_original_font_programs.py prepared-full.pdf \
+  /tmp/original-full.pdf --fonts original-resources.json
+```
+
+The JSON maps only the changed Latin resources to their unchanged original
+standalone TTF files. The script refuses overwriting an existing output,
+checks table equality apart from cmap/checksum, verifies unchanged PDF text
+and geometry after saving, runs qpdf/pdftotext and writes a JSON receipt.
+Unlisted and unused resources stay untouched. This is original MIT research
+code with the same external tooling as the earlier generator.
+
+The result supports preserving the original program and handling measured
+character aliases outside the embedded font's cmap. It does not identify the
+renderer's internal decision or establish that cmap is the only remaining
+cause. The four mode-0 pages, new production font names/dictionaries and
+bounded native/CLI/Node/browser integration still need separate validation.
