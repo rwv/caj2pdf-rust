@@ -1403,3 +1403,16 @@ The main mixed document's ten source pages repeat exactly; image-only PDF pages
 raster parity, ordinary source-font fidelity and mixed-value alias selection
 are not claimed. The [CLI recipe](cli.md#notes) names the exact external resource;
 fonts are neither bundled nor inferred.
+
+## Wine PDF display-mode checkpoint (#533)
+
+The [reviewed window study](https://github.com/rwv/caj2pdf-samples/blob/a3032b1e13fde1199107caf9ec52f87a3c2e222c/research/notes/wine73-pdf-window-20261010.md)
+retains the failing four-page PDF's single-page/75% observations and all three
+earlier mode controls. Fresh current-main conversion preserves the historical
+PDF hash. Continuous/75% now has complete, stable observations for every page
+in two cold sessions. An explicit shared-font variant produces an application
+fatal-error dialog after the single-page click, before zoom; separate decoration
+resources work. An original minimal shared-font control also works, so font
+sharing alone is not a universal trigger. The internal cause remains unknown.
+No production code or default output changed. The workaround does not establish
+source/PDF raster parity or native-Windows equivalence; #406/#441 remain open.

@@ -288,6 +288,14 @@ fonts and viewer-dependent repetition/raster differences remain separate.
 One global alias cannot represent multiple different ornament values within
 a document. The report records the exact four single-value documents tested.
 
+One measured four-page C8 PDF triggers a CAJViewer 7.3/Wine 8.0 failure during
+the single-page/75% procedure. Keep the viewer in **continuous mode** and set
+75% instead: all four unchanged PDF pages were confirmed in two cold sessions.
+The independently supplied HGBZ decoration recipe also works in single-page
+mode for that case. See the [input identities and scope](https://github.com/rwv/caj2pdf-samples/blob/a3032b1e13fde1199107caf9ec52f87a3c2e222c/research/notes/wine73-pdf-window-20261010.md).
+The internal viewer/Wine cause remains unknown; this is a measured workaround,
+not an automatic converter fallback or a guarantee for other documents/viewers.
+
 `--symbol-glyph CODE=CHAR` (repeatable) draws the symbols font's glyph for
 CHAR wherever an HN-B mode-0 page uses the raw symbol CODE. CODE is four hex
 digits. CHAR is one BMP character or `U+XXXX`, for example

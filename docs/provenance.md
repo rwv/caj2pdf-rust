@@ -3000,3 +3000,34 @@ repetition, ordinary text fonts and the mode-specific window failure remain
 production behavior, allocation, dependency, API or release change. All new
 controls and documentation are original MIT work; corpus/font/PDF/pixel/vendor
 bodies remain external. No private HN/JBIG or foreign converter source was read.
+
+## Wine PDF mode and font-resource interaction (#533)
+
+The [pinned study and metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/a3032b1e13fde1199107caf9ec52f87a3c2e222c/research/notes/wine73-pdf-window-20261010.md)
+record 14 new isolated Wine sessions, retain historical mode/failure controls
+and recheck source `b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b`.
+Merged #535 produces the identical baseline PDF
+`185a14fd1155782ed691c450f4b63e15213c61914cd362f3a6ee380dbb8e4a42`.
+The single-page/75% procedure still loses the window. An explicit decoration
+role sharing the Latin font object triggers a visible CAJViewer fatal-error
+dialog after the single-page click and before zoom. The original MIT observer
+uses public window enumeration and host process metadata; no vendor code or
+stack-address implementation analysis is used. OOM and invalid-PDF causes are
+not established, and CAJViewer versus Wine internals remain unresolved.
+
+An independent decoration subset made from identical FreeSerif bytes works;
+all four MuPDF page renders equal baseline/shared-font outputs. A minimal
+original C8 text/ornament control works with both resource layouts, disproving
+a universal shared-font trigger. The unchanged actual PDF has a complete,
+stable continuous/75% workaround on all four pages in two cold sessions with
+exact crop repeats. The distinct HGBZ recipe from #532 also works in single-page
+mode and already has native/Node/Chromium output identity checks. Failed probes,
+the unadmitted first control and earlier missing-process-tool diagnostics are
+retained, not counted as successful observations. One independent-parser test
+checks the final original control with no corpus/viewer and zero skips.
+
+This adds support/provenance documentation only: no production API, default
+font sharing, PDF output, I/O bounds, dependency or release changes. All new
+source is original MIT work; actual documents, fonts, PDFs, screenshots and
+vendor programs remain external. The broader #406/#441 obligations and
+#531/#534 typography/raster differences are not closed by this workaround.
