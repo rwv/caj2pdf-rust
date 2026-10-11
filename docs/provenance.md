@@ -3779,3 +3779,40 @@ foreign converter or private HN/JBIG implementation is inspected or migrated;
 no corpus, PDF, screenshot or font bytes are committed. These external research
 tools do not change production dependencies, APIs or bounded I/O. #543 remains
 open for the general rendering correction and implementation acceptance.
+
+### Device-coordinate image clipping (#543, 2026-10-11)
+
+The [device-clipping study](research/wine-image-device-clipping-20261011.md)
+records 88 cold Wine sessions / 88 admitted visits. Original paired grayscale
+controls separate matching in-page samples from clipped samples. Truncated
+device endpoints and nearest source-window rounding make three horizontal
+gray views and two independent RGB views exact. A vertical-origin carry and
+explicit adjacent-row band make another five gray/RGB views exact. Held-out
+125/175% views retain differences; numeric extent bounds also regress.
+No production correction or new actual-corpus result is claimed.
+
+Per-file provenance review: `scripts/research/wine_image_clipped_pairs.py` is
+original MIT generation of bounded grayscale ramps in project-owned C8
+framing; `wine_image_device_crop_diagnostic.py` is original MIT rational
+endpoint/window code with per-image decoded limits and retained originals;
+`wine_image_device_crop_followup.py` is original MIT origin/guard/edge-row
+diagnostics with explicit painted-field changes; and
+`wine_image_device_extent_rounding.py` is original MIT binary64/rational-bound
+research code. Their declared-zoom geometry changes are not production fixes.
+No vendor, foreign converter or private HN/JBIG implementation is inspected
+or migrated. Sources, fonts, PDFs and screenshots remain external.
+
+The existing original MIT orientation and world-coordinate pixel-clip helpers
+also receive an admission correction: previously unprefixed option names
+failed to check actual `/DecodeParms`, `/Mask` and `/SMask`. The helpers now
+reject decode/mask overrides and unsupported JPEG parameters before decoding, while explicitly
+admitting the known RGB `/ColorTransform 1` profile. Six positive admissions
+and fifteen negative refusals pass; admitted legacy RGB outputs remain
+byte-exact. This changes research input validation, not the production parser.
+
+Both new source/current-PDF pairs and all 64 diagnostic PDFs reproduce
+byte-exactly. Retained failures include the initial strict RGB admission,
+the pre-observation correction of a hand-calculated held-out edge assertion,
+guard-padding regressions and both numeric-bound counterexamples. All original
+font programs and page boxes remain unchanged; added edge images are explicitly
+recorded. Production dependencies, APIs and bounded I/O are unchanged.

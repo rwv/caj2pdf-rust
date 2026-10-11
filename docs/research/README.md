@@ -298,3 +298,12 @@ exact after the declared grid corrections. Signed rounding/origin carry and
 zoom-independent integer-pixel clipping retain actual-page regressions.
 Six source/current-PDF pairs and 56 diagnostics reproduce exactly. #543 remains
 open; no production rendering change is adopted.
+
+The [device-coordinate clipping study](wine-image-device-clipping-20261011.md)
+adds 88 cold sessions / 88 admitted visits. Paired grayscale controls isolate
+clipped sampling; device-derived pixel windows, vertical-origin carry and an
+adjacent-row diagnostic make ten whole gray/RGB control views exact at declared
+zooms. Held-out 125/175% failures and numeric-bound regressions remain.
+Both new source/current-PDF pairs and 64 diagnostics reproduce exactly.
+Research JPEG/mask admission checks are corrected with positive and negative
+controls. #543 remains open for a general production correction.

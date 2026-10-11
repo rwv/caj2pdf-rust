@@ -39,8 +39,11 @@ def convert(source, output, axis):
                 image = images[name]
                 if image.get('/Subtype') != pikepdf.Name.Image or image.get('/Filter') != pikepdf.Name.DCTDecode:
                     raise ValueError('Expected ordinary JPEG')
-                if any((key in image for key in ['/Decode', 'DecodeParms', 'Mask', 'SMask'])):
+                if any((key in image for key in ['/Decode', '/Mask', '/SMask'])):
                     raise ValueError('Unexpected image decode/mask options')
+                parameters = image.get('/DecodeParms')
+                if parameters is not None and not (str(image.ColorSpace) == '/DeviceRGB' and isinstance(parameters, pikepdf.Dictionary) and dict(parameters) == {'/ColorTransform': 1}):
+                    raise ValueError('Unsupported JPEG decode parameters')
                 width, height = (int(image.Width), int(image.Height))
                 if not 0 < width * height <= 10000000 or image.BitsPerComponent != 8:
                     raise ValueError('Image bound or bit depth')

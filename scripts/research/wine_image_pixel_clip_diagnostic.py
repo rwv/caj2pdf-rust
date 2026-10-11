@@ -52,8 +52,11 @@ def convert(source, output, rounding):
                 if (l, r, t, b) == (left, right, top, bottom):
                     records.append(dict(page=page_number, image=name, changed=False))
                     return match[0]
-                if image.get('/Filter') != pikepdf.Name.DCTDecode or image.get('/BitsPerComponent') != 8 or any((key in image for key in ['/Decode', 'DecodeParms', 'Mask', 'SMask'])):
+                if image.get('/Filter') != pikepdf.Name.DCTDecode or image.get('/BitsPerComponent') != 8 or any((key in image for key in ['/Decode', '/Mask', '/SMask'])):
                     raise ValueError('Expected ordinary JPEG')
+                parameters = image.get('/DecodeParms')
+                if parameters is not None and not (str(image.ColorSpace) == '/DeviceRGB' and isinstance(parameters, pikepdf.Dictionary) and dict(parameters) == {'/ColorTransform': 1}):
+                    raise ValueError('Unsupported JPEG decode parameters')
                 mode = {'/DeviceGray': 'L', '/DeviceRGB': 'RGB'}.get(str(image.ColorSpace))
                 width, height = (int(image.Width), int(image.Height))
                 if mode is None or not 0 < width * height <= 10000000:
