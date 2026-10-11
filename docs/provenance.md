@@ -3565,3 +3565,27 @@ preserved. No dependency, allocation, API or I/O strategy changes. No private
 HN/JBIG, vendor implementation or foreign converter is inspected or migrated.
 The public receipt excludes article text and per-character corpus traces;
 font, corpus, PDF and screenshot binaries remain external.
+
+### Type 3 drawing-path controls (#541, 2026-10-11)
+
+The [Type 3 study](research/wine-type3-rasterization-20261011.md) uses the four
+existing original axis fixtures, fresh PDFs from the alphabet implementation,
+and unchanged external font programs. Nested-text procedures, independent
+coordinate normalization, positive rectangle controls and original glyph
+outline paths distinguish rendering behavior without changing production.
+Seven `d0` frames equal their baselines; sixteen tested `d1` nested-text frames
+have no glyph ink. One frame-dimension mismatch is retained as noncomparable.
+All 28 path frames regress, including two missing point-coordinate glyph cells.
+Sixty-two stable numeric-confirmed visits, two exact cold source repeats,
+source integrity and cleanup records retain these negative results.
+
+`scripts/research/wine_type3_diagnostic.py` is original MIT research code reviewed
+per file. It uses the project's original fixture generator, public PDF Type 3
+definitions and pikepdf/PyMuPDF/fontTools APIs. Original glyph IDs and outlines
+are external font data; no vendor implementation, foreign converter or private
+HN/JBIG code is inspected or migrated. Selected outline glyphs have no per-glyph
+instructions. The helper reproduces 32 diagnostic content/font configurations,
+preserving semantic text and original embedded programs. It adds no runtime
+dependency or conversion API. Font, document, PDF and screenshot binaries stay
+external. An interrupted host observer resumes verified-live sessions; its
+termination and setup/analysis failures remain recorded.

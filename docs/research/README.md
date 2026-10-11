@@ -240,3 +240,10 @@ improve. The existing 77-page cohort has 37 improvements, 40 unchanged rasters
 and no regressions; remaining device rounding and raster differences stay open.
 The 61-session receipt retains failed hypotheses, rejected captures and full
 CLI/Node/Chromium parity. Nine original source controls reproduce exactly.
+
+The [Type 3 rasterization controls](wine-type3-rasterization-20261011.md)
+exclude further character-procedure encodings as a correction for the tested
+Wine frames. Nested `d0` text retains baseline pixels; `d1` nested text is blank
+despite visible rectangle controls. All 28 original-outline path frames regress.
+The 62-session receipt and 32-PDF reproducer retain missing glyphs, a rejected
+frame comparison and an interrupted observer resumed without restarting Wine.
