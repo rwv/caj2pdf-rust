@@ -895,6 +895,9 @@ fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
             .glyph_with_replacement_text(0, 'A', matrix(10.0 + 25.0 * index as f64), 68, character)
             .unwrap();
     }
+    content
+        .glyph_with_alias_text(0, '中', matrix(60.0), 68, 'A')
+        .unwrap();
     content.glyph(0, 'A', matrix(70.0)).unwrap();
     content.finish().unwrap();
     document.embed_font(&handle, &mut font).unwrap();
@@ -902,8 +905,10 @@ fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
     let text = pdf_text(&sink.bytes);
     assert!(text.contains("/ActualText <FEFFE6C7>"));
     assert!(text.contains("/ActualText <FEFFDB80DC00>"));
-    assert_eq!(text.matches("BDC\n").count(), 2);
-    assert_eq!(text.matches("EMC\n").count(), 2);
+    assert!(text.contains("/ActualText <FEFF0041>"));
+    assert_eq!(text.matches("<4E2D> Tj").count(), 1);
+    assert_eq!(text.matches("BDC\n").count(), 3);
+    assert_eq!(text.matches("EMC\n").count(), 3);
     assert_eq!(text.matches("<0041> Tj").count(), 3);
 }
 

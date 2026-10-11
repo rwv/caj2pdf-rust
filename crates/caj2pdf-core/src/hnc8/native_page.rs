@@ -586,9 +586,20 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified native punctuation size fields"));
                 }
                 let latin = self.latin;
+                // In C8 CJK character mode, the A0 alphabet/digits query the
+                // raw two-byte GBK slot in the styled CJK resource. That font
+                // lookup does not replace the mode-2 source character.
+                let cjk_alias =
+                    if self.cjk_mode && code >> 8 == 0xa0 && character.is_ascii_alphanumeric() {
+                        let [lead, trail] = code.to_be_bytes();
+                        crate::gb18030::decode_two_byte(lead, trail)
+                    } else {
+                        None
+                    };
                 // Original Wine queries distinguish styled Han and these
                 // C8 fullwidth glyphs from the base-resource low-byte letters.
                 let cjk = if ('\u{3400}'..='\u{9fff}').contains(&character)
+                    || cjk_alias.is_some()
                     || (self.variant == Variant::C8
                         && matches!(code, 0xa1a1 | 0xa3a6 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa))
                 {
@@ -771,11 +782,15 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     transform[2] = transform[0] * self.skew;
                 }
                 // Keep the verified current gray local to each glyph draw.
-                let font = self.font(font, character);
-                if character == '\u{e6c7}'
+                if let Some(alias) = cjk_alias {
+                    // The selected CJK font must contain this measured alias;
+                    // ordinary ASCII or another resource is not a substitute.
+                    self.page
+                        .glyph_with_alias_text(cjk, alias, transform, self.gray, character)?;
+                } else if character == '\u{e6c7}'
                     && self
                         .fonts
-                        .get(font)
+                        .get(self.font(font, character))
                         .is_some_and(|font| !font.supports(character))
                 {
                     // The viewer paints an acute-accented Gamma-like shape for
@@ -787,6 +802,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         font, alias, transform, self.gray, character,
                     )?;
                 } else {
+                    let font = self.font(font, character);
                     self.page
                         .glyph_with_gray(font, character, transform, self.gray)?;
                 }

@@ -630,6 +630,14 @@ positioning gaps. Font-name equality and embedded-font coverage are insufficient
 the HN-B mode-0 symbol map is not a general C8 ordinary-character map. Preserve
 semantic Unicode separately from any measured font lookup alias.
 
+In C8 CJK character mode (`80ce/0`), raw `a0` digits and Latin letters select
+the measured raw-GBK alias in the active CJK font. ActualText keeps their
+source ASCII characters, and `substitutedGlyphs` stays unchanged. An absent
+optional style role uses `cjk`; a selected font missing its alias is an error.
+There is no ASCII-glyph or different-resource fallback for this case.
+`80ce/1` restores ordinary Latin selection. Extractors must honor ActualText
+to return the semantic character instead of the display alias.
+
 The default `►` is a visible substitute. A caller-supplied, hash-verified
 HGBZ resource can select all four measured ornament patterns in one document:
 

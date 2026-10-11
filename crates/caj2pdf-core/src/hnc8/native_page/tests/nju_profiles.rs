@@ -3,7 +3,12 @@
 use super::*;
 
 fn text(words: &[[u16; 2]], mode: u8) -> String {
-    let (result, pdf, finished) = convert(words, 0, &[], roles(), mode);
+    let fonts = if words.contains(&[0x80ce, 0]) {
+        vec![cjk_alias_font(); 3]
+    } else {
+        Vec::new()
+    };
+    let (result, pdf, finished) = convert_with_fonts(words, 0, &[], roles(), mode, fonts);
     result.unwrap();
     assert!(finished);
     crate::test_support::pdf_text(&pdf)

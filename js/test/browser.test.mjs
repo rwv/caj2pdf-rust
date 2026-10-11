@@ -240,7 +240,7 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   // Mapped symbol glyphs match the Node conversion byte for byte.
   const { convert } = await import("../node.mjs");
   const { wasmModule } = await import("./helpers.mjs");
-  const { syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
+  const { syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
   const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
   const font = new Blob([fontBytes]);
   for (const [code, unicode, browserPdf] of [[0xd6d0, "4E2D", result.hanStylePdf], [0xa3c1, "FF21", result.fullwidthStylePdf]]) {
@@ -261,6 +261,16 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
     assert.ok(hanText.includes("/F8 1 Tf") && hanText.includes("/F9 1 Tf") && hanText.includes("/F10 1 Tf"));
     await validatePdf(t, hanStylePdf, 1);
   }
+  const cjkAliasParts = [];
+  const aliasBytes = privateAliasFont(fontBytes, 0x7283), aliasFont = new Blob([aliasBytes]);
+  const aliasReport = await convert(await wasmModule(), new Blob([syntheticNativeC8CjkAliases()]), {
+    async writeChunk(bytes) { cjkAliasParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: aliasFont, latin: aliasFont,
+    cjkSans: new Blob([aliasBytes]), cjkKai: new Blob([aliasBytes]), cjkSystem: new Blob([aliasBytes]),
+  } } });
+  assert.equal(aliasReport.substitutedGlyphs, 0n);
+  assert.deepEqual(Buffer.from(result.cjkAliasPdf), Buffer.concat(cjkAliasParts));
+  await validatePdf(t, Buffer.from(result.cjkAliasPdf), 1);
   const ornamentParts = [];
   await convert(await wasmModule(), new Blob([syntheticNativeC8Ornaments()]), {
     async writeChunk(bytes) { ornamentParts.push(bytes.slice()); return bytes.length; }, async flush() {},

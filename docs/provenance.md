@@ -3125,7 +3125,8 @@ Twenty additional forward/reverse sessions confirm 590 C8 fullwidth queries,
 including the complete Latin alphabet, ideographic space and ampersand. Those
 characters use the same measured CJK style resources. Seventy-two mixed-code
 queries preserve the distinct low-byte-letter rules and both character modes;
-synthetic CJK-mode ordinary Latin aliases remain a documented limitation.
+the subsequent [CJK-mode alias study](research/wine-cjk-aliases-20261011.md)
+resolves all 62 ordinary Latin alphabet/digit aliases.
 The supplemental metadata retains each exact raw code, style, resource and
 cmap argument.
 Real-page review exposed an ignored `801c` family override. Twelve axis-control
@@ -3204,3 +3205,29 @@ opaque, and no vendor/private HN/JBIG or foreign-converter source is used.
 Only the generator, documentation and metadata enter this repository; generated
 fonts, C8/PDF files and screenshots remain external. Production placement,
 runtime APIs, dependencies and memory bounds are unchanged. #541 remains open.
+
+
+### Wine CJK-mode alphabet aliases (#541, 2026-10-11)
+
+The [59-session follow-up](research/wine-cjk-aliases-20261011.md) records 760
+independent font queries, forward/reverse agreement and six real-font visual
+improvements, each with an exact cold source repeat. The core selects the
+observed raw-GBK alias in the styled CJK font while retaining established
+ASCII source text in ActualText. This is an exact alias, not a lossy glyph
+substitute; missing aliases fail in the selected font. No new public API,
+dependency, font limit or placement model is introduced.
+
+`scripts/research/wine_cjk_aliases.py` is original MIT source using only the
+standard library. Its framing derives from the same project-owned MIT C8
+fixture reviewed above; all thirteen generated controls reproduce the
+observed hashes. Test outlines remain the project's original rectangles and
+triangles. Preserved-system-font marker copies, vendor font bytes, actual
+inputs, PDFs and captures remain external. No vendor implementation, private
+HN/JBIG source or foreign converter code was inspected or copied.
+
+Eleven geometry/PDF-factorization controls retain negative results, including
+two image-only pages explicitly excluded from typography evidence. All 13
+actual documents / 77 pages retain identical PDF bytes and all 113,418
+characters. Node/native bytes agree for the six corrected synthetic PDFs;
+real Chromium and Node share original geometric tests. Remaining pixel,
+page-extent and viewer-startup failures are not closed by this scoped fix.

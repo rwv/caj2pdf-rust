@@ -196,3 +196,10 @@ The [Wine ornament-spacing controls](wine-ornament-spacing-20261011.md)
 provide an original reproducible C8/font fixture and 43 session receipts.
 They isolate zoom-dependent integer repetition from font advances, retain
 rejected PDF encodings, and leave production geometry unchanged.
+
+
+The [CJK character-mode alias follow-up](wine-cjk-aliases-20261011.md) records
+760 font queries, six real-font before/after improvements with exact source
+repeats, and eleven negative geometry/PDF controls. Independent ActualText
+keeps semantic characters intact; all 77 actual PDF pages remain byte-identical.
+The original generator reproduces thirteen controls without external inputs.

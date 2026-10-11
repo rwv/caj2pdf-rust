@@ -142,6 +142,13 @@ letters, ideographic space and fullwidth ampersand. Ordinary Latin and the
 raw low-byte `006c`/`0070` letters keep their existing resource rules.
 These roles apply in both C8 character-selection modes and HN-B native modes
 0 and 2. Missing optional roles or missing CJK glyphs fall back to `cjk`.
+For C8 `80ce/0`, raw `a0` digits and Latin letters use the selected CJK font's
+measured raw-GBK alias while ActualText preserves their source ASCII text.
+Missing optional roles still use `cjk`, but the selected font must contain
+that alias: neither its ASCII glyph nor another font is a fallback. `80ce/1`
+restores ordinary Latin selection. This exact mapping is not counted as a
+glyph substitution. See the [alias controls](research/wine-cjk-aliases-20261011.md).
+
 `--font-cjk-system` is an explicit font path, including with
 `--no-system-fonts`; it does not trigger system discovery.
 

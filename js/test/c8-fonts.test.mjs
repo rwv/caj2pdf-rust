@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -15,6 +15,28 @@ const source = (bytes) => new Blob([bytes]);
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 const required = (font) => ({ cjk: font, latin: font });
+
+test("C8 CJK-mode aliases retain semantic A, exact family selection and bounded reads", async (t) => {
+  const bytes = privateAliasFont(fontBytes, 0x7283), reads = {};
+  const base = trackedBlob(source(bytes), reads);
+  const extra = () => trackedBlob(source(bytes), reads);
+  const fonts = { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() };
+  const parts = [];
+  const result = await convert(await wasmModule(), source(syntheticNativeC8CjkAliases()), sink(parts), {
+    includeBookmarks: false, chunkSize: 32, hnc8: { fonts },
+  });
+  assert.equal(result.substitutedGlyphs, 0n);
+  assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+  const pdf = Buffer.concat(parts), text = pageText(pdf);
+  assert.equal(text.match(/<7283> Tj/g).length, 8);
+  assert.equal(text.match(/\/ActualText <FEFF0041>/g).length, 8);
+  assert.equal(text.match(/<0041> Tj/g).length, 4);
+  for (const role of [8, 9, 10]) assert.ok(text.includes(`/F${role} 1 Tf`));
+  await validatePdf(t, pdf, 1);
+  await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8CjkAliases()), sink(), {
+    includeBookmarks: false, hnc8: { fonts: { ...fonts, cjkSans: source(fontBytes) } },
+  }), /no supported BMP glyph/);
+});
 
 test("C8 Han/fullwidth style fonts preserve characters and bounded reads on the public Node path", async (t) => {
   for (const [code, unicode] of [[0xd6d0, "4E2D"], [0xa3c1, "FF21"]]) {

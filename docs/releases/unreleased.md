@@ -275,3 +275,20 @@ CLI, Node and browser options are additive. Raw WASM adds
 `caj2pdf_c8_set_decoration_font(checksum, length, w0, ..., w7)` after roles,
 using the existing bounded font-name encoding. Use matching JS/WASM builds.
 No font binaries or automatic downloads are added.
+
+
+### Breaking C8 font behavior: CJK-mode alphabet aliases (#541)
+
+Correct the glyph selection for all 62 raw `a0` letters/digits while `80ce/0`
+is active. Native, CLI, Node and browser now query the measured GBK alias in
+the styled CJK font; previously they queried ASCII in the base CJK font.
+ActualText preserves the existing source ASCII character, and exact aliases
+do not increment substitution counts. `80ce/1` restores ordinary Latin.
+
+Callers rendering this combination must supply the measured alias in the
+selected font (for example U+7283 for raw `a0c1`), including optional CJK
+style fonts. An absent optional role still uses the base CJK font, but a
+missing glyph in the selected font fails instead of silently drawing ASCII.
+No public API, font-read bound or coordinate model changes. All 77 actual
+inventory pages remain byte-identical; six original controls improve while
+retaining pixel differences. See the [evidence](../research/wine-cjk-aliases-20261011.md).

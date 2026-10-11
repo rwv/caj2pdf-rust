@@ -58,9 +58,10 @@ The separate 72 mixed-code queries sample both C8 character modes. They
 confirm that raw `006c` and `0070` always use HGSS at ordinary Latin slots,
 independently of style. Ordinary `a0` Latin codes in character mode 1 retain
 their Latin resource aliases. Character mode 0 queries distinct CJK aliases
-for those `a0` codes; that synthetic combination remains unimplemented and
-was not present in the 13-document inventory. Existing placement gates remain
-unchanged, including rejection of CJK-mode space/ampersand placement.
+for those `a0` codes. The [760-query follow-up](wine-cjk-aliases-20261011.md)
+now implements all 62 alphabet/digit aliases, styled resources and independent
+ActualText. The combination is absent from the 13-document inventory. Existing
+placement gates remain unchanged, including CJK-mode space/ampersand refusal.
 
 The optional CJK roles now also select C8 fullwidth letters, ideographic
 space and fullwidth ampersand from the original style. The actual inventory

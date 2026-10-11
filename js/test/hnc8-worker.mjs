@@ -3,7 +3,7 @@
 // HN/C8 conversion called from the caller's own Dedicated Worker, with fonts
 // from OPFS file handles and Blobs. Each convert() starts a nested Worker.
 import { convert, loadModule, spoolToOpfs } from "../browser.mjs";
-import { syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const fontSpools = [];
@@ -48,6 +48,15 @@ try {
       decorationFontIdentity: fixtureFontIdentity(new Uint8Array(await fontBlob.arrayBuffer())),
     } },
   });
+  const cjkAliasPdf = [];
+  const aliasBytes = privateAliasFont(await fontBlob.arrayBuffer(), 0x7283);
+  const cjkAliasFont = new Blob([aliasBytes]);
+  const aliasReport = await convert(module, new Blob([syntheticNativeC8CjkAliases()]), collect(cjkAliasPdf), {
+    includeBookmarks: false, chunkSize: 32,
+    hnc8: { fonts: { cjk: cjkAliasFont, latin: cjkAliasFont,
+      cjkSans: new Blob([aliasBytes]), cjkKai: new Blob([aliasBytes]), cjkSystem: new Blob([aliasBytes]) } },
+  });
+  if (aliasReport.substitutedGlyphs !== 0n) throw new Error("source aliases counted as substitutions");
   const nativePdfs = [];
   const hanStylePdf = [];
   await convert(module, new Blob([syntheticNativeC8HanStyles()]), collect(hanStylePdf), {
@@ -139,7 +148,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { ornamentPdf, hanStylePdf, fullwidthStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { cjkAliasPdf, ornamentPdf, hanStylePdf, fullwidthStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

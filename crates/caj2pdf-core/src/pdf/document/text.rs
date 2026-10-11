@@ -17,6 +17,8 @@ enum GlyphText {
     Character,
     Decoration,
     Replacement(char),
+    /// Exact source-font alias with independent semantic text, not a substitute.
+    Alias(char),
     /// Exact text for a glyph selected from a separately encoded font slot.
     Mapped(char),
 }
@@ -592,6 +594,26 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         )
     }
 
+    /// Paint a measured source-font alias while retaining its semantic text.
+    /// Unlike a lossy substitute, this does not increment substituted_glyphs.
+    pub(crate) fn glyph_with_alias_text(
+        &mut self,
+        font: usize,
+        alias: char,
+        transform: [f64; 6],
+        gray: u8,
+        character: char,
+    ) -> Result<()> {
+        self.draw_glyph(
+            font,
+            alias,
+            transform,
+            Some(gray),
+            None,
+            GlyphText::Alias(character),
+        )
+    }
+
     /// Draw one glyph clipped to `[left, bottom, width, height]` in PDF points.
     /// Extents must be positive. Clipping is local to this draw and does not
     /// affect later content. This retains the ordinary glyph's Unicode mapping;
@@ -680,7 +702,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             GlyphText::Decoration => {
                 self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?
             }
-            GlyphText::Replacement(character) => {
+            GlyphText::Replacement(character) | GlyphText::Alias(character) => {
                 self.emit(b"/Span << /ActualText <FEFF")?;
                 for unit in character.encode_utf16(&mut [0; 2]) {
                     self.emit(format!("{unit:04X}").as_bytes())?;
@@ -694,9 +716,10 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         match text {
             GlyphText::Character | GlyphText::Mapped(_) => (),
             GlyphText::Decoration => self.emit(b"EMC\nEMC\n")?,
-            GlyphText::Replacement(_) => {
+            GlyphText::Replacement(_) | GlyphText::Alias(_) => {
                 self.emit(b"EMC\n")?;
-                self.document.substituted_glyphs += 1;
+                self.document.substituted_glyphs +=
+                    u64::from(matches!(text, GlyphText::Replacement(_)));
             }
         }
         if gray.is_some() || clip.is_some() {

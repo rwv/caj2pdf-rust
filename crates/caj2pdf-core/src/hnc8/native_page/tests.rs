@@ -806,27 +806,31 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         }
     }
     for mode in [0, 1] {
-        let (result, expected, finished) = convert(
-            &make_words(Some(&[[0x80ce, mode]])),
-            1,
-            &[false],
-            roles(),
-            0,
-        );
+        let run = |words: &[[u16; 2]], profile| {
+            convert_with_fonts(
+                words,
+                1,
+                &[false],
+                roles(),
+                profile,
+                vec![cjk_alias_font(); 3],
+            )
+        };
+        let (result, expected, finished) = run(&make_words(Some(&[[0x80ce, mode]])), 0);
         result.unwrap();
         assert!(finished);
         let words = make_words(Some(&[[0x80ce, mode], [0x9002, 0]]));
-        let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+        let (result, pdf, finished) = run(&words, 0);
         assert!(result.is_ok() && finished);
         assert_eq!(pdf, expected);
-        assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
+        assert!(run(&words, 12).0.is_err());
         for payload in [[342, 5], [420, 7], [0, 0], [0xffff, 0xffff], [0x8004, 1]] {
             let words = make_words(Some(&[[0x80ce, mode], [0x80cc, 0x0204], payload]));
-            let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+            let (result, pdf, finished) = run(&words, 0);
             result.unwrap();
             assert!(finished);
             assert_eq!(pdf, expected);
-            assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
+            assert!(run(&words, 12).0.is_err());
         }
     }
     for payload in [
@@ -1768,17 +1772,29 @@ fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
         let mut words = vec![[0x80ce, 0], [0x801d, state]];
         words.extend(ordinary());
         words.extend([[0x80ce, 1], [4772, 0xa0c1], [0x8004, 1]]);
-        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        let resources = vec![
+            labelled_font([0x4e2d, 0x7283]),
+            crate::pdf::drawing_font(),
+            crate::pdf::drawing_font(),
+        ];
+        let (result, pdf, finished) = convert_with_fonts(&words, 0, &[], roles(), 0, resources);
         result.unwrap();
         assert!(finished);
         let text = crate::test_support::pdf_text(&pdf);
         assert_eq!(text.matches("/F0 1 Tf").count(), 2);
+        assert_eq!(text.matches("/ActualText <FEFF0041>").count(), 1);
+        assert_eq!(text.matches("<7283> Tj").count(), 1);
+        assert_eq!(text.matches("<0041> Tj").count(), 1);
         assert_eq!(
             text.matches(&format!("/F{} 1 Tf", if state == 0 { 1 } else { 2 }))
                 .count(),
             1
         );
         assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        // A font containing ordinary A but not the native alias is insufficient.
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
     }
 }
 
@@ -2230,7 +2246,13 @@ fn native_han_style_fonts_preserve_characters_across_profiles_and_modes() {
         let latin = if profile == 18 { 0xa3c1 } else { 0xa0c1 };
         let mut words = vec![[0x80ce, character_mode], [0x8001, 4350]];
         for style in [0x0884, 0x0ce7, 0x1084, 0x04e7] {
-            words.extend([[0x8002, style], [4682, 0xd6d0], [4772, latin]]);
+            words.extend([
+                [0x80ce, character_mode],
+                [0x8002, style],
+                [4682, 0xd6d0],
+                [0x80ce, 1],
+                [4772, latin],
+            ]);
         }
         words.push([0x8004, 1]);
         let (result, pdf, finished) =
@@ -2305,6 +2327,168 @@ fn native_han_style_fonts_preserve_characters_across_profiles_and_modes() {
         result.unwrap();
         assert!(finished);
         assert_in_order(&pdf, &["/F3 1 Tf", "<4E2D> Tj"]);
+    }
+}
+
+// Raw-code/cmap pairs independently observed with Wine byte-query fonts.
+const CJK_MODE_A0_QUERIES: &[(u16, char)] = &[
+    (0xa0b0, '\u{7265}'),
+    (0xa0b1, '\u{7268}'),
+    (0xa0b2, '\u{726a}'),
+    (0xa0b3, '\u{726b}'),
+    (0xa0b4, '\u{726c}'),
+    (0xa0b5, '\u{726d}'),
+    (0xa0b6, '\u{7270}'),
+    (0xa0b7, '\u{7271}'),
+    (0xa0b8, '\u{7273}'),
+    (0xa0b9, '\u{7274}'),
+    (0xa0c1, '\u{7283}'),
+    (0xa0c2, '\u{7285}'),
+    (0xa0c3, '\u{7286}'),
+    (0xa0c4, '\u{7287}'),
+    (0xa0c5, '\u{7288}'),
+    (0xa0c6, '\u{7289}'),
+    (0xa0c7, '\u{728c}'),
+    (0xa0c8, '\u{728e}'),
+    (0xa0c9, '\u{7290}'),
+    (0xa0ca, '\u{7291}'),
+    (0xa0cb, '\u{7293}'),
+    (0xa0cc, '\u{7294}'),
+    (0xa0cd, '\u{7295}'),
+    (0xa0ce, '\u{7296}'),
+    (0xa0cf, '\u{7297}'),
+    (0xa0d0, '\u{7298}'),
+    (0xa0d1, '\u{7299}'),
+    (0xa0d2, '\u{729a}'),
+    (0xa0d3, '\u{729b}'),
+    (0xa0d4, '\u{729c}'),
+    (0xa0d5, '\u{729d}'),
+    (0xa0d6, '\u{729e}'),
+    (0xa0d7, '\u{72a0}'),
+    (0xa0d8, '\u{72a1}'),
+    (0xa0d9, '\u{72a2}'),
+    (0xa0da, '\u{72a3}'),
+    (0xa0e1, '\u{72aa}'),
+    (0xa0e2, '\u{72ab}'),
+    (0xa0e3, '\u{72ae}'),
+    (0xa0e4, '\u{72b1}'),
+    (0xa0e5, '\u{72b2}'),
+    (0xa0e6, '\u{72b3}'),
+    (0xa0e7, '\u{72b5}'),
+    (0xa0e8, '\u{72ba}'),
+    (0xa0e9, '\u{72bb}'),
+    (0xa0ea, '\u{72bc}'),
+    (0xa0eb, '\u{72bd}'),
+    (0xa0ec, '\u{72be}'),
+    (0xa0ed, '\u{72bf}'),
+    (0xa0ee, '\u{72c0}'),
+    (0xa0ef, '\u{72c5}'),
+    (0xa0f0, '\u{72c6}'),
+    (0xa0f1, '\u{72c7}'),
+    (0xa0f2, '\u{72c9}'),
+    (0xa0f3, '\u{72ca}'),
+    (0xa0f4, '\u{72cb}'),
+    (0xa0f5, '\u{72cc}'),
+    (0xa0f6, '\u{72cf}'),
+    (0xa0f7, '\u{72d1}'),
+    (0xa0f8, '\u{72d3}'),
+    (0xa0f9, '\u{72d4}'),
+    (0xa0fa, '\u{72d5}'),
+];
+
+/// Reuse only the original rectangle/triangle outlines with extra cmap entries.
+fn cjk_alias_font() -> Vec<u8> {
+    #[allow(dead_code)]
+    mod original_font {
+        include!("../../../tests/common/font_fixture.rs");
+    }
+    use original_font::{build, table, tables};
+    let mut mapping = std::collections::BTreeMap::from([(65_u32, 1_u32), (0x4e2d, 2)]);
+    for &(code, alias) in CJK_MODE_A0_QUERIES {
+        mapping.insert(u32::from((code & 0xff) - 0x80), 1);
+        mapping.insert(alias as u32, 2);
+    }
+    let mut data = tables(&crate::pdf::drawing_font());
+    let cmap = table(&mut data, b"cmap");
+    cmap.truncate(28);
+    cmap[16..20].copy_from_slice(&(16 + mapping.len() as u32 * 12).to_be_bytes());
+    cmap[24..28].copy_from_slice(&(mapping.len() as u32).to_be_bytes());
+    for (code, glyph) in mapping {
+        for value in [code, code, glyph] {
+            cmap.extend(value.to_be_bytes());
+        }
+    }
+    build(data)
+}
+
+#[test]
+fn c8_cjk_mode_a0_aliases_use_style_and_family_without_changing_text() {
+    let selected = C8PageFonts {
+        latin: 0,
+        cjk_sans: Some(1),
+        cjk_kai: Some(2),
+        cjk_system: Some(3),
+        ..required_roles()
+    };
+    let mut words = Vec::new();
+    let mut tokens = Vec::new();
+    for (index, &(code, alias)) in CJK_MODE_A0_QUERIES.iter().enumerate() {
+        let character = char::from(((code & 0xff) - 0x80) as u8);
+        let (style, expected) =
+            [(0x1084, 0), (0x0884, 1), (0x0c84, 2), (0x04c6, 3), (0, 3)][index % 5];
+        words.extend([[0x8001, 4350], [0x8002, style], [0x80ce, 0]]);
+        if style == 0 {
+            words.extend([[0x8070, 34], [0x8071, 34]]);
+        }
+        words.extend([
+            [4682, code],
+            [0x801c, 4],
+            [4772, code],
+            [0x80ce, 1],
+            [4862, code],
+        ]);
+        let semantic = format!("/ActualText <FEFF{:04X}>", character as u32);
+        let glyph = format!("<{:04X}> Tj", alias as u32);
+        tokens.extend([
+            semantic.clone(),
+            format!("/F{expected} 1 Tf"),
+            glyph.clone(),
+            semantic,
+            "/F0 1 Tf".to_owned(),
+            glyph,
+            "/F0 1 Tf".to_owned(),
+            format!("<{:04X}> Tj", character as u32),
+        ]);
+    }
+    words.push([0x8004, 1]);
+    let resources = vec![cjk_alias_font(); 4];
+    let (result, pdf, finished) =
+        convert_with_fonts(&words, 0, &[], selected, 0, resources.clone());
+    result.unwrap();
+    assert!(finished);
+    assert_in_order(&pdf, &tokens.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(
+        crate::test_support::pdf_text(&pdf)
+            .matches("/ActualText <FEFF")
+            .count(),
+        124
+    );
+    let absent = C8PageFonts {
+        cjk_sans: None,
+        cjk_kai: None,
+        cjk_system: None,
+        ..selected
+    };
+    convert_with_fonts(&words, 0, &[], absent, 0, resources.clone())
+        .0
+        .unwrap();
+    // Present style roles must contain the alias even if base CJK contains it.
+    for missing_role in 1..4 {
+        let mut missing = resources.clone();
+        missing[missing_role] = crate::pdf::drawing_font();
+        let (result, _, finished) = convert_with_fonts(&words, 0, &[], selected, 0, missing);
+        assert!(result.is_err());
+        assert!(!finished);
     }
 }
 
