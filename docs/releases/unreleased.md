@@ -84,6 +84,19 @@ full embedding is refused. See [CLI usage](../cli.md) and
 [host configuration](../io-architecture.md). Remaining Wine differences are
 tracked in #541; using original fonts does not establish pixel parity.
 
+### Breaking PDF geometry: HN-B mode-0 page padding (#541)
+
+Native mode-0 page extents now add 10 PDF points after converting raw dimensions
+with the measured `72/742` point unit. Previously they added 100 raw units,
+about 9.7035 points. Width and height each increase by about 0.2965 point, and
+bottom-origin drawing coordinates follow the corrected page height. This
+applies to native Rust, CLI, Node and browser, with either subset or full fonts.
+Update stored page-box expectations and PDF hashes by reconverting mode-0
+inputs; there is no new option or API field. Font bytes and semantic text are
+unchanged. Mode-2 pages and other conversion routes are unaffected. Ten original
+Wine boundary comparisons match, while four actual mode-0 pages retain their
+previous 75% raster. Remaining glyph placement differences are tracked in #541.
+
 ### Other unreleased changes
 
 - The Rust PDF writer adds `pdf::FontEmbedding` and

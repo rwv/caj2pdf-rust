@@ -3400,3 +3400,26 @@ or memory path. Explicit ToUnicode/ActualText source-order validation remains
 a separate check; empty maps on unused resources are accepted, while every
 painted CID still requires a mapping. Fonts, corpus documents, output PDFs
 and screenshots remain outside Git.
+
+### Mode-0 additive page padding (#541, 2026-10-11)
+
+The [Wine mode-0 padding study](research/wine-mode0-page-padding-20261011.md)
+establishes ten additive PDF points independently of the raw `72/742` unit.
+Ten original boundary comparisons include three zooms and a held-out dimension
+pair; the corrected formula matches all ten while the former 100-raw-unit
+addition matches only three. Four actual pages retain their previous 75% RGB
+frames, and 73 mode-2 pages retain identical PDF bytes. Thirteen fresh production
+sessions, three exact cold repeat views, source-order checks and 26 native/Node
+byte comparisons validate the change. Unresolved glyph-position hypotheses
+and failed preparation/decimal-preservation checks are retained in the receipt.
+
+`scripts/research/wine_mode0_page_extents.py` is original MIT research code,
+reviewed per file. It uses the project's independently established HN-B framing
+and authored glyph grids, reproducing eight measured controls exactly with only
+the Python standard library. No private parser/JBIG module, vendor implementation
+or foreign converter was consulted or migrated. The native geometry helper and
+literal observed-dimension regression are also original MIT work. No new runtime
+dependency or allocation is introduced. Geometric resource fonts are original
+controls; a separate system-font diagnostic retains external metadata/unused
+glyphs and is not wholly project-authored. All font binaries, corpus documents
+and raster evidence remain external.

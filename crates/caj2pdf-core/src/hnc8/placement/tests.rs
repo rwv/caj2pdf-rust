@@ -49,6 +49,33 @@ fn page_extents_predict_independent_wine_device_boundaries() {
 }
 
 #[test]
+fn mode_zero_extents_match_independent_wine_controls_and_held_out_dimensions() {
+    // White-page dimensions from fixed 96-dpi Wine controls, excluding the
+    // independently measured four horizontal/five vertical border pixels.
+    for (width, height, zoom, expected) in [
+        (2500, 2300, 0.75, [253.0, 233.0]),
+        (2500, 2300, 1.0, [337.0, 311.0]),
+        (2500, 2300, 1.5, [505.0, 466.0]),
+        (3100, 3400, 0.75, [311.0, 340.0]),
+        (3100, 3400, 1.0, [414.0, 453.0]),
+        (3100, 3400, 1.5, [622.0, 680.0]),
+        (5105, 4200, 0.75, [505.0, 418.0]),
+        (5105, 4200, 1.0, [674.0, 557.0]),
+        (5105, 4200, 1.5, [1011.0, 835.0]),
+        (4736, 2800, 1.0, [626.0, 376.0]), // Held out before observations.
+    ] {
+        let size = mode_zero_page_geometry([width, height]).unwrap().size;
+        for (points, pixels) in [size.width_points, size.height_points]
+            .into_iter()
+            .zip(expected)
+        {
+            assert_eq!((points * (96.0 / 72.0) * zoom).round(), pixels);
+        }
+    }
+    assert!(mode_zero_page_geometry([0, 100]).is_err());
+}
+
+#[test]
 fn image_dimensions_round_the_exact_point_ratio_once() {
     let page = empirical_page_from_pixels(2071, 153, [0.0; 2]).unwrap();
     // Predetermined decimal physical dimensions catch the extra rounding

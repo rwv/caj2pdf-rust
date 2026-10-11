@@ -1132,7 +1132,7 @@ fn mode_zero_renders_cjk_and_distinct_latin_alphabets_in_source_order() {
     ] {
         after += pdf[after..].find(token).unwrap() + token.len();
     }
-    let extent = 700.0 * super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let extent = 600.0 * super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT + 10.0;
     let dimensions = pdf
         .split("/MediaBox [0 0 ")
         .nth(1)

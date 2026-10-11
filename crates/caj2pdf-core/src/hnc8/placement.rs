@@ -126,6 +126,15 @@ pub(super) fn source_page_geometry(size: [u16; 2]) -> Result<EmpiricalPageGeomet
     })
 }
 
+/// Wine mode-0 page extents add ten PDF points, independently of the raw
+/// coordinate unit. Original controls distinguish this from 100 raw units.
+pub(super) fn mode_zero_page_geometry(size: [u16; 2]) -> Result<EmpiricalPageGeometry> {
+    let mut page = source_page_geometry(size)?;
+    page.size.width_points += 10.0;
+    page.size.height_points += 10.0;
+    Ok(page)
+}
+
 pub(super) fn source_image_transform(
     page: EmpiricalPageGeometry,
     coordinate: RawTextCoordinate,

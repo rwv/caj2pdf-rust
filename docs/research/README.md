@@ -208,3 +208,9 @@ The [original-font production comparison](wine-original-font-production-20261011
 validates bounded native/CLI/Node/browser font transport and explicit ordinary
 aliases against all 77 Wine pages, including mode 0, with cold repeats and
 independent glyph/semantic checks. Remaining pixel differences stay open.
+
+The [mode-0 page-padding follow-up](wine-mode0-page-padding-20261011.md)
+separates the ten-point page margin from the raw coordinate unit. Ten boundary
+comparisons, including a held-out size, match Wine; four actual page rasters
+remain unchanged at 75%. The eight-source generator, 61-session receipt and
+26 native/Node byte comparisons preserve unresolved glyph-position hypotheses.

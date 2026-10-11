@@ -238,14 +238,13 @@ where
     let size = header
         .page_size
         .ok_or_else(|| source_error(invalid("native page size is missing")))?;
-    let mut geometry = super::placement::source_page_geometry(size).map_err(source_error)?;
     let legacy = header.native_mode == Some(0);
-    if legacy {
-        // Add in source units before conversion, without overflowing u16 extents.
-        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-        geometry.size.width_points = (f64::from(size[0]) + 100.0) * unit;
-        geometry.size.height_points = (f64::from(size[1]) + 100.0) * unit;
+    let geometry = if legacy {
+        super::placement::mode_zero_page_geometry(size)
+    } else {
+        super::placement::source_page_geometry(size)
     }
+    .map_err(source_error)?;
     let origin = header
         .native_origin
         .ok_or_else(|| source_error(invalid("native page origin is missing")))?;
