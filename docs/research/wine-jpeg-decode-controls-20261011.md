@@ -122,12 +122,19 @@ skips excluded from passing evidence. The old failed job remains linked in
 the receipt; the fresh research commit has its own CI status.
 
 This experiment narrows one hypothesis for two image-only pages and one mixed
-page. It does not close #534: the 58 historical page-width cases, fresh pinned
-main comparison, independent native image payload/geometry proof, original
-asymmetric image controls, other samples/codecs and demonstrated cause or fix
-remain outside this batch. No production defect is established here. The
-77-page font cohort retains its previously reported improvements and remaining
-differences; it is not recounted as 77 new observations.
+page. **Status correction:** #534 had already closed through the explicit
+unresolved-classification path in merged [#538](https://github.com/rwv/caj2pdf-rust/pull/538),
+with original asymmetric controls and metadata in
+[samples #115](https://github.com/rwv/caj2pdf-samples/pull/115). That earlier work
+covers the 58 width cases and 14 selected image-only cases and retains their
+unresolved visual differences; closure did not establish pixel parity.
+
+The fresh main baseline, historical width cases and independent image controls
+are outside this JPEG batch, rather than missing from #534's completed
+classification. Future fidelity work should reuse those controls under #406;
+font/placement work remains #541. No production defect is established here.
+The 77-page font cohort retains its previously reported improvements and
+remaining differences; it is not recounted as 77 new observations.
 
 For reproduction, install the versions above and qpdf, then run:
 

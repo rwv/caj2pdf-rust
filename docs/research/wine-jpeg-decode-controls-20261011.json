@@ -10162,7 +10162,7 @@
     "Decode rows are from Pillow/libjpeg-turbo, not independently observed native-viewer decoder rows.",
     "Unchanged Interpolate controls do not establish that the flag is universally ignored.",
     "Page geometry, original-image payload equivalence, device quantization and resampling remain unresolved.",
-    "Current branch baseline, not a newly pinned main-branch comparison; #534 acceptance is incomplete.",
+    "This batch uses the font-work branch, not a fresh main comparison. #534 was already closed through the unresolved-classification path in merged #538; this batch does not resolve the remaining visual differences.",
     "No new conversion compatibility or runtime/fidelity pass. Existing 77-page cohort still differs."
   ]
 }

@@ -3682,3 +3682,10 @@ no foreign converter or private HN/JBIG code is inspected, copied or migrated.
 Public artifacts contain metadata and original helpers; font/document/PDF/image
 and executable binaries remain external. No production, dependency, API, I/O,
 font-archive or runtime-parity change follows. #541 remains open.
+
+The JPEG follow-up report/receipt correct an earlier issue-state statement:
+#534 had already closed via the unresolved-classification path in #538 and
+samples #115. Their existing image controls and baseline work are reused for
+future #406 fidelity work; they are not unfulfilled #534 classification steps.
+This correction changes scope/status wording only, not observations or hashes
+of measured inputs, fonts, outputs or captures.
