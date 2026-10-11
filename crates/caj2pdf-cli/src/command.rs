@@ -6,8 +6,10 @@
 //! express and keeps the documented `caj2pdf: error:` messages.
 
 use caj2pdf_core::hnc8::{
-    C8_MAX_FONTS, NativeDecorationGlyph, NativeSymbolGlyph, SymbolFontIdentity,
+    C8_MAX_FONTS, MAX_NATIVE_FONT_GLYPHS, NativeDecorationGlyph, NativeFontGlyphAlias,
+    NativeSymbolGlyph, SymbolFontIdentity,
 };
+use caj2pdf_core::pdf::FontEmbedding;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -29,6 +31,9 @@ pub struct ConvertOptions {
     pub fonts: [Option<PathBuf>; C8_MAX_FONTS],
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
     pub font_dir: Option<PathBuf>,
+    pub font_embedding: FontEmbedding,
+    /// `font` initially indexes FONT_FILES; Resources resolves source indices.
+    pub font_glyphs: Vec<NativeFontGlyphAlias>,
     pub decoration_char: Option<char>,
     /// Explicit symbols-font glyphs for raw HN-B mode-0 symbol codes.
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
@@ -156,6 +161,12 @@ struct ConvertArgs {
     /// Native C8/HN-B fonts named cjk, latin, ... (.ttf/.otf/.ttc) in DIR
     #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
     fonts: Option<OsString>,
+    /// Embed used fonts as compact subsets or complete TrueType programs
+    #[arg(long, value_parser = ["subset", "full"], default_value = "subset")]
+    font_embedding: String,
+    /// Use a font's original cmap GLYPH for text CHAR, preserving text; repeatable
+    #[arg(long, value_name = "ROLE:CHAR=GLYPH", allow_hyphen_values = true)]
+    font_glyph: Vec<OsString>,
     /// Native C8/HN-B CJK font (required with --font-latin)
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk: Option<OsString>,
@@ -339,6 +350,28 @@ fn decoration_glyph(value: OsString) -> Result<NativeDecorationGlyph, String> {
     })
 }
 
+fn font_glyph(value: OsString) -> Result<NativeFontGlyphAlias, String> {
+    const ERROR: &str =
+        "--font-glyph requires ROLE:CHAR=GLYPH with a known font role and BMP characters or U+XXXX";
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (role, pair) = value.split_once(':').ok_or(ERROR)?;
+    let font = FONT_FILES
+        .iter()
+        .position(|name| *name == role)
+        .ok_or(ERROR)?;
+    let (character, glyph) = pair.split_once('=').ok_or(ERROR)?;
+    let scalar = |value| {
+        symbol_glyph(OsString::from(format!("0000={value}")))
+            .map(|entry| entry.glyph)
+            .map_err(|_| ERROR)
+    };
+    Ok(NativeFontGlyphAlias {
+        font,
+        character: scalar(character)?,
+        glyph: scalar(glyph)?,
+    })
+}
+
 /// `NAME:CHECKSUM`: a PostScript name and an eight-digit hexadecimal `head`
 /// checkSumAdjustment. The name may itself contain `:`.
 fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
@@ -361,6 +394,9 @@ fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
 impl ConvertArgs {
     fn into_command(self) -> Result<Command, String> {
         const FONT: &str = "font resources require a nonempty path, not standard input";
+        if self.font_glyph.len() > MAX_NATIVE_FONT_GLYPHS {
+            return Err("too many --font-glyph aliases".into());
+        }
         let fonts = [
             self.font_cjk,
             self.font_latin,
@@ -382,6 +418,16 @@ impl ConvertArgs {
             no_bookmarks: self.no_bookmarks,
             allow_damaged: self.allow_damaged,
             quiet: self.quiet,
+            font_embedding: if self.font_embedding == "full" {
+                FontEmbedding::Full
+            } else {
+                FontEmbedding::Subset
+            },
+            font_glyphs: self
+                .font_glyph
+                .into_iter()
+                .map(font_glyph)
+                .collect::<Result<_, _>>()?,
             font_dir: font_path(
                 self.fonts,
                 "--fonts requires a nonempty directory path, not standard input",
@@ -449,6 +495,14 @@ impl ConvertArgs {
         }
         if options.decoration_font.is_some() && options.decoration_glyphs.is_empty() {
             return Err("--decoration-font-identity requires --decoration-glyph".into());
+        }
+        if options.font_dir.is_none()
+            && options.fonts.iter().all(Option::is_none)
+            && (options.font_embedding == FontEmbedding::Full || !options.font_glyphs.is_empty())
+        {
+            return Err(
+                "--font-embedding full and --font-glyph require explicit font resources".into(),
+            );
         }
         Ok(Command::Convert {
             input: endpoint(self.input.expect("clap requires INPUT"))?,

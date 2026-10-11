@@ -146,7 +146,8 @@ function isBmpScalar(character) {
  */
 function fontConfig(options) {
   if (options?.fonts === undefined) return undefined;
-  const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, decorationGlyphs, decorationFontIdentity, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
+  const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, decorationGlyphs, decorationFontIdentity, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31, embedding = "subset", glyphAliases = [] } = options.fonts ?? {};
+  if (embedding !== "subset" && embedding !== "full") throw new TypeError("font embedding must be subset or full");
   const sources = [];
   const faces = [];
   const index = (font) => {
@@ -194,6 +195,7 @@ function fontConfig(options) {
   const identity = fontIdentity(symbolFontIdentity, glyphs, "symbol");
   const ornamentIdentity = fontIdentity(decorationFontIdentity, ornaments, "decoration");
   const fonts = {
+    embedding,
     roles,
     symbols: optional(symbols),
     symbolGlyphs: glyphs,
@@ -207,6 +209,23 @@ function fontConfig(options) {
     cjkKai: optional(cjkKai),
     cjkSystem: optional(cjkSystem),
   };
+  const aliases = [];
+  const roleIndices = { cjk: roles[0], latin: roles[1], alternateLatin: roles[2], decoration: roles[3],
+    symbols: fonts.symbols, latinState3: fonts.latinState3, latinState28: fonts.latinState28,
+    latinState31: fonts.latinState31, cjkSans: fonts.cjkSans, cjkKai: fonts.cjkKai, cjkSystem: fonts.cjkSystem };
+  for (const entry of glyphAliases) {
+    if (aliases.length === 11 * 65536) throw new RangeError("too many native font glyph aliases");
+    const { role, character, glyph } = entry ?? {};
+    const font = Object.hasOwn(roleIndices, role) ? roleIndices[role] : undefined;
+    if (font === undefined || font === MAX_U32) throw new TypeError("glyph alias requires a supplied font role");
+    if (!isBmpScalar(character) || !isBmpScalar(glyph)) throw new TypeError("font glyph alias requires BMP character and glyph scalars");
+    aliases.push([font, character.codePointAt(0), glyph.codePointAt(0)]);
+  }
+  aliases.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (let i = 1; i < aliases.length; i++) {
+    if (aliases[i - 1][0] === aliases[i][0] && aliases[i - 1][1] === aliases[i][1]) throw new TypeError("font character has more than one glyph alias (including shared font roles)");
+  }
+  fonts.glyphAliases = aliases;
   if (sources.length > 11) throw new RangeError("at most eleven distinct C8 font resources are supported");
   return { sources, faces, fonts };
 }

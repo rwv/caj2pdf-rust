@@ -1800,3 +1800,52 @@ fn decoration_glyph_options_use_decimal_values_and_explicit_fonts() {
         assert!(parse_str(&args).is_err(), "{args:?}");
     }
 }
+
+#[test]
+fn original_font_glyph_options_require_roles_and_bmp_scalars() {
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.caj",
+        "--fonts=dir",
+        "--font-embedding=full",
+        "--font-glyph=latin:A=U+4E2D",
+        "--font-glyph=cjk:U+4E2D=A",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        options.font_embedding,
+        caj2pdf_core::pdf::FontEmbedding::Full
+    );
+    assert_eq!(
+        options.font_glyphs[0],
+        caj2pdf_core::hnc8::NativeFontGlyphAlias {
+            font: 1,
+            character: 'A',
+            glyph: '中'
+        }
+    );
+    assert_eq!(
+        options.font_glyphs[1],
+        caj2pdf_core::hnc8::NativeFontGlyphAlias {
+            font: 0,
+            character: '中',
+            glyph: 'A'
+        }
+    );
+    for value in [
+        "other:A=B",
+        "latin:A=",
+        "latin:=A",
+        "latin:AA=B",
+        "latin:A=😀",
+        "latin:😀=A",
+        "latin:U+D800=A",
+        "latin:A=U+D800",
+    ] {
+        assert!(parse_str(&["input.caj", "--fonts=dir", "--font-glyph", value]).is_err());
+    }
+    assert!(parse_str(&["input.caj", "--font-embedding=full"]).is_err());
+    assert!(parse_str(&["input.caj", "--font-glyph=latin:A=B"]).is_err());
+    assert!(parse_str(&["input.caj", "--fonts=dir", "--font-embedding=unknown"]).is_err());
+}

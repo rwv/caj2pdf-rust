@@ -317,6 +317,16 @@ impl Session {
         self.result.is_none() && self.fonts.set_cjk_style(style, index)
     }
 
+    /// Select subset (0) or complete TrueType (1) embedding once after roles.
+    pub fn set_c8_font_embedding(&mut self, mode: u32) -> bool {
+        self.result.is_none() && self.fonts.set_embedding(mode)
+    }
+
+    /// Add an ordinary BMP character/glyph alias in source-index/character order.
+    pub fn add_c8_font_glyph(&mut self, font: u32, character: u32, glyph: u32) -> bool {
+        self.result.is_none() && self.fonts.add_glyph_alias(font, character, glyph)
+    }
+
     /// Map an HN-B mode-0 symbol code to a glyph of the symbols role, after
     /// the roles and before running.
     pub fn add_hnb_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {

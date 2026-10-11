@@ -1076,3 +1076,48 @@ fn ornament_registration_requires_roles_and_is_bounded() {
     assert!(session.set_c8_decoration_font(0, 1, [65; 8]));
     assert!(!session.set_c8_decoration_font(0, 1, [65; 8]));
 }
+
+#[test]
+fn full_font_embedding_and_aliases_reach_native_conversion_through_host_resources() {
+    let bytes = native_c8();
+    let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
+    let mut session = Session::default();
+    assert!(!session.set_c8_font_embedding(1));
+    assert!(!session.add_c8_font_glyph(0, 65, 0x4e2d));
+    assert_eq!(session.add_font_source(font.len() as u64, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_c8_font_embedding(2));
+    assert!(session.set_c8_font_embedding(1));
+    assert!(!session.set_c8_font_embedding(0));
+    for (source, character, glyph) in [
+        (1, 65, 65),
+        (0, 0xd800, 65),
+        (0, 65, 0xd800),
+        (0, 0x10000, 65),
+        (0, 65, 0x10000),
+    ] {
+        assert!(!session.add_c8_font_glyph(source, character, glyph));
+    }
+    assert!(session.add_c8_font_glyph(0, 65, 0x4e2d));
+    assert!(!session.add_c8_font_glyph(0, 65, 65));
+    assert!(!session.add_c8_font_glyph(0, 64, 65));
+    let mut host = Memory {
+        fonts: vec![font],
+        ..Memory::new(&bytes).short(3)
+    };
+    assert_eq!(
+        session.run(
+            &mut host,
+            bytes.len() as u64,
+            limits(32),
+            native_operation()
+        ),
+        Status::Done,
+        "{}",
+        session.message()
+    );
+    assert!(host.max_read <= 32 && host.max_write <= 32);
+    assert!(String::from_utf8_lossy(&host.output).contains("/BaseFont /CajFixture /"));
+    assert!(!session.add_c8_font_glyph(0, 66, 65));
+    assert!(!session.set_c8_font_embedding(1));
+}

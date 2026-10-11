@@ -63,6 +63,27 @@ Node and browser accept `hnc8.fonts.symbolGlyphs`, an iterable of
 use the same core map: the listed codes draw exactly the chosen glyph, and
 text keeps the decoded character. Existing options and outputs are unchanged.
 
+### Breaking Rust API: original programs and ordinary glyph aliases (#541)
+
+`Fonts` and `C8FontSources` gain `embedding` and `glyph_aliases`. For previous
+behavior, use `FontEmbedding::Subset` and an empty `Vec`/slice, or
+`..Fonts::default()`. `write_c8_native_page` takes an additional alias slice
+after decoration glyphs; pass `&[]` when no aliases are needed. Nonempty
+`NativeFontGlyphAlias { font, character, glyph }` lists must be strictly sorted
+by source index and BMP character; their target glyphs must exist. Aliases
+preserve semantic text and do not mutate embedded font cmaps.
+
+CLI adds `--font-embedding subset|full` and repeatable
+`--font-glyph ROLE:CHAR=GLYPH` with explicit font resources. Node/browser add
+`hnc8.fonts.embedding` and `glyphAliases: [{ role, character, glyph }]`.
+Raw WASM adds `caj2pdf_c8_set_font_embedding` and
+`caj2pdf_c8_add_font_glyph` after base-role registration. Defaults retain
+subsetting and empty maps. Complete TrueType programs preserve original bytes
+(or selected TTC face tables) using bounded reads, with larger PDFs; used CFF
+full embedding is refused. See [CLI usage](../cli.md) and
+[host configuration](../io-architecture.md). Remaining Wine differences are
+tracked in #541; using original fonts does not establish pixel parity.
+
 ### Other unreleased changes
 
 - The Rust PDF writer adds `pdf::FontEmbedding` and
@@ -77,9 +98,8 @@ text keeps the decoded character. Existing options and outputs are unchanged.
   size and are read twice, with source-digest validation between passes.
   Used CFF resources refuse `Full`; unused resources keep small subsets.
   Existing font-admission rules apply. `embed_font` and all conversion
-  defaults still subset fonts. Native conversion, CLI and JavaScript option
-  wiring and external character aliases are follow-up work; this additive
-  low-level API alone does not claim viewer parity.
+  defaults still subset fonts. Native conversion, CLI, Node/browser and raw
+  WASM now expose this option with external glyph aliases, as described above.
 
 - Correct vertically inverted type-1 JPEGs in HN-A/C8 image and native pages
   (#530). Type 1 now draws top-first; type 2 retains its measured bottom-first

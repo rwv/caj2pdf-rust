@@ -203,3 +203,8 @@ The [CJK character-mode alias follow-up](wine-cjk-aliases-20261011.md) records
 repeats, and eleven negative geometry/PDF controls. Independent ActualText
 keeps semantic characters intact; all 77 actual PDF pages remain byte-identical.
 The original generator reproduces thirteen controls without external inputs.
+
+The [original-font production comparison](wine-original-font-production-20261011.md)
+validates bounded native/CLI/Node/browser font transport and explicit ordinary
+aliases against all 77 Wine pages, including mode 0, with cold repeats and
+independent glyph/semantic checks. Remaining pixel differences stay open.

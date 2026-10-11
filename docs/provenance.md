@@ -3359,3 +3359,44 @@ source changes, output failure, retriable planning and mapped semantic text.
 The low-level writer foundation does not yet expose full fonts through native
 conversion/CLI/Node/browser options. Those integrations, original-font aliases,
 mode-0 evidence and production Wine raster validation remain open in #541.
+
+
+### Original-program conversion and external aliases (#541, 2026-10-11)
+
+`hnc8/native_glyphs.rs` and the native composer/page-writer, conversion options,
+CLI parser/resource loader, raw WASM session/bridge and JS Worker/type changes
+are original MIT work. They reuse the project's mapped glyph/text PDF writer
+and bounded complete-program foundation. No private module, HN/JBIG code,
+vendor implementation or foreign converter source was migrated. The only
+resource rules used are the preceding Wine measurements and explicit caller
+configuration; there is no font-name inference or new runtime dependency.
+
+Ordinary aliases are sorted unique `(source index, BMP character)` entries,
+validated against source glyph coverage. Shared source indices are remapped
+to page slots once, bounded by eleven BMP maps and `Limits`. Original TrueType
+programs retain their bytes; selected TTC faces retain original tables/GIDs
+with the documented standalone-header/checksum changes. Explicit mode-0 symbol
+maps and nonsemantic decorations bypass ordinary aliases. Defaults still use
+empty maps and subsets. New native/CLI/Node/browser tests use only the existing
+original geometric font fixtures, including shared sources, independent glyph/
+text identity, missing/invalid aliases, bounded I/O and failed-output cleanup.
+The real Chromium test reads original fonts through OPFS and agrees with Node.
+
+The [production comparison](research/wine-original-font-production-20261011.md)
+closes the earlier transport and mode-0 measurement gaps: 18 Wine sessions
+retain two failed startups, all 77 admitted pages and seven exact cold repeats.
+Compared with the refined-scale subset baseline, 67 pages improve, ten remain
+unchanged and none regress; 1,371,646 differing pixels disappear. All page
+extents match. The 73 mode-2 renders match the preceding diagnostic exactly;
+the four mode-0 pages improve modestly. Every actual page still differs.
+
+`scripts/research/verify_original_font_output.py` is original MIT research
+code reviewed per file. It independently resolves drawn CIDs, compares
+fontTools-decomposed outlines/advances/bearings and PDF widths, and checks all
+other content operators and page boxes using pikepdf. Used standalone programs
+must match supplied originals exactly; TTC tables must match except DSIG and
+head checksum. This external whole-file checker adds no production dependency
+or memory path. Explicit ToUnicode/ActualText source-order validation remains
+a separate check; empty maps on unused resources are accepted, while every
+painted CID still requires a mapping. Fonts, corpus documents, output PDFs
+and screenshots remain outside Git.

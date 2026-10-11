@@ -37,6 +37,12 @@ try {
   const fontSpool = await spoolToOpfs(fontBlob.stream(), { maxBytes: BigInt(fontBlob.size) });
   fontSpools.push(fontSpool);
   const font = fontSpool.source;
+  const originalFontPdf = [];
+  await convert(module, new Blob([syntheticNativeC8()]), collect(originalFontPdf), {
+    includeBookmarks: false, chunkSize: 32,
+    hnc8: { fonts: { cjk: font, latin: font, embedding: "full",
+      glyphAliases: [{ role: "latin", character: "A", glyph: "中" }] } },
+  });
   const symbolBlob = await (await fetch("/fixtures/symbols.ttf")).blob();
   const symbolSpool = await spoolToOpfs(symbolBlob.stream(), { maxBytes: BigInt(symbolBlob.size) });
   fontSpools.push(symbolSpool);
@@ -148,7 +154,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { cjkAliasPdf, ornamentPdf, hanStylePdf, fullwidthStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { originalFontPdf, cjkAliasPdf, ornamentPdf, hanStylePdf, fullwidthStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

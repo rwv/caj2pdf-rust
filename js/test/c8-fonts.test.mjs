@@ -436,3 +436,47 @@ test("ornament maps reject invalid values, missing glyphs and wrong font identit
   await assert.rejects(run({ ...base, decorationGlyphs: excessive() }), /at most four/);
   assert.equal(consumed, 5);
 });
+
+test("original font aliases preserve complete programs and semantic text through bounded Node reads", async (t) => {
+  for (const embedding of ["subset", "full"]) {
+    const reads = {}, font = trackedBlob(source(fontBytes), reads), parts = [];
+    const result = await convert(await wasmModule(), source(syntheticNativeC8()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32,
+      hnc8: { fonts: { ...required(font), embedding, glyphAliases: [{ role: "latin", character: "A", glyph: "中" }] } },
+    });
+    assert.equal(result.substitutedGlyphs, 0n);
+    assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+    const pdf = Buffer.concat(parts), text = pageText(pdf);
+    assert.ok(text.includes("<0001> <0041>"));
+    assert.ok(text.includes("/W [ 1 [ 1000 ] ]"));
+    if (embedding === "full") {
+      assert.ok(text.includes(fontBytes.toString("latin1")), "original program must be embedded verbatim");
+      assert.ok(text.includes("/BaseFont /CajFixture /"));
+    }
+    await validatePdf(t, pdf, 1);
+  }
+});
+
+test("font alias options reject invalid and shared duplicate keys before reading inputs", async () => {
+  const font = source(fontBytes), module = await wasmModule();
+  for (const glyphAliases of [
+    [{ role: "absent", character: "A", glyph: "中" }],
+    [{ role: "latinState3", character: "A", glyph: "中" }],
+    [{ role: "latin", character: "😀", glyph: "A" }],
+    [{ role: "latin", character: "A", glyph: "\ud800" }],
+    [{ role: "latin", character: "A", glyph: "中" }, { role: "cjk", character: "A", glyph: "A" }],
+  ]) {
+    await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+      hnc8: { fonts: { ...required(font), glyphAliases } },
+    }), /alias/);
+  }
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(font), embedding: "unknown" } },
+  }), /embedding/);
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(font), glyphAliases: [{ role: "latin", character: "A", glyph: "B" }] } },
+  }), /does not map an explicit native glyph alias/);
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(source(cffBytes)), embedding: "full" } },
+  }), /requires TrueType outlines/);
+});

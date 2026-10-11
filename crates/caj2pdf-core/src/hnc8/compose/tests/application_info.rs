@@ -157,6 +157,8 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],

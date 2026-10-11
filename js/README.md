@@ -557,6 +557,35 @@ await convert(wasm, documentSource, outputSink, {
 });
 ```
 
+To preserve original TrueType programs, set `hnc8.fonts.embedding: "full"`.
+The default is `"subset"`. Standalone programs keep their exact bytes;
+collections preserve the selected face's original glyph IDs and tables in
+a rebuilt standalone font, without DSIG. Used CFF resources reject `"full"`;
+unused resources remain subsets. Complete programs use bounded ranged reads
+but can substantially increase output size.
+
+`hnc8.fonts.glyphAliases` accepts an iterable of
+`{ role, character, glyph }`, for example:
+
+```js
+const fonts = {
+  cjk: cjkFontSource,
+  latin: originalLatinFontSource,
+  embedding: "full",
+  glyphAliases: [{ role: "latin", character: "1", glyph: "\u6571" }],
+};
+```
+
+This illustrates one measured resource mapping, not a complete font recipe.
+Both characters must be BMP scalars. `role` names a supplied font property
+(such as `latinState3`); its original cmap selects `glyph`, while extracted
+text retains `character`. Source programs are never edited. Duplicate source/
+character keys, including aliases through shared roles, and missing glyphs
+reject conversion. At most eleven BMP maps are accepted, with Rust-side
+allocation limits. Aliases also work with subsets. Explicit symbol-code maps
+and nonsemantic decorations bypass ordinary aliases. Font inputs, transport
+and source deduplication retain the same rules in Node and browsers.
+
 `symbolGlyphs` selects, by its BMP character-map entry, the `symbols` glyph
 drawn for each listed raw HN-B mode-0 symbol code. Extracted text keeps the
 decoded character, so codes that decode alike can keep distinct source

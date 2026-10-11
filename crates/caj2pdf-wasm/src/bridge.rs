@@ -201,6 +201,20 @@ pub extern "C" fn caj2pdf_c8_add_font(size: u64, face: u32) -> u32 {
     with_session(0, |session| session.add_font_source(size, face))
 }
 
+/// Set subset (0, default) or complete TrueType (1) embedding after font roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_font_embedding(mode: u32) -> u32 {
+    with_session(0, |session| session.set_c8_font_embedding(mode) as u32)
+}
+
+/// Add an ordinary BMP text/glyph alias, strictly ordered by (font, character).
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_add_font_glyph(font: u32, character: u32, glyph: u32) -> u32 {
+    with_session(0, |session| {
+        session.add_c8_font_glyph(font, character, glyph) as u32
+    })
+}
+
 /// Assign zero-based font indices and the optional decoration alias.
 /// `u32::MAX` marks an absent alternate Latin or decoration role; core then
 /// applies the documented CJK/Latin fallback. Returns 1 when accepted.

@@ -21,6 +21,8 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport>, Vec<u8>) {
         &mut source,
         &mut sink,
         fonts.then(|| C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut font,
             roles: roles(),
             symbol_glyphs: &[],
@@ -119,6 +121,8 @@ fn native_documents_use_native_composition_only_with_fonts() {
             &mut source,
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
@@ -248,6 +252,8 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         &mut source,
         &mut sink,
         Some(C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut fonts,
             roles: roles(),
             symbol_glyphs: &[],

@@ -387,9 +387,35 @@ Font path flags accept separate values or `--font-cjk=FILE` spelling, and
 Repeating a role or `--fonts`, giving per-role flags without both
 `--font-cjk` and `--font-latin` (and without `--fonts`), or using `-` as a
 font path is a usage error. Reuse the same path for multiple roles to embed
-it once. Only the glyphs a document draws are embedded, as a compressed
-subset, so the size of the supplied font file barely affects the output.
+it once. By default, only drawn glyphs are embedded as a compressed subset.
 Native C8/HN-B font options are rejected for other document formats.
+
+`--font-embedding full` embeds used standalone TrueType fonts byte-for-byte.
+For TTC inputs, it rebuilds the selected face with original glyph IDs and
+table data, omitting DSIG and recalculating the checksum. Unused resources
+remain small subsets; used CFF fonts refuse complete embedding. The default
+is `--font-embedding subset`. Complete fonts can substantially enlarge PDFs;
+their programs are streamed twice with bounded reads and change detection.
+
+Repeat `--font-glyph ROLE:CHAR=GLYPH` to select an original cmap entry for
+ordinary native text while preserving its decoded character in the PDF:
+
+```sh
+caj2pdf input.caj -o output.pdf --fonts /external/original-fonts \
+  --font-embedding full --font-glyph latin:U+0031=U+6571
+```
+
+This single mapping illustrates the measured HGBZ digit `1`; a complete
+document can require many other aliases and style resources. ROLE uses the
+font flag names without `font-` (for example, `latin-state3`); CHAR and GLYPH
+are BMP scalars or `U+XXXX`. The role must be supplied, and its font must map
+GLYPH. Duplicate `(source, CHAR)` keys are refused, including roles sharing
+one source. Aliases apply to ordinary text only; explicit mode-0 symbol maps
+and nonsemantic decorations keep their separate selections. Maps are external
+configuration, never inferred from a font name. At most eleven BMP maps are
+accepted, also subject to the allocation limit. Both new options require
+explicit font resources. Empty aliases and subset embedding retain the
+previous behavior; aliases also work with subset embedding.
 
 Font files are read twice: metadata before the first page, then metadata
 and the drawn glyphs after the last page. They must not change during

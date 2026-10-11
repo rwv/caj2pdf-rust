@@ -240,9 +240,19 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   // Mapped symbol glyphs match the Node conversion byte for byte.
   const { convert } = await import("../node.mjs");
   const { wasmModule } = await import("./helpers.mjs");
-  const { syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
+  const { syntheticNativeC8, syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
   const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
   const font = new Blob([fontBytes]);
+  const originalParts = [];
+  await convert(await wasmModule(), new Blob([syntheticNativeC8()]), {
+    async writeChunk(bytes) { originalParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font,
+    embedding: "full", glyphAliases: [{ role: "latin", character: "A", glyph: "中" }] } } });
+  const originalPdf = Buffer.from(result.originalFontPdf);
+  assert.deepEqual(originalPdf, Buffer.concat(originalParts));
+  assert.ok(pageText(originalPdf).includes(fontBytes.toString("latin1")));
+  assert.ok(pageText(originalPdf).includes("<0001> <0041>"));
+  await validatePdf(t, originalPdf, 1);
   for (const [code, unicode, browserPdf] of [[0xd6d0, "4E2D", result.hanStylePdf], [0xa3c1, "FF21", result.fullwidthStylePdf]]) {
     const styleBytes = code === 0xd6d0 ? fontBytes : privateAliasFont(fontBytes, 0xff21);
     const styleFont = new Blob([styleBytes]);

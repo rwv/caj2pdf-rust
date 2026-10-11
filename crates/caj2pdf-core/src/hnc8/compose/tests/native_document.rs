@@ -60,6 +60,8 @@ fn native_c8_jpeg_descriptor_keeps_the_image_box_but_changes_row_orientation() {
             &mut source,
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
@@ -148,6 +150,8 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             &mut source,
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: font_roles,
                 symbol_glyphs: &[],
@@ -212,6 +216,8 @@ fn native_document_checks_resource_contract_before_output() {
             &mut Source::new(vec![]),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
@@ -244,6 +250,8 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
         &mut Source::new(fixture.bytes),
         &mut sink,
         C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut fonts,
             roles: roles(),
             symbol_glyphs: &[],
@@ -281,6 +289,8 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
@@ -346,6 +356,8 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: role,
                 symbol_glyphs: &[],
@@ -390,6 +402,8 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
@@ -469,6 +483,8 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             &mut source,
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
@@ -517,6 +533,8 @@ fn check_hnb_type3_after_text(corrupt: bool) -> Vec<u8> {
         &mut source,
         &mut sink,
         C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut fonts,
             roles: roles(),
             symbol_glyphs: &[],
@@ -615,6 +633,8 @@ fn convert_bound_symbols(
         &mut Source::new(fixture.bytes),
         &mut sink,
         C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut fonts,
             roles: C8PageFonts { symbols, ..roles() },
             symbol_glyphs,
@@ -837,6 +857,8 @@ fn convert_ornaments(
         &mut Source::new(fixture.bytes),
         &mut sink,
         C8FontSources {
+            embedding: Default::default(),
+            glyph_aliases: &[],
             sources: &mut fonts,
             roles: C8PageFonts {
                 decoration,
@@ -957,5 +979,151 @@ fn ornament_maps_refuse_wrong_resources_values_and_missing_glyphs() {
         let (result, bytes) = convert_ornaments(&entries, role, identity, mode);
         assert!(result.is_err());
         assert!(!bytes.ends_with(b"%%EOF\n"));
+    }
+}
+
+#[test]
+fn original_font_aliases_preserve_text_and_remap_shared_source_slots() {
+    use crate::hnc8::NativeFontGlyphAlias;
+    use crate::pdf::FontEmbedding;
+    let fixture = fixture_with_text(Variant::C8, &[vec![]], |_| {
+        [
+            [0x8001_u16, 60],
+            [0x8002, 0x1084],
+            [20, 0xa0c1],
+            [40, 0xd6d0],
+            [0x801d, 4],
+            [60, 0xa0c2],
+            [0x80ce, 0],
+            [80, 0xa0c1],
+            [0x8004, 39],
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(u16::to_le_bytes)
+        .collect()
+    });
+    for embedding in [FontEmbedding::Subset, FontEmbedding::Full] {
+        let original = crate::pdf::drawing_font();
+        let mut fonts = [0, 1].map(|_| C8FontSource {
+            source: Source::new(original.clone()),
+            face: 0,
+        });
+        let aliases = [
+            NativeFontGlyphAlias {
+                font: 0,
+                character: 'A',
+                glyph: '中',
+            },
+            NativeFontGlyphAlias {
+                font: 1,
+                character: 'B',
+                glyph: 'A',
+            },
+        ];
+        let mut sink = Sink::default();
+        let report = convert_c8_native_pdf(
+            &mut Source::new(fixture.bytes.clone()),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: C8PageFonts {
+                    alternate_latin: Some(1),
+                    ..roles()
+                },
+                embedding,
+                glyph_aliases: &aliases,
+                symbol_glyphs: &[],
+                symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
+            },
+            None,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(report.conversion.substituted_glyphs, 0);
+        let text = crate::test_support::pdf_text(&sink.bytes);
+        assert!(
+            text.contains("/F2 1 Tf"),
+            "alias coverage must keep the alternate role"
+        );
+        assert!(text.contains("<0001> <0041>"));
+        assert!(text.contains("<0002> <4E2D>"));
+        assert!(text.contains("<0001> <0042>"));
+        // CJK character mode still keys explicit aliases by decoded text,
+        // before choosing the default raw-GBK slot absent from this fixture.
+        assert!(text.contains("/ActualText <FEFF0041>"));
+        assert!(text.contains("/W [ 1 [ 1000 1000 ] ]"));
+        assert!(text.contains("/W [ 1 [ 600 ] ]"));
+        if embedding == FontEmbedding::Full {
+            assert_eq!(
+                crate::test_support::inflated_stream(&sink.bytes, b"/Length1 "),
+                original
+            );
+        }
+    }
+}
+
+#[test]
+fn original_font_aliases_refuse_invalid_keys_and_missing_target_glyphs() {
+    use crate::hnc8::NativeFontGlyphAlias as Alias;
+    let valid = Alias {
+        font: 0,
+        character: 'A',
+        glyph: '中',
+    };
+    let fixture = fixture_with_text(Variant::C8, &[vec![]], native_text);
+    for aliases in [
+        vec![Alias { font: 1, ..valid }],
+        vec![Alias {
+            character: '😀',
+            ..valid
+        }],
+        vec![Alias {
+            glyph: '😀',
+            ..valid
+        }],
+        vec![valid, valid],
+        vec![
+            Alias {
+                character: 'B',
+                ..valid
+            },
+            valid,
+        ],
+        vec![Alias {
+            glyph: 'B',
+            ..valid
+        }],
+    ] {
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
+        let mut sink = Sink::default();
+        let error = convert_c8_native_pdf(
+            &mut Source::new(fixture.bytes.clone()),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: roles(),
+                embedding: Default::default(),
+                glyph_aliases: &aliases,
+                symbol_glyphs: &[],
+                symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
+            },
+            None,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap_err();
+        assert!(error.reason.contains("glyph alias"), "{error}");
+        assert!(!sink.bytes.ends_with(b"%%EOF\n"));
     }
 }

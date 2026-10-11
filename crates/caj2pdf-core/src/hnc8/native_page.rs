@@ -7,6 +7,7 @@ use super::{
     Variant, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate, empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
+use super::{NativeFontGlyphAlias, native_glyphs};
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, Result};
 use std::io::Write;
@@ -190,6 +191,7 @@ pub fn write_c8_native_page<S, W, C>(
     roles: C8PageFonts,
     symbol_glyphs: &[NativeSymbolGlyph],
     decoration_glyphs: &[NativeDecorationGlyph],
+    glyph_aliases: &[NativeFontGlyphAlias],
     images: &[ImageObject],
     top_first: &[bool],
 ) -> Result<u32>
@@ -206,6 +208,7 @@ where
         offset: reader.current.map_or(0, |p| p.page.text.offset),
     };
     let source_error = |source| loc.locate(source);
+    native_glyphs::validate(glyph_aliases, fonts.len(), reader.limits).map_err(source_error)?;
     validate_decoration_glyphs(decoration_glyphs, roles).map_err(source_error)?;
     if !decoration_glyphs.is_empty() && header.native_mode != Some(2) {
         return Err(source_error(invalid(
@@ -255,6 +258,7 @@ where
         roles,
         symbol_glyphs,
         decoration_glyphs,
+        glyph_aliases,
         geometry,
         origin,
         top_first,
@@ -286,6 +290,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     /// Explicit source glyphs for mode-0 symbol codes, drawn without fallback.
     symbol_glyphs: &'r [NativeSymbolGlyph],
     decoration_glyphs: &'r [NativeDecorationGlyph],
+    glyph_aliases: &'r [NativeFontGlyphAlias],
     geometry: EmpiricalPageGeometry,
     origin: [u16; 2],
     top_first: &'r [bool],
@@ -785,26 +790,30 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 if let Some(alias) = cjk_alias {
                     // The selected CJK font must contain this measured alias;
                     // ordinary ASCII or another resource is not a substitute.
+                    let alias =
+                        native_glyphs::lookup(self.glyph_aliases, cjk, character).unwrap_or(alias);
                     self.page
                         .glyph_with_alias_text(cjk, alias, transform, self.gray, character)?;
                 } else if character == '\u{e6c7}'
                     && self
                         .fonts
                         .get(self.font(font, character))
-                        .is_some_and(|font| !font.supports(character))
+                        .is_some_and(|resource| {
+                            !resource.supports(self.glyph(self.font(font, character), character))
+                        })
                 {
                     // The viewer paints an acute-accented Gamma-like shape for
                     // A661, but Copy yields a bullet. Use a visual substitute
                     // from the caller's font and retain the PUA in ActualText.
                     let alias = '\u{0403}';
                     let font = self.font(Some(self.roles.latin), alias);
+                    let alias = self.glyph(font, alias);
                     self.page.glyph_with_replacement_text(
                         font, alias, transform, self.gray, character,
                     )?;
                 } else {
                     let font = self.font(font, character);
-                    self.page
-                        .glyph_with_gray(font, character, transform, self.gray)?;
+                    self.draw_text(font, character, transform, self.gray)?;
                 }
             }
             NativeRecord::Drawing { .. }
@@ -886,7 +895,10 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         role.ok_or_else(|| invalid("missing mapped decoration font"))?,
                         entry.glyph,
                     ),
-                    None => (self.font(role, default_alias), default_alias),
+                    None => (
+                        self.font_with_glyph(role, default_alias, default_alias),
+                        default_alias,
+                    ),
                 };
                 let style = self
                     .style
@@ -965,11 +977,36 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
     /// Apply the [`C8PageFonts`] fallback rule to a selected role. An index
     /// outside the page resources is kept so the draw reports it.
     fn font(&self, role: Option<usize>, character: char) -> usize {
+        let glyph = role.map_or(character, |font| self.glyph(font, character));
+        self.font_with_glyph(role, character, glyph)
+    }
+
+    fn font_with_glyph(&self, role: Option<usize>, character: char, glyph: char) -> usize {
         match role.map(|index| (index, self.fonts.get(index))) {
             Some((index, None)) => index,
-            Some((index, Some(font))) if font.supports(character) => index,
+            Some((index, Some(font))) if font.supports(glyph) => index,
             _ if is_cjk_coded(character) => self.roles.cjk,
             _ => self.roles.latin,
+        }
+    }
+
+    fn glyph(&self, font: usize, character: char) -> char {
+        native_glyphs::lookup(self.glyph_aliases, font, character).unwrap_or(character)
+    }
+
+    fn draw_text(
+        &mut self,
+        font: usize,
+        character: char,
+        transform: [f64; 6],
+        gray: u8,
+    ) -> Result<()> {
+        let glyph = self.glyph(font, character);
+        if glyph == character {
+            self.page.glyph_with_gray(font, character, transform, gray)
+        } else {
+            self.page
+                .mapped_glyph(font, glyph, character, transform, gray)
         }
     }
 
@@ -1106,8 +1143,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                         .mapped_glyph(symbols, entry.glyph, character, transform, 68)?;
                 } else {
                     let font = self.font(font, character);
-                    self.page
-                        .glyph_with_gray(font, character, transform, 68)?;
+                    self.draw_text(font, character, transform, 68)?;
                 }
             }
             _ => return Err(invalid("unverified HN-B mode-0 rendering record")),

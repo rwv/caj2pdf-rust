@@ -7,9 +7,10 @@ use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
     hnc8::{
-        C8_MAX_FONTS, C8FontSource, C8PageFonts, NativeDecorationGlyph, NativeSymbolGlyph,
-        SymbolFontIdentity,
+        C8_MAX_FONTS, C8FontSource, C8PageFonts, MAX_NATIVE_FONT_GLYPHS, NativeDecorationGlyph,
+        NativeFontGlyphAlias, NativeSymbolGlyph, SymbolFontIdentity,
     },
+    pdf::FontEmbedding,
 };
 use std::cell::RefCell;
 
@@ -23,6 +24,8 @@ pub(super) struct Fonts {
     faces: [u32; C8_MAX_FONTS],
     count: usize,
     roles: Option<C8PageFonts>,
+    embedding: Option<FontEmbedding>,
+    glyph_aliases: Vec<NativeFontGlyphAlias>,
     /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
     symbol_glyphs: Vec<NativeSymbolGlyph>,
     symbol_font: Option<SymbolFontIdentity>,
@@ -31,6 +34,46 @@ pub(super) struct Fonts {
 }
 
 impl Fonts {
+    pub(super) fn set_embedding(&mut self, mode: u32) -> bool {
+        let embedding = match mode {
+            0 => FontEmbedding::Subset,
+            1 => FontEmbedding::Full,
+            _ => return false,
+        };
+        if self.roles.is_none() || self.embedding.is_some() {
+            return false;
+        }
+        self.embedding = Some(embedding);
+        true
+    }
+
+    pub(super) fn add_glyph_alias(&mut self, font: u32, character: u32, glyph: u32) -> bool {
+        let (Some(character), Some(glyph)) = (char::from_u32(character), char::from_u32(glyph))
+        else {
+            return false;
+        };
+        let font = font as usize;
+        if self.roles.is_none()
+            || font >= self.count
+            || character > '\u{ffff}'
+            || glyph > '\u{ffff}'
+            || self.glyph_aliases.len() == MAX_NATIVE_FONT_GLYPHS
+            || self
+                .glyph_aliases
+                .last()
+                .is_some_and(|entry| (entry.font, entry.character) >= (font, character))
+            || self.glyph_aliases.try_reserve(1).is_err()
+        {
+            return false;
+        }
+        self.glyph_aliases.push(NativeFontGlyphAlias {
+            font,
+            character,
+            glyph,
+        });
+        true
+    }
+
     pub(super) fn count(&self) -> usize {
         self.count
     }
@@ -208,6 +251,8 @@ impl Fonts {
         host: &'h RefCell<&'h mut H>,
     ) -> Option<FontResources<'h>> {
         (self.count != 0).then(|| FontResources {
+            embedding: self.embedding.unwrap_or_default(),
+            glyph_aliases: self.glyph_aliases.clone(),
             sources: (0..self.count)
                 .map(|index| {
                     let source: Box<dyn RangedSource + 'h> =

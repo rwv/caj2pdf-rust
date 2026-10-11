@@ -168,6 +168,14 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
       ? exports.caj2pdf_c8_set_fonts(...fonts.roles)
       : exports.caj2pdf_c8_set_fonts_with_symbols(...fonts.roles, fonts.symbols);
     if (roles !== 1) return { invalid: "WASM rejected C8 font roles" };
+    if (fonts.embedding === "full" && exports.caj2pdf_c8_set_font_embedding?.(1) !== 1) {
+      return { invalid: "WASM rejected complete font embedding" };
+    }
+    for (const [font, character, glyph] of fonts.glyphAliases) {
+      if (exports.caj2pdf_c8_add_font_glyph?.(font, character, glyph) !== 1) {
+        return { invalid: "WASM rejected a native font glyph alias" };
+      }
+    }
     for (const state of [3, 28, 31]) {
       const index = fonts[`latinState${state}`];
       if (index !== undefined && exports.caj2pdf_c8_set_latin_state(state, index) !== 1) {

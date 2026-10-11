@@ -35,6 +35,6 @@ export function nativeC8Fonts(
   font: string,
 ) {
   return convert(wasm, source, sink, { includeBookmarks: false, hnc8: {
-    fonts: { cjk: font, latin: { source: font, face: 1 }, alternateLatin: font, symbols: font, symbolGlyphs: [{ code: 0xa1af, glyph: '\ue000' }], symbolFontIdentity: { postscriptName: 'HGFX_CNKI', checksumAdjustment: 0x9a2b73d3 }, latinState3: font, latinState28: font, latinState31: font, decoration: { source: font, character: 'A' }, decorationGlyphs: [{ value: 117, glyph: '中' }], decorationFontIdentity: { postscriptName: 'CajFixture', checksumAdjustment: 1 } },
+    fonts: { embedding: "full", glyphAliases: [{ role: "latin", character: "A", glyph: "中" }], cjk: font, latin: { source: font, face: 1 }, alternateLatin: font, symbols: font, symbolGlyphs: [{ code: 0xa1af, glyph: '\ue000' }], symbolFontIdentity: { postscriptName: 'HGFX_CNKI', checksumAdjustment: 0x9a2b73d3 }, latinState3: font, latinState28: font, latinState31: font, decoration: { source: font, character: 'A' }, decorationGlyphs: [{ value: 117, glyph: '中' }], decorationFontIdentity: { postscriptName: 'CajFixture', checksumAdjustment: 1 } },
   } });
 }

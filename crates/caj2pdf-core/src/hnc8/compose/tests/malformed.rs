@@ -98,6 +98,8 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                     &mut source,
                     &mut sink,
                     C8FontSources {
+                        embedding: Default::default(),
+                        glyph_aliases: &[],
                         sources: &mut fonts,
                         roles: roles(),
                         symbol_glyphs: &[],
