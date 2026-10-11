@@ -108,6 +108,19 @@ or API change. CJK character mode, mode 0, fullwidth A3 digits and letters keep
 their existing behavior. Independent Wine controls and three actual pages
 improve; other alphabet and raster differences remain tracked in #541.
 
+### Native mode-2 ASCII letter placement (#541)
+
+Raw A0C1–A0DA and A0E1–A0FA letters in ordinary Latin placement now use the
+character-dependent integer origins measured in Wine, replacing the previous
+class-wide width compensation. Existing style/axis admission, font programs,
+glyph aliases and semantic text remain intact. This changes PDF coordinates
+and hashes for affected C8/HN-B input across native, CLI, Node and browser,
+with both subset and full programs; reconvert affected files. No option or API
+change. CJK character mode, mode 0, fullwidth A3 letters and digits keep their
+separate placement rules. In the existing 77-page Wine cohort, 37 pages improve,
+40 retain their prior rasters and none regress. All pages still have pixel
+differences; device rounding and unequal-axis rasterization remain open in #541.
+
 ### Other unreleased changes
 
 - The Rust PDF writer adds `pdf::FontEmbedding` and

@@ -901,8 +901,8 @@ fn explicit_axes_override_style_and_reset_at_the_next_style() {
         assert!((matrix[0] - em).abs() < 0.000001);
         assert!((matrix[3] - em).abs() < 0.000001);
         let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-        assert!((matrix[4] - (440.0 * unit + em / 8.0)).abs() < 0.000001);
-        assert!((matrix[5] - (487.0 * unit - em)).abs() < 0.000001);
+        assert!((matrix[4] - 451.0 * unit).abs() < 0.000001);
+        assert!((matrix[5] - (488.0 * unit - em)).abs() < 0.000001);
     }
     let mut reversed = words;
     reversed.swap(2, 3);
@@ -1636,8 +1636,9 @@ fn hnb_paired_axes_define_dimensions_and_allow_implicit_style() {
         let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
         assert!((matrices[0][0] - w).abs() < 0.000001);
         assert!((matrices[0][3] - h).abs() < 0.000001);
-        assert!((matrices[1][4] - matrices[0][4] - 90.0 * unit - w / 8.0).abs() < 0.000002);
-        let baseline = if height == 28 { 9.0 } else { 6.0 };
+        let letter_offset = if width == 28 { 9.0 } else { 13.0 };
+        assert!((matrices[1][4] - matrices[0][4] - (90.0 + letter_offset) * unit).abs() < 0.000002);
+        let baseline = if height == 28 { 8.0 } else { 5.0 };
         assert!((matrices[0][5] - matrices[1][5] - baseline * unit).abs() < 0.000002);
         assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
         for missing in [1, 2] {
@@ -3092,3 +3093,75 @@ fn c8_8007_segments_match_controlled_strokes_without_consuming_following_text() 
 }
 
 mod nju_profiles;
+
+#[test]
+fn mode_two_letter_origins_preserve_resource_states_and_cjk_character_mode() {
+    let alias_a = u32::from(crate::gb18030::decode_two_byte(0xa0, 0xc1).unwrap());
+    let alias_i = u32::from(crate::gb18030::decode_two_byte(0xa0, 0xe9).unwrap());
+    for profile in [0, 12] {
+        for state in [0, 3, 4, 28, 31] {
+            if profile == 12 && matches!(state, 28 | 31) {
+                continue;
+            }
+            let mut selected = roles();
+            selected.latin_state3 = Some(1);
+            selected.latin_state28 = Some(1);
+            selected.latin_state31 = Some(1);
+            let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [0x801d, state]];
+            for mode in [1, u16::from(profile == 12), 1] {
+                words.extend([[0x80ce, mode], [4772, 0xa0c1], [4772, 0xa0e9]]);
+            }
+            words.push([0x8004, 1]);
+            let fonts = vec![
+                labelled_font([alias_a, alias_i]),
+                labelled_font([65, 105]),
+                labelled_font([65, 105]),
+            ];
+            let (result, pdf, finished) =
+                convert_with_fonts(&words, 0, &[], selected, profile, fonts);
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            let matrices: Vec<Vec<f64>> = text
+                .lines()
+                .filter(|line| line.contains(" Tm "))
+                .map(|line| {
+                    line.split_whitespace()
+                        .take(6)
+                        .map(|n| n.parse().unwrap())
+                        .collect()
+                })
+                .collect();
+            assert_eq!(matrices.len(), 6);
+            let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+            for (index, (x, y)) in [
+                (151.0, 532.0),
+                (167.0, 532.0),
+                if profile == 0 {
+                    (140.0, 539.0)
+                } else {
+                    (151.0, 532.0)
+                },
+                if profile == 0 {
+                    (140.0, 539.0)
+                } else {
+                    (167.0, 532.0)
+                },
+                (151.0, 532.0),
+                (167.0, 532.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert!((matrices[index][4] - x * unit).abs() < 0.000001);
+                assert!((matrices[index][5] - (y * unit - matrices[index][3])).abs() < 0.000001);
+            }
+            assert!(text.contains("<0041> Tj"));
+            assert!(text.contains("<0069> Tj"));
+            if profile == 0 {
+                assert!(text.contains("/ActualText <FEFF0041>"));
+                assert!(text.contains("/ActualText <FEFF0069>"));
+            }
+        }
+    }
+}

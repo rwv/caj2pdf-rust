@@ -232,3 +232,11 @@ separates A0 digits from alphabet placement. All 316 measured digit cells improv
 three actual pages improve and 74 retain their prior pixels. The 59-session receipt
 retains one rejected information-bar capture, runtime parity and unresolved
 alphabet origins. Seventeen original source fixtures reproduce exactly.
+
+The [mode-2 alphabet-origin correction](wine-mode2-alphabet-origins-20261011.md)
+establishes integer character/size offsets using 1,612 geometric observations,
+including 624 held-out predictions. All 880 selected production letter cells
+improve. The existing 77-page cohort has 37 improvements, 40 unchanged rasters
+and no regressions; remaining device rounding and raster differences stay open.
+The 61-session receipt retains failed hypotheses, rejected captures and full
+CLI/Node/Chromium parity. Nine original source controls reproduce exactly.

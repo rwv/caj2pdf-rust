@@ -975,3 +975,67 @@ fn nju_title_matches_measured_95_without_inferring_neighboring_styles() {
         native_glyph_transform(p, [0; 2], [0; 2], 0x096b, C8GlyphClass::Latin, [None; 2]).is_err()
     );
 }
+
+#[test]
+fn mode_two_alphabet_origins_match_independent_integer_measurements() {
+    let geometry = source_page_geometry([210, 188]).unwrap();
+    let top = geometry.media_box().unwrap()[3];
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    // Literal integer origins recovered from all 52 separate Wine pages at
+    // 5000/4000%. The shifted, reversed alternate-font pages independently
+    // predict the same origins. Font advances are identical in these probes.
+    for (style, axes, y_offset, measured_x) in [
+        (
+            0x1084,
+            [None; 2],
+            8.0,
+            [
+                31, 31, 31, 31, 34, 31, 31, 31, 43, 43, 31, 34, 27, 31, 31, 32, 31, 31, 35, 31, 28,
+                28, 21, 30, 30, 32, 41, 38, 41, 38, 41, 43, 38, 38, 47, 47, 38, 47, 25, 39, 39, 38,
+                38, 45, 43, 45, 39, 36, 30, 38, 38, 38,
+            ],
+        ),
+        (
+            0x10a4,
+            [None; 2],
+            8.0,
+            [
+                33, 33, 33, 33, 36, 33, 33, 33, 48, 48, 33, 36, 28, 33, 33, 35, 33, 33, 38, 33, 30,
+                30, 22, 31, 31, 35, 45, 41, 45, 41, 45, 48, 41, 41, 53, 53, 41, 53, 27, 43, 43, 41,
+                41, 50, 48, 50, 43, 40, 31, 41, 41, 41,
+            ],
+        ),
+        (
+            0x1084,
+            [Some(43); 2],
+            10.0,
+            [
+                33, 33, 33, 33, 37, 33, 33, 33, 49, 49, 33, 37, 28, 33, 33, 35, 33, 33, 38, 33, 30,
+                30, 22, 32, 32, 35, 45, 42, 45, 42, 45, 49, 42, 42, 54, 54, 42, 54, 27, 44, 44, 42,
+                42, 50, 49, 50, 44, 40, 32, 42, 42, 42,
+            ],
+        ),
+    ] {
+        for (character, observed_x) in (b'A'..=b'Z').chain(b'a'..=b'z').zip(measured_x) {
+            let m = native_letter_transform(
+                geometry,
+                [4652, 4274],
+                [4667, 4309],
+                style,
+                axes,
+                0xa080 + u16::from(character),
+            )
+            .unwrap();
+            close(m[4], (15.0 + f64::from(observed_x)) * unit);
+            close(m[5], top - (35.0 - y_offset) * unit - m[3]);
+        }
+    }
+    for code in [0xa0b0, 0xa0db, 0xa0e0, 0xa3c1] {
+        assert!(
+            native_letter_transform(geometry, [0; 2], [0; 2], 0x1084, [None; 2], code).is_err()
+        );
+    }
+    for (style, axes) in [(0x1084, [Some(1); 2]), (0x154a, [None; 2])] {
+        assert!(native_letter_transform(geometry, [0; 2], [0; 2], style, axes, 0xa0c1).is_err());
+    }
+}

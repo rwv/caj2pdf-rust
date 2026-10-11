@@ -707,6 +707,17 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                             style,
                             self.axes,
                         )?
+                    } else if class == C8GlyphClass::Latin
+                        && matches!(code, 0xa0c1..=0xa0da | 0xa0e1..=0xa0fa)
+                    {
+                        super::placement::native_letter_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            self.axes,
+                            code,
+                        )?
                     } else {
                         super::placement::native_glyph_transform(
                             self.geometry,

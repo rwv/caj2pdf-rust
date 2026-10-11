@@ -3535,3 +3535,33 @@ No vendor font is edited. The scalar native placement helper and two regression
 tests are independently authored from these GUI observations. No private HN/JBIG,
 foreign converter or vendor implementation is inspected, copied or migrated.
 Font binaries, corpus documents, PDFs and screenshots remain external.
+
+### Mode-2 A0 alphabet origins (#541, 2026-10-11)
+
+The [alphabet-origin study](research/wine-mode2-alphabet-origins-20261011.md)
+uses nine independently authored 64-page HN-B/C8 geometric controls to establish
+character-dependent integer x offsets and a nominal-height y offset. All 1,612
+geometric source origins match, including 624 observations held out from the
+exact formula selection. The initial midpoint hypothesis and its 35/312 size
+prediction failures remain recorded. Original-program low-zoom diagnostics
+retain two cell regressions despite three improved complete frames.
+
+Sixty-one Wine sessions yield 2,011 admitted visits, two rejected information-bar
+captures and six unobserved planned startup visits. Forty source and two PDF
+cold repeats are exact. Production controls cover 186 fresh pages and 880
+improved letter cells. Fresh conversion of the existing 13-document cohort
+changes 15,337 letter matrices only: 37 actual pages improve, 40 retain their
+rasters and none regress, reducing differences by 178,865 pixels. Forty-nine
+pages have fresh PDF observations; 28 reuse byte-identical prior PDFs. All 77
+still differ from Wine. CLI/Node/Chromium byte parity covers every actual
+document and all nine controls, with bounded output chunks.
+
+`scripts/research/wine_alphabet_origins.py` is original MIT code reviewed per
+file. It reuses the project's independently authored container writers and
+checksum-pinned geometric font-state helper to reproduce nine sources and
+eight project-authored fonts. The scalar placement helper and regression tests
+are independently authored from GUI measurements; prior profile admission is
+preserved. No dependency, allocation, API or I/O strategy changes. No private
+HN/JBIG, vendor implementation or foreign converter is inspected or migrated.
+The public receipt excludes article text and per-character corpus traces;
+font, corpus, PDF and screenshot binaries remain external.
