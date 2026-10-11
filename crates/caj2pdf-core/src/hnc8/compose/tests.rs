@@ -671,9 +671,9 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
                 80.0 * scale,
                 0.0,
                 0.0,
-                -40.0 * scale,
+                40.0 * scale,
                 17.0 * scale,
-                200.0 * scale - 3.0 * scale
+                200.0 * scale - 3.0 * scale - 40.0 * scale
             ]
         );
         assert!(visitor.images[3].4[4] > 3.84);

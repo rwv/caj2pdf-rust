@@ -41,6 +41,57 @@ pub(super) fn roles() -> C8PageFonts {
 }
 
 #[test]
+fn native_c8_jpeg_descriptor_keeps_the_image_box_but_changes_row_orientation() {
+    for kind in [1, 2] {
+        let mut image = Record::jpeg(8, 16, 80, 30, 50);
+        image.kind = kind;
+        let fixture = fixture_with_text(Variant::C8, &[vec![image.clone()]], native_text);
+        let mut source = Source::new(fixture.bytes);
+        source.short = 3;
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
+        let mut sink = Sink::default();
+        convert_c8_native_pdf(
+            &mut source,
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: roles(),
+                symbol_glyphs: &[],
+                symbol_font: None,
+            },
+            None,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+        assert!(contains(&sink.bytes, &image.bytes));
+        let text = crate::test_support::pdf_text(&sink.bytes);
+        let words: Vec<_> = text.split_whitespace().collect();
+        let matrices: Vec<Vec<f64>> = words
+            .windows(7)
+            .filter(|words| words[6] == "cm")
+            .map(|words| words[..6].iter().map(|n| n.parse().unwrap()).collect())
+            .collect();
+        assert_eq!(matrices.len(), 1);
+        let m = &matrices[0];
+        let unit = 240.0 / 2473.0;
+        let expected = if kind == 1 {
+            [80.0, 0.0, 0.0, 40.0, 30.0, 110.0]
+        } else {
+            [80.0, 0.0, 0.0, -40.0, 30.0, 150.0]
+        };
+        assert_eq!(m.len(), expected.len());
+        for (actual, expected) in m.iter().zip(expected) {
+            assert!((actual / unit - expected).abs() < 1e-9);
+        }
+    }
+}
+
+#[test]
 fn native_document_streams_text_and_all_shared_image_codecs() {
     // Optional roles may alias an existing source without duplicate embedding.
     for (symbols, latin_state3) in [

@@ -2937,3 +2937,35 @@ palette bytes are invented. The same lookup, correctly terminated, converts
 in the control. The test does not set a policy for well-formed short tables,
 whose intended colors remain open under #420. No external document bytes
 are used.
+
+## Descriptor-specific JPEG orientation (#530)
+
+Original HN-A and native C8 controls with identical asymmetric JPEG bytes and
+nonzero placement distinguish the descriptors in Wine CAJViewer 7.3.151:
+type 1 displays top-first; type 2 displays bottom-first. The
+[pinned report and receipt](https://github.com/rwv/caj2pdf-samples/blob/7ad9ff02663f4f4883ee8bf02fe2086588b4b313/research/notes/wine73-jpeg-orientation-20261010.md)
+retain the fixed viewer/font profile, all 20 orientation sessions, exact cold
+repeats, main/historical/candidate identities, and remaining pixel differences.
+The generator reuses the project's original MIT HN-A/C8 fixture builders and
+reproduces all four observed sources byte for byte. This corrects the earlier
+#224 placement assumption without rewriting its payload/order observations.
+
+Both composition paths now select the existing top-first transform for type 1.
+Type 2, the only JPEG descriptor admitted for HN-B, retains its transform.
+Preflight still validates each descriptor before this choice. JPEG bytes stream
+unchanged; no image decoding/copy, new allocation, API, dependency or admission
+profile is introduced. Original tests cover independently decoded/rendered
+asymmetric gray/RGB pixels, nonzero native C8 placement, short reads, payload
+preservation, and descriptor-specific JavaScript matrices. No vendor/private
+HN/JBIG source or foreign converter implementation was read or migrated.
+
+The 433-page `16b1a3b1cb71…` original has four type-1 JPEGs on pages 1/7/9/433,
+three type-0 images and 427 type-3 images. All raw image streams/dictionaries
+and page boxes remain identical; only those four JPEG matrices change, leaving
+429 content streams unchanged. Wine verifies those four pages plus upright
+page 217; the other 428 are not visual passes. Native/Node/Chromium PDFs agree
+for this original and all four synthetic controls; 17 Node/Chromium sample
+outputs agree, with 16 unchanged versus main. Seven ignored optional Rust
+tests are NOT_RUN. Native Windows equivalence, residual raster fidelity (#534)
+and broader #406 correctness remain unverified. All corpus/font/binary bodies
+stay external; committed changes and regressions are original MIT work.

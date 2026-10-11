@@ -221,7 +221,9 @@ where
                 limits,
                 cancellation,
             )?;
-            top_first.push(!matches!(checked, CheckedImage::Jpeg(_)));
+            // Type-1 JPEG rows are top-first, unlike type 2. The same
+            // descriptor rule applies to native and image-only C8 pages.
+            top_first.push(record.record_type != 2);
             // Native placement comes from the record visitor, after resources
             // are emitted. The codec emitter does not consume this transform.
             let mut image = ComposedImage {

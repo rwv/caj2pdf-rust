@@ -523,10 +523,10 @@ where
 /// Source-declared page and image extents determine HN-A/C8 layout using
 /// the empirical coordinate unit. Zero extents are errors. DIB storage
 /// padding is omitted from PDF image widths and streams. Type-0 and type-3
-/// rows stream top-first under a positive-height CTM equivalent to the
-/// reference's negative-height matrix for bottom-first rows. JPEG bytes are
-/// copied unchanged. Only current-page plans/placements and checked type-3
-/// directories are held; the existing PDF writer retains its indexes. One
+/// rows stream top-first under a positive-height CTM. Type-1 JPEGs also use
+/// top-first rows; type-2 JPEGs retain bottom-first placement. Both JPEG
+/// payloads are copied unchanged. Only current-page plans/placements and
+/// checked type-3 directories are held; the PDF writer retains its indexes. One
 /// type-0 or type-3 payload at a time is held in memory, and type-3 images
 /// decode into three in-memory symbol stores and a text region, each a
 /// single allocation within `Limits::max_allocation_bytes`.
@@ -697,9 +697,11 @@ where
                 source_image_transform(page_geometry, coordinate)
             }
             .map_err(image_at.locator(Hnc8Stage::Geometry))?;
-            if matches!(checked, CheckedImage::Type0(_) | CheckedImage::Type3) {
+            if record.record_type != 2 {
                 // Top-first rows give the same placement as bottom-first rows
                 // under the reference's negative-height matrix, without a copy.
+                // Type-1 JPEGs are top-first too: paired original controls
+                // distinguish their orientation from type 2 in HN-A and C8.
                 // Both terms pass through memory first: x87 targets (i586)
                 // otherwise keep one of them in extended precision and a
                 // full-height image lands at 2.6e-14 instead of exactly 0.
