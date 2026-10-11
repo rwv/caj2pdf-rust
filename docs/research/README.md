@@ -283,3 +283,9 @@ inclusive native endpoint sizing on 132 axes. Target-zoom extent diagnostics
 make six grid views exact and improve nine selected actual views, but two
 cross-zoom controls regress. No production fix is adopted; #543 tracks the
 remaining general endpoint/resampling correction under #406.
+
+The [image-route and sampling study](wine-image-routes-sampling-20261011.md)
+adds 51 cold sessions / 65 admitted visits. Tested patterns lose ink; target
+extents plus reversed sample rows make five original control views exact.
+Actual-page and cross-zoom counterexamples prevent a general production fix.
+Signed coordinates and clipping are the next independent controls under #543.

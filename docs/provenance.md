@@ -3718,3 +3718,28 @@ diagnostic byte comparison failed because of nondeterministic trailer IDs.
 After requesting deterministic IDs, all 43 modified outputs reproduce every
 observed byte except the trailer ID; ten deterministic repeat outputs are
 byte-exact. The failure and original capture identities remain retained.
+
+### Image drawing routes and sampling direction (#543, 2026-10-11)
+
+The [image-route study](research/wine-image-routes-sampling-20261011.md)
+records 51 cold Wine sessions and 65 admitted visits. Fourteen tested pattern
+views lose all ink, while original grayscale controls isolate a sampling-
+direction interaction: target extents plus reversed decoded rows and a
+compensating matrix make five complete control views exact. Two actual views
+regress with row reversal alone; all nine actual views regress relative to
+extent-only when combined. No production correction is adopted. Signed
+coordinates and page clipping remain independently unmeasured confounders.
+
+Per-file review: `scripts/research/wine_image_pattern_diagnostic.py` is original
+MIT code exercising public PDF pattern/clip/stroke semantics;
+`wine_image_sampling_controls.py` is original MIT generation of bounded gray
+ramps/stripes with project-owned C8 framing facts; and
+`wine_image_orientation_diagnostic.py` is original MIT full-resolution image
+decode/reversal/Flate diagnostics with exact compensating matrices. The latter
+bounds each decoded image to ten million pixels, retains original JPEGs and
+verifies font/page/nonimage-operator preservation. These external research
+utilities are separate from production bounded I/O. No vendor implementation,
+foreign converter or private HN/JBIG source is inspected or migrated.
+No corpus, PDF, screenshot or font bytes are committed. The source, twelve
+generated JPEGs, current baseline PDF and 32 diagnostic PDFs reproduce exactly;
+the receipt retains failed models, preparation failure and all regressions.
