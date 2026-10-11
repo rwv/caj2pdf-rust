@@ -42,8 +42,10 @@ test("a file shortened after its size snapshot ends with a typed truncation", as
   try {
     await writeFile(path, syntheticCaj());
     const pending = convert(await wasmModule(), path, discard, { chunkSize: 1, progress() {} });
-    await writeFile(path, syntheticCaj().subarray(0, 8));
-    await assert.rejects(pending, (error) => ["TRUNCATED_INPUT", "MALFORMED_CAJ", "UNSUPPORTED_FORMAT"].includes(error.code));
+    // The Worker can reject before writeFile resolves. Observe the rejection
+    // before yielding to file I/O so an expected error is never unhandled.
+    const rejected = assert.rejects(pending, (error) => ["TRUNCATED_INPUT", "MALFORMED_CAJ", "UNSUPPORTED_FORMAT"].includes(error.code));
+    await Promise.all([writeFile(path, syntheticCaj().subarray(0, 8)), rejected]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
