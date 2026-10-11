@@ -236,3 +236,12 @@ admitted page frames. Its earlier startup failures are retained; the mapping
 change does not establish a startup fix. All six sessions preserve source
 hashes and clean up their containers without OOM. Twelve mode-2 documents
 still match frozen-main PDF bytes with the new roles/maps absent.
+
+The [ornament-spacing controls](wine-ornament-spacing-20261011.md) isolate the
+remaining repetition difference with original rectangle glyphs. Forty-three
+Wine sessions include four zooms, exact cold source repeats and doubled-advance
+controls. All 36 source-row measurements match integer-floor device-pixel
+spacing, while the PDF retains fractional origins. Coalesced text, equivalent
+rectangle paths and 23 pattern sessions do not establish an improvement;
+blank pattern results are explicitly disqualified. This study changes no
+production geometry and does not close the actual-input fidelity obligations.

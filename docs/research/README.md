@@ -191,3 +191,8 @@ identifies Huaguang Song/Hei/Kai and system Song selection, separates mode-2
 Latin aliases from mode-0 Unicode queries, and verifies all 13 native documents
 with measured caller fonts. It preserves remaining extent/pixel differences
 and the viewer startup workaround; #541 remains open.
+
+The [Wine ornament-spacing controls](wine-ornament-spacing-20261011.md)
+provide an original reproducible C8/font fixture and 43 session receipts.
+They isolate zoom-dependent integer repetition from font advances, retain
+rejected PDF encodings, and leave production geometry unchanged.

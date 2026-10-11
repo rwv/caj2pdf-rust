@@ -3179,3 +3179,28 @@ No dependency or font allocation limit changes. Existing native-mode/state
 restrictions, sequential output, ranged input and nonsemantic marking remain.
 This closes the single-global-alias limitation for the four measured values;
 it does not close the remaining placement, pixel or Wine startup discrepancies.
+
+### Wine ornament-spacing controls (#541, 2026-10-11)
+
+The [43-session study](research/wine-ornament-spacing-20261011.md) replaces
+only the disposable reference profile's ornament font with original rectangle
+glyphs. Four zooms, four exact cold source repeats and two doubled-advance
+controls establish the measured integer-floor device-pixel step for all 36
+source-row observations. Coalesced text and equivalent rectangle paths do not
+improve fidelity; 23 PDF pattern sessions display no ornament markers, with
+ordinary red fiducials visible in all seven applicable sessions. All thirteen
+unique PDFs pass qpdf, have empty extracted text and paint markers in MuPDF.
+Blank Wine pages are failures, regardless of lower changed-pixel counts.
+
+`scripts/research/wine_ornament_geometry.py` is original MIT research source.
+Its C8 framing and geometric font construction derive from the project's own
+MIT [C8 fixture](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/cajviewer/c8_style_fixture.py)
+and [geometric font generator](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/cajviewer/c8_geometric_font.py),
+reviewed per file. It reads no external font or document and reproduces all
+three observed source/font hashes with fontTools 4.62.1. The PDF experiments
+use dictionary facts from Adobe PDF Reference 1.6, section 4.6; no external
+renderer implementation was inspected or copied. Vendor programs remain
+opaque, and no vendor/private HN/JBIG or foreign-converter source is used.
+Only the generator, documentation and metadata enter this repository; generated
+fonts, C8/PDF files and screenshots remain external. Production placement,
+runtime APIs, dependencies and memory bounds are unchanged. #541 remains open.
