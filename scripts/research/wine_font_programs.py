@@ -38,6 +38,8 @@ def main():
     parser.add_argument('input', type=Path)
     parser.add_argument('output', type=Path)
     parser.add_argument('--fonts', type=Path, required=True)
+    parser.add_argument('--variant', choices=VARIANTS, action='append',
+                        help='generate only this variant (repeatable; default: all)')
     args = parser.parse_args()
     mapping = json.loads(args.fonts.read_text())
     # Resolve relative resource paths against the map, not the working directory.
@@ -55,7 +57,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     original_text = text(args.input)
     results = []
-    for variant, tags in VARIANTS.items():
+    for variant in dict.fromkeys(args.variant or VARIANTS):
+        tags = VARIANTS[variant]
         output = args.output / f'{variant}.pdf'
         details = []
         with pikepdf.open(args.input) as pdf:

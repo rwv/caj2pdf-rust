@@ -3282,3 +3282,22 @@ font-table state. Its whole-file diagnostic processing is not a production memor
 path or a new runtime dependency. No external implementation code was copied;
 caller font bytes, derived PDFs and captures stay outside Git. Native/CLI/
 Node/browser bounded complete-font preservation remains implementation work.
+
+
+### Full-program mode-2 inventory follow-up (#541, 2026-10-11)
+
+The [17-session follow-up receipt](research/wine-full-font-inventory-20261011.json)
+compares complete font programs on all twelve mode-2 documents / 73 pages at
+the refined coordinate scale. It retains 59 improvements, ten unchanged
+image-only pages, four regressions, three unobserved startup attempts and
+nine exact repeated page views. Two failures came from editing zoom before
+numeric document readiness; waiting for those fields does not alter the
+final numeric or raster admission criteria. A separate fatal-error dialog
+remains evidence of intermittent viewer failure, despite later successes.
+
+The original MIT diagnostic generator gains only optional variant selection.
+All twelve complete-font PDF hashes reproduce. Qpdf, text, page geometry,
+content and width preservation pass; 9,905 used glyph pairs are independently
+checked per resource/document. Mode-0 full-program transport and bounded
+production integration remain open. There are no runtime dependency, memory,
+API or default-output changes in this research follow-up.

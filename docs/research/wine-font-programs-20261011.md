@@ -106,3 +106,57 @@ metadata enter Git. The sample is four page views across two inputs; no
 all-corpus or native-Windows font-program conclusion is claimed. #541 remains
 open while complete-font preservation and the remaining rendering differences
 are unresolved.
+
+## Complete mode-2 inventory at the corrected coordinate scale
+
+A [second metadata receipt](wine-full-font-inventory-20261011.json) extends
+this diagnostic to all twelve mode-2 documents / 73 pages at `72/742`, using
+17 additional Wine sessions. Each PDF preserves page boxes, content, widths,
+ToUnicode and extracted text. Qpdf accepts all twelve. Independent decomposed
+outlines, advances, bearings and units-per-em checks verify 9,905 used glyph
+pairs, counted per font resource/document. The public generator reproduces
+all twelve full-program PDF hashes with `--variant full`.
+
+All 73 observed extents match the source. Relative to the corrected-coordinate
+production subsets, 59 page comparisons improve, ten image-only pages remain
+unchanged, and four worsen. The total falls by 1,269,578 differing pixels.
+Every actual page still differs. The regressions are retained explicitly:
+
+| Source prefix | Page | Subset | Complete program | Increase |
+| --- | ---: | ---: | ---: | ---: |
+| `166d00147923` | 11 | 50,715 | 57,248 | 6,533 |
+| `166d00147923` | 12 | 41,472 | 44,416 | 2,944 |
+| `90e7b47716c3` | 2 | 26,933 | 27,136 | 203 |
+| `90e7b47716c3` | 5 | 16,505 | 16,566 | 61 |
+
+This establishes a broad improvement with remaining regressions, not a
+universal complete-font win. The four-page mode-0 mapped-CID document is
+excluded and needs separate full-program validation. Production still emits
+subsets; this experiment does not supply bounded native/CLI/Node/browser
+complete-font transport or silently change existing conversion defaults.
+
+Three sessions were not admitted. `03770ea1cdeb…` displayed a fatal-error
+dialog while switching zoom in its initial direct-open session. Fresh direct
+and bootstrap sessions subsequently succeeded and gave five exact repeated
+pages; the original intermittent failure remains. For `3f3b9b57d692…`, two
+bootstrap attempts edited zoom while the PDF was still loading: numeric
+fields were empty at the action and later settled to 180%, not 75%. No page
+from either attempt is counted. A separate GUI runner waits for populated
+numeric document fields before setting the unchanged single-page/75% view.
+Two independent sessions then confirm all four pages with exact repeats.
+The final numeric, two-capture and complete-page criteria are unchanged.
+The receipt retains all failures, readiness probes, runner hashes and the
+nine exact repeated page comparisons.
+
+The source/PDF comparison method and prepared resources are the same as the
+initial experiment. Use the corrected-coordinate baseline PDFs and explicit
+resource map, then:
+
+```sh
+python3 scripts/research/wine_font_programs.py baseline.pdf /tmp/full-font \
+  --fonts resources.json --variant full
+```
+
+Output size and the four regressions require further implementation choices;
+font-program fidelity and viewer readiness are tracked separately. No font
+binaries, documents or screenshots enter Git.
