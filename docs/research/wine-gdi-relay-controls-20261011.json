@@ -1,0 +1,2482 @@
+{
+  "study": "Wine public GDI relay boundary controls",
+  "date": "2026-10-11",
+  "issue": 541,
+  "parent_issue": 406,
+  "checkout_before_study": "36fd7907b2d71d53372aaeee85ad10ad7a7297ee",
+  "production_commit": "7f8b7e75e4a5a13dd041011b4ddc759a2b288b31",
+  "reference": {
+    "viewer": "CAJViewer 7.3.151 Simple",
+    "wine": "8.0 (Debian 8.0~repack-4)",
+    "docker_image": "sha256:6c9f5ec0610a7ff8bc45fe8e0a87dffd0ff17e42466c90b80237a1712847b95c",
+    "display": [
+      1600,
+      1200
+    ],
+    "dpi": 96,
+    "network": "none",
+    "memory_bytes": 2147483648,
+    "cpus": 2,
+    "pid_limit": 256,
+    "timeout_seconds": 600,
+    "root": "read-only",
+    "user": "1000:1000"
+  },
+  "summary": {
+    "cold_sessions": 12,
+    "complete_stable_numeric_visits": 12,
+    "observer_frames_exact": 12,
+    "initial_traces_truncated": 4,
+    "complete_selected_traces": 8,
+    "independent_positive_probes_pass": 12,
+    "public_filter_boundary_check_pass": true,
+    "source_intact": 12,
+    "containers_removed": 12,
+    "production_changed": false,
+    "actual_corpus_new_views": 0
+  },
+  "selected_functions": [
+    "CreateFontA",
+    "CreateFontW",
+    "CreateFontIndirectA",
+    "CreateFontIndirectW",
+    "CreateFontIndirectExW",
+    "AddFontResourceA",
+    "AddFontResourceW",
+    "AddFontResourceExA",
+    "AddFontResourceExW",
+    "AddFontMemResourceEx",
+    "GetGlyphOutlineA",
+    "GetGlyphOutlineW",
+    "GetGlyphIndicesW",
+    "GetFontData",
+    "GetTextFaceW",
+    "TextOutA",
+    "TextOutW",
+    "ExtTextOutA",
+    "ExtTextOutW",
+    "PolyTextOutA",
+    "PolyTextOutW",
+    "CreateDIBSection",
+    "StretchDIBits",
+    "SetDIBitsToDevice",
+    "StretchBlt",
+    "SetWorldTransform"
+  ],
+  "registry_text": "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Wine\\Debug]\n\"RelayExclude\"=-\n\"RelayInclude\"=\"gdi32.CreateFontA;gdi32.CreateFontW;gdi32.CreateFontIndirectA;gdi32.CreateFontIndirectW;gdi32.CreateFontIndirectExW;gdi32.AddFontResourceA;gdi32.AddFontResourceW;gdi32.AddFontResourceExA;gdi32.AddFontResourceExW;gdi32.AddFontMemResourceEx;gdi32.GetGlyphOutlineA;gdi32.GetGlyphOutlineW;gdi32.GetGlyphIndicesW;gdi32.GetFontData;gdi32.GetTextFaceW;gdi32.TextOutA;gdi32.TextOutW;gdi32.ExtTextOutA;gdi32.ExtTextOutW;gdi32.PolyTextOutA;gdi32.PolyTextOutW;gdi32.CreateDIBSection;gdi32.StretchDIBits;gdi32.SetDIBitsToDevice;gdi32.StretchBlt;gdi32.SetWorldTransform\"\n",
+  "relay_from_exclude": "winex11.drv;winemac.drv;user32;gdi32;advapi32;kernel32",
+  "observations": [
+    {
+      "study": "relay",
+      "label": "fonts-ready-relay-low-0-75-source",
+      "kind": "source",
+      "zoom": 75,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "bfbb64552331db399f0e7f62c65989c5a96ff0324d861c2653f5b414102cbe29",
+      "reference_label": "fonts-ready-axisraster-low-0-75-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "14e653d1b0ee22ab626cb2765b37bdfc0f421b38dde01b262c27be46333294d3",
+        "component_pixels": 44920
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "14e653d1b0ee22ab626cb2765b37bdfc0f421b38dde01b262c27be46333294d3",
+        "component_pixels": 44920
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 77216047,
+        "retained_bytes": 16777189,
+        "dropped_bytes": 60438858,
+        "limit_bytes": 16777216,
+        "chunks": 687102,
+        "eof": true,
+        "updated_unix": 1791753244.3187387
+      },
+      "viewer_trace": {
+        "sha256": "5faef7f997b6a8830122fb35ef21e9e3c4c8e16a2107730c33ba565140b7a44a",
+        "bytes": 16777189,
+        "api_calls": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4859,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4859,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928
+        ]
+      },
+      "positive_trace": {
+        "sha256": "c29a8f13f6dab496a0c61e96388246a96fe5bd2a9eda3a2284e1ed1ea9a720db",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "a0d4d6b4c473c7911c2c455faee7f5d02c5d7566241698ce2f40d8019880dbde",
+      "audit_sha256": "84499e9939b45b30a5594e1815c49d464d0b211e56799e38c703c3ad250c9eb2",
+      "closed_sha256": "e9577137f92e95500d68e3bc12deebc57385def7ad7c1172f5f6c91b5e161d5b",
+      "session_sha256": "409a5d69ad2cf3ace4aff46efdfa1514cc1e3359c192cdeab629e78cebe4d43e",
+      "startup_sha256": "1a83e197d610a226daa7be750b57d9cfb83a69c32f1c6f2090dec3310e69c536",
+      "actions_sha256": "a78a1c64a1a1e0334dca115dddca018d5e714760e04d1c557094f0d7a8fcfd86",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false
+    },
+    {
+      "study": "relay",
+      "label": "fonts-ready-relay-low-0-75-pdf",
+      "kind": "pdf",
+      "zoom": 75,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "debf3dd840b75ec1134c0ab2b20953f2f01a4d16fa12cf2b801ab5f154515c41",
+      "reference_label": "fonts-ready-type3origins-low-0-75-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "345efba9282db6d40d1165169752858aac0cc4dde713bfe5696fd044753e06c6",
+        "component_pixels": 44920
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "345efba9282db6d40d1165169752858aac0cc4dde713bfe5696fd044753e06c6",
+        "component_pixels": 44920
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 78704459,
+        "retained_bytes": 16777170,
+        "dropped_bytes": 61927289,
+        "limit_bytes": 16777216,
+        "chunks": 699886,
+        "eof": true,
+        "updated_unix": 1791753246.7388499
+      },
+      "viewer_trace": {
+        "sha256": "19c9bcce4ad7124a7183754c183f18a191316be595fe1feabd84850e749658ee",
+        "bytes": 16777170,
+        "api_calls": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4903,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4903,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928
+        ]
+      },
+      "positive_trace": {
+        "sha256": "24b6c9c2163f990336dfbd5e28a2ce028c1363a773009157c10e4ebc90b016d0",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "a0d4d6b4c473c7911c2c455faee7f5d02c5d7566241698ce2f40d8019880dbde",
+      "audit_sha256": "bd4b11a13ef243bfe33262a0e97890619a2db18cfe117097bebeccbe2e349ec9",
+      "closed_sha256": "48cfe2ef6c160a1cfb45eaab513cee3d57e29f9bfc7eb54bcb357f042b717326",
+      "session_sha256": "b92006d486d265bee9b3cb809c157fed59d81611d112372c013c3e32d271df75",
+      "startup_sha256": "51fa51e7f71c7323e3cac60a766ec340dc2ae36beffa93dafcc643c5b76a030f",
+      "actions_sha256": "d845f1fe5b2c3e3671997ef8e0c8fd1a6a1b5efed6c4d5a0985c453b02adcf58",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false
+    },
+    {
+      "study": "relay",
+      "label": "fonts-ready-relay-low-0-150-source",
+      "kind": "source",
+      "zoom": 150,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "bfbb64552331db399f0e7f62c65989c5a96ff0324d861c2653f5b414102cbe29",
+      "reference_label": "fonts-ready-axisraster-low-0-150-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "3f98854f6e73189db628dfa76b2d476ddd7a9d62dede47407abacfa7424d868a",
+        "component_pixels": 177142
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "3f98854f6e73189db628dfa76b2d476ddd7a9d62dede47407abacfa7424d868a",
+        "component_pixels": 177142
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 77811127,
+        "retained_bytes": 16777189,
+        "dropped_bytes": 61033938,
+        "limit_bytes": 16777216,
+        "chunks": 692204,
+        "eof": true,
+        "updated_unix": 1791753244.2746394
+      },
+      "viewer_trace": {
+        "sha256": "138b8c4cc84f2cd106a5a5a68765176389b0b44997accb52d0c0092518475c1a",
+        "bytes": 16777189,
+        "api_calls": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4859,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4859,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928
+        ]
+      },
+      "positive_trace": {
+        "sha256": "ce90b8ce813d6fdaccd786c7ed26859a2fabfa200f623a16a1c8ab5bdd49bf96",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "a0d4d6b4c473c7911c2c455faee7f5d02c5d7566241698ce2f40d8019880dbde",
+      "audit_sha256": "11d23b51f7b5f2676c27d4e2667d5855b6425e0d952277ed35477fbb6daec7f3",
+      "closed_sha256": "c02e1028f0391ed7db28efb3689f4a367d5c6c1c9c56dede19ae7ddda56ceaab",
+      "session_sha256": "2b2a4a259ede0fc6a486ed698619d672cb287ff16d03caf6ef1aaaca522643ef",
+      "startup_sha256": "1a83e197d610a226daa7be750b57d9cfb83a69c32f1c6f2090dec3310e69c536",
+      "actions_sha256": "2cdd1e6a8a53ba363fc3fa9bf015f5aa1ca3fe6c7e23eeae2167c1d8eb02e35b",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false
+    },
+    {
+      "study": "relay",
+      "label": "fonts-ready-relay-low-0-150-pdf",
+      "kind": "pdf",
+      "zoom": 150,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "debf3dd840b75ec1134c0ab2b20953f2f01a4d16fa12cf2b801ab5f154515c41",
+      "reference_label": "fonts-ready-type3origins-low-0-150-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "e0355f9d96f0d0499f88dc432d55ae54660d083dc977e0844545ee282e811594",
+        "component_pixels": 177142
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "e0355f9d96f0d0499f88dc432d55ae54660d083dc977e0844545ee282e811594",
+        "component_pixels": 177142
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 79405451,
+        "retained_bytes": 16777170,
+        "dropped_bytes": 62628281,
+        "limit_bytes": 16777216,
+        "chunks": 705896,
+        "eof": true,
+        "updated_unix": 1791753246.6671853
+      },
+      "viewer_trace": {
+        "sha256": "892961e7b9d3b000008b22483e8ff8e69eb2087f6c0892c826454683e2760e84",
+        "bytes": 16777170,
+        "api_calls": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4903,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "SetMapMode": 3,
+          "SetWindowExtEx": 3,
+          "SetViewportExtEx": 3,
+          "StretchBlt": 2073,
+          "CreateDIBSection": 715,
+          "BitBlt": 4903,
+          "CreateFontIndirectW": 115,
+          "ExtTextOutW": 1955,
+          "StretchDIBits": 424,
+          "SetStretchBltMode": 9456,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928
+        ]
+      },
+      "positive_trace": {
+        "sha256": "d9d92deee652da824cbe4ec31739bf684e2d65e1c4cb5fd76101efb14864c6be",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "a0d4d6b4c473c7911c2c455faee7f5d02c5d7566241698ce2f40d8019880dbde",
+      "audit_sha256": "2a927ad33bc17286d8c4f626bdb5e693897938550712bb120df05c3e84ecc716",
+      "closed_sha256": "9615ea1577080fe8bd90bb57e4745a6976b684403f5d941ebd0606397322a3d4",
+      "session_sha256": "f42b20db9aa37ddd5350ee03b2d372cb2c38dbe3acf9a006d67ca62a541b1ea5",
+      "startup_sha256": "51fa51e7f71c7323e3cac60a766ec340dc2ae36beffa93dafcc643c5b76a030f",
+      "actions_sha256": "2ed9c97d9ade98917cebdcf5f31541ac0e4313f1e8868e36c8ac861f8c4be437",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-0-75-source",
+      "kind": "source",
+      "zoom": 75,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "bfbb64552331db399f0e7f62c65989c5a96ff0324d861c2653f5b414102cbe29",
+      "reference_label": "fonts-ready-axisraster-low-0-75-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "14e653d1b0ee22ab626cb2765b37bdfc0f421b38dde01b262c27be46333294d3",
+        "component_pixels": 44920
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "14e653d1b0ee22ab626cb2765b37bdfc0f421b38dde01b262c27be46333294d3",
+        "component_pixels": 44920
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 387179429,
+        "retained_bytes": 5413913,
+        "filtered_bytes": 381765516,
+        "selected_lines": 51968,
+        "selected_bytes": 5413913,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4259590,
+        "eof": true,
+        "updated_unix": 1791753353.0373163
+      },
+      "viewer_trace": {
+        "sha256": "025089ae1ba3f06ea0a535cefb8f5efd04e9354f0ed3096118930d06a17e9f8b",
+        "bytes": 5413913,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 204,
+            "height": 213,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 213,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          213
+        ]
+      },
+      "positive_trace": {
+        "sha256": "08dacd407424611fc8a9b76eacaa918d95f1016a80e1a099f27f0a8b2731069f",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "7ed80d5e6930486a763bfc4221701eea54229d870ffc5a02ae870357a80a94ed",
+      "closed_sha256": "4e99c0f9ef6e608096a1d096c2eb8868ad5f81c3b99858fc4d1f588f9219e055",
+      "session_sha256": "643cc57a32749aa6f22af70d905f5f4174fc28ef9218e8c42c7af1102c60e8b9",
+      "startup_sha256": "13eb4a548e0c0743092f05651829e4888dc2ed9e680d5479052dd31ebd19b2b8",
+      "actions_sha256": "88c4659d6fae8eb5fc41b8a47fbd4a140614c88cbc4d2dcecfbadea8d9e44f36",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-0-75-pdf",
+      "kind": "pdf",
+      "zoom": 75,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "debf3dd840b75ec1134c0ab2b20953f2f01a4d16fa12cf2b801ab5f154515c41",
+      "reference_label": "fonts-ready-type3origins-low-0-75-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "345efba9282db6d40d1165169752858aac0cc4dde713bfe5696fd044753e06c6",
+        "component_pixels": 44920
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          690,
+          521,
+          898,
+          739
+        ],
+        "size": [
+          208,
+          218
+        ],
+        "rgb_sha256": "345efba9282db6d40d1165169752858aac0cc4dde713bfe5696fd044753e06c6",
+        "component_pixels": 44920
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 389099706,
+        "retained_bytes": 5414143,
+        "filtered_bytes": 383685563,
+        "selected_lines": 51970,
+        "selected_bytes": 5414143,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4276518,
+        "eof": true,
+        "updated_unix": 1791753355.0451686
+      },
+      "viewer_trace": {
+        "sha256": "874eb4004e28f71479de73c09c547a1710abe79f51b046dc4dab747bd5e60c95",
+        "bytes": 5414143,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 204,
+            "height": 213,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 213,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          213
+        ]
+      },
+      "positive_trace": {
+        "sha256": "a35201d3e204ff98dada5bc71b9a28c1ef16cc61c7c6b0c0441cbea048518806",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "37fee5c360aec24e754db8c4493de4da738882d4b121793dd5da20cb27d27528",
+      "closed_sha256": "7819fb5210e5f317a9f76661b99b7187d2cdcc224ff1035fa74550b502a06ad3",
+      "session_sha256": "7e178546104ae686886c07c742b840a73f89337a83a9f86b8047c7b33e3066ca",
+      "startup_sha256": "ac3f0d99289309c58f72c541b12744feef1497ba9a012ee42c06046417e1939a",
+      "actions_sha256": "859d1fa8d8776d859b7cda79bfb1735344ff2f2aea844d51595d969d5a77ca95",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-0-150-source",
+      "kind": "source",
+      "zoom": 150,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "bfbb64552331db399f0e7f62c65989c5a96ff0324d861c2653f5b414102cbe29",
+      "reference_label": "fonts-ready-axisraster-low-0-150-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "3f98854f6e73189db628dfa76b2d476ddd7a9d62dede47407abacfa7424d868a",
+        "component_pixels": 177142
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "3f98854f6e73189db628dfa76b2d476ddd7a9d62dede47407abacfa7424d868a",
+        "component_pixels": 177142
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 387990887,
+        "retained_bytes": 5413687,
+        "filtered_bytes": 382577200,
+        "selected_lines": 51966,
+        "selected_bytes": 5413687,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4266603,
+        "eof": true,
+        "updated_unix": 1791753353.189634
+      },
+      "viewer_trace": {
+        "sha256": "5a98816927a8fa25a5696e5e820293e02fe4d9f8d73b60a6d08da57ff2a117b5",
+        "bytes": 5413687,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 408,
+            "height": 427,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 427,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          427
+        ]
+      },
+      "positive_trace": {
+        "sha256": "6c1f1fdad67c63a07744e265a659ae99402c942fb228cf3e12b1304fd3200ee5",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "3613cf522cdc471a397b7a684c30b9e09bb29ea742bb15bb0ef9241c680ced1b",
+      "closed_sha256": "ef6035a80132e622aa081a9820a1f29c3f4050f970fc4068d1c55ca41a7cae78",
+      "session_sha256": "6a283082a7795696feb6230beab57effbc6c390843ea68604d546c648efe2dc5",
+      "startup_sha256": "13eb4a548e0c0743092f05651829e4888dc2ed9e680d5479052dd31ebd19b2b8",
+      "actions_sha256": "e85f72df1b80484f3642ebbfe403fde97a29b259123cc22cfd80b878ab6590e1",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-0-150-pdf",
+      "kind": "pdf",
+      "zoom": 150,
+      "family": "low",
+      "reverse": false,
+      "source_sha256": "debf3dd840b75ec1134c0ab2b20953f2f01a4d16fa12cf2b801ab5f154515c41",
+      "reference_label": "fonts-ready-type3origins-low-0-150-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "e0355f9d96f0d0499f88dc432d55ae54660d083dc977e0844545ee282e811594",
+        "component_pixels": 177142
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          588,
+          414,
+          1000,
+          846
+        ],
+        "size": [
+          412,
+          432
+        ],
+        "rgb_sha256": "e0355f9d96f0d0499f88dc432d55ae54660d083dc977e0844545ee282e811594",
+        "component_pixels": 177142
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 388434210,
+        "retained_bytes": 5413917,
+        "filtered_bytes": 383020293,
+        "selected_lines": 51968,
+        "selected_bytes": 5413917,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4270871,
+        "eof": true,
+        "updated_unix": 1791753354.7654269
+      },
+      "viewer_trace": {
+        "sha256": "eefb4036f51b3ed90b654eb0e228a1428bf6ff42460f17bab14b264426b43622",
+        "bytes": 5413917,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 408,
+            "height": 427,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 427,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          427
+        ]
+      },
+      "positive_trace": {
+        "sha256": "5709374108771b24958a96617b30cd9877005d678943a3d2095811447258bf33",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "689852f9e7f0fc702b0d5452597de0da481e601b3cf9ff50b4eb59182a5352df",
+      "closed_sha256": "c24abed599952b33ab3cdd774cdd7090295b1925e53a562f3bdc14d5b56acb6e",
+      "session_sha256": "7b90fe1bae6663300dedcc834ba3adbf30428c21e609582e028d8de98bdd7283",
+      "startup_sha256": "ac3f0d99289309c58f72c541b12744feef1497ba9a012ee42c06046417e1939a",
+      "actions_sha256": "ae948aadf76176c976af53f41b4ff8c3a7d711f9ddf68117b83ec061b7747024",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-1-100-source",
+      "kind": "source",
+      "zoom": 100,
+      "family": "low",
+      "reverse": true,
+      "source_sha256": "bb9b90e8da216faf917622faa9ef5aef9ceaae8fe46242fc67e194ee8e910ada",
+      "reference_label": "fonts-ready-axisraster-low-1-100-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          656,
+          485,
+          932,
+          775
+        ],
+        "size": [
+          276,
+          290
+        ],
+        "rgb_sha256": "ab60e1303a751ddf9c4a3143ce37e1f102921f7da05bb6e49112aa7b8642c8b8",
+        "component_pixels": 79476
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          656,
+          485,
+          932,
+          775
+        ],
+        "size": [
+          276,
+          290
+        ],
+        "rgb_sha256": "ab60e1303a751ddf9c4a3143ce37e1f102921f7da05bb6e49112aa7b8642c8b8",
+        "component_pixels": 79476
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 385524644,
+        "retained_bytes": 5414515,
+        "filtered_bytes": 380110129,
+        "selected_lines": 51974,
+        "selected_bytes": 5414515,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4245473,
+        "eof": true,
+        "updated_unix": 1791753389.8415725
+      },
+      "viewer_trace": {
+        "sha256": "dbc58995d67facbcf78c5e1cab57f28960bdf10a5ea5061f67ebb7dc2a6c92d2",
+        "bytes": 5414515,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11367,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11367,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 272,
+            "height": 285,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 285,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          285
+        ]
+      },
+      "positive_trace": {
+        "sha256": "a401e5430fc8b1c99f162a40856ee45c09ff379535a7a0a9edac6086fad5d372",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "4a5d848f6ec35444e35fcfce3dfa83edf302a9b12aff5bc11631f3575f37e4c4",
+      "closed_sha256": "c74d9f68fd3da6eb0639992ba9d514e109880f747ca3e57084a62fa0c8d4cccd",
+      "session_sha256": "0f4c79cb0284e167b5ce49920b348130e6b246fd7979c3cc6e3a9828aa1837d1",
+      "startup_sha256": "13eb4a548e0c0743092f05651829e4888dc2ed9e680d5479052dd31ebd19b2b8",
+      "actions_sha256": "484e019e9e859daec011380bb15c5e58b07920cc6a5047243f189fa7d22cb97c",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-low-1-100-pdf",
+      "kind": "pdf",
+      "zoom": 100,
+      "family": "low",
+      "reverse": true,
+      "source_sha256": "eed54a96f71f9dcfb1d210940be1baec9ea6fbfb217ad6705f6a12588a72e583",
+      "reference_label": "fonts-ready-type3origins-low-1-100-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          656,
+          485,
+          932,
+          775
+        ],
+        "size": [
+          276,
+          290
+        ],
+        "rgb_sha256": "c0b42ebdfd2a9c86a9a6d0459f2250c19899350fb0d21691936d649ca4d79f64",
+        "component_pixels": 79476
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          656,
+          485,
+          932,
+          775
+        ],
+        "size": [
+          276,
+          290
+        ],
+        "rgb_sha256": "c0b42ebdfd2a9c86a9a6d0459f2250c19899350fb0d21691936d649ca4d79f64",
+        "component_pixels": 79476
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 387663347,
+        "retained_bytes": 5414745,
+        "filtered_bytes": 382248602,
+        "selected_lines": 51976,
+        "selected_bytes": 5414745,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4264275,
+        "eof": true,
+        "updated_unix": 1791753392.7769005
+      },
+      "viewer_trace": {
+        "sha256": "8e0dc09a5044519ac0c8ca5612f2d335f5188cdfe2c34f3681172a162a68b6c8",
+        "bytes": 5414745,
+        "api_calls": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11367,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 2899,
+          "CreateDIBSection": 3931,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11367,
+          "StretchDIBits": 546,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13791,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 876,
+            "height": 928,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 928,
+            "color_use": 0
+          },
+          {
+            "x_dest": 41,
+            "y_dest": 0,
+            "width": 1059,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 51,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 272,
+            "height": 285,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 285,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          928,
+          1025,
+          1025,
+          285
+        ]
+      },
+      "positive_trace": {
+        "sha256": "b60cfec390c7863cb238ef2f72d3a53b79a4496c17578cd9c6fcd479ef69063d",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "18a6386e832aef56f9f097fbc9386e7966db59a25e9aea8d2108a8060c8549fa",
+      "closed_sha256": "6037d320ecea4ba4c1c59dfb971666d797e0b2cf392732d0f7886395cce8a983",
+      "session_sha256": "c2abaf56f04b4c2a3df9806c7b116f1a82a4cfb39ba53f796d981e404492fd31",
+      "startup_sha256": "ac3f0d99289309c58f72c541b12744feef1497ba9a012ee42c06046417e1939a",
+      "actions_sha256": "ceb9b65007db95d57255e08fea8a90e73e6301270b9574c2ca08a65e434f8446",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-high-0-600-source",
+      "kind": "source",
+      "zoom": 600,
+      "family": "high",
+      "reverse": false,
+      "source_sha256": "d79699f4feb0de32910d7352face46c3bb15f80b36b951474e32551bc22a0839",
+      "reference_label": "fonts-ready-axisraster-high-0-600-source",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          379,
+          1052,
+          881
+        ],
+        "size": [
+          516,
+          502
+        ],
+        "rgb_sha256": "351f2cc073a52f13546251f5ffe469baf05360c0583706aca11496b834c739e5",
+        "component_pixels": 258016
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          379,
+          1052,
+          881
+        ],
+        "size": [
+          516,
+          502
+        ],
+        "rgb_sha256": "351f2cc073a52f13546251f5ffe469baf05360c0583706aca11496b834c739e5",
+        "component_pixels": 258016
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 375294776,
+        "retained_bytes": 5101070,
+        "filtered_bytes": 370193706,
+        "selected_lines": 49261,
+        "selected_bytes": 5101070,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4132530,
+        "eof": true,
+        "updated_unix": 1791753391.844908
+      },
+      "viewer_trace": {
+        "sha256": "56ed848ed3a65367ef8a22b1bdde1e7bd3d2b4331cf7d605e0ccfe229aad2c99",
+        "bytes": 5101070,
+        "api_calls": {
+          "StretchBlt": 1807,
+          "CreateDIBSection": 3922,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 422,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 1807,
+          "CreateDIBSection": 3922,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 422,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13530,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 892,
+            "height": 865,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 865,
+            "color_use": 0
+          },
+          {
+            "x_dest": 43,
+            "y_dest": 0,
+            "width": 1065,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 53,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 512,
+            "height": 497,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 497,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          865,
+          1025,
+          1025,
+          497
+        ]
+      },
+      "positive_trace": {
+        "sha256": "a6ce4b8a1f4d0d661b58d8c099971eeb700d0815806101be40eea89df8d4b018",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "9954b761ce45375517c197abeac14f3361c79e4e49734d6d76ed4b7c3071a059",
+      "closed_sha256": "c8bbc2ba1ededaa3268c4b25744def223318708b2f2975cd089ae90487fb95f9",
+      "session_sha256": "959874d149751e63f6183d075d4eceaacea14e86fcbe84e8e5e42e36ffc40407",
+      "startup_sha256": "13eb4a548e0c0743092f05651829e4888dc2ed9e680d5479052dd31ebd19b2b8",
+      "actions_sha256": "c8014c5c63bb5108341e4115e544b45a88edf00c3de31f2189df674ab1f7a6b1",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    },
+    {
+      "study": "relay-selected",
+      "label": "fonts-ready-relaysel-high-0-600-pdf",
+      "kind": "pdf",
+      "zoom": 600,
+      "family": "high",
+      "reverse": false,
+      "source_sha256": "1560261c81954a62db98415c6fb3ecc0356fc205fe0dc7a0ef8a552fb9879c6f",
+      "reference_label": "fonts-ready-type3origins-high-0-600-baseline",
+      "observed_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          379,
+          1052,
+          881
+        ],
+        "size": [
+          516,
+          502
+        ],
+        "rgb_sha256": "51eda0985c4e5e09e12e3844c50e8dd4eabf54f1ec17c39cefac867257713995",
+        "component_pixels": 258016
+      },
+      "reference_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          379,
+          1052,
+          881
+        ],
+        "size": [
+          516,
+          502
+        ],
+        "rgb_sha256": "51eda0985c4e5e09e12e3844c50e8dd4eabf54f1ec17c39cefac867257713995",
+        "component_pixels": 258016
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "filter": {
+        "input_bytes": 373150756,
+        "retained_bytes": 5101295,
+        "filtered_bytes": 368049461,
+        "selected_lines": 49263,
+        "selected_bytes": 5101295,
+        "dropped_selected_bytes": 0,
+        "limit_bytes": 16777216,
+        "chunks": 4114624,
+        "eof": true,
+        "updated_unix": 1791753394.050459
+      },
+      "viewer_trace": {
+        "sha256": "9b0a687e0dd647e7d7538b9be4c91c7a8595e98ca2e7a8213c43acccb4bc542a",
+        "bytes": 5101295,
+        "api_calls": {
+          "StretchBlt": 1807,
+          "CreateDIBSection": 3922,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 422,
+          "SetDIBitsToDevice": 4
+        },
+        "api_returns": {
+          "StretchBlt": 1807,
+          "CreateDIBSection": 3922,
+          "CreateFontIndirectW": 121,
+          "ExtTextOutW": 11363,
+          "StretchDIBits": 422,
+          "SetDIBitsToDevice": 4
+        },
+        "font_creation_names": {
+          "": 6,
+          "Courier": 9,
+          "MS Sans Serif": 12,
+          "System": 9,
+          "MS Shell Dlg": 20,
+          "SimSun": 13530,
+          "Marlett": 2,
+          "Arial": 2,
+          "\\5b8b\\4f53": 3
+        },
+        "dib_calls": [
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 892,
+            "height": 865,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 865,
+            "color_use": 0
+          },
+          {
+            "x_dest": 43,
+            "y_dest": 0,
+            "width": 1065,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 53,
+            "height": 1025,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 1025,
+            "color_use": 0
+          },
+          {
+            "x_dest": 0,
+            "y_dest": 0,
+            "width": 512,
+            "height": 497,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 497,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          865,
+          1025,
+          1025,
+          497
+        ]
+      },
+      "positive_trace": {
+        "sha256": "161204a4049ff6e3112fde969d7de9fb03e83caeec2035ce42055d378d3696d0",
+        "bytes": 10954,
+        "api_calls": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "api_returns": {
+          "CreateDIBSection": 1,
+          "CreateFontW": 1,
+          "GetTextFaceW": 1,
+          "GetGlyphIndicesW": 1,
+          "GetGlyphOutlineW": 1,
+          "GetFontData": 1,
+          "ExtTextOutW": 1,
+          "StretchDIBits": 1,
+          "SetDIBitsToDevice": 1
+        },
+        "font_creation_names": {},
+        "dib_calls": [
+          {
+            "x_dest": 67,
+            "y_dest": 71,
+            "width": 2,
+            "height": 2,
+            "x_source": 0,
+            "y_source": 0,
+            "start_scan": 0,
+            "scan_lines": 2,
+            "color_use": 0
+          }
+        ],
+        "dib_return_scan_lines": [
+          2
+        ]
+      },
+      "positive_stdout": "face_count=7 indices=1 glyph=36 outline_bytes=64 font_bytes=18214472 text=1 stretch=2 set=2",
+      "registry_sha256": "e3b016fe49fbcfaf8b456f25175bfc71a979d86098493ec32d08364f8f690a23",
+      "audit_sha256": "76117e0d3b3e4ce6bba2a6d0764ef99269433324bad0bd6f51cb1dc4078666ac",
+      "closed_sha256": "7efd4f9b661b897da2c81eaa8b012440aa9866f3853c5862212ab3753a8b5b34",
+      "session_sha256": "374c5cbf933191781d5a8ae34710b5c8e9b518e54be61f83e4c28a69db34f44b",
+      "startup_sha256": "ac3f0d99289309c58f72c541b12744feef1497ba9a012ee42c06046417e1939a",
+      "actions_sha256": "5742beae3c15cdd881fe060652ab1e02169d0bece5bc5f68ea1e4c29c044eafe",
+      "stable_numeric_complete": true,
+      "source_intact": true,
+      "container_removed": true,
+      "oom": false,
+      "last_dib_matches_page_interior": true
+    }
+  ],
+  "pairs": [
+    {
+      "family": "low",
+      "reverse": false,
+      "zoom": 75,
+      "source_label": "fonts-ready-relaysel-low-0-75-source",
+      "pdf_label": "fonts-ready-relaysel-low-0-75-pdf",
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 624,
+        "maximum_absolute_channel_delta": 137,
+        "bounds_in_page": [
+          21,
+          21,
+          174,
+          193
+        ]
+      },
+      "last_dib_equal": true,
+      "api_counts_equal": true,
+      "font_creation_names_equal": true,
+      "last_dib": {
+        "x_dest": 0,
+        "y_dest": 0,
+        "width": 204,
+        "height": 213,
+        "x_source": 0,
+        "y_source": 0,
+        "start_scan": 0,
+        "scan_lines": 213,
+        "color_use": 0
+      }
+    },
+    {
+      "family": "low",
+      "reverse": false,
+      "zoom": 150,
+      "source_label": "fonts-ready-relaysel-low-0-150-source",
+      "pdf_label": "fonts-ready-relaysel-low-0-150-pdf",
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 1620,
+        "maximum_absolute_channel_delta": 188,
+        "bounds_in_page": [
+          43,
+          42,
+          347,
+          384
+        ]
+      },
+      "last_dib_equal": true,
+      "api_counts_equal": true,
+      "font_creation_names_equal": true,
+      "last_dib": {
+        "x_dest": 0,
+        "y_dest": 0,
+        "width": 408,
+        "height": 427,
+        "x_source": 0,
+        "y_source": 0,
+        "start_scan": 0,
+        "scan_lines": 427,
+        "color_use": 0
+      }
+    },
+    {
+      "family": "low",
+      "reverse": true,
+      "zoom": 100,
+      "source_label": "fonts-ready-relaysel-low-1-100-source",
+      "pdf_label": "fonts-ready-relaysel-low-1-100-pdf",
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 1314,
+        "maximum_absolute_channel_delta": 188,
+        "bounds_in_page": [
+          32,
+          29,
+          237,
+          257
+        ]
+      },
+      "last_dib_equal": true,
+      "api_counts_equal": true,
+      "font_creation_names_equal": true,
+      "last_dib": {
+        "x_dest": 0,
+        "y_dest": 0,
+        "width": 272,
+        "height": 285,
+        "x_source": 0,
+        "y_source": 0,
+        "start_scan": 0,
+        "scan_lines": 285,
+        "color_use": 0
+      }
+    },
+    {
+      "family": "high",
+      "reverse": false,
+      "zoom": 600,
+      "source_label": "fonts-ready-relaysel-high-0-600-source",
+      "pdf_label": "fonts-ready-relaysel-high-0-600-pdf",
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 2947,
+        "maximum_absolute_channel_delta": 188,
+        "bounds_in_page": [
+          61,
+          57,
+          440,
+          448
+        ]
+      },
+      "last_dib_equal": true,
+      "api_counts_equal": true,
+      "font_creation_names_equal": true,
+      "last_dib": {
+        "x_dest": 0,
+        "y_dest": 0,
+        "width": 512,
+        "height": 497,
+        "x_source": 0,
+        "y_source": 0,
+        "start_scan": 0,
+        "scan_lines": 497,
+        "color_use": 0
+      }
+    }
+  ],
+  "positive_required_api": [
+    "CreateDIBSection",
+    "CreateFontW",
+    "GetTextFaceW",
+    "GetGlyphIndicesW",
+    "GetGlyphOutlineW",
+    "GetFontData",
+    "ExtTextOutW",
+    "StretchDIBits",
+    "SetDIBitsToDevice"
+  ],
+  "public_sha256": {
+    "scripts/research/wine_gdi_relay_probe.c": "f72a979ce5b86f24bf2bd54351782cfb8bdaa931fefdeae5293306f7775f9823",
+    "scripts/research/wine_gdi_relay_filter.py": "c546c7c8ea4fa48edc195d6ceb0afc34dacd4b712312dfbcf2aeeb76d4d7c0ca",
+    "scripts/research/wine-gdi-relay.reg": "ed199ba3d6f5e9b27bd11ce50d00a338c3c0af7e1ff4080d39e9857045982858"
+  },
+  "driver_sha256": {
+    "session.py": "e21b25677bad1ae82338812f2bf1b6c872653b65e6e70a73779f924cab58a6ce",
+    "run_audit_fulloriginal.py": "7ba7f2df5c0f83e5a6cbc57e999e99211de372bb46689634fcc47264878f07ed",
+    "session_relay.py": "2ae1adbb7e2ddcb0ddf754137e1da79b138a4a820fa983a497b39a0700549f7a",
+    "session_relay_selected.py": "01b4b61f38dc71691baf720e4b5cc41f9c8ac690c38ca9f6901fce53e318b00a",
+    "run_relay.py": "1780f0e882911d38633748e156cfa3988859cc7ca68f074384549a0df3cd9d5d",
+    "run_relay_selected.py": "fc99fbcf457e0524e5f454c14eb86dc27e120623253b1f74607229aad77c34db",
+    "relay_trace_filter.py": "4a6e0a00eecf8a8ce1893a4abf3c5b9e2d90643d45e0432ff75dfbcb2038a7ab",
+    "relay_selected_filter.py": "addd85ac5e86973f29bf205dbfed02cdafbacc498510f981db09885220023a35",
+    "relay_positive.c": "f72a979ce5b86f24bf2bd54351782cfb8bdaa931fefdeae5293306f7775f9823",
+    "relay_positive.exe": "e658e971bd56012cc0af73092d0ed78fbce2a9b0bf50e4c96c27ac81af5fc729",
+    "relay-config.reg": "c7d976efc21691f9d45d887bc43d7d65e36f017aa51879178c1b0d4662422077",
+    "relay-selected-config.reg": "ed199ba3d6f5e9b27bd11ce50d00a338c3c0af7e1ff4080d39e9857045982858",
+    "prepare_relay.py": "91c386252b04e876b477e7444aa4fd0ea539a431294a5b0c546d0e248b4d97c6",
+    "prepare_relay_selected.py": "b5b420b1738b16f99831b6bbb57c72b77e6dff26d83435f7913771109b1fd80c",
+    "analyze_relay.py": "399d00dd8939982b89fd10e752c556472f5fe90ecd443b04f19293229b1838ab",
+    "verify_relay_filter.py": "3449ae7e8d7762fb3cf428c65865436c20243a3ca4cf7a3017255d6d565d25ef",
+    "ui_numeric_v5.c": "443c1961d1d6d9f7d13d3944bffa6d2162fc57a09c5ae5f713b8fb0660bd6da2",
+    "ui_numeric_v5.exe": "6963b378f6fc55a578ca5985b1f6874d1dd61da29779b53c6fc72447879155cc",
+    "page_pixels.py": "17c61142d693ebae7d780372913593f2b790e2392e008ea4e8d2553379dbe470",
+    "compare_final_v7.py": "1a2786a3d849e2b58931f77a49f6307ad49f488602ff8da0402bdc957b4448ac"
+  },
+  "public_equivalence": {
+    "probe_source_byte_exact": true,
+    "registry_byte_exact": true,
+    "filter_AST_identical": true,
+    "filter_boundary_verification": {
+      "metadata": {
+        "input_bytes": 16779530,
+        "retained_bytes": 16777216,
+        "filtered_bytes": 138,
+        "selected_lines": 131089,
+        "selected_bytes": 16779392,
+        "dropped_selected_bytes": 2176,
+        "limit_bytes": 16777216,
+        "chunks": 131091,
+        "eof": true,
+        "updated_unix": 1791753590.9784846
+      },
+      "retained_sha256": "2aa96aa34b58171a9bc1dad398fa4efab83bfb70332f67dfcf7445b0958e1e3e",
+      "expected_sha256": "2aa96aa34b58171a9bc1dad398fa4efab83bfb70332f67dfcf7445b0958e1e3e",
+      "selected_line_bytes": 128,
+      "total_selected_lines": 131089,
+      "unselected_lines": 2,
+      "script_sha256": "c546c7c8ea4fa48edc195d6ceb0afc34dacd4b712312dfbcf2aeeb76d4d7c0ca",
+      "returncode": 0
+    }
+  },
+  "failures": [
+    {
+      "stage": "initial retention",
+      "count": 4,
+      "description": "The full relay stream includes window-procedure/DLL lifecycle messages despite API selection. All four traces hit the 16 MiB retained-byte cap. Complete GUI frames remain valid, but API-absence/complete-log conclusions are excluded."
+    },
+    {
+      "stage": "initial ad-hoc comparison",
+      "error": "AttributeError: 'tuple' object has no attribute 'shape'",
+      "description": "The caller passed the (metadata,array) crop result to difference before unpacking it. No comparison file was emitted. Corrected analysis reuses the original captures; no GUI retry or normalization."
+    }
+  ],
+  "limitations": [
+    "The default RelayFromExclude remains active; these are selected public entry-point observations, not complete call graphs.",
+    "No selected glyph-outline/data/index call occurs in viewer traces, while all occur in independent positive probes. Absence does not establish a universal absence of GDI or identify an internal font engine.",
+    "No HG-prefixed content face appears in retained NtGdiHfontCreate messages; UI-related face names are retained.",
+    "The last SetDIBitsToDevice arguments and scan-line returns agree across each source/PDF pair and are consistent with observed page interior sizes. Bitmap headers and pixels passed to the call are not read, and complete drawing state is not reconstructed.",
+    "All source/PDF frames still differ; no production, actual-corpus, native/Node/browser parity or final acceptance improvement is claimed.",
+    "Raw discarded messages are not recoverable. Final selected records have zero cap drops; the filter cap and exclusion are independently exercised on an original stream."
+  ],
+  "sources": [
+    "https://www.winehq.org/pipermail/wine-devel/2008-August/068112.html",
+    "https://www.winehq.org/pipermail/wine-patches/2002-December/004652.html",
+    "https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice",
+    "https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getglyphoutlinew"
+  ]
+}

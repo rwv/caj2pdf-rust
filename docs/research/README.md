@@ -268,3 +268,11 @@ range/default equivalents retain baseline pixels; four array-based equivalents
 regress. Two cold source repeats and all 29 output reproductions are exact.
 The observer's initial cell-boundary failure and deliberately displaced controls
 remain separate from complete-frame fidelity; no production fix is adopted.
+
+The [public GDI relay controls](wine-gdi-relay-controls-20261011.md) retain twelve
+cold Wine sessions and independent API logging probes. All frames equal their
+unobserved references. Four initial logs truncate; eight filtered traces retain
+every selected record. Source/PDF final bitmap dimensions match at four views,
+but glyph-query APIs seen in the positive probe are absent from the selected
+viewer traces. This narrows the observation boundary without identifying an
+internal renderer or fixing the remaining source/PDF pixel differences.

@@ -3659,3 +3659,26 @@ and their metadata reproduce exactly. No vendor implementation, foreign converte
 or private HN/JBIG is inspected or migrated. Fonts, fixtures, PDFs and screenshots
 stay external. No production correction, dependency, API or I/O change results;
 actual-corpus fidelity and #541 remain open.
+
+### Public GDI relay controls (#541, 2026-10-11)
+
+The [relay study](research/wine-gdi-relay-controls-20261011.md) records twelve
+cold Wine sessions on original synthetic axis controls and unchanged resource
+fonts. Every complete/stable/numeric-confirmed frame equals its unobserved
+reference. Four initial logs reach their cap; eight corrected filtered traces
+reach EOF without losing a selected record. Independent public Win32 API probes
+validate logging in all twelve sessions. Matching final bitmap dimensions and
+absent selected glyph-query calls do not identify an internal renderer or prove
+an upstream cause; the default caller exclusions remain documented.
+
+`scripts/research/wine_gdi_relay_probe.c`, `wine_gdi_relay_filter.py` and
+`wine-gdi-relay.reg` are independently authored MIT research inputs reviewed per
+file. They use public Win32 declarations, Wine's documented relay configuration
+and Python's standard library. The C/configuration bytes and the filter's AST
+match the observed inputs. An original stream verifies the public filter's
+16 MiB boundary, unrelated-message exclusion and explicit dropped-byte report.
+No viewer implementation, private object or passed bitmap buffer is read;
+no foreign converter or private HN/JBIG code is inspected, copied or migrated.
+Public artifacts contain metadata and original helpers; font/document/PDF/image
+and executable binaries remain external. No production, dependency, API, I/O,
+font-archive or runtime-parity change follows. #541 remains open.
