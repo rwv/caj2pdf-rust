@@ -262,6 +262,17 @@ Source Han faces carry the same glyph set as the Noto CJK faces.
 
 #### Notes
 
+The CJK/Latin fallback recipe supplies readable substitute fonts; it does not
+establish original typography. The [Wine 7.3 investigation](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/notes/wine73-typography-20261010.md)
+shows remaining differences in resource/style choice, native glyph lookup and
+positioning. A source font can require different glyph slots from ordinary
+Unicode: even the measured HGBZ digit `1` differs between those lookups, while
+ordinary fullwidth parentheses are absent and fall back to CJK. Installing fonts
+in Wine does not replace embedded PDF fonts. General C8 ordinary-glyph mappings
+and per-state CJK styles are not supplied by the HN-B mode-0 symbol options;
+same-font marker controls also retain positioning differences. Do not treat
+successful conversion or a same-named font as full source-font/layout parity.
+
 The decoration alias defaults to `►`. Use `--decoration-char CHAR` to pick
 a different single BMP Unicode scalar from the decoration font. It requires
 `--font-decoration` or `--fonts DIR`, and `DIR` must then contain
