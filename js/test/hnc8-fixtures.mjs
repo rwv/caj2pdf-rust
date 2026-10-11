@@ -324,3 +324,36 @@ export function privateAliasFont(original, code = 0x0403) {
   }
   throw new Error("original geometric font has no cmap");
 }
+
+/** Original mixed ornament values, repeating values after intervening records. */
+export function syntheticNativeC8Ornaments() {
+  const words = [[0x8001, 4350], [0x8002, 0x1084], [4682, 0xa0c1]];
+  for (const [i, value] of [1, 2, 46, 117, 2, 1].entries()) {
+    const y = 4500 + i * 100;
+    words.push([0x8010, value], [4672, y], [4822, y], [0xffff, 5]);
+  }
+  words.push([4772, 0xa0c1], [0x8004, 1]);
+  const bytes = new Uint8Array(100 + words.length * 4);
+  bytes.set(syntheticNativeC8().subarray(0, 100));
+  const view = new DataView(bytes.buffer);
+  for (const [i, value] of [4652, 4274, 1200, 1200].entries()) view.setUint16(28 + i * 2, value, true);
+  view.setUint32(84, words.length * 4, true);
+  view.setUint32(96, bytes.length, true);
+  for (const [i, word] of words.flat().entries()) view.setUint16(100 + i * 2, word, true);
+  return bytes;
+}
+
+/** Original geometric fixture: alternate rectangle and triangle ornament aliases. */
+export const ornamentGlyphs = [1, 2, 46, 117].map(value => ({ value, glyph: [1, 46].includes(value) ? "A" : "中" }));
+
+/** Read the identity of an original small SFNT fixture, never a document. */
+export function fixtureFontIdentity(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < view.getUint16(4); i++) {
+    const at = 12 + i * 16;
+    if (view.getUint32(at) === 0x68656164) {
+      return { postscriptName: "CajFixture", checksumAdjustment: view.getUint32(view.getUint32(at + 8) + 8) };
+    }
+  }
+  throw new Error("fixture has no head table");
+}

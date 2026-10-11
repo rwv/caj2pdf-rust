@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::hnc8::{C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity};
+use crate::hnc8::{C8PageFonts, NativeDecorationGlyph, NativeSymbolGlyph, SymbolFontIdentity};
 use crate::test_support::page_image;
 
 pub(super) fn native_text(records: &[Record]) -> Vec<u8> {
@@ -64,6 +64,8 @@ fn native_c8_jpeg_descriptor_keeps_the_image_box_but_changes_row_orientation() {
                 roles: roles(),
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -150,6 +152,8 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
                 roles: font_roles,
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             Some(&table()),
             ComposeOptions::default(),
@@ -212,6 +216,8 @@ fn native_document_checks_resource_contract_before_output() {
                 roles: role,
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -242,6 +248,8 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
             roles: roles(),
             symbol_glyphs: &[],
             symbol_font: None,
+            decoration_glyphs: &[],
+            decoration_font: None,
         },
         None,
         ComposeOptions::default(),
@@ -277,6 +285,8 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
                 roles: role,
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions {
@@ -340,6 +350,8 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
                 roles: role,
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             options,
@@ -382,6 +394,8 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
                 roles: roles(),
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -459,6 +473,8 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
                 roles: roles(),
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -505,6 +521,8 @@ fn check_hnb_type3_after_text(corrupt: bool) -> Vec<u8> {
             roles: roles(),
             symbol_glyphs: &[],
             symbol_font: None,
+            decoration_glyphs: &[],
+            decoration_font: None,
         },
         None,
         ComposeOptions::default(),
@@ -601,6 +619,8 @@ fn convert_bound_symbols(
             roles: C8PageFonts { symbols, ..roles() },
             symbol_glyphs,
             symbol_font,
+            decoration_glyphs: &[],
+            decoration_font: None,
         },
         None,
         ComposeOptions::default(),
@@ -779,6 +799,163 @@ fn symbol_glyph_maps_bound_to_a_font_identity_refuse_other_fonts() {
             convert_bound_symbols(Variant::HnB, 0, Some(1), &map, Some(&symbol_font));
         let error = result.unwrap_err();
         assert_eq!(error.reason, reason);
+        assert!(!bytes.ends_with(b"%%EOF\n"));
+    }
+}
+
+fn ornament_text(_: &[Record]) -> Vec<u8> {
+    let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [4682, 0xa0c1]];
+    for (index, value) in [1, 2, 46, 117, 2, 1].into_iter().enumerate() {
+        let y = 4500 + index as u16 * 100;
+        words.extend([[0x8010, value], [4672, y], [4822, y], [0xffff, 5]]);
+    }
+    words.extend([[4772, 0xa0c1], [0x8004, 1]]);
+    words
+        .into_iter()
+        .flatten()
+        .flat_map(u16::to_le_bytes)
+        .collect()
+}
+
+fn convert_ornaments(
+    entries: &[NativeDecorationGlyph],
+    decoration: Option<(usize, char)>,
+    identity: Option<&SymbolFontIdentity>,
+    mode: u8,
+) -> (Result<ComposeReport>, Vec<u8>) {
+    let mut fixture = fixture_with_text(Variant::C8, &[vec![]], ornament_text);
+    fixture.bytes[12] = mode;
+    for (index, value) in [4652u16, 4274, 1200, 1200].into_iter().enumerate() {
+        fixture.bytes[28 + index * 2..30 + index * 2].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut fonts = [C8FontSource {
+        source: Source::new(crate::pdf::drawing_font()),
+        face: 0,
+    }];
+    let mut sink = Sink::default();
+    let result = convert_c8_native_pdf(
+        &mut Source::new(fixture.bytes),
+        &mut sink,
+        C8FontSources {
+            sources: &mut fonts,
+            roles: C8PageFonts {
+                decoration,
+                ..roles()
+            },
+            symbol_glyphs: &[],
+            symbol_font: None,
+            decoration_glyphs: entries,
+            decoration_font: identity,
+        },
+        None,
+        ComposeOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    );
+    (result, sink.bytes)
+}
+
+#[test]
+fn mixed_ornaments_select_distinct_glyphs_and_remain_nonsemantic() {
+    let map = [1, 2, 46, 117].map(|value| NativeDecorationGlyph {
+        value,
+        glyph: if matches!(value, 1 | 46) { 'A' } else { '中' },
+    });
+    let (report, pdf) = convert_ornaments(&map, Some((0, 'A')), None, 2);
+    assert_eq!(report.unwrap().output_pages, 1);
+    let text = crate::test_support::pdf_text(&pdf);
+    assert_eq!(text.matches("/FontFile2 ").count(), 1);
+    let ornaments: Vec<_> = text.split("/Artifact BMC").skip(1).collect();
+    assert!(!ornaments.is_empty());
+    assert!(ornaments.iter().all(|part| part.contains("/ActualText ()")));
+    assert!(text.contains("<4E2D> Tj"));
+    let all_a = map.map(|entry| NativeDecorationGlyph {
+        glyph: 'A',
+        ..entry
+    });
+    let (report, default_pdf) = convert_ornaments(&[], Some((0, 'A')), None, 2);
+    report.unwrap();
+    let (report, mapped_a) = convert_ornaments(&all_a, Some((0, 'A')), None, 2);
+    report.unwrap();
+    assert_eq!(mapped_a, default_pdf);
+    assert_ne!(pdf, default_pdf);
+    // Ordinary text, decoration transforms, clipping and paint order stay unchanged.
+    assert_eq!(
+        text.split("stream\n")
+            .nth(1)
+            .unwrap()
+            .split("\nendstream")
+            .next()
+            .unwrap()
+            .replace("<4E2D> Tj", "<0041> Tj"),
+        crate::test_support::pdf_text(&default_pdf)
+            .split("stream\n")
+            .nth(1)
+            .unwrap()
+            .split("\nendstream")
+            .next()
+            .unwrap()
+    );
+    // Unlisted values retain the legacy alias.
+    let (report, partial) = convert_ornaments(&[map[1], map[3]], Some((0, 'A')), None, 2);
+    report.unwrap();
+    assert_eq!(partial, pdf);
+}
+
+#[test]
+fn ornament_maps_refuse_wrong_resources_values_and_missing_glyphs() {
+    let mut source = Source::new(crate::pdf::drawing_font());
+    let font =
+        crate::pdf::OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).unwrap();
+    let identity = SymbolFontIdentity {
+        postscript_name: font.postscript_name().unwrap(),
+        checksum_adjustment: font.checksum_adjustment().unwrap(),
+    };
+    let valid = NativeDecorationGlyph {
+        value: 1,
+        glyph: 'A',
+    };
+    convert_ornaments(&[valid], Some((0, 'A')), Some(&identity), 2)
+        .0
+        .unwrap();
+    let wrong = SymbolFontIdentity {
+        checksum_adjustment: identity.checksum_adjustment ^ 1,
+        ..identity.clone()
+    };
+    for (entries, role, identity, mode) in [
+        (vec![valid], None, None, 2),
+        (vec![valid; 2], Some((0, 'A')), None, 2),
+        (vec![valid; 5], Some((0, 'A')), None, 2),
+        (
+            vec![NativeDecorationGlyph { value: 3, ..valid }],
+            Some((0, 'A')),
+            None,
+            2,
+        ),
+        (
+            vec![NativeDecorationGlyph {
+                glyph: '😀',
+                ..valid
+            }],
+            Some((0, 'A')),
+            None,
+            2,
+        ),
+        (
+            vec![NativeDecorationGlyph {
+                glyph: 'B',
+                ..valid
+            }],
+            Some((0, 'A')),
+            None,
+            2,
+        ),
+        (vec![valid], Some((0, 'A')), Some(&wrong), 2),
+        (vec![], Some((0, 'A')), Some(&identity), 2),
+        (vec![valid], Some((0, 'A')), None, 0),
+    ] {
+        let (result, bytes) = convert_ornaments(&entries, role, identity, mode);
+        assert!(result.is_err());
         assert!(!bytes.ends_with(b"%%EOF\n"));
     }
 }

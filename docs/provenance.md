@@ -3159,3 +3159,23 @@ byte-identical to current main when the optional roles are absent. #541 and
 broader #406 obligations remain open. Source code and synthetic controls are
 original MIT work; no font outlines, external documents, vendor programs or
 foreign/private HN/JBIG implementation source are added or copied.
+
+### Wine per-value ornament mapping follow-up (#541, 2026-10-11)
+
+The [metadata-only receipt](research/wine-ornaments-20261011.json) records
+four fresh Wine CAJViewer 7.3 query sessions and 160 observations. Original
+MIT geometric marker fonts identify full cmap arguments independently of vendor
+outlines, across Latin/CJK state changes and reversed record order. Results
+agree with the earlier isolated resource study: `8010` values 1/2/46/117 use
+HGBZ U+5D04/U+5D05/U+5D41/U+5D95. These are font lookup aliases, not document
+characters. Font identity includes the measured SHA-256 and PostScript/head
+fingerprint; no resource bytes are added here.
+
+The production map, bounded transport, CLI options, JavaScript options and
+mixed-value fixtures are original MIT work. Tests use the existing original
+rectangle/triangle font. No vendor implementation, private HN/JBIG source,
+foreign converter, corpus document, rendered page or font outline was copied.
+No dependency or font allocation limit changes. Existing native-mode/state
+restrictions, sequential output, ranged input and nonsemantic marking remain.
+This closes the single-global-alias limitation for the four measured values;
+it does not close the remaining placement, pixel or Wine startup discrepancies.

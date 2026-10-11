@@ -161,6 +161,8 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
                 roles: roles(),
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),

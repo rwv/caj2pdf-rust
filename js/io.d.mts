@@ -197,6 +197,17 @@ export interface C8Fonts<Input> {
   latinState31?: C8Font<Input>;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
   decoration?: { source: C8Font<Input>; character: string };
+  /** At most four nonsemantic mode-2 ornament aliases; requires decoration.
+   * Unlisted values keep decoration.character; mapped glyphs never fall back. */
+  decorationGlyphs?: Iterable<C8DecorationGlyph>;
+  /** Bind decorationGlyphs to the measured font; requires a nonempty map. */
+  decorationFontIdentity?: C8SymbolFontIdentity;
+}
+
+/** Selects the decoration font's BMP cmap glyph for one native ornament value. */
+export interface C8DecorationGlyph {
+  value: 1 | 2 | 46 | 117;
+  glyph: string;
 }
 
 /** Selects, by its BMP character-map entry, the `symbols` glyph drawn for one

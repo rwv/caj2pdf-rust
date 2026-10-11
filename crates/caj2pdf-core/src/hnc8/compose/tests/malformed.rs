@@ -102,6 +102,8 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
                         roles: roles(),
                         symbol_glyphs: &[],
                         symbol_font: None,
+                        decoration_glyphs: &[],
+                        decoration_font: None,
                     },
                     None,
                     ComposeOptions::default(),

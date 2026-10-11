@@ -68,6 +68,40 @@ pub struct NativeSymbolGlyph {
     pub glyph: char,
 }
 
+/// An explicit `8010` ornament value and its decoration-font cmap alias.
+/// The glyph remains nonsemantic (Artifact with empty ActualText).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeDecorationGlyph {
+    /// One admitted horizontal ornament: 1, 2, 46 or 117.
+    pub value: u16,
+    /// A BMP alias mapped by the explicit `decoration` font, without fallback.
+    pub glyph: char,
+}
+
+pub(crate) fn validate_decoration_glyphs(
+    glyphs: &[NativeDecorationGlyph],
+    roles: C8PageFonts,
+) -> Result<()> {
+    if glyphs.len() > 4 || (!glyphs.is_empty() && roles.decoration.is_none()) {
+        return Err(invalid(
+            "decoration glyphs require a decoration font and at most four entries",
+        ));
+    }
+    for (index, entry) in glyphs.iter().enumerate() {
+        if !matches!(entry.value, 1 | 2 | 46 | 117)
+            || entry.glyph > '\u{ffff}'
+            || glyphs[..index]
+                .iter()
+                .any(|other| other.value == entry.value)
+        {
+            return Err(invalid(
+                "decoration glyphs require unique admitted values and BMP aliases",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The `symbols` font a [`NativeSymbolGlyph`] map was measured on: its `head`
 /// table checkSumAdjustment and PostScript name (name ID 6). A map bound to
 /// an identity is refused for any other font instead of drawing its glyphs.
@@ -148,12 +182,14 @@ pub(crate) fn admits_native_mode(header: super::Header) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn write_c8_native_page<S, W, C>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: &mut PdfDocument<'_, W, C>,
     fonts: &[&FontObject],
     roles: C8PageFonts,
     symbol_glyphs: &[NativeSymbolGlyph],
+    decoration_glyphs: &[NativeDecorationGlyph],
     images: &[ImageObject],
     top_first: &[bool],
 ) -> Result<u32>
@@ -170,6 +206,12 @@ where
         offset: reader.current.map_or(0, |p| p.page.text.offset),
     };
     let source_error = |source| loc.locate(source);
+    validate_decoration_glyphs(decoration_glyphs, roles).map_err(source_error)?;
+    if !decoration_glyphs.is_empty() && header.native_mode != Some(2) {
+        return Err(source_error(invalid(
+            "decoration glyphs require native mode 2",
+        )));
+    }
     if !matches!(header.variant, Variant::C8 | Variant::HnB) {
         return Err(loc.unsupported("native page composition variant"));
     }
@@ -212,6 +254,7 @@ where
         fonts,
         roles,
         symbol_glyphs,
+        decoration_glyphs,
         geometry,
         origin,
         top_first,
@@ -242,6 +285,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     roles: C8PageFonts,
     /// Explicit source glyphs for mode-0 symbol codes, drawn without fallback.
     symbol_glyphs: &'r [NativeSymbolGlyph],
+    decoration_glyphs: &'r [NativeDecorationGlyph],
     geometry: EmpiricalPageGeometry,
     origin: [u16; 2],
     top_first: &'r [bool],
@@ -811,13 +855,23 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 {
                     return Err(invalid("unverified C8 decoration 117 state"));
                 }
-                let (font, alias) = self
+                let (role, default_alias) = self
                     .roles
                     .decoration
                     .map_or((None, C8_DEFAULT_DECORATION_ALIAS), |(font, alias)| {
                         (Some(font), alias)
                     });
-                let font = self.font(font, alias);
+                let explicit = self
+                    .decoration_glyphs
+                    .iter()
+                    .find(|entry| entry.value == value);
+                let (font, alias) = match explicit {
+                    Some(entry) => (
+                        role.ok_or_else(|| invalid("missing mapped decoration font"))?,
+                        entry.glyph,
+                    ),
+                    None => (self.font(role, default_alias), default_alias),
+                };
                 let style = self
                     .style
                     .or_else(|| (self.axes != [None; 2]).then_some(0))

@@ -240,7 +240,7 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   // Mapped symbol glyphs match the Node conversion byte for byte.
   const { convert } = await import("../node.mjs");
   const { wasmModule } = await import("./helpers.mjs");
-  const { syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
+  const { syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
   const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
   const font = new Blob([fontBytes]);
   for (const [code, unicode, browserPdf] of [[0xd6d0, "4E2D", result.hanStylePdf], [0xa3c1, "FF21", result.fullwidthStylePdf]]) {
@@ -261,6 +261,15 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
     assert.ok(hanText.includes("/F8 1 Tf") && hanText.includes("/F9 1 Tf") && hanText.includes("/F10 1 Tf"));
     await validatePdf(t, hanStylePdf, 1);
   }
+  const ornamentParts = [];
+  await convert(await wasmModule(), new Blob([syntheticNativeC8Ornaments()]), {
+    async writeChunk(bytes) { ornamentParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font,
+    decoration: { source: font, character: "A" }, decorationGlyphs: ornamentGlyphs,
+    decorationFontIdentity: fixtureFontIdentity(fontBytes),
+  } } });
+  assert.deepEqual(Buffer.from(result.ornamentPdf), Buffer.concat(ornamentParts));
+  await validatePdf(t, Buffer.from(result.ornamentPdf), 1);
   const nodeParts = [];
   await convert(await wasmModule(), new Blob([syntheticNativeHnb(0)]), { async writeChunk(bytes) { nodeParts.push(bytes.slice()); return bytes.length; }, async flush() {} }, {
     includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font, symbols: new Blob([await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url))]), symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }], symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 } } },

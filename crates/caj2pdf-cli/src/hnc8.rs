@@ -27,6 +27,8 @@ pub struct Resources {
     pub font_faces: [u32; C8_MAX_FONTS],
     pub symbol_glyphs: Vec<caj2pdf_core::hnc8::NativeSymbolGlyph>,
     pub symbol_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
+    pub decoration_glyphs: Vec<caj2pdf_core::hnc8::NativeDecorationGlyph>,
+    pub decoration_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
 }
 
 impl Resources {
@@ -54,6 +56,8 @@ impl Resources {
             roles: Some(roles),
             symbol_glyphs: self.symbol_glyphs.clone(),
             symbol_font: self.symbol_font.clone(),
+            decoration_glyphs: self.decoration_glyphs.clone(),
+            decoration_font: self.decoration_font.clone(),
         }))
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
@@ -65,6 +69,12 @@ impl Resources {
         resources.open_fonts(&fonts, options.decoration_char, limits)?;
         resources.symbol_glyphs.clone_from(&options.symbol_glyphs);
         resources.symbol_font.clone_from(&options.symbol_font);
+        resources
+            .decoration_glyphs
+            .clone_from(&options.decoration_glyphs);
+        resources
+            .decoration_font
+            .clone_from(&options.decoration_font);
         Ok(resources)
     }
 
@@ -178,6 +188,11 @@ fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; C8_MAX_FONTS
             "--decoration-char requires a decoration font; {}",
             missing(3)
         )));
+    }
+    if !options.decoration_glyphs.is_empty() && paths[3].is_none() {
+        return Err(CliError::usage(
+            "decoration glyphs require an explicit decoration font",
+        ));
     }
     if !options.symbol_glyphs.is_empty() && paths[4].is_none() {
         return Err(CliError::runtime(format!(

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Breaking (Rust API):** add `NativeDecorationGlyph`, plus
+  `decoration_glyphs` and `decoration_font` to `Fonts`/`C8FontSources` (#541).
+  Explicit native-mode-2 mappings select distinct glyphs for ornament values
+  1, 2, 46 and 117, with optional font identity binding. CLI exposes
+  `--decoration-glyph`/`--decoration-font-identity`; JavaScript exposes
+  `decorationGlyphs`/`decorationFontIdentity`. Empty maps preserve output.
+  [Migration](docs/releases/unreleased.md#breaking-rust-api-ornament-glyph-maps-541).
+
 - **Breaking (Rust API):** `C8PageFonts` gains optional `cjk_sans`,
   `cjk_kai` and `cjk_system` fields for the measured CJK style resources
   in C8/HN-B (#541), including fullwidth C8 text and explicit `801c`

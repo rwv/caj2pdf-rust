@@ -278,6 +278,36 @@ pub extern "C" fn caj2pdf_hnb_set_symbol_font(
     })
 }
 
+/// Map a native-mode-2 ornament value to a BMP glyph after roles. Accepts
+/// at most four entries; the core validates values and duplicates.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_add_decoration_glyph(value: u32, glyph: u32) -> u32 {
+    with_session(0, |session| {
+        session.add_c8_decoration_glyph(value, glyph) as u32
+    })
+}
+
+/// Bind ornament aliases to the decoration font. The name encoding is the
+/// same bounded representation as `caj2pdf_hnb_set_symbol_font`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn caj2pdf_c8_set_decoration_font(
+    checksum: u32,
+    length: u32,
+    w0: u64,
+    w1: u64,
+    w2: u64,
+    w3: u64,
+    w4: u64,
+    w5: u64,
+    w6: u64,
+    w7: u64,
+) -> u32 {
+    with_session(0, |session| {
+        session.set_c8_decoration_font(checksum, length, [w0, w1, w2, w3, w4, w5, w6, w7]) as u32
+    })
+}
+
 /// Numeric error category of a failed operation (1..=16), else 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_error_kind() -> u32 {

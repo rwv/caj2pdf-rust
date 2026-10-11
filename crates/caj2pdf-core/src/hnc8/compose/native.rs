@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::hnc8::{
-    C8_MAX_FONTS, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol,
-    write_c8_native_page,
+    C8_MAX_FONTS, C8PageFonts, NativeDecorationGlyph, NativeSymbolGlyph, SymbolFontIdentity,
+    is_mode_zero_symbol, write_c8_native_page,
 };
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
 use std::io::Write;
@@ -26,6 +26,11 @@ pub struct C8FontSources<'a, F> {
     pub symbol_glyphs: &'a [NativeSymbolGlyph],
     /// The font `symbol_glyphs` was measured on; requires a nonempty map.
     pub symbol_font: Option<&'a SymbolFontIdentity>,
+    /// Explicit nonsemantic aliases for admitted `8010` values in native mode 2.
+    /// Requires `roles.decoration`; at most four unique entries, without fallback.
+    pub decoration_glyphs: &'a [NativeDecorationGlyph],
+    /// The decoration font the map was measured on; requires a nonempty map.
+    pub decoration_font: Option<&'a SymbolFontIdentity>,
 }
 
 /// One font resource: a ranged source and its face index, zero for a
@@ -106,6 +111,20 @@ where
             return refuse("native symbol glyph code is mapped more than once");
         }
     }
+    let decoration_glyphs = fonts.decoration_glyphs;
+    crate::hnc8::native_page::validate_decoration_glyphs(decoration_glyphs, roles)
+        .map_err(|error| At::NONE.error(Hnc8Stage::Preflight, error))?;
+    let decoration_source = if decoration_glyphs.is_empty() {
+        None
+    } else {
+        roles.decoration.map(|(index, _)| index)
+    };
+    if fonts.decoration_font.is_some() && decoration_source.is_none() {
+        return Err(At::NONE.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("decoration font identity requires decoration glyphs"),
+        ));
+    }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
@@ -128,6 +147,12 @@ where
             Error::invalid("native symbol glyphs apply only to HN-B mode-0 text"),
         ));
     }
+    if decoration_source.is_some() && header.native_mode != Some(2) {
+        return Err(at.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("decoration glyphs require native mode 2"),
+        ));
+    }
     let mut document =
         PdfDocument::new(sink, limits, cancellation).map_err(at.locator(Hnc8Stage::Pdf))?;
     let mut handles: Vec<FontObject> =
@@ -138,18 +163,28 @@ where
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mapped = mapped_symbols == Some(index);
-        if mapped && let Some(identity) = fonts.symbol_font {
-            let checksum = font.checksum_adjustment();
-            let name = font.postscript_name();
-            let (checksum, name) = (
-                checksum.map_err(at.locator(Hnc8Stage::Preflight))?,
-                name.map_err(at.locator(Hnc8Stage::Preflight))?,
-            );
-            if checksum != identity.checksum_adjustment || name != identity.postscript_name {
-                return Err(at.error(
-                    Hnc8Stage::Preflight,
-                    Error::invalid("symbols font does not match the expected identity"),
-                ));
+        for (enabled, identity, message) in [
+            (
+                mapped,
+                fonts.symbol_font,
+                "symbols font does not match the expected identity",
+            ),
+            (
+                decoration_source == Some(index),
+                fonts.decoration_font,
+                "decoration font does not match the expected identity",
+            ),
+        ] {
+            if enabled && let Some(identity) = identity {
+                let checksum = font.checksum_adjustment();
+                let name = font.postscript_name();
+                let (checksum, name) = (
+                    checksum.map_err(at.locator(Hnc8Stage::Preflight))?,
+                    name.map_err(at.locator(Hnc8Stage::Preflight))?,
+                );
+                if checksum != identity.checksum_adjustment || name != identity.postscript_name {
+                    return Err(at.error(Hnc8Stage::Preflight, Error::invalid(message)));
+                }
             }
         }
         let handle = if mapped {
@@ -167,6 +202,16 @@ where
             return Err(at.error(
                 Hnc8Stage::Preflight,
                 Error::invalid("symbols font does not map a native symbol glyph"),
+            ));
+        }
+        if decoration_source == Some(index)
+            && !decoration_glyphs
+                .iter()
+                .all(|entry| handle.supports(entry.glyph))
+        {
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("decoration font does not map an explicit ornament glyph"),
             ));
         }
         handles.push(handle);
@@ -275,6 +320,7 @@ where
             &references[..reference_count],
             page_roles,
             symbol_glyphs,
+            decoration_glyphs,
             &images,
             &top_first,
         )

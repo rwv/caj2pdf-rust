@@ -146,7 +146,7 @@ function isBmpScalar(character) {
  */
 function fontConfig(options) {
   if (options?.fonts === undefined) return undefined;
-  const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
+  const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, decorationGlyphs, decorationFontIdentity, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
   const sources = [];
   const faces = [];
   const index = (font) => {
@@ -181,24 +181,25 @@ function fontConfig(options) {
     return [code, glyph.codePointAt(0)];
   });
   if (glyphs.length > 0 && symbols === undefined) throw new TypeError("symbolGlyphs require a symbols font");
-  let identity;
-  if (symbolFontIdentity != null) {
-    const { postscriptName, checksumAdjustment } = symbolFontIdentity;
-    if (glyphs.length === 0) throw new TypeError("symbolFontIdentity requires symbolGlyphs");
-    // The core's PostScript name rule: printable ASCII without PDF delimiters.
-    if (typeof postscriptName !== "string" || !/^[\x21-\x7e]{1,63}$/.test(postscriptName) || /[[\](){}<>/%]/.test(postscriptName)) {
-      throw new TypeError("symbol font PostScript name must be 1 to 63 printable ASCII characters without PDF delimiters");
-    }
-    if (!Number.isInteger(checksumAdjustment) || checksumAdjustment < 0 || checksumAdjustment > MAX_U32) {
-      throw new RangeError("symbol font checksumAdjustment must be an unsigned 32-bit integer");
-    }
-    identity = { postscriptName, checksumAdjustment };
+  const ornaments = [];
+  for (const entry of decorationGlyphs ?? []) {
+    if (ornaments.length === 4) throw new RangeError("at most four decoration glyphs are supported");
+    const { value, glyph } = entry ?? {};
+    if (![1, 2, 46, 117].includes(value)) throw new RangeError("decoration glyph value must be 1, 2, 46 or 117");
+    if (!isBmpScalar(glyph)) throw new TypeError("decoration glyph must be one BMP Unicode scalar");
+    if (ornaments.some(([known]) => known === value)) throw new TypeError("decoration glyph value is mapped more than once");
+    ornaments.push([value, glyph.codePointAt(0)]);
   }
+  if (ornaments.length > 0 && decoration === undefined) throw new TypeError("decorationGlyphs require a decoration font");
+  const identity = fontIdentity(symbolFontIdentity, glyphs, "symbol");
+  const ornamentIdentity = fontIdentity(decorationFontIdentity, ornaments, "decoration");
   const fonts = {
     roles,
     symbols: optional(symbols),
     symbolGlyphs: glyphs,
     symbolFontIdentity: identity,
+    decorationGlyphs: ornaments,
+    decorationFontIdentity: ornamentIdentity,
     latinState3: optional(latinState3),
     latinState28: optional(latinState28),
     latinState31: optional(latinState31),
@@ -208,6 +209,20 @@ function fontConfig(options) {
   };
   if (sources.length > 11) throw new RangeError("at most eleven distinct C8 font resources are supported");
   return { sources, faces, fonts };
+}
+
+function fontIdentity(value, glyphs, role) {
+  if (value == null) return undefined;
+  const { postscriptName, checksumAdjustment } = value;
+  if (glyphs.length === 0) throw new TypeError(`${role}FontIdentity requires ${role}Glyphs`);
+  // The core's PostScript name rule: printable ASCII without PDF delimiters.
+  if (typeof postscriptName !== "string" || !/^[\x21-\x7e]{1,63}$/.test(postscriptName) || /[[\](){}<>/%]/.test(postscriptName)) {
+    throw new TypeError(`${role} font PostScript name must be 1 to 63 printable ASCII characters without PDF delimiters`);
+  }
+  if (!Number.isInteger(checksumAdjustment) || checksumAdjustment < 0 || checksumAdjustment > MAX_U32) {
+    throw new RangeError(`${role} font checksumAdjustment must be an unsigned 32-bit integer`);
+  }
+  return { postscriptName, checksumAdjustment };
 }
 
 function failureError(failure) {

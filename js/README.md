@@ -630,13 +630,30 @@ positioning gaps. Font-name equality and embedded-font coverage are insufficient
 the HN-B mode-0 symbol map is not a general C8 ordinary-character map. Preserve
 semantic Unicode separately from any measured font lookup alias.
 
-The default `►` is a visible substitute. For the measured C8 ornament value 46,
-an externally supplied, hash-verified HGBZ resource uses
-`decoration: { source: decorationFontSource, character: "\u5d41" }`.
-See the [resource identities and other measured values](../docs/cli.md#notes).
-This existing option selects one alias for the whole document; it does not
-automatically select different patterns for mixed ornament values or establish
-ordinary-text/font/raster fidelity.
+The default `►` is a visible substitute. A caller-supplied, hash-verified
+HGBZ resource can select all four measured ornament patterns in one document:
+
+```js
+const decorationOptions = {
+  decoration: { source: decorationFontSource, character: "\u5d41" },
+  decorationGlyphs: [
+    { value: 1, glyph: "\u5d04" }, { value: 2, glyph: "\u5d05" },
+    { value: 46, glyph: "\u5d41" }, { value: 117, glyph: "\u5d95" },
+  ],
+  decorationFontIdentity: { postscriptName: "HGBZ_CNKI", checksumAdjustment: 2632420189 },
+};
+// Spread decorationOptions into hnc8.fonts alongside cjk and latin.
+```
+
+`decorationGlyphs` consumes at most five iterable entries before rejecting a
+map longer than four. Values must be unique and glyphs must be BMP scalars.
+An explicit decoration role is required; missing mapped glyphs fail instead of
+falling back. The optional identity binds the map to the measured font and
+requires a nonempty map. Only native mode 2 accepts the map; admitted record
+states are unchanged. Unlisted values retain `decoration.character` and the
+legacy fallback. These aliases draw nonsemantic artifacts with empty ActualText.
+See the [measured resource identities](../docs/cli.md#notes). This does not
+establish ordinary-text or pixel fidelity.
 
 Keep fonts unchanged until conversion settles; the converter does not close
 caller-owned descriptors. Forward-only fonts can use the existing bounded

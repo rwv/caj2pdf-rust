@@ -5,7 +5,9 @@
 //! tokens, help and version; [`parse`] then checks the rules clap cannot
 //! express and keeps the documented `caj2pdf: error:` messages.
 
-use caj2pdf_core::hnc8::{C8_MAX_FONTS, NativeSymbolGlyph, SymbolFontIdentity};
+use caj2pdf_core::hnc8::{
+    C8_MAX_FONTS, NativeDecorationGlyph, NativeSymbolGlyph, SymbolFontIdentity,
+};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -32,6 +34,8 @@ pub struct ConvertOptions {
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
     /// The symbols font the glyph map was measured on.
     pub symbol_font: Option<SymbolFontIdentity>,
+    pub decoration_glyphs: Vec<NativeDecorationGlyph>,
+    pub decoration_font: Option<SymbolFontIdentity>,
     /// Never search the installed fonts for native C8/HN-B text.
     pub no_system_fonts: bool,
 }
@@ -194,6 +198,12 @@ struct ConvertArgs {
     /// Require the symbols font NAME (PostScript) with head checkSumAdjustment CHECKSUM (8 hex digits)
     #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
     symbol_font_identity: Option<OsString>,
+    /// Draw CHAR (or U+XXXX) for ornament VALUE (1, 2, 46 or 117); repeatable
+    #[arg(long, value_name = "VALUE=CHAR", allow_hyphen_values = true)]
+    decoration_glyph: Vec<OsString>,
+    /// Require the decoration font NAME with head checkSumAdjustment CHECKSUM (8 hex digits)
+    #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
+    decoration_font_identity: Option<OsString>,
     /// Do not search installed fonts for native C8/HN-B text
     #[arg(long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
@@ -309,6 +319,26 @@ fn symbol_glyph(value: OsString) -> Result<NativeSymbolGlyph, String> {
     }
 }
 
+fn decoration_glyph(value: OsString) -> Result<NativeDecorationGlyph, String> {
+    const ERROR: &str =
+        "--decoration-glyph requires VALUE=CHAR: 1, 2, 46 or 117 and one BMP character or U+XXXX";
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (raw, glyph) = value.split_once('=').ok_or(ERROR)?;
+    let value = match raw {
+        "1" => 1,
+        "2" => 2,
+        "46" => 46,
+        "117" => 117,
+        _ => return Err(ERROR.into()),
+    };
+    // Reuse the established BMP literal/U+XXXX parser, with a neutral code.
+    let parsed = symbol_glyph(OsString::from(format!("0000={glyph}"))).map_err(|_| ERROR)?;
+    Ok(NativeDecorationGlyph {
+        value,
+        glyph: parsed.glyph,
+    })
+}
+
 /// `NAME:CHECKSUM`: a PostScript name and an eight-digit hexadecimal `head`
 /// checkSumAdjustment. The name may itself contain `:`.
 fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
@@ -366,6 +396,19 @@ impl ConvertArgs {
                 .symbol_font_identity
                 .map(symbol_font_identity)
                 .transpose()?,
+            decoration_glyphs: self
+                .decoration_glyph
+                .into_iter()
+                .map(decoration_glyph)
+                .collect::<Result<_, _>>()?,
+            decoration_font: self
+                .decoration_font_identity
+                .map(|value| {
+                    symbol_font_identity(value).map_err(|error| {
+                        error.replace("--symbol-font-identity", "--decoration-font-identity")
+                    })
+                })
+                .transpose()?,
             no_system_fonts: self.no_system_fonts,
             ..ConvertOptions::default()
         };
@@ -394,6 +437,18 @@ impl ConvertArgs {
         }
         if options.symbol_font.is_some() && options.symbol_glyphs.is_empty() {
             return Err("--symbol-font-identity requires --symbol-glyph".into());
+        }
+        if options.decoration_glyphs.len() > 4 {
+            return Err("--decoration-glyph accepts at most four entries".into());
+        }
+        if !options.decoration_glyphs.is_empty()
+            && options.fonts[3].is_none()
+            && options.font_dir.is_none()
+        {
+            return Err("--decoration-glyph requires --font-decoration or --fonts DIR".into());
+        }
+        if options.decoration_font.is_some() && options.decoration_glyphs.is_empty() {
+            return Err("--decoration-font-identity requires --decoration-glyph".into());
         }
         Ok(Command::Convert {
             input: endpoint(self.input.expect("clap requires INPUT"))?,

@@ -1739,3 +1739,64 @@ fn private_use_substitution_warning_is_explicit_and_zero_is_quiet() {
     assert!(text.contains("visual substitute"));
     assert!(text.contains("original private-use codes retained in PDF ActualText"));
 }
+
+#[test]
+fn decoration_glyph_options_use_decimal_values_and_explicit_fonts() {
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.caj",
+        "--fonts=dir",
+        "--decoration-glyph=1=A",
+        "--decoration-glyph=117=U+4E2D",
+        "--decoration-font-identity=CajFixture:1234ABCD",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        options.decoration_glyphs,
+        [
+            caj2pdf_core::hnc8::NativeDecorationGlyph {
+                value: 1,
+                glyph: 'A'
+            },
+            caj2pdf_core::hnc8::NativeDecorationGlyph {
+                value: 117,
+                glyph: '中'
+            },
+        ]
+    );
+    assert_eq!(
+        options.decoration_font.unwrap().checksum_adjustment,
+        0x1234_abcd
+    );
+    for value in [
+        "0=A", "3=A", "75=A", "0x75=A", "117=", "1=AB", "1=😀", "1=U+D800",
+    ] {
+        assert!(parse_str(&["input.caj", "--fonts=dir", "--decoration-glyph", value]).is_err());
+    }
+    for args in [
+        vec!["input.caj", "--decoration-glyph=1=A"],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-font-identity=CajFixture:1234ABCD",
+        ],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-glyph=1=A",
+            "--decoration-font-identity=Bad/Name:1234ABCD",
+        ],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-glyph=1=A",
+            "--decoration-glyph=2=A",
+            "--decoration-glyph=46=A",
+            "--decoration-glyph=117=A",
+            "--decoration-glyph=1=A",
+        ],
+    ] {
+        assert!(parse_str(&args).is_err(), "{args:?}");
+    }
+}

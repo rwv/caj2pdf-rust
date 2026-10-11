@@ -179,7 +179,7 @@ and 42 have different pixels at equal extents. None is claimed pixel-exact.
 No registration, resampling, column removal or fitted tolerance is used.
 The new CJK roles correct visible font-family substitutions, but character
 positions, punctuation, decorations and device rasterization remain separate
-obligations. The existing decoration alias is measured for ornament 46 only.
+obligations. The ornament follow-up below now selects four distinct patterns.
 #541 remains open for broader resource and geometry fidelity.
 
 With the new roles absent, all twelve mode-2 documents (73 pages) produce
@@ -194,3 +194,45 @@ All added converter, fixture and query-generator source is original MIT work.
 Vendor programs remain opaque. No foreign converter or private HN/JBIG
 implementation was inspected or copied. External documents, font binaries,
 PDFs and screenshots remain outside this repository.
+
+## Per-value ornament follow-up
+
+[Four original query sessions](wine-ornaments-20261011.json) provide 160
+observations of C8 `8010` values 1, 2, 46 and 117. The slots are respectively
+HGBZ U+5D04, U+5D05, U+5D41 and U+5D95 (GIDs 1862, 1863, 1909 and 1981).
+Five Latin states crossed with four CJK family states and reversed order all
+agree. Low/high-byte geometric markers identify the complete cmap argument;
+rectangles have distinct boundaries so repeated decoration tiles cannot merge
+into a misleading marker. Both page frames match in every session, navigation
+is confirmed, sources are unchanged and all containers were removed.
+
+Explicit per-value maps now transport these aliases through Rust, CLI, raw
+WASM, Node and browser. Maps are limited to four unique admitted values, may
+be bound to the font identity, and reject missing glyphs without fallback.
+Existing placement/state restrictions and nonsemantic Artifact/empty-ActualText
+marking stay intact. Unlisted values retain the previous global alias.
+Original geometric fixtures cover mixed/repeated values, unchanged ordinary
+text and drawing geometry, resource sharing, missing glyphs and wrong identities.
+
+The complete 13-document/77-page rerun passes qpdf and independent text-order
+verification. Only the three PDFs containing values 1, 2 and 117 change;
+the other ten PDFs are byte-identical to the family-control candidate. Node
+also matches the native bytes for all three changed documents (15 pages).
+The focused Node/real-Chromium suite passes all 44 tests without skips.
+
+Wine revisits all 15 changed-document pages; only the three ornament-bearing
+page frames change. Equal-extent differences fall from 35,437 to 35,201 pixels
+on `90e7…` page 6, and from 50,736 to 50,305 on `d6a2…` page 5. The third
+page (`b9a6…` page 1) retains a 505-versus-506-pixel width mismatch and is not
+resampled or scored. Its pattern now uses the observed two-line ornament,
+but visible tile seams differ from the source's continuous rule. All 77
+source/output pairs still differ: 35 in extent and 42 in equal-extent pixels.
+This corrects glyph identity without claiming complete ornament geometry.
+
+Independent cold repeats match every page of the four-page and five-page
+PDFs exactly. The six-page `90e7…` PDF succeeds in one direct cold visit but
+fails during startup in the repeat, with a logged stack overflow and no
+admitted page frames. Its earlier startup failures are retained; the mapping
+change does not establish a startup fix. All six sessions preserve source
+hashes and clean up their containers without OOM. Twelve mode-2 documents
+still match frozen-main PDF bytes with the new roles/maps absent.

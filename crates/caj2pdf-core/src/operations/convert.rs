@@ -8,8 +8,8 @@ use super::{Detection, InputFormat, detect_source, pdf_range};
 use crate::caj::convert_caj;
 use crate::hnc8::{
     ApplicationInfoStatus, C8FontSource, C8FontSources, C8PageFonts, ComposeOptions, ComposePage,
-    ComposeVisitor, NativeSymbolGlyph, OutlineReport, SymbolFontIdentity, convert_document_pdf,
-    uses_native_text,
+    ComposeVisitor, NativeDecorationGlyph, NativeSymbolGlyph, OutlineReport, SymbolFontIdentity,
+    convert_document_pdf, uses_native_text,
 };
 use crate::jbig2::text::TextHeaderPolicy;
 use crate::kdh::convert_kdh;
@@ -25,7 +25,7 @@ pub const FONTS_REQUIRE_HNC8: &str =
 
 /// Font resources for native HN/C8 text.
 ///
-/// Up to ten ranged resources and their collection faces; `roles` index
+/// Up to eleven ranged resources and their collection faces; `roles` index
 /// into `sources`, and several roles may share one resource. Absent optional
 /// roles and unmapped characters follow the [`C8PageFonts`] fallback rule.
 #[derive(Default)]
@@ -41,6 +41,10 @@ pub struct Fonts<'a> {
     /// The font `symbol_glyphs` was measured on; a different `symbols` font
     /// is refused. Requires a nonempty map.
     pub symbol_font: Option<SymbolFontIdentity>,
+    /// Explicit nonsemantic decoration aliases for native mode 2.
+    pub decoration_glyphs: Vec<NativeDecorationGlyph>,
+    /// Expected decoration font identity; requires a nonempty decoration map.
+    pub decoration_font: Option<SymbolFontIdentity>,
 }
 
 /// What [`convert`] produces from a document.
@@ -268,23 +272,36 @@ fn convert_hnc8<S: RangedSource, W: Write>(
             roles,
             symbol_glyphs,
             symbol_font,
+            decoration_glyphs,
+            decoration_font,
         }) => {
             let roles = roles.ok_or(Error::invalid("C8 font resources require explicit roles"))?;
             for font in &sources {
                 limits.check_input_size(font.source.size())?;
             }
-            Some((sources, roles, symbol_glyphs, symbol_font))
+            Some((
+                sources,
+                roles,
+                symbol_glyphs,
+                symbol_font,
+                decoration_glyphs,
+                decoration_font,
+            ))
         }
     };
     let report = convert_document_pdf(
         source,
         sink,
         fonts.as_mut().map(
-            |(sources, roles, symbol_glyphs, symbol_font)| C8FontSources {
-                sources,
-                roles: *roles,
-                symbol_glyphs,
-                symbol_font: symbol_font.as_ref(),
+            |(sources, roles, symbol_glyphs, symbol_font, decoration_glyphs, decoration_font)| {
+                C8FontSources {
+                    sources,
+                    roles: *roles,
+                    symbol_glyphs,
+                    symbol_font: symbol_font.as_ref(),
+                    decoration_glyphs,
+                    decoration_font: decoration_font.as_ref(),
+                }
             },
         ),
         Some(&QmTable::standard()),

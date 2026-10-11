@@ -302,6 +302,7 @@ fn convert_with_fonts(
             &fonts,
             roles,
             &[],
+            &[],
             slice,
             top_first,
         );

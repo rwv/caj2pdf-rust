@@ -329,6 +329,16 @@ impl Session {
         self.result.is_none() && self.fonts.set_symbol_font(checksum, length, words)
     }
 
+    /// Map one native-mode-2 ornament value to a BMP glyph, before running.
+    pub fn add_c8_decoration_glyph(&mut self, value: u32, glyph: u32) -> bool {
+        self.result.is_none() && self.fonts.add_decoration_glyph(value, glyph)
+    }
+
+    /// Bind ornament aliases to the decoration font identity, before running.
+    pub fn set_c8_decoration_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
+        self.result.is_none() && self.fonts.set_decoration_font(checksum, length, words)
+    }
+
     /// Run `operation` over a document of `source_size` bytes to completion.
     pub fn run<H: Host>(
         &mut self,

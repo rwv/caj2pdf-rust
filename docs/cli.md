@@ -315,14 +315,30 @@ identify four different glyph slots in external `HGBZ_CNKI.ttf` (SHA-256
 | 46 | U+5D41 |
 | 117 | U+5D95 |
 
-For the measured value-46 document, add
-`--font-decoration /external/HGBZ_CNKI.ttf --decoration-char '嵁'`
-to the chosen CJK/Latin recipe. The literal character is U+5D41, a font lookup
-alias with no text meaning here. Resources are supplied separately and are
-not downloaded or bundled. This corrects the selected pattern; ordinary text
-fonts and viewer-dependent repetition/raster differences remain separate.
-One global alias cannot represent multiple different ornament values within
-a document. The report records the exact four single-value documents tested.
+Use a per-value map to select all four patterns in one document:
+
+```sh
+caj2pdf input.caj -o output.pdf --fonts /external/prepared-fonts \
+  --font-decoration /external/HGBZ_CNKI.ttf \
+  --decoration-glyph 1=U+5D04 --decoration-glyph 2=U+5D05 \
+  --decoration-glyph 46=U+5D41 --decoration-glyph 117=U+5D95 \
+  --decoration-font-identity HGBZ_CNKI:9ce78b5d
+```
+
+`--decoration-glyph VALUE=CHAR` accepts decimal values 1, 2, 46 and 117;
+CHAR is one BMP scalar or `U+XXXX`. At most four unique entries are accepted.
+The explicitly supplied decoration font must map each glyph; missing glyphs
+never fall back. `--decoration-font-identity NAME:CHECKSUM` optionally binds
+the map to the font's PostScript name and eight-digit hex `head` checksum.
+An identity requires a nonempty map. These options apply only to native mode 2;
+existing per-record state restrictions still apply. Unlisted ornament values
+keep `--decoration-char` and its previous fallback behavior. The aliases remain
+nonsemantic artifacts with empty ActualText. Resources are supplied separately.
+
+The [mixed-state controls](research/wine-ornaments-20261011.json) confirm the
+four resource/slot pairs across 160 Wine observations, including reversed
+order. This fixes pattern selection; text placement and raster differences
+remain separate. Empty maps preserve existing output.
 
 One measured four-page C8 PDF triggers a CAJViewer 7.3/Wine 8.0 failure during
 the single-page/75% procedure. Keep the viewer in **continuous mode** and set

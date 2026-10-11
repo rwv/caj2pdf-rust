@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -367,4 +367,50 @@ test("HN-B symbol glyph maps bound to a font identity refuse other fonts", async
   await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
     includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols: source(symbolBytes), symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 1 } } },
   }), TypeError);
+});
+
+test("mixed ornament aliases preserve ordinary text, geometry and bounded font reads", async (t) => {
+  const reads = {}, font = trackedBlob(source(fontBytes), reads);
+  const run = async decorationGlyphs => {
+    const parts = [];
+    await convert(await wasmModule(), source(syntheticNativeC8Ornaments()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...required(font),
+        decoration: { source: font, character: "A" }, decorationGlyphs,
+        ...(decorationGlyphs ? { decorationFontIdentity: fixtureFontIdentity(fontBytes) } : {}),
+      } },
+    });
+    return Buffer.concat(parts);
+  };
+  const pdf = await run(ornamentGlyphs), reference = await run(undefined), text = pageText(pdf);
+  assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+  assert.equal(text.match(/\/FontFile2 /g).length, 1);
+  assert.ok(text.includes("<4E2D> Tj"));
+  const painting = value => value.split("stream\n")[1].split("\nendstream")[0];
+  assert.equal(painting(text).replaceAll("<4E2D> Tj", "<0041> Tj"), painting(pageText(reference)));
+  assert.ok(text.includes("/Artifact BMC\n/Span << /ActualText () >> BDC"));
+  assert.deepEqual(await run(ornamentGlyphs.map(entry => ({ ...entry, glyph: "A" }))), reference);
+  await validatePdf(t, pdf, 1);
+});
+
+test("ornament maps reject invalid values, missing glyphs and wrong font identities", async () => {
+  const wasm = await wasmModule(), font = source(fontBytes);
+  const base = { ...required(font), decoration: { source: font, character: "A" }, decorationGlyphs: ornamentGlyphs };
+  const run = async fonts => {
+    const parts = [];
+    try { await convert(wasm, source(syntheticNativeC8Ornaments()), sink(parts), { includeBookmarks: false, hnc8: { fonts } }); }
+    catch (error) { assert.ok(!Buffer.concat(parts).includes(Buffer.from("%%EOF"))); throw error; }
+  };
+  for (const decorationGlyphs of [[{ value: 3, glyph: "A" }], [{ value: 1, glyph: "😀" }], [{ value: 1, glyph: "A" }, { value: 1, glyph: "中" }]]) {
+    await assert.rejects(run({ ...base, decorationGlyphs }), /decoration glyph/);
+  }
+  await assert.rejects(run({ ...base, decoration: undefined }), TypeError);
+  await assert.rejects(run({ ...base, decorationGlyphs: [{ value: 1, glyph: "B" }] }), /does not map/);
+  for (const identity of [{ ...fixtureFontIdentity(fontBytes), postscriptName: "Wrong" }, { ...fixtureFontIdentity(fontBytes), checksumAdjustment: 0 }]) {
+    await assert.rejects(run({ ...base, decorationFontIdentity: identity }), /expected identity/);
+  }
+  await assert.rejects(run({ ...base, decorationGlyphs: [], decorationFontIdentity: fixtureFontIdentity(fontBytes) }), TypeError);
+  let consumed = 0;
+  function* excessive() { for (const entry of ornamentGlyphs) { consumed++; yield entry; } while (true) { consumed++; yield ornamentGlyphs[0]; } }
+  await assert.rejects(run({ ...base, decorationGlyphs: excessive() }), /at most four/);
+  assert.equal(consumed, 5);
 });

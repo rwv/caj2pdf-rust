@@ -1056,3 +1056,23 @@ fn ttkn_response_registration_is_explicit_consumed_and_conversion_only() {
             .contains(std::str::from_utf8(response).unwrap())
     );
 }
+
+#[test]
+fn ornament_registration_requires_roles_and_is_bounded() {
+    let mut session = Session::default();
+    assert!(!session.add_c8_decoration_glyph(1, 0x41));
+    assert!(!session.set_c8_decoration_font(0, 1, [65; 8]));
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, 0, 0x41, u32::MAX));
+    for (value, glyph) in [(0x10001, 0x41), (1, 0xd800), (1, 0x10000)] {
+        assert!(!session.add_c8_decoration_glyph(value, glyph));
+    }
+    for value in [1, 2, 46, 117] {
+        assert!(session.add_c8_decoration_glyph(value, 0x41));
+    }
+    assert!(!session.add_c8_decoration_glyph(1, 0x41));
+    assert!(!session.set_c8_decoration_font(0, 65, [65; 8]));
+    assert!(!session.set_c8_decoration_font(0, 0, [65; 8]));
+    assert!(session.set_c8_decoration_font(0, 1, [65; 8]));
+    assert!(!session.set_c8_decoration_font(0, 1, [65; 8]));
+}

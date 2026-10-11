@@ -253,3 +253,25 @@ The three absent roles preserve the existing eight-entry PDF resource list.
 This change addresses font selection, not full Wine pixel parity. Latin
 resource aliases, punctuation, decorations, positioning and rasterization
 must still be assessed separately; #541 remains open.
+
+## Breaking Rust API: ornament glyph maps (#541)
+
+`hnc8::C8FontSources` adds `decoration_glyphs: &[NativeDecorationGlyph]` and
+`decoration_font: Option<&SymbolFontIdentity>`. Add `&[]` and `None` to retain
+previous output. Owned `Fonts` adds the corresponding `Vec` and owned identity;
+use `..Fonts::default()` or add an empty vector and `None`.
+`write_c8_native_page` takes an extra decoration-map slice immediately after
+the symbol-map slice. Pass `&[]` for the legacy global decoration alias.
+
+Each entry maps a decimal native ornament value to a nonsemantic BMP glyph of
+the explicit decoration role. Four unique values (1, 2, 46, 117) are supported;
+mapped glyphs must exist in that resource. Identity binding uses the same
+PostScript-name/checksum representation as symbols. The map applies only to
+mode 2 and preserves existing record/state restrictions, Artifact/ActualText
+marking and drawing geometry. Unlisted values use the previous global alias.
+
+CLI, Node and browser options are additive. Raw WASM adds
+`caj2pdf_c8_add_decoration_glyph(value, glyph)` and
+`caj2pdf_c8_set_decoration_font(checksum, length, w0, ..., w7)` after roles,
+using the existing bounded font-name encoding. Use matching JS/WASM builds.
+No font binaries or automatic downloads are added.

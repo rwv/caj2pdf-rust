@@ -6,7 +6,10 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8_MAX_FONTS, C8FontSource, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity},
+    hnc8::{
+        C8_MAX_FONTS, C8FontSource, C8PageFonts, NativeDecorationGlyph, NativeSymbolGlyph,
+        SymbolFontIdentity,
+    },
 };
 use std::cell::RefCell;
 
@@ -23,6 +26,8 @@ pub(super) struct Fonts {
     /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
     symbol_glyphs: Vec<NativeSymbolGlyph>,
     symbol_font: Option<SymbolFontIdentity>,
+    decoration_glyphs: Vec<NativeDecorationGlyph>,
+    decoration_font: Option<SymbolFontIdentity>,
 }
 
 impl Fonts {
@@ -99,20 +104,45 @@ impl Fonts {
         {
             return false;
         }
-        let mut bytes = [0u8; 64];
-        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
-            chunk.copy_from_slice(&word.to_le_bytes());
-        }
-        let Ok(name) = std::str::from_utf8(&bytes[..length as usize]) else {
+        let Some(identity) = font_identity(checksum, length, words) else {
             return false;
         };
-        if !SymbolFontIdentity::is_valid_postscript_name(name) {
+        self.symbol_font = Some(identity);
+        true
+    }
+
+    /// Register at most four ornament aliases. The core validates values and duplicates.
+    pub(super) fn add_decoration_glyph(&mut self, value: u32, glyph: u32) -> bool {
+        let (Ok(value), Some(glyph)) = (u16::try_from(value), char::from_u32(glyph)) else {
+            return false;
+        };
+        if self.roles.is_none_or(|roles| roles.decoration.is_none())
+            || glyph > '\u{ffff}'
+            || self.decoration_glyphs.len() == 4
+        {
             return false;
         }
-        self.symbol_font = Some(SymbolFontIdentity {
-            checksum_adjustment: checksum,
-            postscript_name: name.to_owned(),
-        });
+        self.decoration_glyphs
+            .push(NativeDecorationGlyph { value, glyph });
+        true
+    }
+
+    /// Bind ornament aliases to an explicitly supplied font, once after roles.
+    pub(super) fn set_decoration_font(
+        &mut self,
+        checksum: u32,
+        length: u32,
+        words: [u64; 8],
+    ) -> bool {
+        if self.roles.is_none_or(|roles| roles.decoration.is_none())
+            || self.decoration_font.is_some()
+        {
+            return false;
+        }
+        let Some(identity) = font_identity(checksum, length, words) else {
+            return false;
+        };
+        self.decoration_font = Some(identity);
         true
     }
 
@@ -191,6 +221,24 @@ impl Fonts {
             roles: self.roles,
             symbol_glyphs: self.symbol_glyphs.clone(),
             symbol_font: self.symbol_font.clone(),
+            decoration_glyphs: self.decoration_glyphs.clone(),
+            decoration_font: self.decoration_font.clone(),
         })
     }
+}
+
+/// Decode the bounded ABI representation shared by explicit font identities.
+fn font_identity(checksum: u32, length: u32, words: [u64; 8]) -> Option<SymbolFontIdentity> {
+    if length > 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 64];
+    for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+        chunk.copy_from_slice(&word.to_le_bytes());
+    }
+    let name = std::str::from_utf8(&bytes[..length as usize]).ok()?;
+    SymbolFontIdentity::is_valid_postscript_name(name).then(|| SymbolFontIdentity {
+        checksum_adjustment: checksum,
+        postscript_name: name.to_owned(),
+    })
 }
