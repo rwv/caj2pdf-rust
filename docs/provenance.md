@@ -3109,3 +3109,33 @@ unchanged. All added source is original MIT; documents, external fonts/outlines,
 PDFs, screenshots and vendor programs stay external. No private HN/JBIG or
 foreign-converter implementation was read/copied. Samples #106 and #406/#441
 retain full resource/geometry/fidelity obligations beyond this scoped diagnosis.
+
+## Wine native Han style resources (#541)
+
+The [2026-10-11 observations and metadata](research/wine-font-resources-20261011.md)
+resolve the earlier unconfirmed Han resource markers by retaining localized
+family names. Thirty-two controlled sessions decode 283 original markers:
+HGSS, HGHT, HGKT and SimSun are distinct resources in the measured C8/HN-B
+profiles. C8 character modes and Latin resource states preserve Han selection;
+font selection must precede raw-style normalization for geometry. The optional
+`cjk_sans`, `cjk_kai` and `cjk_system` roles implement those observations across
+native, CLI, Node and browser without changing missing-role fallback.
+
+The independently authored query-font generator reproduces eighteen observed
+font controls byte-for-byte. Separate byte queries and reversed inventories
+confirm 520 non-CJK raw-code/role/profile combinations, including all 21 HN-B
+mode-0 HGFX symbols. Mode 0 and mode 2 have incompatible Latin cmap queries;
+font names alone are insufficient. Experimental mode-2 aliases preserve all
+outline/metric tables and are not built into the converter. The report retains
+initial unmarked symbols, failed CJK-only system-font UI controls and the
+four-page Wine PDF startup failure and subsequent GUI-only workaround.
+
+All 13 documents / 77 pages convert with the measured caller fonts; qpdf and
+independent full character-order checks pass for 113,418 characters. The ten
+image-only pages remain separate from typography evidence. Complete Wine page
+comparisons retain 35 extent differences and 42 equal-extent pixel differences;
+none establishes exact fidelity. Twelve mode-2 documents / 73 pages remain
+byte-identical to current main when the optional roles are absent. #541 and
+broader #406 obligations remain open. Source code and synthetic controls are
+original MIT work; no font outlines, external documents, vendor programs or
+foreign/private HN/JBIG implementation source are added or copied.

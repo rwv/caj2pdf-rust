@@ -871,6 +871,7 @@ fn native_c8_font_resources_are_read_as_host_resources() {
     assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     assert_eq!(session.add_font_source(10, 0), 0);
     assert!(!session.set_c8_latin_state(3, 0));
+    assert!(!session.set_c8_cjk_style(0x0800, 0));
     assert!(!session.add_hnb_symbol_glyph(0xa1af, 0x41));
 }
 
@@ -926,25 +927,32 @@ fn font_configuration_rejects_invalid_resources_and_roles() {
     let mut session = Session::default();
     assert_eq!(session.add_font_source(0, 0), 0);
     assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    for id in 1..=8 {
+    for id in 1..=11 {
         assert_eq!(session.add_font_source(100, 0), id);
     }
     assert_eq!(session.add_font_source(100, 0), 0);
-    for (decoration, alias) in [(8, 65), (0, 0xd800), (0, 0x10000)] {
+    for (decoration, alias) in [(11, 65), (0, 0xd800), (0, 0x10000)] {
         assert!(!session.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
-    assert!(!session.set_c8_fonts(0, 1, 8, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, 11));
+    assert!(!session.set_c8_fonts(0, 1, 11, u32::MAX, 0, u32::MAX));
     assert!(!session.set_c8_latin_state(3, 5));
+    assert!(!session.set_c8_cjk_style(0x0800, 8));
     assert!(session.set_c8_fonts(0, 1, 2, 3, 65, 4));
-    assert!(!session.set_c8_latin_state(3, 8));
+    assert!(!session.set_c8_latin_state(3, 11));
     assert!(session.set_c8_latin_state(3, 5));
     assert!(!session.set_c8_latin_state(3, 5));
     assert!(!session.set_c8_latin_state(99, 6));
     for (state, index) in [(28, 6), (31, 7)] {
-        assert!(!session.set_c8_latin_state(state, 8));
+        assert!(!session.set_c8_latin_state(state, 11));
         assert!(session.set_c8_latin_state(state, index));
         assert!(!session.set_c8_latin_state(state, index));
+    }
+    assert!(!session.set_c8_cjk_style(0x1000, 8));
+    for (style, index) in [(0x0800, 8), (0x0c00, 9), (0x0400, 10)] {
+        assert!(!session.set_c8_cjk_style(style, 11));
+        assert!(session.set_c8_cjk_style(style, index));
+        assert!(!session.set_c8_cjk_style(style, index));
     }
     assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
     assert_eq!(session.add_font_source(100, 0), 0);

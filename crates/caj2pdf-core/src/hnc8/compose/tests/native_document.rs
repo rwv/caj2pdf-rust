@@ -37,6 +37,9 @@ pub(super) fn roles() -> C8PageFonts {
         latin_state3: None,
         latin_state28: None,
         latin_state31: None,
+        cjk_sans: None,
+        cjk_kai: None,
+        cjk_system: None,
     }
 }
 
@@ -94,17 +97,20 @@ fn native_c8_jpeg_descriptor_keeps_the_image_box_but_changes_row_orientation() {
 #[test]
 fn native_document_streams_text_and_all_shared_image_codecs() {
     // Optional roles may alias an existing source without duplicate embedding.
-    for (symbols, latin_state3) in [
-        (None, None),
-        (Some(0), None),
-        (None, Some(0)),
-        (Some(0), Some(0)),
+    for (symbols, latin_state3, cjk_sans, cjk_kai) in [
+        (None, None, None, None),
+        (Some(0), None, Some(0), None),
+        (None, Some(0), None, Some(0)),
+        (Some(0), Some(0), Some(0), Some(0)),
     ] {
         let font_roles = C8PageFonts {
             symbols,
             latin_state3,
             latin_state28: Some(0),
             latin_state31: Some(0),
+            cjk_sans,
+            cjk_kai,
+            cjk_system: (symbols.is_some() && latin_state3.is_some()).then_some(0),
             ..roles()
         };
         let rows = vec![vec![false, true, false], vec![true, false, true]];
@@ -175,7 +181,14 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
 
 #[test]
 fn native_document_checks_resource_contract_before_output() {
-    for count in [0, 1, 9] {
+    for (count, bad_role) in [
+        (0, None),
+        (1, Some(0)),
+        (12, None),
+        (1, Some(1)),
+        (1, Some(2)),
+        (1, Some(3)),
+    ] {
         let mut fonts: Vec<_> = (0..count)
             .map(|_| C8FontSource {
                 source: Source::new(crate::pdf::drawing_font()),
@@ -183,8 +196,12 @@ fn native_document_checks_resource_contract_before_output() {
             })
             .collect();
         let mut role = roles();
-        if count == 1 {
-            role.latin = 1;
+        match bad_role {
+            Some(0) => role.latin = 1,
+            Some(1) => role.cjk_sans = Some(1),
+            Some(2) => role.cjk_kai = Some(1),
+            Some(3) => role.cjk_system = Some(1),
+            _ => (),
         }
         let mut sink = Sink::default();
         let error = convert_c8_native_pdf(

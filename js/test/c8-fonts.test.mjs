@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -15,6 +15,36 @@ const source = (bytes) => new Blob([bytes]);
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 const required = (font) => ({ cjk: font, latin: font });
+
+test("C8 Han style fonts preserve characters and bounded reads on the public Node path", async (t) => {
+  for (const shared of [false, true]) {
+    const reads = {};
+    const base = trackedBlob(source(fontBytes), reads);
+    const extra = () => shared ? base : trackedBlob(source(fontBytes), reads);
+    const parts = [];
+    const result = await convert(await wasmModule(), source(syntheticNativeC8HanStyles()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32,
+      hnc8: { fonts: { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() } },
+    });
+    assert.equal(result.pagesConverted, 1);
+    assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+    const pdf = Buffer.concat(parts);
+    const text = pageText(pdf);
+    assert.equal(text.match(/\/FontFile2 /g).length, shared ? 1 : 4);
+    assert.equal(text.match(/<4E2D> Tj/g).length, 4);
+    assert.equal(text.match(/<0041> Tj/g).length, 4);
+    let after = 0;
+    for (const token of ["/F8 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
+                         "/F9 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
+                         "/F0 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
+                         "/F10 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj"]) {
+      const at = text.indexOf(token, after);
+      assert.ok(at >= 0, token);
+      after = at + token.length;
+    }
+    await validatePdf(t, pdf, 1);
+  }
+});
 
 test("native C8/HN-B public Node path reads fonts in bounded ranges and preserves pages", async (t) => {
   for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {

@@ -110,7 +110,7 @@ completion. The module imports five host functions:
 
 | Import | Meaning |
 | --- | --- |
-| `caj2pdf_read(resource, offset, ptr, len) -> i32` | Copy at most `len` bytes of resource 0 (the document) or 1–8 (C8 fonts) into Rust memory; count or negative failure. Offsets are exact below 2^53. |
+| `caj2pdf_read(resource, offset, ptr, len) -> i32` | Copy at most `len` bytes of resource 0 (the document) or 1–11 (C8 fonts) into Rust memory; count or negative failure. Offsets are exact below 2^53. |
 | `caj2pdf_write(ptr, len) -> i32` | Take Rust-owned bytes; the Worker copies them and returns the count. |
 | `caj2pdf_flush() -> i32` | Output barrier after the last write. |
 | `caj2pdf_progress(done, total)` | Thousandths of the document read so far. |
@@ -136,7 +136,7 @@ Worker at once and output is not throttled by the sink.
 
 ## Native C8 font resources
 
-`ConversionOptions::fonts` gives the core up to eight explicit ranged
+`ConversionOptions::fonts` gives the core up to eleven explicit ranged
 resources and role indices; repeated roles can share an embedded font. Each source is read for
 metadata before the first page and again, with only the drawn glyphs'
 outlines, after the last page. JavaScript exposes named roles under
@@ -144,12 +144,17 @@ outlines, after the last page. JavaScript exposes named roles under
 identical inputs; it never discovers fonts or buffers a whole font.
 
 Before converting, a raw host registers each font with
-`caj2pdf_c8_add_font(size, face)` (read resource 1–8, 0 on rejection), assigns
+`caj2pdf_c8_add_font(size, face)` (read resource 1–11, 0 on rejection), assigns
 zero-based role indices with `caj2pdf_c8_set_fonts(cjk, latin, alternate,
 decoration, alias)` or `caj2pdf_c8_set_fonts_with_symbols(..., symbols)`
 (`0xffffffff` marks an absent optional role), and supplies the optional
 state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
-index)`. After the roles, `caj2pdf_hnb_add_symbol_glyph(code, glyph)` maps a
+index)`. `caj2pdf_c8_set_cjk_style(style, index)` registers optional Han
+roles after the base roles: `0x0800` for sans, `0x0c00` for Kai, and `0x0400`
+for the measured system-font styles. Each returns 1 once on success and 0
+for an invalid role/index, duplicate assignment, or a session that already
+ran. Absent roles retain the old font resource list and output.
+After the roles, `caj2pdf_hnb_add_symbol_glyph(code, glyph)` maps a
 raw HN-B mode-0 symbol code to a BMP glyph of the symbols role (1 on
 success). It rejects a non-BMP glyph, a missing symbols role and more than
 21 entries. The core checks codes and duplicates for native documents.

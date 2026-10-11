@@ -114,6 +114,9 @@ directory under fixed names and pass `--fonts DIR`:
 | Role | File in `DIR` | Per-role flag |
 | --- | --- | --- |
 | CJK (required) | `cjk.ttf` | `--font-cjk FILE` |
+| Han Hei/sans | `cjk-sans.ttf` | `--font-cjk-sans FILE` |
+| Han Kai | `cjk-kai.ttf` | `--font-cjk-kai FILE` |
+| Han system-font styles | `cjk-system.ttf` | `--font-cjk-system FILE` |
 | Ordinary Latin (required) | `latin.ttf` | `--font-latin FILE` |
 | Alternate Latin (`801d/4`) | `alternate-latin.ttf` | `--font-alternate-latin FILE` |
 | Decoration alias | `decoration.ttf` | `--font-decoration FILE` |
@@ -126,6 +129,24 @@ minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
 `NAME.ttc` (the first face of a collection). Without any font option, the
 [installed fonts](#installed-fonts) are searched instead; no font is bundled.
 A missing CJK or Latin font fails before output staging.
+
+The three optional Han roles select fonts for the measured C8 and HN-B
+styles. `cjk-sans` handles high bits `0x0800`, `cjk-kai` handles `0x0c00`,
+and `cjk-system` handles the measured system-font styles (`0x0400`, `0x1400`,
+style-zero explicit axes and the recorded exceptional flags). The source
+style is preserved for font selection before geometry aliases are applied.
+Other Han styles use `cjk`; non-Han characters keep their existing rules.
+These roles apply in both C8 character-selection modes and HN-B native modes
+0 and 2. Missing optional roles or missing Han glyphs fall back to `cjk`.
+`--font-cjk-system` is an explicit font path, including with
+`--no-system-fonts`; it does not trigger system discovery.
+
+In the measured Wine profile, the four resources are HGSS (base), HGHT
+(sans), HGKT (Kai), and SimSun (system). Font names alone do not establish
+Latin glyph aliases: mode 2 and mode 0 query different cmap slots. See the
+[Wine font observations](research/wine-font-resources-20261011.md) for the
+measured scope and remaining placement differences.
+
 Any other missing file leaves its role absent.
 
 Fonts are static OpenType fonts with TrueType (`glyf`) or CFF outlines,
@@ -329,7 +350,7 @@ not deliberate tampering that keeps the checksum field. It requires
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.
 See the [C8 same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).
-At most eight distinct sources are accepted. Node/browser expose the same
+At most eleven distinct sources are accepted. Node/browser expose the same
 roles, and the same fallback, as `hnc8.fonts` options.
 
 Font path flags accept separate values or `--font-cjk=FILE` spelling, and

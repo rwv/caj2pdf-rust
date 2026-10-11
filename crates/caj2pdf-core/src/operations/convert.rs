@@ -25,7 +25,7 @@ pub const FONTS_REQUIRE_HNC8: &str =
 
 /// Font resources for native HN/C8 text.
 ///
-/// Up to eight ranged resources and their collection faces; `roles` index
+/// Up to ten ranged resources and their collection faces; `roles` index
 /// into `sources`, and several roles may share one resource. Absent optional
 /// roles and unmapped characters follow the [`C8PageFonts`] fallback rule.
 #[derive(Default)]

@@ -239,6 +239,12 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
     with_session(0, |session| session.set_c8_latin_state(state, index) as u32)
 }
 
+/// Assign a C8 Han style role (`0x0800` or `0x0c00`) after the base roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_cjk_style(style: u32, index: u32) -> u32 {
+    with_session(0, |session| session.set_c8_cjk_style(style, index) as u32)
+}
+
 /// Map an HN-B mode-0 symbol code to a BMP glyph of the symbols role, after
 /// the roles. Rejects a non-BMP glyph, a missing symbols role and more than
 /// 21 entries; the core checks codes and duplicates per native document.

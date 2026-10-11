@@ -171,6 +171,22 @@ export function syntheticNativeC8(mixed = false, latinState) {
   return bytes;
 }
 
+/** Original Han/Latin pairs under the three observed ordinary C8 styles. */
+export function syntheticNativeC8HanStyles() {
+  const words = [[0x8001, 60]];
+  for (const [i, style] of [0x0884, 0x0c84, 0x1084, 0x04e7].entries()) {
+    words.push([0x80ce, i % 2], [0x8002, style], [20 + i * 20, 0xd6d0], [0x80ce, 1], [30 + i * 20, 0xa0c1]);
+  }
+  words.push([0x8004, 39]);
+  const bytes = new Uint8Array(100 + words.length * 4);
+  bytes.set(syntheticNativeC8().subarray(0, 100));
+  const view = new DataView(bytes.buffer);
+  view.setUint32(84, words.length * 4, true);
+  view.setUint32(96, bytes.length, true);
+  for (const [i, word] of words.flat().entries()) view.setUint16(100 + i * 2, word, true);
+  return bytes;
+}
+
 /** Original two-page compact HN-B text fixture using bare page ends. */
 export function syntheticNativeHnb(mode = 2, latinState3 = false) {
   let text = syntheticNativeC8().slice(100, -2);

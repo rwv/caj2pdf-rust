@@ -5,7 +5,7 @@
 //! tokens, help and version; [`parse`] then checks the rules clap cannot
 //! express and keeps the documented `caj2pdf: error:` messages.
 
-use caj2pdf_core::hnc8::{NativeSymbolGlyph, SymbolFontIdentity};
+use caj2pdf_core::hnc8::{C8_MAX_FONTS, NativeSymbolGlyph, SymbolFontIdentity};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -24,7 +24,7 @@ pub struct ConvertOptions {
     pub no_bookmarks: bool,
     pub allow_damaged: bool,
     pub quiet: bool,
-    pub fonts: [Option<PathBuf>; 8],
+    pub fonts: [Option<PathBuf>; C8_MAX_FONTS],
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
     pub font_dir: Option<PathBuf>,
     pub decoration_char: Option<char>,
@@ -38,7 +38,7 @@ pub struct ConvertOptions {
 
 /// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
 /// Each is looked up with the extensions in [`FONT_EXTENSIONS`].
-pub const FONT_FILES: [&str; 8] = [
+pub const FONT_FILES: [&str; C8_MAX_FONTS] = [
     "cjk",
     "latin",
     "alternate-latin",
@@ -47,6 +47,9 @@ pub const FONT_FILES: [&str; 8] = [
     "latin-state3",
     "latin-state28",
     "latin-state31",
+    "cjk-sans",
+    "cjk-kai",
+    "cjk-system",
 ];
 
 /// Font file extensions tried for each `--fonts DIR` role, in order. A
@@ -152,6 +155,15 @@ struct ConvertArgs {
     /// Native C8/HN-B CJK font (required with --font-latin)
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk: Option<OsString>,
+    /// Optional C8/HN-B Han font for Hei/sans styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_sans: Option<OsString>,
+    /// Optional C8/HN-B Han font for Kai styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_kai: Option<OsString>,
+    /// Optional C8/HN-B Han font for measured system-font styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_system: Option<OsString>,
     /// Native C8/HN-B ordinary Latin font
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin: Option<OsString>,
@@ -328,6 +340,9 @@ impl ConvertArgs {
             self.font_latin_state3,
             self.font_latin_state28,
             self.font_latin_state31,
+            self.font_cjk_sans,
+            self.font_cjk_kai,
+            self.font_cjk_system,
         ];
         let mut options = ConvertOptions {
             ttkn_response_file: font_path(

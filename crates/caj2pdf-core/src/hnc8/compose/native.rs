@@ -4,13 +4,14 @@
 
 use super::*;
 use crate::hnc8::{
-    C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol, write_c8_native_page,
+    C8_MAX_FONTS, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol,
+    write_c8_native_page,
 };
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
 use std::io::Write;
 
 /// Explicit ranged font sources, embedded once per document.
-/// Multiple roles may reference one source index. At most eight distinct
+/// Multiple roles may reference one source index. At most eleven distinct
 /// resources are needed by the admitted profile; no system fonts are searched.
 /// Absent optional roles and unmapped characters follow the
 /// [`C8PageFonts`] fallback rule.
@@ -60,7 +61,7 @@ where
     validate(limits)?;
     let roles = fonts.roles;
     let count = fonts.sources.len();
-    if !(1..=8).contains(&count)
+    if !(1..=C8_MAX_FONTS).contains(&count)
         || [roles.cjk, roles.latin]
             .into_iter()
             .chain(roles.alternate_latin)
@@ -69,11 +70,14 @@ where
             .chain(roles.latin_state3)
             .chain(roles.latin_state28)
             .chain(roles.latin_state31)
+            .chain(roles.cjk_sans)
+            .chain(roles.cjk_kai)
+            .chain(roles.cjk_system)
             .any(|index| index >= count)
     {
         return Err(At::NONE.error(
             Hnc8Stage::Preflight,
-            Error::invalid("C8 font roles require 1..=8 explicit resources with valid indices"),
+            Error::invalid("C8 font roles require 1..=11 explicit resources with valid indices"),
         ));
     }
     let symbol_glyphs = fonts.symbol_glyphs;
@@ -177,7 +181,20 @@ where
         &handles[roles.latin_state3.unwrap_or(roles.cjk)],
         &handles[roles.latin_state28.unwrap_or(roles.cjk)],
         &handles[roles.latin_state31.unwrap_or(roles.cjk)],
+        &handles[roles.cjk_sans.unwrap_or(roles.cjk)],
+        &handles[roles.cjk_kai.unwrap_or(roles.cjk)],
+        &handles[roles.cjk_system.unwrap_or(roles.cjk)],
     ];
+    // Preserve the existing PDF resource list when the new roles are absent.
+    let reference_count = if roles.cjk_system.is_some() {
+        11
+    } else if roles.cjk_kai.is_some() {
+        10
+    } else if roles.cjk_sans.is_some() {
+        9
+    } else {
+        8
+    };
     let page_roles = C8PageFonts {
         cjk: 0,
         latin: 1,
@@ -187,6 +204,9 @@ where
         latin_state3: roles.latin_state3.map(|_| 5),
         latin_state28: roles.latin_state28.map(|_| 6),
         latin_state31: roles.latin_state31.map(|_| 7),
+        cjk_sans: roles.cjk_sans.map(|_| 8),
+        cjk_kai: roles.cjk_kai.map(|_| 9),
+        cjk_system: roles.cjk_system.map(|_| 10),
     };
     let mut report = ComposeReport::new(header);
     // C8/HN-B outlines are unverified; a request writes none and is reported.
@@ -252,7 +272,7 @@ where
         report.output_pages = write_c8_native_page(
             &mut reader,
             &mut document,
-            &references,
+            &references[..reference_count],
             page_roles,
             symbol_glyphs,
             &images,

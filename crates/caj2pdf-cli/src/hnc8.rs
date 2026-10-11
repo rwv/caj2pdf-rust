@@ -10,7 +10,7 @@ use crate::{
 };
 use caj2pdf_core::{
     Fonts, Limits, RangedSource,
-    hnc8::{C8_DEFAULT_DECORATION_ALIAS, C8FontSource},
+    hnc8::{C8_DEFAULT_DECORATION_ALIAS, C8_MAX_FONTS, C8FontSource},
     native::SeekableSource,
 };
 use std::{
@@ -24,7 +24,7 @@ pub struct Resources {
     pub inputs: Vec<Input>,
     pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
     /// Collection face of each opened font source.
-    pub font_faces: [u32; 8],
+    pub font_faces: [u32; C8_MAX_FONTS],
     pub symbol_glyphs: Vec<caj2pdf_core::hnc8::NativeSymbolGlyph>,
     pub symbol_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
 }
@@ -58,7 +58,7 @@ impl Resources {
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
         let mut resources = Self::default();
-        let mut fonts: [Option<(PathBuf, u32)>; 8] = Default::default();
+        let mut fonts: [Option<(PathBuf, u32)>; C8_MAX_FONTS] = Default::default();
         for (font, path) in fonts.iter_mut().zip(font_paths(options)?) {
             *font = path.as_deref().map(font_face).transpose()?;
         }
@@ -75,7 +75,7 @@ impl Resources {
         fonts: &crate::system_fonts::Installed,
         limits: &Limits,
     ) -> Result<(), CliError> {
-        let mut roles: [Option<(PathBuf, u32)>; 8] = Default::default();
+        let mut roles: [Option<(PathBuf, u32)>; C8_MAX_FONTS] = Default::default();
         for (role, choice) in roles.iter_mut().zip(&fonts.choices) {
             *role = Some((choice.path.clone(), choice.face));
         }
@@ -85,7 +85,7 @@ impl Resources {
     /// Open each distinct `(file, face)` once and assign the roles.
     fn open_fonts(
         &mut self,
-        fonts: &[Option<(PathBuf, u32)>; 8],
+        fonts: &[Option<(PathBuf, u32)>; C8_MAX_FONTS],
         decoration_char: Option<char>,
         limits: &Limits,
     ) -> Result<(), CliError> {
@@ -93,7 +93,7 @@ impl Resources {
             return Ok(());
         }
         let mut faces = Vec::new();
-        let mut indices = [0; 8];
+        let mut indices = [0; C8_MAX_FONTS];
         for (role, face) in fonts.iter().enumerate() {
             if let Some(face) = face {
                 indices[role] = if let Some(index) = faces.iter().position(|f| f == face) {
@@ -119,6 +119,9 @@ impl Resources {
             latin_state3: role(5),
             latin_state28: role(6),
             latin_state31: role(7),
+            cjk_sans: role(8),
+            cjk_kai: role(9),
+            cjk_system: role(10),
             decoration: role(3).map(|index| {
                 (
                     index,
@@ -133,7 +136,7 @@ impl Resources {
 /// Resolve explicit role paths, then fill absent roles from `--fonts DIR`.
 /// A missing optional file leaves its role to the core fallback; any other
 /// metadata failure keeps the path so opening it reports the actual error.
-fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError> {
+fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; C8_MAX_FONTS], CliError> {
     let mut paths = options.fonts.clone();
     let Some(directory) = &options.font_dir else {
         return Ok(paths);

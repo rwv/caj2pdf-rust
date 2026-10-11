@@ -3,7 +3,7 @@
 // HN/C8 conversion called from the caller's own Dedicated Worker, with fonts
 // from OPFS file handles and Blobs. Each convert() starts a nested Worker.
 import { convert, loadModule, spoolToOpfs } from "../browser.mjs";
-import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const fontSpools = [];
@@ -42,6 +42,11 @@ try {
   fontSpools.push(symbolSpool);
   const symbols = symbolSpool.source;
   const nativePdfs = [];
+  const hanStylePdf = [];
+  await convert(module, new Blob([syntheticNativeC8HanStyles()]), collect(hanStylePdf), {
+    includeBookmarks: false, chunkSize: 32,
+    hnc8: { fonts: { cjk: font, latin: font, cjkSans: fontBlob, cjkKai: new Blob([fontBlob]), cjkSystem: new Blob([fontBlob]) } },
+  });
   for (const [input, pages, hasSymbols, hasState3, latinState] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1], [syntheticNativeHnb(2, true), 2, false, true], [syntheticNativeHnbAxes(), 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, false, false, state])]) {
     const pdf = [];
     // The Blob copy of the font is a second, distinct font resource.
@@ -121,7 +126,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { hanStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

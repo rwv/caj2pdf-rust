@@ -97,6 +97,9 @@ fn roles() -> C8PageFonts {
         latin_state3: None,
         latin_state28: None,
         latin_state31: None,
+        cjk_sans: None,
+        cjk_kai: None,
+        cjk_system: None,
     }
 }
 fn image() -> Vec<[u16; 2]> {
@@ -2198,6 +2201,9 @@ fn required_roles() -> C8PageFonts {
         latin_state3: None,
         latin_state28: None,
         latin_state31: None,
+        cjk_sans: None,
+        cjk_kai: None,
+        cjk_system: None,
     }
 }
 
@@ -2206,6 +2212,98 @@ fn assert_in_order(pdf: &[u8], tokens: &[&str]) {
     let mut after = 0;
     for token in tokens {
         after += text[after..].find(token).unwrap() + token.len();
+    }
+}
+
+#[test]
+fn native_han_style_fonts_preserve_characters_across_profiles_and_modes() {
+    let fonts = || vec![labelled_font([65, 0x4e2d]); 4];
+    let mut selected = required_roles();
+    selected.latin = 0;
+    selected.cjk_sans = Some(1);
+    selected.cjk_kai = Some(2);
+    selected.cjk_system = Some(3);
+    // Original Wine controls identify these resources in both C8 character
+    // modes and both HN-B profiles. Latin keeps its existing resource rule.
+    for (profile, character_mode) in [(0, 0), (0, 1), (12, 1), (18, 1)] {
+        let latin = if profile == 18 { 0xa3c1 } else { 0xa0c1 };
+        let mut words = vec![[0x80ce, character_mode], [0x8001, 4350]];
+        for style in [0x0884, 0x0ce7, 0x1084, 0x04e7] {
+            words.extend([[0x8002, style], [4682, 0xd6d0], [4772, latin]]);
+        }
+        words.push([0x8004, 1]);
+        let (result, pdf, finished) =
+            convert_with_fonts(&words, 0, &[], selected, profile, fonts());
+        result.unwrap();
+        assert!(finished);
+        assert_in_order(
+            &pdf,
+            &[
+                "/F1 1 Tf",
+                "<4E2D> Tj",
+                "/F0 1 Tf",
+                "<0041> Tj",
+                "/F2 1 Tf",
+                "<4E2D> Tj",
+                "/F0 1 Tf",
+                "<0041> Tj",
+                "/F0 1 Tf",
+                "<4E2D> Tj",
+                "/F0 1 Tf",
+                "<0041> Tj",
+                "/F3 1 Tf",
+                "<4E2D> Tj",
+                "/F0 1 Tf",
+                "<0041> Tj",
+            ],
+        );
+        for missing in [false, true] {
+            let mut roles = selected;
+            let mut resources = fonts();
+            if missing {
+                for font in &mut resources[1..] {
+                    *font = labelled_font([65, 66]);
+                }
+            } else {
+                roles.cjk_sans = None;
+                roles.cjk_kai = None;
+                roles.cjk_system = None;
+            }
+            let (result, pdf, finished) =
+                convert_with_fonts(&words, 0, &[], roles, profile, resources);
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            assert_eq!(text.matches("<4E2D> Tj").count(), 4);
+            for role in ["/F1 1 Tf", "/F2 1 Tf", "/F3 1 Tf"] {
+                assert!(!text.contains(role));
+            }
+        }
+    }
+    // Geometry aliases must not erase the original system-font selection.
+    for (profile, style, axis) in [
+        (0, 0x6084, None),
+        (0, 0x64c6, None),
+        (0, 0x0508, None),
+        (0, 0xa4a5, None),
+        (0, 0xb94c, None),
+        (12, 0xe58c, None),
+        (18, 0x9c84, None),
+        (18, 0x154a, None),
+        (0, 0, Some(34)),
+        (12, 0, Some(43)),
+        (18, 0, Some(36)),
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, style]];
+        if let Some(axis) = axis {
+            words.extend([[0x8070, axis], [0x8071, axis]]);
+        }
+        words.extend([[4682, 0xd6d0], [0x8004, 1]]);
+        let (result, pdf, finished) =
+            convert_with_fonts(&words, 0, &[], selected, profile, fonts());
+        result.unwrap();
+        assert!(finished);
+        assert_in_order(&pdf, &["/F3 1 Tf", "<4E2D> Tj"]);
     }
 }
 

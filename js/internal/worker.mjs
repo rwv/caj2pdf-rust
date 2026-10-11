@@ -174,6 +174,11 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
         return { invalid: `WASM rejected the state-${state} Latin font role` };
       }
     }
+    for (const [style, index] of [[0x0800, fonts.cjkSans], [0x0c00, fonts.cjkKai], [0x0400, fonts.cjkSystem]]) {
+      if (index !== undefined && exports.caj2pdf_c8_set_cjk_style?.(style, index) !== 1) {
+        return { invalid: "WASM rejected a C8 Han style font role" };
+      }
+    }
     if (fonts.symbolFontIdentity !== undefined) {
       const { postscriptName, checksumAdjustment } = fonts.symbolFontIdentity;
       const view = new DataView(new ArrayBuffer(64));

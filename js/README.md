@@ -537,6 +537,9 @@ await convert(wasm, documentSource, outputSink, {
   hnc8: {
     fonts: {
       cjk: cjkFontSource,
+      cjkSans: sansFontSource, // Optional native Han Hei/sans styles.
+      cjkKai: kaiFontSource, // Optional native Han Kai styles.
+      cjkSystem: systemFontSource, // Explicit font for measured system-font styles.
       latin: latinFontSource,
       // Optional roles; absent ones use the fallback rule below.
       alternateLatin: alternateFontSource, // 801d/4 Latin resource.
@@ -563,6 +566,15 @@ conversion; listed codes never fall back. No mapping is built in (#518).
 `symbolFontIdentity` (a PostScript name and the `head` table
 checkSumAdjustment) binds the map to the font it was measured on: any other
 `symbols` font rejects the conversion. It requires `symbolGlyphs`.
+
+`cjkSans`, `cjkKai` and `cjkSystem` select the measured Han style resources
+in C8 and HN-B native modes 0/2; the original style is used before geometry
+normalization. They use the same ranged font inputs and face selection as
+`cjk`. Optional roles can share sources. The maximum is eleven distinct
+font sources. Non-Han characters retain their existing resource rules;
+these options do not perform system font discovery. See the
+[CLI style table](../docs/cli.md#native-c8-font-resources) and
+[Wine measurements](../docs/research/wine-font-resources-20261011.md).
 
 **Fallback rule** (implemented in the core, so CLI, Node and browser
 behave the same): each glyph uses the font of the role the source selects.

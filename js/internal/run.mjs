@@ -146,7 +146,7 @@ function isBmpScalar(character) {
  */
 function fontConfig(options) {
   if (options?.fonts === undefined) return undefined;
-  const { cjk, latin, alternateLatin, decoration, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
+  const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31 } = options.fonts ?? {};
   const sources = [];
   const faces = [];
   const index = (font) => {
@@ -202,8 +202,11 @@ function fontConfig(options) {
     latinState3: optional(latinState3),
     latinState28: optional(latinState28),
     latinState31: optional(latinState31),
+    cjkSans: optional(cjkSans),
+    cjkKai: optional(cjkKai),
+    cjkSystem: optional(cjkSystem),
   };
-  if (sources.length > 8) throw new RangeError("at most eight distinct C8 font resources are supported");
+  if (sources.length > 11) throw new RangeError("at most eleven distinct C8 font resources are supported");
   return { sources, faces, fonts };
 }
 

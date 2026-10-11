@@ -27,7 +27,7 @@ pub const PROGRESS_TOTAL: u32 = 1000;
 /// own description of the failure.
 pub trait Host {
     /// Copy at most `destination.len()` bytes of `resource` (0 for the
-    /// document, 1..=8 for registered fonts) at `offset` into
+    /// document, 1..=11 for registered fonts) at `offset` into
     /// `destination`, returning the count. A short read is allowed.
     fn read(&mut self, resource: u32, offset: u64, destination: &mut [u8]) -> io::Result<usize>;
     /// Accept a prefix of `bytes`, returning its length.
@@ -42,6 +42,9 @@ pub trait Host {
 
 /// The work a session performs. A `None` format is detected from the
 /// leading signature.
+// One fixed-size operation is consumed per session, never collected. Keep
+// its bounded configuration inline instead of allocating it separately.
+#[allow(clippy::large_enum_variant)]
 pub enum Operation {
     /// Convert to PDF with the registered fonts, if any.
     Convert { options: ConversionOptions<'static> },
@@ -307,6 +310,11 @@ impl Session {
     /// before running.
     pub fn set_c8_latin_state(&mut self, state: u32, index: u32) -> bool {
         self.result.is_none() && self.fonts.set_latin_state(state, index)
+    }
+
+    /// Assign a native Han role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
+    pub fn set_c8_cjk_style(&mut self, style: u32, index: u32) -> bool {
+        self.result.is_none() && self.fonts.set_cjk_style(style, index)
     }
 
     /// Map an HN-B mode-0 symbol code to a glyph of the symbols role, after

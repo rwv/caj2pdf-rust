@@ -1468,6 +1468,9 @@ fn native_font_options_preserve_paths_and_validate_roles() {
         "--font-latin-state3=e",
         "--font-latin-state28=f",
         "--font-latin-state31=g",
+        "--font-cjk-sans=h",
+        "--font-cjk-kai=i",
+        "--font-cjk-system=j",
         "--decoration-char",
         "A",
     ])
@@ -1484,7 +1487,10 @@ fn native_font_options_preserve_paths_and_validate_roles() {
             Some("d".into()),
             Some("e".into()),
             Some("f".into()),
-            Some("g".into())
+            Some("g".into()),
+            Some("h".into()),
+            Some("i".into()),
+            Some("j".into())
         ]
     );
     assert_eq!(options.decoration_char, Some('A'));
@@ -1596,6 +1602,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
     assert!(roles.alternate_latin.is_none() && roles.decoration.is_none());
     assert!(roles.symbols.is_none() && roles.latin_state3.is_none());
     assert!(roles.latin_state28.is_none() && roles.latin_state31.is_none());
+    assert!(roles.cjk_sans.is_none() && roles.cjk_kai.is_none() && roles.cjk_system.is_none());
     assert_eq!(resources.inputs.len(), 2);
     // A decoration alias needs a decoration font from the directory or a flag.
     let mut options = font_options(&dir.0);
@@ -1626,7 +1633,10 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
     assert_eq!(roles.latin_state3, Some(5));
     assert_eq!(roles.latin_state28, Some(6));
     assert_eq!(roles.latin_state31, Some(7));
-    assert_eq!(resources.inputs.len(), 8);
+    assert_eq!(roles.cjk_sans, Some(8));
+    assert_eq!(roles.cjk_kai, Some(9));
+    assert_eq!(roles.cjk_system, Some(10));
+    assert_eq!(resources.inputs.len(), 11);
 }
 
 #[test]

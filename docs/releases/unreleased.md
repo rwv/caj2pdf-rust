@@ -217,3 +217,35 @@ errors. Native, CLI, Node and browser share the bounded core behavior with
 no public API or dependency change. See the
 [bounds](../pdf-input.md#retained-catalog-and-incomplete-page-tree) and
 [provenance](../provenance.md#retained-catalog-and-incomplete-page-tree-456).
+
+### Breaking Rust API: Han style font roles (#541)
+
+`hnc8::C8PageFonts` gains three optional source indices: `cjk_sans`,
+`cjk_kai`, and `cjk_system`. Existing struct literals add:
+
+```rust,ignore
+cjk_sans: None,
+cjk_kai: None,
+cjk_system: None,
+```
+
+When supplied, these roles select the measured Han fonts using the original
+raw style, including styles whose geometry is normalized to another value.
+They apply to C8 (both character modes) and HN-B native modes 0 and 2.
+Missing optional fonts or missing Han glyphs use the base `cjk` fallback.
+Non-Han characters retain their previous font rules. No font is bundled or
+looked up by these options; `cjk_system` is a caller-supplied source.
+
+The matching CLI flags and directory stems are `--font-cjk-sans` /
+`cjk-sans`, `--font-cjk-kai` / `cjk-kai`, and `--font-cjk-system` /
+`cjk-system`. Node/browser use `hnc8.fonts.cjkSans`, `cjkKai`, `cjkSystem`.
+Raw WASM adds `caj2pdf_c8_set_cjk_style(style, index)` after base role
+registration; the selectors are `0x0800`, `0x0c00`, and `0x0400`.
+These adapter additions are compatible. Rust callers should use
+`hnc8::C8_MAX_FONTS` (eleven) for resource bounds. Font I/O stays ranged,
+embedding stays sequential, and shared inputs are still embedded once.
+The three absent roles preserve the existing eight-entry PDF resource list.
+
+This change addresses font selection, not full Wine pixel parity. Latin
+resource aliases, punctuation, decorations, positioning and rasterization
+must still be assessed separately; #541 remains open.

@@ -38,7 +38,18 @@ pub struct C8PageFonts {
     /// C8 Latin resources selected by `801d/28` and `801d/31`.
     pub latin_state28: Option<usize>,
     pub latin_state31: Option<usize>,
+    /// Optional native Han font for style high bits `0x0800` (Hei/sans).
+    /// Non-Han characters retain their existing resource rules.
+    pub cjk_sans: Option<usize>,
+    /// Optional native Han font for style high bits `0x0c00` (Kai).
+    pub cjk_kai: Option<usize>,
+    /// Optional Han font for the measured system-font styles, including
+    /// `0x0400`, `0x1400` and style-zero explicit axes. No system lookup occurs.
+    pub cjk_system: Option<usize>,
 }
+
+/// Maximum distinct resources in the admitted native font-role profile.
+pub const C8_MAX_FONTS: usize = 11;
 
 /// Nonsemantic decoration alias drawn when no decoration role is supplied.
 pub const C8_DEFAULT_DECORATION_ALIAS: char = '\u{25ba}';
@@ -398,6 +409,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 ..
             } if self.variant == Variant::HnB => (),
             NativeRecord::Glyph { x, y, style, code } => {
+                let font_style = style;
                 // Original CJK/Latin/symbol pairs establish these regular flags
                 // across fields 2..=8, including a rectangular held-out control.
                 let style = if self.variant == Variant::HnB
@@ -526,6 +538,13 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified native punctuation size fields"));
                 }
                 let latin = self.latin;
+                // Original Wine controls select distinct Han resources at
+                // these style high bits, independently of the size fields.
+                let cjk = if ('\u{3400}'..='\u{9fff}').contains(&character) {
+                    self.han_font(font_style)
+                } else {
+                    self.roles.cjk
+                };
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
@@ -539,7 +558,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         {
                             return Err(invalid("unverified C8 CJK-mode glyph placement"));
                         }
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     0xa0a6
                     | 0xa0ae
@@ -609,7 +628,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     0xa1a2 | 0xa1a3 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
@@ -846,6 +865,25 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
 }
 
 impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    /// Resource identity follows the original style, before geometry aliases.
+    /// Original C8/HN-B controls distinguish these three optional Han roles.
+    fn han_font(&self, style: u16) -> usize {
+        match style & 0xfc00 {
+            0x0800 => self.roles.cjk_sans,
+            0x0c00 => self.roles.cjk_kai,
+            0x0400 | 0x1400 => self.roles.cjk_system,
+            _ if matches!(
+                style,
+                0 | 0x6084 | 0x64c6 | 0x9c84 | 0xa4a5 | 0xb94c | 0xe58c
+            ) =>
+            {
+                self.roles.cjk_system
+            }
+            _ => None,
+        }
+        .unwrap_or(self.roles.cjk)
+    }
+
     /// Apply the [`C8PageFonts`] fallback rule to a selected role. An index
     /// outside the page resources is kept so the draw reports it.
     fn font(&self, role: Option<usize>, character: char) -> usize {
@@ -951,7 +989,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     }
                     // The mode-0 decoder accepts only Han after the explicit
                     // alphabet and symbol classes handled above.
-                    _ => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
+                    _ => (C8GlyphClass::Cjk, Some(self.han_font(style))),
                 };
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(

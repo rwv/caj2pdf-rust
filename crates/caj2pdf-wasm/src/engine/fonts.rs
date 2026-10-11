@@ -6,7 +6,7 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity},
+    hnc8::{C8_MAX_FONTS, C8FontSource, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity},
 };
 use std::cell::RefCell;
 
@@ -16,8 +16,8 @@ const MAX_SYMBOL_GLYPHS: usize = 21;
 /// Explicitly registered font resources and their roles.
 #[derive(Default)]
 pub(super) struct Fonts {
-    sizes: [u64; 8],
-    faces: [u32; 8],
+    sizes: [u64; C8_MAX_FONTS],
+    faces: [u32; C8_MAX_FONTS],
     count: usize,
     roles: Option<C8PageFonts>,
     /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
@@ -48,6 +48,23 @@ impl Fonts {
             3 => &mut roles.latin_state3,
             28 => &mut roles.latin_state28,
             31 => &mut roles.latin_state31,
+            _ => return false,
+        };
+        if index as usize >= self.count || role.is_some() {
+            return false;
+        }
+        *role = Some(index as usize);
+        true
+    }
+
+    pub(super) fn set_cjk_style(&mut self, style: u32, index: u32) -> bool {
+        let Some(roles) = &mut self.roles else {
+            return false;
+        };
+        let role = match style {
+            0x0800 => &mut roles.cjk_sans,
+            0x0c00 => &mut roles.cjk_kai,
+            0x0400 => &mut roles.cjk_system,
             _ => return false,
         };
         if index as usize >= self.count || role.is_some() {
@@ -145,13 +162,16 @@ impl Fonts {
             latin_state3: None,
             latin_state28: None,
             latin_state31: None,
+            cjk_sans: None,
+            cjk_kai: None,
+            cjk_system: None,
         });
         true
     }
 }
 
 impl Fonts {
-    /// The registered fonts as host resources 1..=8 for one conversion;
+    /// The registered fonts as host resources 1..=11 for one conversion;
     /// `None` when none are registered.
     pub(super) fn resources<'h, H: Host + 'h>(
         &self,

@@ -185,3 +185,9 @@ stream byte sequences match qpdf; 180 pages render and 97 outline destinations
 are valid. Initial-IV initialization, production three-runtime support and
 complete viewer equivalence remain unmet. The earlier URL-copy failures stay
 historical evidence; no conversion totals or format support claims change.
+
+The [Wine native font-resource follow-up](wine-font-resources-20261011.md)
+identifies Huaguang Song/Hei/Kai and system Song selection, separates mode-2
+Latin aliases from mode-0 Unicode queries, and verifies all 13 native documents
+with measured caller fonts. It preserves remaining extent/pixel differences
+and the viewer startup workaround; #541 remains open.
