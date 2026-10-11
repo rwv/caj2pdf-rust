@@ -1416,3 +1416,17 @@ resources work. An original minimal shared-font control also works, so font
 sharing alone is not a universal trigger. The internal cause remains unknown.
 No production code or default output changed. The workaround does not establish
 source/PDF raster parity or native-Windows equivalence; #406/#441 remain open.
+
+## Wine raster and page-rounding checkpoint (#534)
+
+The [pinned per-page study](https://github.com/rwv/caj2pdf-samples/blob/1c7edbaaae9faee93951b6799dff6e83f554b543/research/notes/wine73-raster-rounding-20261010.md)
+retains **58 width differences and 14 image-only raster differences as explicit
+unresolved display cases**. Current source/PDF hashes preserve independent image
+content/order and the declared geometry model. All 96 available fresh PDF crops
+equal their historical crops; 57 fresh original pages have exact cold repeats.
+Original asymmetric controls across three predeclared zooms show source/PDF
+rounding boundaries changing, with identical JPEG payloads and the declared
+placement response. No blanket one-pixel tolerance or production correction is
+inferred. The 139 CAJ plus six KDH/PDF historical exact controls remain preserved
+by identical current PDFs; they are not claimed fresh viewer reruns. Native
+typography (#531), full physical-unit proof, resampling and #406/#441 remain open.
