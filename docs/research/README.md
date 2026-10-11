@@ -214,3 +214,9 @@ separates the ten-point page margin from the raw coordinate unit. Ten boundary
 comparisons, including a held-out size, match Wine; four actual page rasters
 remain unchanged at 75%. The eight-source generator, 61-session receipt and
 26 native/Node byte comparisons preserve unresolved glyph-position hypotheses.
+
+The [mode-0 font-metric and rounding controls](wine-mode0-font-rounding-20261011.md)
+exclude vertical-metric changes and four equivalent PDF encodings as fixes.
+Across seven zooms, 156 relative CJK/Latin measurements support separate device
+rounding of the existing ten-unit offset. High-zoom and positive font controls
+retain the limits of that inference; production geometry remains unchanged.

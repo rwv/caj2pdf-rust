@@ -3423,3 +3423,33 @@ dependency or allocation is introduced. Geometric resource fonts are original
 controls; a separate system-font diagnostic retains external metadata/unused
 glyphs and is not wholly project-authored. All font binaries, corpus documents
 and raster evidence remain external.
+
+### Mode-0 font metrics and device rounding (#541, 2026-10-11)
+
+The [rounding controls](research/wine-mode0-font-rounding-20261011.md) retain
+52 admitted sessions and four failed diagnostic startups. Original geometric
+fonts isolate Windows, hhea and typographic metrics while preserving outlines,
+cmaps and advances. Eight treatment/zoom source and PDF comparisons are exact
+to baseline; translating the authored glyph outline provides a positive control.
+Four equivalent PDF encodings also preserve all twelve observed frames. No
+production geometry or external font program is changed.
+
+Seven zooms, including two held-out configurations, produce 156 measured
+CJK/Latin relative offsets consistent with independently truncating the existing
+ten-raw-unit displacement to device pixels. High-zoom bounds distinguish this
+from a physical baseline or font-size correction. These are geometric synthetic
+observations, not complete glyph placement or actual-corpus fidelity acceptance.
+Filtered Wine diagnostic frames equal unobserved controls, but their selected
+font-creation messages do not identify the content resources; no content API
+path is inferred from missing events. Unfiltered capped logs and preparation
+failures remain recorded.
+
+`scripts/research/wine_mode0_font_rounding.py` is original MIT code reviewed
+per file. It reuses the project's independently established HN-B framing,
+reproduces four authored sources, and optionally creates thirty font variants
+from five checksum-verified original geometric controls. It uses fontTools
+only in the external research path, adds no runtime dependency, and never
+accepts unverified vendor fonts as mutation inputs. Public OpenType/Win32
+documentation supplies metric definitions only. No private HN/JBIG module,
+foreign converter or vendor implementation is consulted or migrated; font,
+PDF, document and screenshot binaries remain outside Git.
