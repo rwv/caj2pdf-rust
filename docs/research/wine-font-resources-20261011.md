@@ -127,8 +127,11 @@ all 520 queries, plus 24 known sentinels. Original font cmaps contain the
 observed slots; queries are not accepted solely because the control fonts
 provide extra coverage.
 
-Mode 0 queries ordinary Latin Unicode slots, while mode 2 uses resource
-aliases. A single globally remapped Latin pack is therefore incorrect.
+Mode-0 letters query ordinary Latin Unicode slots, while mode 2 uses resource
+aliases. Mode-0 digits and parentheses also query private HGBZ slots: the
+[follow-up controls](wine-mode0-digit-aliases-20261011.md) correct the earlier
+overgeneralization and twelve omissions in the preparation recipe.
+A single globally remapped Latin pack is therefore incorrect.
 Combining the controlled ASCII mappings and actual mode-2 observations yields
 441 Unicode/font pairs without conflicts within mode 2. Experimental derived
 fonts change only `cmap` and the `head` checksum; glyph IDs, outlines and

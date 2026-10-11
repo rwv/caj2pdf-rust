@@ -3453,3 +3453,28 @@ accepts unverified vendor fonts as mutation inputs. Public OpenType/Win32
 documentation supplies metric definitions only. No private HN/JBIG module,
 foreign converter or vendor implementation is consulted or migrated; font,
 PDF, document and screenshot binaries remain outside Git.
+
+
+### Original-font mode-0 digit aliases (#541, 2026-10-11)
+
+The [digit/parenthesis study](research/wine-mode0-digit-aliases-20261011.md)
+corrects an external-font recipe omission: mode-0 letters use ordinary slots,
+but ten digits and two parentheses query private HGBZ cmap slots. Existing
+low/high-byte and reversed-order measurements already contain these twelve
+selections. Applying them through the caller-supplied alias API preserves
+semantic text, font programs and geometry; it also eliminates an unintended
+parenthesis fallback to CJK resources. No converter implementation changes.
+
+Twenty-eight fresh Wine sessions admit 31 page visits, including three exact
+cold repeats. All six whole control frames and all four actual mode-0 pages
+improve, while five small-font control cells regress slightly in strict pixels.
+Independent tight-ink diagnostics isolate shape from translation; their exact
+matches are not counted as page fidelity. All actual pages still differ.
+Mode-2 configuration and its prior 73 page views are unchanged evidence.
+
+`scripts/research/wine_original_glyphs.py` is original MIT research code reviewed
+per file. It reuses the project's independently authored HN-B/C8 framing and
+reproduces six original controls without reading vendor fonts or code. Used
+original TTF bytes and selected TTC tables are verified independently of text
+order and glyph matrices. Fonts, external corpus, PDFs and screenshots remain
+outside this repository; no private parser/JBIG implementation is migrated.
