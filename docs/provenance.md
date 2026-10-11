@@ -3031,3 +3031,42 @@ font sharing, PDF output, I/O bounds, dependency or release changes. All new
 source is original MIT work; actual documents, fonts, PDFs, screenshots and
 vendor programs remain external. The broader #406/#441 obligations and
 #531/#534 typography/raster differences are not closed by this workaround.
+
+## Wine raster and page-width discriminators (#534)
+
+The [reviewed report and receipt](https://github.com/rwv/caj2pdf-samples/blob/1c7edbaaae9faee93951b6799dff6e83f554b543/research/notes/wine73-raster-rounding-20261010.md)
+classify each of the original 58 one-pixel width cases and 14 selected image-only
+cases as unresolved display differences with preserved content/model geometry.
+Current PDFs retain the historical hashes except the separately fixed long-HN
+JPEG orientation case; #530's whole-document preservation check bridges that
+PDF hash for unchanged page 217. Applicable bounded bitmap/JPEG/order and source
+extent checks are reused by exact identity. Their empirical `240/2473` point
+unit is not promoted to an authoritative physical-unit or raster proof.
+
+Twenty fresh actual sessions recheck 96 available PDF pages and 57 original pages
+with cold repeats. All available PDF crops match their historical crops, and all
+fresh original crops match historical/cold repeats. Four #533 single-page PDF
+observations remain unavailable. Native pages and the ten image-only pages in
+native documents remain separately classified; image-only differences are not
+attributed to font substitution. All 145 historical exact CAJ/KDH/PDF comparisons
+and unchanged current outputs remain preserved, without a fresh-viewer claim.
+
+Three independently authored asymmetric type-1 JPEG controls change only the
+page width by one source unit or image placement by +20 units. Twenty-one
+complete Wine source/PDF/repeat sessions at predeclared 50/75/100% zooms establish
+changing width-rounding boundaries. Source width 5105 gives equal 50/75% crops
+and PDF width +1 at 100%; width 5106 gives equal 50/100% crops and PDF width +1
+at 75%. The same encoded JPEG is embedded unchanged in all three PDFs. Image
+placement preserves page bounds and changes observed x/y origins by the same
+rounded deltas in source/PDF. Residual endpoint and raster differences remain;
+no column deletion, resizing, registration or fitted tolerance is introduced.
+
+One independent-parser regression verifies the isolated descriptor/width/position
+controls with zero skips, and generated sources reproduce observed hashes. The
+first missing-font native C8 conversion refusal is retained; no output or viewer
+session followed that failed attempt. All new code is original MIT research
+using existing MIT helpers. No external document, PDF, font, rendered image,
+vendor/private HN/JBIG or foreign-converter implementation is committed/copied.
+No new production defect is demonstrated, so this is a classification/provenance
+change only: APIs, PDF output, dependencies, bounded I/O and releases are unchanged.
+Full visual equivalence remains open under #406/#441 and source-font research.
