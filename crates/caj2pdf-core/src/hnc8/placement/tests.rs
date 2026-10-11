@@ -18,8 +18,34 @@ fn page() -> EmpiricalPageGeometry {
 
 #[test]
 fn documented_factors_and_comparison_precision_are_explicit() {
-    assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 240.0 / 2473.0);
+    assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 72.0 / 742.0);
     assert_eq!(EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, 0.00005);
+}
+
+#[test]
+fn page_extents_predict_independent_wine_device_boundaries() {
+    // Literal white-page extents observed in original fixed-geometry controls.
+    // The last three square dimensions were withheld from factor selection.
+    for (width, height, expected_width, expected_height) in [
+        (4736, 2800, [460.0, 613.0, 919.0], [272.0, 362.0, 543.0]),
+        (5105, 2800, [495.0, 660.0, 991.0], [272.0, 362.0, 543.0]),
+        (5166, 2800, [501.0, 668.0, 1003.0], [272.0, 362.0, 543.0]),
+        (5168, 2800, [501.0, 669.0, 1003.0], [272.0, 362.0, 543.0]),
+        (2973, 2973, [288.0, 385.0, 577.0], [288.0, 385.0, 577.0]),
+        (4038, 4038, [392.0, 522.0, 784.0], [392.0, 522.0, 784.0]),
+        (5150, 5150, [500.0, 666.0, 999.0], [500.0, 666.0, 999.0]),
+    ] {
+        let size = source_page_geometry([width, height]).unwrap().size;
+        for ((zoom, width), height) in [0.75, 1.0, 1.5]
+            .into_iter()
+            .zip(expected_width)
+            .zip(expected_height)
+        {
+            for (points, observed) in [(size.width_points, width), (size.height_points, height)] {
+                assert_eq!((points * (96.0 / 72.0) * zoom).round(), observed);
+            }
+        }
+    }
 }
 
 #[test]
@@ -50,11 +76,11 @@ fn fractional_negative_pdf_origin_and_off_page_translation_are_preserved() {
         }
     );
     assert_eq!(page.media_box().unwrap(), [-3.25, 1.125, 20.75, 61.125]);
-    let ctm = empirical_image_transform(page, 3, 7, point(2473, 2473)).unwrap();
+    let ctm = empirical_image_transform(page, 3, 7, point(742, 742)).unwrap();
     close(ctm[0], 0.72);
     assert_eq!(&ctm[1..3], &[0.0, 0.0]);
     close(ctm[3], -1.68);
-    assert_eq!(&ctm[4..], &[236.75, -178.875]);
+    assert_eq!(&ctm[4..], &[68.75, -10.875]);
     // The image is outside both page axes. Its source origin is not clipped.
     assert!(ctm[4] > page.media_box().unwrap()[2]);
     assert!(ctm[5] < page.media_box().unwrap()[1]);
@@ -66,8 +92,8 @@ fn zero_origin_is_top_left_and_positive_y_moves_downward() {
     let top = empirical_image_transform(page, 50, 100, point(0, 0)).unwrap();
     assert_eq!(top, [12.0, 0.0, 0.0, -24.0, 0.0, 24.0]);
     let moved = empirical_image_transform(page, 50, 100, point(1, 1)).unwrap();
-    close(moved[4], 240.0 / 2473.0);
-    close(moved[5], 24.0 - 240.0 / 2473.0);
+    close(moved[4], 72.0 / 742.0);
+    close(moved[5], 24.0 - 72.0 / 742.0);
     assert_eq!(&top[..4], &moved[..4]);
     // Coordinates remain unrounded; four-decimal precision is a comparison
     // policy, rather than a loss of precision during field evaluation.
@@ -85,11 +111,11 @@ fn source_order_repeats_and_pixel_dimensions_do_not_change_coordinate_roles() {
     assert!(transforms[1][5] > transforms[0][5]);
     let resized = empirical_image_transform(page, 11, 2, coordinates[0]).unwrap();
     // Compare returned binary64 values, not x87 extended intermediates.
-    // Independently rounded exact coordinates are -13/4 + 480/2473 and
-    // 489/8 - 960/2473. Pixel dimensions must not change either translation.
+    // Independently rounded exact coordinates are -13/4 + 144/742 and
+    // 489/8 - 288/742. Pixel dimensions must not change either translation.
     for transform in [transforms[0], transforms[2], resized] {
-        assert_eq!(transform[4].to_bits(), 0xc008727dabbc819b);
-        assert_eq!(transform[5].to_bits(), 0x404e5e4fb5779033);
+        assert_eq!(transform[4].to_bits(), 0xc008728b62ac81ba);
+        assert_eq!(transform[5].to_bits(), 0x404e5e516c559037);
     }
     close(resized[0], 2.64);
     close(resized[3], -0.48);
@@ -286,9 +312,9 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
         // x87 may retain enough intermediate precision to avoid the two
         // accumulated binary64 rounding errors demonstrated above. Accept
         // success only for the one binary64 y within the existing tolerance
-        // of the exact result: 2^38 + 54/25 - 3360/2473. Its neighbors miss by
-        // -0.0000567930524666 and +0.0000652772600334 points respectively.
-        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_3349),
+        // of the exact result: 2^38 + 54/25 - 1008/742. Its neighbors miss by
+        // -0.0000567972435142 and +0.0000652730689858 points respectively.
+        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_334c),
         Err(error) => assert!(matches!(
             error,
             Error {
@@ -311,8 +337,8 @@ fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
         point(u16::MAX, u16::MAX),
     ] {
         let ctm = empirical_image_transform(page, 1, 1, coordinate).unwrap();
-        close(ctm[4], -3.25 + f64::from(coordinate.x) * 240.0 / 2473.0);
-        close(ctm[5], 61.125 - f64::from(coordinate.y) * 240.0 / 2473.0);
+        close(ctm[4], -3.25 + f64::from(coordinate.x) * 72.0 / 742.0);
+        close(ctm[5], 61.125 - f64::from(coordinate.y) * 72.0 / 742.0);
         if coordinate.x >= 32768 {
             assert!(ctm[4] > page.media_box().unwrap()[2]);
         }
@@ -457,8 +483,8 @@ fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
         .unwrap();
         // Counts independently observed at 486% and 993%, including partial tails.
         assert_eq!(d.glyph_count, count);
-        close(d.first_glyph[4], 5.822887181560857);
-        close(d.first_glyph[5], 48.045519517768646);
+        close(d.first_glyph[4], 5.822102425876011);
+        close(d.first_glyph[5], 48.038456716605026);
         close(
             d.clip[2],
             f64::from(length) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
@@ -538,9 +564,9 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
         let horizontal =
             empirical_c8_segment(page, [4652, 4274], [[4682, 4304], [4832, 4304]], style).unwrap();
         // Original segment-axes control: relative endpoints (30,30)/(180,30).
-        close(horizontal[0][0], 12000.0 / 2473.0);
-        close(horizontal[1][0], 48000.0 / 2473.0);
-        close(horizontal[0][1], 132000.0 / 2473.0);
+        close(horizontal[0][0], 3600.0 / 742.0);
+        close(horizontal[1][0], 14400.0 / 742.0);
+        close(horizontal[0][1], 39600.0 / 742.0);
         assert_eq!(horizontal[0][1], horizontal[1][1]);
         let reverse =
             empirical_c8_segment(page, [4652, 4274], [[4832, 4304], [4682, 4304]], style).unwrap();

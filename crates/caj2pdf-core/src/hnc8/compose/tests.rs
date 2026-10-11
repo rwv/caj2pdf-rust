@@ -664,7 +664,7 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
             expected_descriptors
         );
         assert_eq!(visitor.images[1].4, visitor.images[2].4);
-        let scale = 240.0 / 2473.0;
+        let scale = 72.0 / 742.0;
         assert_eq!(
             visitor.images[1].4,
             [
@@ -713,10 +713,10 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_top_first_rows() {
         assert_eq!(visitor.images[0].2, display_width as u32);
         assert_eq!(
             visitor.sizes[0].unwrap().width_points,
-            100.0 * (240.0 / 2473.0)
+            100.0 * (72.0 / 742.0)
         );
         // Top-first rows: a positive-height matrix shifted down by the height.
-        assert_eq!(visitor.images[0].4[3], 40.0 * (240.0 / 2473.0));
+        assert_eq!(visitor.images[0].4[3], 40.0 * (72.0 / 742.0));
         let expected = packed(&pixels);
         assert!(
             crate::test_support::bilevel_pixels(&sink.bytes).contains(&expected),
@@ -1579,7 +1579,7 @@ fn type3_complete_mixed_pages_keep_top_first_pixels() {
     let pdf = String::from_utf8_lossy(&sink.bytes);
     assert_eq!(
         visitor.sizes[0].unwrap().width_points,
-        32000.0 * (240.0 / 2473.0)
+        32000.0 * (72.0 / 742.0)
     );
     assert_eq!(visitor.images[0].4[5], 0.0);
     // Image widths exclude storage padding.
@@ -1934,19 +1934,19 @@ fn source_page_and_image_extents_are_independent_of_decoded_pixels() {
         for &encode in &encoders[..count] {
             for pixels in [(8, 8), (32, 16)] {
                 let mut record = Record::jpeg(pixels.0, pixels.1, 90, 7, 11);
-                record.coordinate.width = 12365;
-                record.coordinate.height = 2473;
+                record.coordinate.width = 3710;
+                record.coordinate.height = 742;
                 let mut built = fixture_with_text(variant, &[vec![record]], encode);
                 let offset = if variant == Variant::C8 { 32 } else { 168 };
-                built.bytes[offset..offset + 2].copy_from_slice(&2473_u16.to_le_bytes());
-                built.bytes[offset + 2..offset + 4].copy_from_slice(&4946_u16.to_le_bytes());
+                built.bytes[offset..offset + 2].copy_from_slice(&742_u16.to_le_bytes());
+                built.bytes[offset + 2..offset + 4].copy_from_slice(&1484_u16.to_le_bytes());
                 let text_offset = built.text_offsets[0];
                 if variant == Variant::HnA && built.bytes[text_offset..text_offset + 2] == [3, 0x80]
                 {
                     built.bytes[text_offset + 2..text_offset + 4]
-                        .copy_from_slice(&2473_u16.to_le_bytes());
+                        .copy_from_slice(&742_u16.to_le_bytes());
                     built.bytes[text_offset + 6..text_offset + 8]
-                        .copy_from_slice(&4946_u16.to_le_bytes());
+                        .copy_from_slice(&1484_u16.to_le_bytes());
                 }
                 let mut visitor = Visitor::default();
                 convert(
@@ -1959,17 +1959,17 @@ fn source_page_and_image_extents_are_independent_of_decoded_pixels() {
                 )
                 .unwrap();
                 let size = visitor.sizes[0].unwrap();
-                assert_eq!((size.width_points, size.height_points), (240.0, 480.0));
+                assert_eq!((size.width_points, size.height_points), (72.0, 144.0));
                 let transform = visitor.images[0].4;
                 assert_eq!(
                     transform,
                     [
-                        1200.0,
+                        360.0,
                         0.0,
                         0.0,
-                        -240.0,
-                        7.0 * (240.0 / 2473.0),
-                        480.0 - 11.0 * (240.0 / 2473.0)
+                        -72.0,
+                        7.0 * (72.0 / 742.0),
+                        144.0 - 11.0 * (72.0 / 742.0)
                     ]
                 );
                 assert_eq!(
@@ -2277,7 +2277,7 @@ fn hna_paired_page_sizes_override_header_per_page_in_raw_and_compressed_text() {
             &Limits::default(),
         )
         .unwrap();
-        let unit = 240.0 / 2473.0;
+        let unit = 72.0 / 742.0;
         for (index, [width, height]) in [[400.0, 240.0], [320.0, 200.0]].into_iter().enumerate() {
             let size = visitor.sizes[index].unwrap();
             assert_eq!(size.width_points, width * unit);

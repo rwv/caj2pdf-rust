@@ -292,3 +292,23 @@ missing glyph in the selected font fails instead of silently drawing ASCII.
 No public API, font-read bound or coordinate model changes. All 77 actual
 inventory pages remain byte-identical; six original controls improve while
 retaining pixel differences. See the [evidence](../research/wine-cjk-aliases-20261011.md).
+
+
+### Breaking HN/C8/NH PDF geometry: refined coordinate scale (#541)
+
+The empirical raw-coordinate scale changes from `240/2473` to `72/742`
+points throughout the shared geometry path. Native Rust, CLI, Node and
+browser outputs can change page dimensions, positions and PDF bytes/hashes.
+Regenerate affected snapshots and coordinate expectations; for example,
+`raw_width * 240 / 2473` becomes `raw_width * 72 / 742`. No API signatures,
+font/payload I/O bounds, dependencies, `72/300` image-pixel scale or `75/301`
+font-em scale change. The fraction is an empirical model, not a proved
+physical source unit.
+
+Independent controls and held-out dimensions/zooms predict observed page
+extents. All 77 inventoried actual pages now match Wine extents, with pixel
+differences still present. Among 42 previously comparable pages, 30 improve,
+ten are unchanged and two worsen slightly; all 113,418 source characters
+are preserved and all 13 Node/native PDFs are byte-identical. Additional
+HN-A/C8/NH checks cover 43 selected pages, not all 433 NH pages. See the
+[67-session evidence and remaining limits](../research/wine-page-extents-20261011.md).

@@ -75,9 +75,11 @@ Regenerate affected PDF snapshots instead of preserving the old geometry.
 Zero declared extents now produce a located geometry error. HN-B keeps its
 separately measured single-JPEG behavior.
 
-The source-unit-to-point factor remains empirical (`240 / 2473`); this correction
-does not claim exact CAJViewer rasterization or establish a universal physical
-unit. See the [controlled field checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-hnc8-kdh.md#controlled-geometry-checks).
+The source-unit-to-point factor remains empirical. It is now `72 / 742`,
+refined from `240 / 2473` by independent Wine boundary controls and held-out
+dimensions/zooms. All 77 inventoried page extents match, while pixel differences
+remain. Regenerate geometry/PDF snapshots; the factor is not an established
+universal physical unit. See the [boundary evidence](research/wine-page-extents-20261011.md).
 
 ### Experimental HN/C8 options
 

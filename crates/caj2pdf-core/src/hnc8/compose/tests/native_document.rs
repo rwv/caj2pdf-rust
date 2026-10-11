@@ -83,7 +83,7 @@ fn native_c8_jpeg_descriptor_keeps_the_image_box_but_changes_row_orientation() {
             .collect();
         assert_eq!(matrices.len(), 1);
         let m = &matrices[0];
-        let unit = 240.0 / 2473.0;
+        let unit = 72.0 / 742.0;
         let expected = if kind == 1 {
             [80.0, 0.0, 0.0, 40.0, 30.0, 110.0]
         } else {

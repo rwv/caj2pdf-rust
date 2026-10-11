@@ -246,3 +246,14 @@ spacing, while the PDF retains fractional origins. Coalesced text, equivalent
 rectangle paths and 23 pattern sessions do not establish an improvement;
 blank pattern results are explicitly disqualified. This study changes no
 production geometry and does not close the actual-input fidelity obligations.
+
+
+## Page-boundary follow-up
+
+The [67-session coordinate study](wine-page-extents-20261011.md) supersedes
+the earlier 35-extent/42-pixel inventory classification for its new candidate.
+A single empirical scale, selected with independent synthetic boundaries and
+validated at held-out dimensions/zooms, gives matching extents on all 77
+actual pages. All pages still differ in pixels. On the 42 previously
+comparable pages, 30 improve, ten are unchanged and two worsen slightly.
+The historical measurements above remain records of their own candidates.

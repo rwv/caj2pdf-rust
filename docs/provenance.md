@@ -3231,3 +3231,34 @@ actual documents / 77 pages retain identical PDF bytes and all 113,418
 characters. Node/native bytes agree for the six corrected synthetic PDFs;
 real Chromium and Node share original geometric tests. Remaining pixel,
 page-extent and viewer-startup failures are not closed by this scoped fix.
+
+
+### Wine coordinate-unit refinement (#541, 2026-10-11)
+
+The [67-session boundary study](research/wine-page-extents-20261011.md)
+refines the empirical scale to `72/742` from `240/2473`. Four independently
+authored width controls constrain the candidate; three new square dimensions
+at three zooms test predictions for both axes. Literal observed extents,
+source hashes, cold repeats, countercontrols, all 77 actual page comparisons
+and 43 additional selected HN-A/C8/NH pages are retained. No per-document
+factor or resized comparison is used. The result remains empirical rather
+than an authoritative physical-unit claim. Pixel differences and two small
+regressions remain explicit.
+
+`scripts/research/wine_page_extents.py` is original MIT source, reviewed per
+file, and imports the project-owned C8 framing already reviewed above. It
+reads no external input and reproduces all seven source hashes using only
+the standard library. The existing original rectangle-font generator is
+reused without changing its outlines. Exact rational arithmetic independently
+provides the updated binary64 golden values; placement tolerance is retained.
+A parsed PDF-matrix check uses `1e-12` to permit a last-bit numeric difference,
+without relaxing any raster criterion. No vendor program, private HN/JBIG
+implementation or foreign converter was inspected or copied.
+
+All production input/output bounds and dependencies remain unchanged. Qpdf,
+independent semantic order and native/Node PDF identity pass for all 13
+main-inventory documents. The full 433-page NH conversion is distinguished
+from the three selected viewer pages. Historical observations are reused
+only when the compared PDF bytes are proved identical. External fonts,
+documents, derived PDFs and captures remain outside the repository.
+

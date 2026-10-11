@@ -13,7 +13,9 @@ use crate::{Error, Result};
 
 /// Empirical PDF points per raw text-coordinate unit in the measured profile.
 /// This does not assign an authoritative physical unit to the source word.
-pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 240.0 / 2473.0;
+/// Refined by independent Wine page-boundary controls, including held-out
+/// widths/heights at 75%, 100% and 150%; see the 2026-10-11 page-extent study.
+pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 72.0 / 742.0;
 /// Four-decimal reference output gives this absolute comparison tolerance.
 /// Evaluation returns full `f64` precision rather than rounding early.
 pub const EMPIRICAL_PLACEMENT_TOLERANCE_POINTS: f64 = 0.00005;
