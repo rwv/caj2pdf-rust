@@ -288,4 +288,13 @@ The [image-route and sampling study](wine-image-routes-sampling-20261011.md)
 adds 51 cold sessions / 65 admitted visits. Tested patterns lose ink; target
 extents plus reversed sample rows make five original control views exact.
 Actual-page and cross-zoom counterexamples prevent a general production fix.
-Signed coordinates and clipping are the next independent controls under #543.
+The subsequent study below independently varies descriptor orientation and clipping.
+
+The [JPEG descriptor and signed-clipping study](wine-image-signed-clipping-20261011.md)
+adds 97 cold sessions / 133 admitted visits. Descriptor-only changes make all
+five type-2 in-page views exact with target extents alone. Independent signed
+controls isolate residuals to negative positions; every nonnegative cell is
+exact after the declared grid corrections. Signed rounding/origin carry and
+zoom-independent integer-pixel clipping retain actual-page regressions.
+Six source/current-PDF pairs and 56 diagnostics reproduce exactly. #543 remains
+open; no production rendering change is adopted.

@@ -3749,3 +3749,33 @@ distinction, not a signed raw height: `decode_native_image_coordinate` admits
 unsigned width/height, while composition selects row orientation separately.
 This source-level observation constrains fixture construction; it does not
 establish how Wine rounds clipped or negative-origin images.
+
+### JPEG descriptor orientation and clipping (#543, 2026-10-11)
+
+The [signed-image study](research/wine-image-signed-clipping-20261011.md)
+records 97 cold Wine sessions / 133 admitted visits. Changing only descriptor
+kind 1 to 2 isolates the row-orientation effect: all five in-page type-2 views
+are exact with target extents alone. Independent negative-origin controls
+match all 144 nonnegative cells after the declared grid correction; residuals
+remain in clipped cells. Signed rounding/origin carry regresses two actual
+100% views. Three zoom-independent integer-pixel clipping constructions each
+regress four actual views. No production correction is adopted.
+
+Per-file review: `scripts/research/wine_image_signed_controls.py` is original
+MIT fixture code using the adjacent project-owned C8 and gray/RGB generators;
+it changes only recorded descriptor bytes and independently declares signed
+positions while keeping encoded fields unsigned. `wine_image_signed_grid_diagnostic.py`
+is original MIT rational-matrix code for floor/truncation/origin-carry probes
+at an explicit target zoom; recovered integer rectangles match all 216 source
+declarations. `wine_image_pixel_clip_diagnostic.py` is original MIT Pillow/pikepdf
+code that tests quantized decoded-pixel windows without a zoom argument.
+It bounds each decoded image to ten million pixels and preserves original
+JPEG resources, font programs and nonimage operators. Quantized cropping
+changes the painted pixel field despite preserving visible support.
+
+All six sources/current baseline pairs and 56 diagnostics reproduce byte-exactly.
+An initial reproduction-wrapper metadata-key failure is retained. No vendor,
+foreign converter or private HN/JBIG implementation is inspected or migrated;
+no corpus, PDF, screenshot or font bytes are committed. These external research
+tools do not change production dependencies, APIs or bounded I/O. #543 remains
+open for the general rendering correction and implementation acceptance.
