@@ -608,6 +608,14 @@ The optional decoration character is a nonsemantic BMP alias, not document
 text. Roles exist because source role selection differs from Unicode/script
 selection.
 
+The default `►` is a visible substitute. For the measured C8 ornament value 46,
+an externally supplied, hash-verified HGBZ resource uses
+`decoration: { source: decorationFontSource, character: "\u5d41" }`.
+See the [resource identities and other measured values](../docs/cli.md#notes).
+This existing option selects one alias for the whole document; it does not
+automatically select different patterns for mixed ornament values or establish
+ordinary-text/font/raster fidelity.
+
 Keep fonts unchanged until conversion settles; the converter does not close
 caller-owned descriptors. Forward-only fonts can use the existing bounded
 spooling helpers; dispose the spool in `finally`. The caller must discard

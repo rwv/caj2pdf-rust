@@ -1390,3 +1390,16 @@ Original MIT tests cover shared acyclic collections and strict malformed,
 cycle, cancellation and memory-bound cases. The external document is not
 committed or fetched by required CI; skipped optional corpus tests are not
 compatibility passes. Metadata-only catalog addition follows review/merge.
+
+## Wine C8 ornament resource checkpoint (#532)
+
+The [four-slot resource study](https://github.com/rwv/caj2pdf-samples/blob/4fbc29dc2d15ed2aad3506772e52af8274a61d29/research/notes/wine73-ornament-resources-20261010.md)
+replaces the deliberate default triangle through existing explicit caller
+options for the four measured single-value documents. Original Wine controls
+identify each alias independently. All 12 native/Node/Chromium outputs agree,
+and 25 actual pages preserve non-ornament text/geometry/image/order evidence.
+The main mixed document's ten source pages repeat exactly; image-only PDF pages
+1–9 are unchanged, and page 10 draws the measured pattern. Exact source/PDF
+raster parity, ordinary source-font fidelity and mixed-value alias selection
+are not claimed. The [CLI recipe](cli.md#notes) names the exact external resource;
+fonts are neither bundled nor inferred.
