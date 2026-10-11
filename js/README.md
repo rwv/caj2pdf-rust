@@ -608,6 +608,13 @@ The optional decoration character is a nonsemantic BMP alias, not document
 text. Roles exist because source role selection differs from Unicode/script
 selection.
 
+These roles choose caller resources, not complete source typography. The
+[Wine investigation](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/notes/wine73-typography-20261010.md)
+retains ordinary native glyph mappings, CJK style selection and same-outline
+positioning gaps. Font-name equality and embedded-font coverage are insufficient;
+the HN-B mode-0 symbol map is not a general C8 ordinary-character map. Preserve
+semantic Unicode separately from any measured font lookup alias.
+
 The default `►` is a visible substitute. For the measured C8 ornament value 46,
 an externally supplied, hash-verified HGBZ resource uses
 `decoration: { source: decorationFontSource, character: "\u5d41" }`.

@@ -1430,3 +1430,22 @@ placement response. No blanket one-pixel tolerance or production correction is
 inferred. The 139 CAJ plus six KDH/PDF historical exact controls remain preserved
 by identical current PDFs; they are not claimed fresh viewer reruns. Native
 typography (#531), full physical-unit proof, resampling and #406/#441 remain open.
+
+## Wine native typography requirements (#531)
+
+The [pinned typography report](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/notes/wine73-typography-20261010.md)
+completes #531's concrete-resource/unmeasured-mapping investigation path without
+claiming a typography fix. All ten documents/60 pages retain explicit outcomes:
+21 native typography/width differences, 25 equal-size native typography
+differences, ten image-only pages and four unavailable single-page PDF pages.
+Current default PDFs and all available fresh crops equal the historical recipe;
+completed opt-in HN-B symbol work does not implicitly repair ordinary C8 text.
+
+Original Wine single-slot fonts verify three finite HGBZ native aliases. The
+actual equation-page PDF's fullwidth parentheses use Noto fallback; ordinary
+HGBZ/FreeSerif Unicode lookups cannot supply them. Identical Latin/bracket marker
+crops retain different page positions, while doubling only advances changes
+neither source nor PDF crops. Thus the remaining gap is not explained entirely
+by font substitution or accumulated advance. Nine original control PDFs agree
+across CLI/Node/Chromium, but full source-font/geometry fidelity remains open
+under samples #106 and #406/#441. No new production behavior is claimed.

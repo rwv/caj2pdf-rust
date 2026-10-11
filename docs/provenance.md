@@ -3070,3 +3070,42 @@ vendor/private HN/JBIG or foreign-converter implementation is committed/copied.
 No new production defect is demonstrated, so this is a classification/provenance
 change only: APIs, PDF output, dependencies, bounded I/O and releases are unchanged.
 Full visual equivalence remains open under #406/#441 and source-font research.
+
+## Wine native glyph/resource and positioning requirements (#531)
+
+The [reviewed study and metadata receipt](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/notes/wine73-typography-20261010.md)
+cover ten native documents/60 selected pages and 56 Wine sessions, including
+the actual cohort shared with #534. All available native-document PDF crops
+remain identical to the historical substitute-font recipe. The 46 native-text
+differences, ten image-only pages and four unavailable single-page PDF pages
+remain separate; no skipped/unavailable or visually different case is a pass.
+
+Original single-slot geometric fonts identify raw `a0c1/a0cd/a0b1` as HGBZ
+lookup arguments 31908/37213/25969 in the measured Wine context. Hash-pinned
+external resource inspection retains only metrics, bounds and outline hashes.
+Native A/M slots equal their ordinary Unicode outlines/advances; native digit 1
+differs in both. Ordinary fullwidth parentheses are absent in HGBZ and FreeSerif;
+the actual `0377…` page-2 PDF uses Noto for 16 opening and 16 closing marks.
+The original Wine control selects the HGBZ marker instead. Real formula-context
+aliases and full repertoire/state coverage remain unmeasured; semantic Unicode
+must not be replaced with these nonsemantic resource lookup aliases.
+
+Four original styles across two canvases and 75/100/200% zooms distinguish
+resource identity from glyph placement. At 100/200%, Latin/bracket marker crops
+are identical between source and PDF, while page positions differ by pixels.
+A doubled-advance-only font changes neither complete source nor PDF crop.
+The attempted HGHT Han marker is unconfirmed, so it does not establish Wine
+CJK resource identity. These results require further resource/style/glyph and
+positioning mappings; they do not justify guessed offsets or an all-font cause.
+Existing HN-B mode-0 mappings for 21 symbols are opt-in and not generalized.
+
+All nine control PDFs match native/Node/real Chromium, with source/font hashes
+stable and empty browser OPFS cleanup. Nineteen authored control/font files
+reproduce exactly. Two independent parser/outline-preservation tests pass with
+zero skips; the initial ASCII-versus-fullwidth-parenthesis test mistake is
+retained and corrected without a semantic conversion change. The catalog and
+production API, default output, dependencies, memory bounds and releases are
+unchanged. All added source is original MIT; documents, external fonts/outlines,
+PDFs, screenshots and vendor programs stay external. No private HN/JBIG or
+foreign-converter implementation was read/copied. Samples #106 and #406/#441
+retain full resource/geometry/fidelity obligations beyond this scoped diagnosis.
