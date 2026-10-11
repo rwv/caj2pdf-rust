@@ -261,3 +261,10 @@ origin/axis decompositions preserve all 35 baseline frames across seven views.
 A separate half-opacity control changes the frame but loses visible ink in
 31 of 42 glyph cells. All 21 diagnostic PDFs reproduce exactly; neither
 alternative supplies a production fidelity correction.
+
+The [vertical CID origin controls](wine-vertical-origins-20261011.md) distinguish
+responses to per-CID and default metric encodings in 35 Wine sessions. Responsive
+range/default equivalents retain baseline pixels; four array-based equivalents
+regress. Two cold source repeats and all 29 output reproductions are exact.
+The observer's initial cell-boundary failure and deliberately displaced controls
+remain separate from complete-frame fidelity; no production fix is adopted.

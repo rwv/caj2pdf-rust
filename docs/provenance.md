@@ -3637,3 +3637,25 @@ renders respond differently to isolation and are not substituted for Wine.
 No vendor implementation, foreign converter or private HN/JBIG code is inspected
 or migrated. Fonts, fixtures, PDFs and screenshots stay external. No runtime
 dependency, API, I/O strategy or production behavior changes.
+
+### Vertical CID origin controls (#541, 2026-10-11)
+
+The [vertical-origin study](research/wine-vertical-origins-20261011.md) tests
+another carrier for glyph offsets without changing original embedded programs.
+In 35 cold Wine sessions, 19 of 23 mathematically equivalent views retain PDF
+baseline pixels and four regress. Ten deliberate displacement controls establish
+scoped differences among metric representations; two cold source repeats match.
+All frames remain complete/stable/numeric-confirmed and inputs remain intact.
+The initial inherited-cell guard failure is retained; revised diagnostic cells
+come from the original grid, with no change to complete-frame RGB comparisons.
+
+`scripts/research/wine_vertical_origin_diagnostic.py` is independently authored
+MIT research code reviewed per file. It uses original fixture/PDF helpers,
+pikepdf/PyMuPDF APIs, qpdf and public PDF vertical-metric definitions. Serialized
+origin decompositions agree within 1e-25 points. The default-metric variants
+deliberately change PDF width metadata while keeping font programs and physical
+per-glyph painting transforms. All 29 generated outputs (25 distinct PDF hashes)
+and their metadata reproduce exactly. No vendor implementation, foreign converter
+or private HN/JBIG is inspected or migrated. Fonts, fixtures, PDFs and screenshots
+stay external. No production correction, dependency, API or I/O change results;
+actual-corpus fidelity and #541 remain open.
