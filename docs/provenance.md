@@ -3589,3 +3589,29 @@ preserving semantic text and original embedded programs. It adds no runtime
 dependency or conversion API. Font, document, PDF and screenshot binaries stay
 external. An interrupted host observer resumes verified-live sessions; its
 termination and setup/analysis failures remain recorded.
+
+### Grayscale JPEG and interpolation controls (#534, 2026-10-11)
+
+The [JPEG decode study](research/wine-jpeg-decode-controls-20261011.md) holds
+page geometry, drawing operators and eleven external font programs unchanged
+while varying image encoding and interpolation. In 17 cold Wine sessions, 51
+page visits are complete, stable and numeric-confirmed. All 27 treatment frames
+equal their PDF baselines; every baseline still differs from the native source.
+Three source cold repeats and six historical comparisons are exact. Deliberate
+grayscale inversion changes all three selected positive-control frames.
+No production correction or general decoder/resampling cause is established.
+
+`scripts/research/wine_jpeg_decode_diagnostic.py` is independently authored MIT
+research code reviewed per file. It uses installed Pillow/pikepdf/zlib/qpdf APIs
+to reproduce five external diagnostic PDFs and metadata. Seventeen grayscale
+images are processed one at a time with a ten-million-pixel bound per image;
+the utility is not part of the converter's production I/O path. No vendor,
+private HN/JBIG or foreign converter implementation is inspected or migrated.
+Corpus images and original fonts are external data, never committed here.
+The helper adds no runtime dependency or production behavior change.
+
+The accompanying validation record retains a real CI failure in the existing
+file-truncation test. Original MIT change `d836ae7` attaches its rejection
+assertion before awaiting file I/O, preserving the assertion and runtime code.
+All 192 concurrent JS tests and the commit's four quality gates/nine regular
+native jobs pass; 17 optional/release skips are reported separately.

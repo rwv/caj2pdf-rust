@@ -247,3 +247,10 @@ Wine frames. Nested `d0` text retains baseline pixels; `d1` nested text is blank
 despite visible rectangle controls. All 28 original-outline path frames regress.
 The 62-session receipt and 32-PDF reproducer retain missing glyphs, a rejected
 frame comparison and an interrupted observer resumed without restarting Wine.
+
+The [grayscale JPEG and interpolation controls](wine-jpeg-decode-controls-20261011.md)
+retain 17 Wine sessions and 51 complete page visits. Full-resolution decoded
+Flate, explicit interpolation and their combination leave all 27 treatment
+frames identical to their PDF baselines across three zooms. An inverted-image
+control changes all three selected pages. Source differences remain, with no
+production change or general claim about renderer behavior.
