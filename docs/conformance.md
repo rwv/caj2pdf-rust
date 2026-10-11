@@ -76,6 +76,14 @@ The unreleased [type-1 JPEG extension](https://github.com/rwv/caj2pdf-samples/tr
 profile and selects the existing HN/C8 text-header interoperability policy in
 CLI/WASM. The frozen v0.3.1 results below are not overwritten by this change.
 
+The [Wine 7.3 orientation correction](https://github.com/rwv/caj2pdf-samples/blob/7ad9ff02663f4f4883ee8bf02fe2086588b4b313/research/notes/wine73-jpeg-orientation-20261010.md)
+(#530) distinguishes top-first type-1 JPEGs from bottom-first type 2 in HN-A/C8.
+Original descriptor-only controls and all four affected JPEG pages in the
+433-page original verify the direction change. The remaining 429 page content
+streams and 16 other selected PDFs are unchanged. Five actual pages were
+viewed; residual raster differences remain #534, and the other 428 pages have
+inventory/stream evidence only. This is not whole-document pixel parity.
+
 ### v0.4.0 pre-tag Linux CI baseline (#328)
 
 The [current CLI observations](https://github.com/rwv/caj2pdf-samples/tree/main/research/conformance/current_cli_baseline.json)

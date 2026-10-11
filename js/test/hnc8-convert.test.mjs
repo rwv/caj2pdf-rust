@@ -160,9 +160,8 @@ test("bilevel compression is deterministic and has an explicit allocation floor"
   }), (error) => error.code === "HNC8" && /allocation bytes/.test(error.message));
 });
 
-test("type-1 JPEG uses the bounded public path and preserves its encoded image", async (t) => {
+test("JPEG descriptors preserve encoded bytes and select their row orientation", async (t) => {
   const { bytes, jpeg } = syntheticType1Hn();
-  const outputs = [];
   for (const kind of [1, 2]) {
     new DataView(bytes.buffer).setUint32(0x190, kind, true);
     const parts = [];
@@ -172,9 +171,12 @@ test("type-1 JPEG uses the bounded public path and preserves its encoded image",
     const pdf = Buffer.concat(parts);
     assert.ok(pdf.includes(jpeg));
     await validateType1Hn(t, pdf);
-    outputs.push(pdf);
+    const matrix = pdf.toString("latin1").match(/([-\d.]+) 0 0 ([-\d.]+) ([-\d.]+) ([-\d.]+) cm/);
+    assert.ok(matrix, "image has a placement matrix");
+    const expected = kind === 1 ? [80, 40, 0, 160] : [80, -40, 0, 200];
+    expected.forEach((value, axis) =>
+      assert.ok(Math.abs(Number(matrix[axis + 1]) - value * 240 / 2473) < 0.000001));
   }
-  assert.deepEqual(outputs[0], outputs[1]);
   new DataView(bytes.buffer).setUint32(0x190, 1, true);
   bytes[0x19c] = 0; // The type tag cannot bypass JPEG validation.
   await assert.rejects(convert(await wasmModule(), new Blob([bytes]), sink(),

@@ -417,9 +417,15 @@ fn render_jpeg_and_pdf(jpeg: &[u8], pdf: &[u8], color: bool, dpi: &str) -> (Vec<
 }
 
 #[test]
-fn original_asymmetric_pgm_ppm_pixels_render_flipped_by_the_measured_matrix_in_their_color() {
+fn original_asymmetric_jpegs_render_in_their_descriptor_specific_orientation() {
     // Type 1 is admitted on HN-A/C8 pages; HN-B admits type 2 only.
-    for (layout, kind) in [(Variant::HnA, 1), (Variant::HnB, 2)] {
+    for (layout, kind) in [
+        (Variant::HnA, 1),
+        (Variant::HnA, 2),
+        (Variant::C8, 1),
+        (Variant::C8, 2),
+        (Variant::HnB, 2),
+    ] {
         for channels in [1, 3] {
             let jpeg = jpeg_from_pnm(&pnm(channels));
             let built = document(layout, &[vec![jpeg_image(kind, jpeg.clone())]]);
@@ -442,11 +448,16 @@ fn original_asymmetric_pgm_ppm_pixels_render_flipped_by_the_measured_matrix_in_t
                 RENDER_DPI
             };
             let (direct, rendered) = render_jpeg_and_pdf(&jpeg, &sink.bytes, channels == 3, dpi);
-            // The composer draws every JPEG with the measured negative-height
-            // matrix, so its first coded row is the page's bottom row.
+            // The Wine descriptor-only controls distinguish top-first type 1
+            // from bottom-first type 2. Check decoded asymmetric pixels, not
+            // merely a matrix sign or the preservation of compressed bytes.
             let row = 16 * channels;
-            let flipped: Vec<u8> = direct.rchunks(row).flatten().copied().collect();
-            let worst = flipped
+            let expected = if kind == 1 {
+                direct.clone()
+            } else {
+                direct.rchunks(row).flatten().copied().collect()
+            };
+            let worst = expected
                 .iter()
                 .zip(&rendered)
                 .map(|(a, b)| a.abs_diff(*b))
@@ -454,7 +465,7 @@ fn original_asymmetric_pgm_ppm_pixels_render_flipped_by_the_measured_matrix_in_t
                 .unwrap();
             assert!(
                 worst <= 5,
-                "{layout:?}: flipped JPEG and PDF rendered pixels differ by {worst}"
+                "{layout:?} type {kind}: oriented JPEG and PDF pixels differ by {worst}"
             );
             if channels == 1 {
                 for (x, y, expected) in [(0, 0, 15), (15, 0, 75), (0, 15, 190), (15, 15, 245)] {

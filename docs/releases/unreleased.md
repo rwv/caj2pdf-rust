@@ -65,6 +65,12 @@ text keeps the decoded character. Existing options and outputs are unchanged.
 
 ### Other unreleased changes
 
+- Correct vertically inverted type-1 JPEGs in HN-A/C8 image and native pages
+  (#530). Type 1 now draws top-first; type 2 retains its measured bottom-first
+  placement. Encoded JPEG bytes, image bounds, APIs and memory limits are
+  unchanged across native, CLI, Node and browser. Wine 7.3 controls and four
+  affected pages verify orientation; residual raster differences remain open.
+
 - The Rust PDF writer can register an explicit mapped font with
   `PdfDocument::add_mapped_font` and draw it with
   `ContentPageWriter::mapped_glyph(font, glyph_character, text, transform, gray)`
