@@ -218,7 +218,7 @@ no public API or dependency change. See the
 [bounds](../pdf-input.md#retained-catalog-and-incomplete-page-tree) and
 [provenance](../provenance.md#retained-catalog-and-incomplete-page-tree-456).
 
-### Breaking Rust API: Han style font roles (#541)
+### Breaking Rust API: CJK style font roles (#541)
 
 `hnc8::C8PageFonts` gains three optional source indices: `cjk_sans`,
 `cjk_kai`, and `cjk_system`. Existing struct literals add:
@@ -229,11 +229,15 @@ cjk_kai: None,
 cjk_system: None,
 ```
 
-When supplied, these roles select the measured Han fonts using the original
+When supplied, these roles select the measured CJK fonts using the original
 raw style, including styles whose geometry is normalized to another value.
 They apply to C8 (both character modes) and HN-B native modes 0 and 2.
-Missing optional fonts or missing Han glyphs use the base `cjk` fallback.
-Non-Han characters retain their previous font rules. No font is bundled or
+The admitted `801c` family control overrides the CJK family until the next
+`8002` style record; it preserves geometry and ordinary Latin selection.
+Missing optional fonts or missing CJK glyphs use the base `cjk` fallback.
+These roles also select C8 fullwidth Latin letters, ideographic space and
+fullwidth ampersand; ordinary Latin and raw low-byte `006c`/`0070` keep their
+previous resource rules. No font is bundled or
 looked up by these options; `cjk_system` is a caller-supplied source.
 
 The matching CLI flags and directory stems are `--font-cjk-sans` /

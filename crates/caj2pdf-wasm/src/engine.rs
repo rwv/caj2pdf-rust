@@ -312,7 +312,7 @@ impl Session {
         self.result.is_none() && self.fonts.set_latin_state(state, index)
     }
 
-    /// Assign a native Han role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
+    /// Assign a native CJK role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
     pub fn set_c8_cjk_style(&mut self, style: u32, index: u32) -> bool {
         self.result.is_none() && self.fonts.set_cjk_style(style, index)
     }

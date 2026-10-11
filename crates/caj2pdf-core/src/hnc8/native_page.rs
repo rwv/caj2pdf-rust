@@ -38,12 +38,12 @@ pub struct C8PageFonts {
     /// C8 Latin resources selected by `801d/28` and `801d/31`.
     pub latin_state28: Option<usize>,
     pub latin_state31: Option<usize>,
-    /// Optional native Han font for style high bits `0x0800` (Hei/sans).
-    /// Non-Han characters retain their existing resource rules.
+    /// Optional native CJK font for style high bits `0x0800` (Hei/sans).
+    /// Selects Han and the measured C8 fullwidth letters, space and ampersand.
     pub cjk_sans: Option<usize>,
-    /// Optional native Han font for style high bits `0x0c00` (Kai).
+    /// Optional native CJK font for style high bits `0x0c00` (Kai).
     pub cjk_kai: Option<usize>,
-    /// Optional Han font for the measured system-font styles, including
+    /// Optional CJK font for the measured system-font styles, including
     /// `0x0400`, `0x1400` and style-zero explicit axes. No system lookup occurs.
     pub cjk_system: Option<usize>,
 }
@@ -219,6 +219,7 @@ where
         non_image_painted: false,
         image_overlay: None,
         style: None,
+        cjk_style_override: None,
         axes: [None; 2],
         latin: Some(roles.latin),
         skew: 0.0,
@@ -250,6 +251,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     /// drawing before that image selects binary AND; leading images replace.
     image_overlay: Option<bool>,
     style: Option<u16>,
+    /// Family selected by `801c` since the latest `8002` style record.
+    cjk_style_override: Option<u16>,
     axes: [Option<u16>; 2],
     /// Current Latin resource state; `None` selects the role fallback.
     latin: Option<usize>,
@@ -325,12 +328,13 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } => self.skew = 0.105,
             NativeRecord::Control { tag: 0x8002, value } => {
                 self.style = Some(value);
+                self.cjk_style_override = None;
                 self.axes = [None; 2];
             }
             NativeRecord::Control {
                 tag: 0x801c,
-                value: 2..=4,
-            } => (),
+                value: value @ 2..=4,
+            } => self.cjk_style_override = Some(value << 10),
             NativeRecord::Control {
                 tag: tag @ (0x8070 | 0x8071),
                 value,
@@ -538,10 +542,13 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified native punctuation size fields"));
                 }
                 let latin = self.latin;
-                // Original Wine controls select distinct Han resources at
-                // these style high bits, independently of the size fields.
-                let cjk = if ('\u{3400}'..='\u{9fff}').contains(&character) {
-                    self.han_font(font_style)
+                // Original Wine queries distinguish styled Han and these
+                // C8 fullwidth glyphs from the base-resource low-byte letters.
+                let cjk = if ('\u{3400}'..='\u{9fff}').contains(&character)
+                    || (self.variant == Variant::C8
+                        && matches!(code, 0xa1a1 | 0xa3a6 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa))
+                {
+                    self.cjk_style_font(font_style)
                 } else {
                     self.roles.cjk
                 };
@@ -621,9 +628,9 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         (C8GlyphClass::Cjk, latin, None)
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, Some(self.roles.latin), None),
-                    0xa1a1 | 0xa3a6 => (C8GlyphClass::Cjk, Some(self.roles.cjk), None),
+                    0xa1a1 | 0xa3a6 => (C8GlyphClass::Cjk, Some(cjk), None),
                     0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     0xa1a2 | 0xa1a3 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
@@ -865,9 +872,10 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
 }
 
 impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
-    /// Resource identity follows the original style, before geometry aliases.
-    /// Original C8/HN-B controls distinguish these three optional Han roles.
-    fn han_font(&self, style: u16) -> usize {
+    /// An explicit family overrides the original style, before geometry aliases.
+    /// Original C8/HN-B controls distinguish these three optional CJK roles.
+    fn cjk_style_font(&self, style: u16) -> usize {
+        let style = self.cjk_style_override.unwrap_or(style);
         match style & 0xfc00 {
             0x0800 => self.roles.cjk_sans,
             0x0c00 => self.roles.cjk_kai,
@@ -989,7 +997,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     }
                     // The mode-0 decoder accepts only Han after the explicit
                     // alphabet and symbol classes handled above.
-                    _ => (C8GlyphClass::Cjk, Some(self.han_font(style))),
+                    _ => (C8GlyphClass::Cjk, Some(self.cjk_style_font(style))),
                 };
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(

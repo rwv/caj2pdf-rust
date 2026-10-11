@@ -47,6 +47,12 @@ try {
     includeBookmarks: false, chunkSize: 32,
     hnc8: { fonts: { cjk: font, latin: font, cjkSans: fontBlob, cjkKai: new Blob([fontBlob]), cjkSystem: new Blob([fontBlob]) } },
   });
+  const fullwidthStylePdf = [];
+  const fullwidthFont = new Blob([privateAliasFont(await fontBlob.arrayBuffer(), 0xff21)]);
+  await convert(module, new Blob([syntheticNativeC8HanStyles(0xa3c1)]), collect(fullwidthStylePdf), {
+    includeBookmarks: false, chunkSize: 32,
+    hnc8: { fonts: { cjk: fullwidthFont, latin: fullwidthFont, cjkSans: new Blob([fullwidthFont]), cjkKai: new Blob([fullwidthFont]), cjkSystem: new Blob([fullwidthFont]) } },
+  });
   for (const [input, pages, hasSymbols, hasState3, latinState] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1], [syntheticNativeHnb(2, true), 2, false, true], [syntheticNativeHnbAxes(), 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, false, false, state])]) {
     const pdf = [];
     // The Blob copy of the font is a second, distinct font resource.
@@ -126,7 +132,7 @@ try {
   if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
     throw new Error("supplied fonts changed the image-only HN-A PDF");
   }
-  result = { hanStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
+  result = { hanStylePdf, fullwidthStylePdf, hnbProfilePdf, profilePdf, symbolGlyphPdf, fontFailures, latePdf: lateParts, nativePdfs, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

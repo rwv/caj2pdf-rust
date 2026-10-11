@@ -171,11 +171,11 @@ export function syntheticNativeC8(mixed = false, latinState) {
   return bytes;
 }
 
-/** Original Han/Latin pairs under the three observed ordinary C8 styles. */
-export function syntheticNativeC8HanStyles() {
+/** Original CJK/Latin runs under four styles and explicit family overrides. */
+export function syntheticNativeC8HanStyles(cjkCode = 0xd6d0) {
   const words = [[0x8001, 60]];
   for (const [i, style] of [0x0884, 0x0c84, 0x1084, 0x04e7].entries()) {
-    words.push([0x80ce, i % 2], [0x8002, style], [20 + i * 20, 0xd6d0], [0x80ce, 1], [30 + i * 20, 0xa0c1]);
+    words.push([0x80ce, i % 2], [0x8002, style], [20 + i * 20, cjkCode], [0x801c, [3, 4, 2, 4][i]], [25 + i * 20, cjkCode], [0x80ce, 1], [30 + i * 20, 0xa0c1]);
   }
   words.push([0x8004, 39]);
   const bytes = new Uint8Array(100 + words.length * 4);

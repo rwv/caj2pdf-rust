@@ -240,23 +240,27 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   // Mapped symbol glyphs match the Node conversion byte for byte.
   const { convert } = await import("../node.mjs");
   const { wasmModule } = await import("./helpers.mjs");
-  const { syntheticNativeHnb, syntheticNativeC8HanStyles } = await import("./hnc8-fixtures.mjs");
+  const { syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
   const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
   const font = new Blob([fontBytes]);
-  const hanParts = [];
-  await convert(await wasmModule(), new Blob([syntheticNativeC8HanStyles()]), {
-    async writeChunk(bytes) { hanParts.push(bytes.slice()); return bytes.length; }, async flush() {},
-  }, {
-    includeBookmarks: false, chunkSize: 32,
-    hnc8: { fonts: { cjk: font, latin: font, cjkSans: new Blob([fontBytes]), cjkKai: new Blob([fontBytes]), cjkSystem: new Blob([fontBytes]) } },
-  });
-  const hanStylePdf = Buffer.from(result.hanStylePdf);
-  assert.deepEqual(hanStylePdf, Buffer.concat(hanParts));
-  const hanText = pageText(hanStylePdf);
-  assert.equal(hanText.match(/<4E2D> Tj/g).length, 4);
-  assert.equal(hanText.match(/<0041> Tj/g).length, 4);
-  assert.ok(hanText.includes("/F8 1 Tf") && hanText.includes("/F9 1 Tf") && hanText.includes("/F10 1 Tf"));
-  await validatePdf(t, hanStylePdf, 1);
+  for (const [code, unicode, browserPdf] of [[0xd6d0, "4E2D", result.hanStylePdf], [0xa3c1, "FF21", result.fullwidthStylePdf]]) {
+    const styleBytes = code === 0xd6d0 ? fontBytes : privateAliasFont(fontBytes, 0xff21);
+    const styleFont = new Blob([styleBytes]);
+    const hanParts = [];
+    await convert(await wasmModule(), new Blob([syntheticNativeC8HanStyles(code)]), {
+      async writeChunk(bytes) { hanParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+    }, {
+      includeBookmarks: false, chunkSize: 32,
+      hnc8: { fonts: { cjk: styleFont, latin: styleFont, cjkSans: new Blob([styleBytes]), cjkKai: new Blob([styleBytes]), cjkSystem: new Blob([styleBytes]) } },
+    });
+    const hanStylePdf = Buffer.from(browserPdf);
+    assert.deepEqual(hanStylePdf, Buffer.concat(hanParts));
+    const hanText = pageText(hanStylePdf);
+    assert.equal(hanText.match(new RegExp(`<${unicode}> Tj`, "g")).length, 8);
+    assert.equal(hanText.match(/<0041> Tj/g).length, 4);
+    assert.ok(hanText.includes("/F8 1 Tf") && hanText.includes("/F9 1 Tf") && hanText.includes("/F10 1 Tf"));
+    await validatePdf(t, hanStylePdf, 1);
+  }
   const nodeParts = [];
   await convert(await wasmModule(), new Blob([syntheticNativeHnb(0)]), { async writeChunk(bytes) { nodeParts.push(bytes.slice()); return bytes.length; }, async flush() {} }, {
     includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font, symbols: new Blob([await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url))]), symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }], symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 } } },

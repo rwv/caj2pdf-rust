@@ -2308,6 +2308,113 @@ fn native_han_style_fonts_preserve_characters_across_profiles_and_modes() {
 }
 
 #[test]
+fn native_family_control_overrides_cjk_and_a_later_style_resets_it() {
+    let fonts = || vec![labelled_font([65, 0x4e2d]); 4];
+    let roles = C8PageFonts {
+        latin: 0,
+        cjk_sans: Some(1),
+        cjk_kai: Some(2),
+        cjk_system: Some(3),
+        ..required_roles()
+    };
+    for (profile, mode, family, expected) in
+        [(0, 0, 2, 1), (0, 1, 3, 2), (0, 0, 4, 0), (12, 1, 4, 0)]
+    {
+        for (style, initial) in [(0x0884, 1), (0, 3)] {
+            let mut words = vec![[0x8001, 4350], [0x8002, style], [0x80ce, mode]];
+            if style == 0 {
+                let axis = if profile == 0 { 34 } else { 43 };
+                words.extend([[0x8070, axis], [0x8071, axis]]);
+            }
+            words.extend([
+                [4682, 0xd6d0],
+                [0x801c, family],
+                [4772, 0xd6d0],
+                [0x80ce, 1],
+                [4862, 0xa0c1],
+                [0x8002, 0x04e7],
+                [4952, 0xd6d0],
+                [0x8004, 1],
+            ]);
+            let (result, pdf, finished) =
+                convert_with_fonts(&words, 0, &[], roles, profile, fonts());
+            result.unwrap();
+            assert!(finished);
+            assert_in_order(
+                &pdf,
+                &[
+                    &format!("/F{initial} 1 Tf"),
+                    "<4E2D> Tj",
+                    &format!("/F{expected} 1 Tf"),
+                    "<4E2D> Tj",
+                    "/F0 1 Tf",
+                    "<0041> Tj",
+                    "/F3 1 Tf",
+                    "<4E2D> Tj",
+                ],
+            );
+        }
+    }
+}
+
+#[test]
+fn c8_fullwidth_style_fonts_keep_low_byte_letters_and_character_identities() {
+    let mut selected = required_roles();
+    selected.latin = 0;
+    selected.cjk_sans = Some(1);
+    selected.cjk_kai = Some(2);
+    selected.cjk_system = Some(3);
+    for (style, expected) in [(0x1084, 0), (0x0884, 1), (0x0c84, 2), (0x04c6, 3), (0, 3)] {
+        for (code, unicode) in [
+            (0xa3c1, 0xff21),
+            (0xa3fa, 0xff5a),
+            (0xa1a1, 0x3000),
+            (0xa3a6, 0xff06),
+        ] {
+            for mode in [0, 1] {
+                // The existing CJK-mode placement gate excludes punctuation.
+                if mode == 0 && matches!(code, 0xa1a1 | 0xa3a6) {
+                    continue;
+                }
+                let mut words = vec![[0x8001, 4350], [0x8002, style], [0x80ce, mode]];
+                if style == 0 {
+                    words.extend([[0x8070, 34], [0x8071, 34]]);
+                }
+                words.extend([[4682, code], [4772, 0x006c], [0x8004, 1]]);
+                let resources = vec![labelled_font([0x006c, unicode]); 4];
+                let (result, pdf, finished) =
+                    convert_with_fonts(&words, 0, &[], selected, 0, resources);
+                result.unwrap();
+                assert!(finished);
+                assert_in_order(
+                    &pdf,
+                    &[
+                        &format!("/F{expected} 1 Tf"),
+                        &format!("<{unicode:04X}> Tj"),
+                        "/F0 1 Tf",
+                        "<006C> Tj",
+                    ],
+                );
+                // A present style resource lacking the character uses base CJK.
+                let mut resources = vec![labelled_font([65, 66]); 4];
+                resources[0] = labelled_font([0x006c, unicode]);
+                let (result, pdf, _) = convert_with_fonts(&words, 0, &[], selected, 0, resources);
+                result.unwrap();
+                assert_in_order(
+                    &pdf,
+                    &[
+                        "/F0 1 Tf",
+                        &format!("<{unicode:04X}> Tj"),
+                        "/F0 1 Tf",
+                        "<006C> Tj",
+                    ],
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn absent_roles_and_unmapped_characters_fall_back_by_character_class() {
     let words = [
         [0x8001, 4350],

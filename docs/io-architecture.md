@@ -149,7 +149,7 @@ zero-based role indices with `caj2pdf_c8_set_fonts(cjk, latin, alternate,
 decoration, alias)` or `caj2pdf_c8_set_fonts_with_symbols(..., symbols)`
 (`0xffffffff` marks an absent optional role), and supplies the optional
 state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
-index)`. `caj2pdf_c8_set_cjk_style(style, index)` registers optional Han
+index)`. `caj2pdf_c8_set_cjk_style(style, index)` registers optional CJK
 roles after the base roles: `0x0800` for sans, `0x0c00` for Kai, and `0x0400`
 for the measured system-font styles. Each returns 1 once on success and 0
 for an invalid role/index, duplicate assignment, or a session that already

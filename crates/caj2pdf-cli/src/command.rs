@@ -155,13 +155,13 @@ struct ConvertArgs {
     /// Native C8/HN-B CJK font (required with --font-latin)
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk: Option<OsString>,
-    /// Optional C8/HN-B Han font for Hei/sans styles
+    /// Optional C8/HN-B CJK font for Hei/sans styles
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_sans: Option<OsString>,
-    /// Optional C8/HN-B Han font for Kai styles
+    /// Optional C8/HN-B CJK font for Kai styles
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_kai: Option<OsString>,
-    /// Optional C8/HN-B Han font for measured system-font styles
+    /// Optional C8/HN-B CJK font for measured system-font styles
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_system: Option<OsString>,
     /// Native C8/HN-B ordinary Latin font

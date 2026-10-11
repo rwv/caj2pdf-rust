@@ -537,8 +537,8 @@ await convert(wasm, documentSource, outputSink, {
   hnc8: {
     fonts: {
       cjk: cjkFontSource,
-      cjkSans: sansFontSource, // Optional native Han Hei/sans styles.
-      cjkKai: kaiFontSource, // Optional native Han Kai styles.
+      cjkSans: sansFontSource, // Optional native CJK Hei/sans styles.
+      cjkKai: kaiFontSource, // Optional native CJK Kai styles.
       cjkSystem: systemFontSource, // Explicit font for measured system-font styles.
       latin: latinFontSource,
       // Optional roles; absent ones use the fallback rule below.
@@ -567,12 +567,15 @@ conversion; listed codes never fall back. No mapping is built in (#518).
 checkSumAdjustment) binds the map to the font it was measured on: any other
 `symbols` font rejects the conversion. It requires `symbolGlyphs`.
 
-`cjkSans`, `cjkKai` and `cjkSystem` select the measured Han style resources
+`cjkSans`, `cjkKai` and `cjkSystem` select the measured CJK style resources
 in C8 and HN-B native modes 0/2; the original style is used before geometry
-normalization. They use the same ranged font inputs and face selection as
+normalization. Explicit `801c/2`, `/3`, `/4` override the family with sans,
+Kai and base CJK; the next `8002` resets it. They use the same ranged font inputs and face selection as
 `cjk`. Optional roles can share sources. The maximum is eleven distinct
-font sources. Non-Han characters retain their existing resource rules;
-these options do not perform system font discovery. See the
+font sources. These roles select Han and, in C8, fullwidth Latin letters,
+ideographic space and fullwidth ampersand. Ordinary Latin and the raw low-byte
+`006c`/`0070` letters keep their existing resource rules. These options do not
+perform system font discovery. See the
 [CLI style table](../docs/cli.md#native-c8-font-resources) and
 [Wine measurements](../docs/research/wine-font-resources-20261011.md).
 

@@ -114,9 +114,9 @@ directory under fixed names and pass `--fonts DIR`:
 | Role | File in `DIR` | Per-role flag |
 | --- | --- | --- |
 | CJK (required) | `cjk.ttf` | `--font-cjk FILE` |
-| Han Hei/sans | `cjk-sans.ttf` | `--font-cjk-sans FILE` |
-| Han Kai | `cjk-kai.ttf` | `--font-cjk-kai FILE` |
-| Han system-font styles | `cjk-system.ttf` | `--font-cjk-system FILE` |
+| CJK Hei/sans | `cjk-sans.ttf` | `--font-cjk-sans FILE` |
+| CJK Kai | `cjk-kai.ttf` | `--font-cjk-kai FILE` |
+| CJK system-font styles | `cjk-system.ttf` | `--font-cjk-system FILE` |
 | Ordinary Latin (required) | `latin.ttf` | `--font-latin FILE` |
 | Alternate Latin (`801d/4`) | `alternate-latin.ttf` | `--font-alternate-latin FILE` |
 | Decoration alias | `decoration.ttf` | `--font-decoration FILE` |
@@ -130,14 +130,18 @@ minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
 [installed fonts](#installed-fonts) are searched instead; no font is bundled.
 A missing CJK or Latin font fails before output staging.
 
-The three optional Han roles select fonts for the measured C8 and HN-B
+The three optional CJK roles select fonts for the measured C8 and HN-B
 styles. `cjk-sans` handles high bits `0x0800`, `cjk-kai` handles `0x0c00`,
 and `cjk-system` handles the measured system-font styles (`0x0400`, `0x1400`,
 style-zero explicit axes and the recorded exceptional flags). The source
 style is preserved for font selection before geometry aliases are applied.
-Other Han styles use `cjk`; non-Han characters keep their existing rules.
+`801c/2`, `/3`, `/4` override it with sans, Kai and base CJK respectively;
+a later `8002` style record resets the override. Axis controls preserve it.
+Other styles use `cjk`. The roles select Han and, in C8, fullwidth Latin
+letters, ideographic space and fullwidth ampersand. Ordinary Latin and the
+raw low-byte `006c`/`0070` letters keep their existing resource rules.
 These roles apply in both C8 character-selection modes and HN-B native modes
-0 and 2. Missing optional roles or missing Han glyphs fall back to `cjk`.
+0 and 2. Missing optional roles or missing CJK glyphs fall back to `cjk`.
 `--font-cjk-system` is an explicit font path, including with
 `--no-system-fonts`; it does not trigger system discovery.
 

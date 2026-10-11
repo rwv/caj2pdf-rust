@@ -3110,7 +3110,7 @@ PDFs, screenshots and vendor programs stay external. No private HN/JBIG or
 foreign-converter implementation was read/copied. Samples #106 and #406/#441
 retain full resource/geometry/fidelity obligations beyond this scoped diagnosis.
 
-## Wine native Han style resources (#541)
+## Wine native CJK style resources (#541)
 
 The [2026-10-11 observations and metadata](research/wine-font-resources-20261011.md)
 resolve the earlier unconfirmed Han resource markers by retaining localized
@@ -3120,6 +3120,21 @@ profiles. C8 character modes and Latin resource states preserve Han selection;
 font selection must precede raw-style normalization for geometry. The optional
 `cjk_sans`, `cjk_kai` and `cjk_system` roles implement those observations across
 native, CLI, Node and browser without changing missing-role fallback.
+
+Twenty additional forward/reverse sessions confirm 590 C8 fullwidth queries,
+including the complete Latin alphabet, ideographic space and ampersand. Those
+characters use the same measured CJK style resources. Seventy-two mixed-code
+queries preserve the distinct low-byte-letter rules and both character modes;
+synthetic CJK-mode ordinary Latin aliases remain a documented limitation.
+The supplemental metadata retains each exact raw code, style, resource and
+cmap argument.
+Real-page review exposed an ignored `801c` family override. Twelve axis-control
+sessions (384 queries) reject an axis-reset hypothesis; four state-control
+sessions (114 queries) and eight confirmation sessions (228 queries) establish
+`801c/2` Hei, `/3` Kai and `/4` Song, persistence across axes and reset by
+`8002`. The intermediate candidate and startup failures remain recorded;
+only admitted C8 and HN-B mode-2 controls change family state. The added native/Node/browser fixtures use only original
+geometric font shapes and retain decoded character identity.
 
 The independently authored query-font generator reproduces eighteen observed
 font controls byte-for-byte. Separate byte queries and reversed inventories
@@ -3134,7 +3149,12 @@ All 13 documents / 77 pages convert with the measured caller fonts; qpdf and
 independent full character-order checks pass for 113,418 characters. The ten
 image-only pages remain separate from typography evidence. Complete Wine page
 comparisons retain 35 extent differences and 42 equal-extent pixel differences;
-none establishes exact fidelity. Twelve mode-2 documents / 73 pages remain
+none establishes exact fidelity. The final family-state fix reduces strict
+changed pixels on nine equal-extent pages from 756,145 to 594,185 compared
+with the initial Han-style candidate; other equal-extent counts do not rise.
+An additional six-page PDF has only one admitted stable bootstrap visit and
+three failed startup attempts, so repeatable cold-start success is not claimed.
+Twelve mode-2 documents / 73 pages remain
 byte-identical to current main when the optional roles are absent. #541 and
 broader #406 obligations remain open. Source code and synthetic controls are
 original MIT work; no font outlines, external documents, vendor programs or

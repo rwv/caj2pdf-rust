@@ -176,7 +176,7 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
     }
     for (const [style, index] of [[0x0800, fonts.cjkSans], [0x0c00, fonts.cjkKai], [0x0400, fonts.cjkSystem]]) {
       if (index !== undefined && exports.caj2pdf_c8_set_cjk_style?.(style, index) !== 1) {
-        return { invalid: "WASM rejected a C8 Han style font role" };
+        return { invalid: "WASM rejected a C8 CJK style font role" };
       }
     }
     if (fonts.symbolFontIdentity !== undefined) {

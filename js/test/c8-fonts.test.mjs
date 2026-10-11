@@ -16,33 +16,36 @@ const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 const required = (font) => ({ cjk: font, latin: font });
 
-test("C8 Han style fonts preserve characters and bounded reads on the public Node path", async (t) => {
-  for (const shared of [false, true]) {
-    const reads = {};
-    const base = trackedBlob(source(fontBytes), reads);
-    const extra = () => shared ? base : trackedBlob(source(fontBytes), reads);
-    const parts = [];
-    const result = await convert(await wasmModule(), source(syntheticNativeC8HanStyles()), sink(parts), {
-      includeBookmarks: false, chunkSize: 32,
-      hnc8: { fonts: { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() } },
-    });
-    assert.equal(result.pagesConverted, 1);
-    assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
-    const pdf = Buffer.concat(parts);
-    const text = pageText(pdf);
-    assert.equal(text.match(/\/FontFile2 /g).length, shared ? 1 : 4);
-    assert.equal(text.match(/<4E2D> Tj/g).length, 4);
-    assert.equal(text.match(/<0041> Tj/g).length, 4);
-    let after = 0;
-    for (const token of ["/F8 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
-                         "/F9 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
-                         "/F0 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj",
-                         "/F10 1 Tf", "<4E2D> Tj", "/F1 1 Tf", "<0041> Tj"]) {
-      const at = text.indexOf(token, after);
-      assert.ok(at >= 0, token);
-      after = at + token.length;
+test("C8 Han/fullwidth style fonts preserve characters and bounded reads on the public Node path", async (t) => {
+  for (const [code, unicode] of [[0xd6d0, "4E2D"], [0xa3c1, "FF21"]]) {
+    for (const shared of [false, true]) {
+      const reads = {};
+      const bytes = code === 0xd6d0 ? fontBytes : privateAliasFont(fontBytes, 0xff21);
+      const base = trackedBlob(source(bytes), reads);
+      const extra = () => shared ? base : trackedBlob(source(bytes), reads);
+      const parts = [];
+      const result = await convert(await wasmModule(), source(syntheticNativeC8HanStyles(code)), sink(parts), {
+        includeBookmarks: false, chunkSize: 32,
+        hnc8: { fonts: { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() } },
+      });
+      assert.equal(result.pagesConverted, 1);
+      assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+      const pdf = Buffer.concat(parts);
+      const text = pageText(pdf);
+      assert.equal(text.match(/\/FontFile2 /g).length, shared ? 1 : 4);
+      assert.equal(text.match(new RegExp(`<${unicode}> Tj`, "g")).length, 8);
+      assert.equal(text.match(/<0041> Tj/g).length, 4);
+      let after = 0;
+      for (const token of ["/F8 1 Tf", `<${unicode}> Tj`, "/F9 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F9 1 Tf", `<${unicode}> Tj`, "/F0 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F0 1 Tf", `<${unicode}> Tj`, "/F8 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F10 1 Tf", `<${unicode}> Tj`, "/F0 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj"]) {
+        const at = text.indexOf(token, after);
+        assert.ok(at >= 0, token);
+        after = at + token.length;
+      }
+      await validatePdf(t, pdf, 1);
     }
-    await validatePdf(t, pdf, 1);
   }
 });
 

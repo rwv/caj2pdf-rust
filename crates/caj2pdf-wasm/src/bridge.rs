@@ -239,7 +239,7 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
     with_session(0, |session| session.set_c8_latin_state(state, index) as u32)
 }
 
-/// Assign a C8 Han style role (`0x0800` or `0x0c00`) after the base roles.
+/// Assign a native CJK style role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_cjk_style(style: u32, index: u32) -> u32 {
     with_session(0, |session| session.set_c8_cjk_style(style, index) as u32)

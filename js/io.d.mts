@@ -175,11 +175,11 @@ export type C8Font<Input> = Input | { source: Input; face?: number };
 export interface C8Fonts<Input> {
   cjk: C8Font<Input>;
   latin: C8Font<Input>;
-  /** C8/HN-B Han resources for Hei/sans (0x0800) and Kai (0x0c00) styles.
-   * Non-Han characters retain the existing font rules. */
+  /** C8/HN-B CJK resources for Hei/sans (0x0800) and Kai (0x0c00) styles.
+   * Selects Han and measured C8 fullwidth letters, space and ampersand. */
   cjkSans?: C8Font<Input>;
   cjkKai?: C8Font<Input>;
-  /** Han font for measured system-font styles; supplied explicitly, never discovered. */
+  /** CJK font for measured system-font styles; supplied explicitly, never discovered. */
   cjkSystem?: C8Font<Input>;
   alternateLatin?: C8Font<Input>;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */

@@ -42,6 +42,58 @@ font copies are included here. Marker IDs agree at thresholds 162 and 192;
 162 is the midpoint of the measured foreground/background values. This
 threshold decodes authored holes; it is not a page-comparison tolerance.
 
+## Fullwidth C8 queries
+
+A [supplemental receipt](wine-cjk-fullwidth-20261011.json) records 20 further
+sessions and 590 observed queries: all 52 fullwidth Latin letters plus space,
+ampersand, two Han characters, the two low-byte letters and an ordinary Latin
+sentinel, under five styles in forward and reverse order. Every repeated
+resource/slot pair agrees. Styles `1084`, `0884`, `0c84`, `04c6` and style-zero
+34-by-34 explicit axes select HGSS, HGHT, HGKT, SimSun and SimSun respectively
+for the fullwidth/Han controls. Fullwidth letters query their ordinary Unicode
+slots. The system controls replace only these authored glyphs in disposable
+SimSun/NSimSun copies, preserving their cmap and surrounding UI glyphs.
+
+The separate 72 mixed-code queries sample both C8 character modes. They
+confirm that raw `006c` and `0070` always use HGSS at ordinary Latin slots,
+independently of style. Ordinary `a0` Latin codes in character mode 1 retain
+their Latin resource aliases. Character mode 0 queries distinct CJK aliases
+for those `a0` codes; that synthetic combination remains unimplemented and
+was not present in the 13-document inventory. Existing placement gates remain
+unchanged, including rejection of CJK-mode space/ampersand placement.
+
+The optional CJK roles now also select C8 fullwidth letters, ideographic
+space and fullwidth ampersand from the original style. The actual inventory
+contains 1,805 fullwidth Latin glyphs under non-base styles in three documents.
+The space/ampersand correction also affects other C8 documents. Ordinary
+Latin and low-byte letters keep their previous selection rules. HN-B symbols
+retain their separately measured resource rules.
+
+## Explicit family state
+
+The initial Han/fullwidth implementation ignored `801c`. Real-page review
+exposed the error: `d6a23a9cfd0f…` retained Hei in paragraphs that Wine draws
+with Song, and its fullwidth-only candidate increased five page pixel counts.
+That candidate is retained as a failed intermediate result, not an improvement.
+
+An initial hypothesis that explicit width/height reset the family is rejected:
+12 sessions and 384 byte queries preserve the selected family across single
+and paired axes in C8 and HN-B modes 0/2. Four further sessions (114 queries)
+vary nineteen controls under Song, Hei and Kai styles. `801c/2`, `/3` and `/4`
+select HGHT, HGKT and HGSS respectively; the other tested controls preserve
+those families. Eight confirmation sessions (228 queries) establish the C8
+Han/fullwidth behavior in both character modes, unchanged ordinary Latin and
+low-byte resources, space/ampersand selection, and HN-B mode-2 `801c/4`.
+Forward/reverse observations agree. A following `8002` restores its own
+family; axis controls preserve the override. No new HN-B mode-0 control is
+admitted. See the [state-query receipt](wine-cjk-state-20261011.json).
+
+The converter now retains this family state separately from the geometric
+style. Family 4 uses the caller's base `cjk` role, even after a system-font
+style or explicit axes. Family 2/3 use the optional sans/Kai roles with their
+existing fallback. Original native, Node and Chromium fixtures cover both
+the override and its reset while preserving extracted text.
+
 ## Latin and symbol queries
 
 The 310 controlled letter/digit mappings select HGBZ, HGBX, HGHZ, HGB1 and
@@ -103,14 +155,32 @@ PDF confirms all four pages in two further cold sessions, with identical
 crops. The original failures remain in the receipt. This is a viewer-route
 workaround, not a conversion or PDF-byte change.
 
+The final family-state candidate is independently converted and checked for
+all 13 inputs again. The fullwidth update changes nine PDFs (51 pages), and
+the subsequent `801c` fix changes three of them (21 pages); each changed page
+is revisited in Wine. Other pages reuse observations only after PDF-byte
+identity is confirmed. Compared with the initial Han-style candidate, strict
+changed-pixel counts decrease on nine equal-extent pages from 756,145 to
+594,185 in total, with no increases on the other equal-extent pages. Two
+additional changed frames still have unequal source/output extents and are
+not scored by resizing. These counts describe this pinned cohort, not a
+general accuracy percentage.
+
+A further six-page PDF (`90e7b47716c3…`) has unstable Wine startup: direct open
+and two bootstrap attempts fail, including visible fatal errors. One bootstrap
+visit confirms all six pages with stable repeated frames, identical to the
+older candidate's six crops. The final PDF bytes are unchanged from that
+fullwidth candidate. Its one admitted visit is **not** a repeatable cold-start
+success; the [supplemental receipt](wine-cjk-state-20261011.json) retains all
+four attempts. This stability issue remains open alongside pixel fidelity.
+
 Across the 77 admitted source/output pairs, 35 have different page extents
 and 42 have different pixels at equal extents. None is claimed pixel-exact.
 No registration, resampling, column removal or fitted tolerance is used.
-The new Han roles correct visible font-family substitutions, but character
+The new CJK roles correct visible font-family substitutions, but character
 positions, punctuation, decorations and device rasterization remain separate
 obligations. The existing decoration alias is measured for ornament 46 only.
-Non-Han characters retain their previous resource-selection rules in this
-change. #541 remains open for broader resource and geometry fidelity.
+#541 remains open for broader resource and geometry fidelity.
 
 With the new roles absent, all twelve mode-2 documents (73 pages) produce
 bytes identical to the unmodified current-main CLI with the same eight font
