@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Subset OpenType font resources and incremental mixed-page content.
+//! Embedded OpenType font resources and incremental mixed-page content.
 
 use super::*;
-use crate::pdf::OpenTypeFont;
 use crate::pdf::font::{
-    CHANGED, CharacterMap, Characters, GlyphCharacters, Subset, SubsetOutput, has_code, mark_code,
+    CHANGED, CharacterMap, Characters, FontProgram, GlyphCharacters, SubsetOutput, has_code,
+    mark_code,
 };
+use crate::pdf::{FontEmbedding, OpenTypeFont};
 use std::io::Write;
 
 const BMP_BITMAP_BYTES: usize = 8192;
@@ -65,7 +66,8 @@ impl FontEncoding {
 ///
 /// A fixed 8 KiB bitmap records which BMP Unicode characters can be drawn.
 /// The font program and metric tables are not retained by this handle; the
-/// subset is written by [`PdfDocument::embed_font`] after the last page.
+/// program is written by [`PdfDocument::embed_font`] or
+/// [`PdfDocument::embed_font_with_embedding`] after the last page.
 pub struct FontObject {
     object: ObjectId,
     slot: usize,
@@ -79,7 +81,7 @@ impl FontObject {
     }
 }
 
-/// Document-owned state of an added font until its subset is embedded.
+/// Document-owned state of an added font until its program is embedded.
 pub(super) struct PendingFont {
     /// Font file and its length, descriptor, descendant and Type 0 font.
     ids: [ObjectId; 5],
@@ -93,7 +95,7 @@ pub(super) struct PendingFont {
     embedded: bool,
 }
 
-/// Feeds subset program bytes into an open zlib-compressed stream.
+/// Feeds font program bytes into an open zlib-compressed stream.
 struct FontStream<'w, 'a, W: Write, C: Cancellation> {
     writer: &'w mut PdfWriter<'a, W, C>,
     deflate: &'w mut Deflate,
@@ -134,7 +136,8 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     ///
     /// Characters use BMP Unicode CIDs with an explicit CID-to-glyph map and
     /// ToUnicode. Nothing is written yet: draws record the characters used,
-    /// and [`Self::embed_font`] must embed the subset before [`Self::finish`].
+    /// and [`Self::embed_font`] or [`Self::embed_font_with_embedding`] must
+    /// embed its program before [`Self::finish`].
     /// No system lookup or glyph substitution is performed.
     pub fn add_font<S: RangedSource>(&mut self, font: &OpenTypeFont<'_, S>) -> Result<FontObject> {
         self.register_font(font, false)
@@ -205,7 +208,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             .ok_or(Error::invalid("PDF font was not added to this document"))
     }
 
-    /// Count font outline bytes read for a subset toward the input limit.
+    /// Count font program bytes read for embedding toward the input limit.
     fn count_font_input(&mut self, bytes: u64) -> Result<()> {
         let total = self.input_bytes_read.saturating_add(bytes);
         self.limits.check_input_size(total)?;
@@ -245,6 +248,23 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         handle: &FontObject,
         font: &mut OpenTypeFont<'_, S>,
     ) -> Result<()> {
+        self.embed_font_with_embedding(handle, font, FontEmbedding::Subset)
+    }
+
+    /// Embed a used font as a subset or a complete TrueType program.
+    ///
+    /// Complete standalone fonts retain their exact bytes; collection faces
+    /// retain all rendering tables and glyph IDs with a rebuilt standalone
+    /// directory/checksum (without the collection's DSIG). Reads stay ranged
+    /// and output sequential. Planning/writing compare source digests and
+    /// metadata. Unused resources remain small subsets; used CFF fonts refuse
+    /// `Full`. The caller must discard partial output after a write error.
+    pub fn embed_font_with_embedding<S: RangedSource>(
+        &mut self,
+        handle: &FontObject,
+        font: &mut OpenTypeFont<'_, S>,
+        embedding: FontEmbedding,
+    ) -> Result<()> {
         self.ensure_image_page_intact()?;
         self.writer.ensure_idle()?;
         let pending = self.font(handle)?;
@@ -257,26 +277,26 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let [file, file_length, descriptor, descendant, object] = pending.ids;
         let mapping = pending.mapping;
         let before = font.subset_bytes_read();
-        let plan = font.subset(
-            pending.encoding.characters(),
-            MAX_PDF_INTEGER,
-            self.limits,
-            self.cancellation,
-        )?;
+        let used = pending.encoding.characters();
+        let plan = if embedding == FontEmbedding::Full && used.codes().next().is_some() {
+            FontProgram::Full(font.plan_full(MAX_PDF_INTEGER, self.limits, self.cancellation)?)
+        } else {
+            font.subset(used, MAX_PDF_INTEGER, self.limits, self.cancellation)?
+        };
         self.count_font_input(font.subset_bytes_read() - before)?;
         let pending = &self.fonts[handle.slot];
-        let name = format!("{}+{}", plan.tag(&pending.name), pending.name);
+        let name = plan.name(&pending.name);
         let mut deflate = self.take_deflate()?;
         let before = font.subset_bytes_read();
         self.image_page_failed = true;
         let unicode = self.font_unicode_cmap(handle.slot, &mut deflate)?;
         let (program, file_key, subtype) = match &plan {
-            Subset::TrueType(_) => (
+            FontProgram::TrueType(_) | FontProgram::Full(_) => (
                 format!("/Length1 {}", plan.length()),
                 "FontFile2",
                 "CIDFontType2",
             ),
-            Subset::Cff(_) => (
+            FontProgram::Cff(_) => (
                 "/Subtype /CIDFontType0C".to_owned(),
                 "FontFile3",
                 "CIDFontType0",
@@ -294,17 +314,25 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
 
         let face = font.face()?;
         let mut cid_map = String::new();
-        if let (Subset::TrueType(plan), Some([mapping, mapping_length])) = (&plan, mapping) {
+        if let Some([mapping, mapping_length]) = mapping {
             self.writer
                 .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")?;
             let mut stream = FontStream::new(&mut self.writer, &mut deflate);
             let used = self.fonts[handle.slot].encoding.characters();
+            let subset = if let FontProgram::TrueType(subset) = &plan {
+                Some(subset)
+            } else {
+                None
+            };
             // CID-to-glyph entries up to the highest drawn CID.
             let last = used.codes().next_back();
             for code in last.map_or(0..0, |last| 0..usize::from(last) + 1) {
-                let glyph = used
-                    .glyph(code)
-                    .map_or(0, |character| plan.glyph(&face, character));
+                let glyph = used.glyph(code).map_or(0, |character| {
+                    subset.map_or_else(
+                        || face.glyph_index(character).map_or(0, |id| id.0),
+                        |plan| plan.glyph(&face, character),
+                    )
+                });
                 stream.put(&glyph.to_be_bytes())?;
             }
             stream.finish()?;

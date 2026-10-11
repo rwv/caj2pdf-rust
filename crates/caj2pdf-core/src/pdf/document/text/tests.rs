@@ -10,6 +10,8 @@ use crate::{
 use std::io::Cursor;
 use std::io::Write;
 
+mod full;
+
 #[derive(Default)]
 struct Sink {
     bytes: Vec<u8>,

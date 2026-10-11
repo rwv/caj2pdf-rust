@@ -3321,3 +3321,41 @@ and PDF-dictionary/content checks. Whole-file research processing is not a
 runtime dependency or production memory path. No vendor renderer, private
 HN/JBIG code or foreign converter implementation was copied or inspected;
 font binaries, documents, PDFs and screenshots remain outside Git.
+
+
+### Bounded complete TrueType embedding foundation (#541, 2026-10-11)
+
+`pdf/font/full.rs`, its tests and `pdf/document/text/tests/full.rs` are original
+MIT code authored for the original-program evidence above. The supporting
+font reader/directory, program dispatch and PDF writer changes reuse only
+project-owned code. No private module, vendor code or foreign converter
+implementation was migrated. No new dependency or font fixture is added.
+Tests construct fonts from the existing original geometric TTF/TTC/CFF
+fixtures and opaque synthetic table/trailing bytes.
+
+The [OpenType font-file specification](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
+provides sorted table records, file-relative TTC offsets, four-byte table
+padding and the `0xB1B0AFBA` checksum adjustment. The
+[DSIG specification](https://learn.microsoft.com/en-us/typography/opentype/spec/dsig)
+describes signatures tied to font data: a repacked collection face omits DSIG.
+Standalone TTF bytes are copied exactly, including unknown tables/trailing
+bytes. The existing PDF font dictionaries follow
+[ISO 32000-1](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf),
+including the subset-only name prefix (§9.6.4), TrueType CID mappings (§9.7)
+and embedded font streams (§9.9). Only normative descriptions were used.
+
+The reader retains a fixed 128-entry directory alongside its existing bounded
+metadata. Complete embedding makes two ranged passes with one reusable buffer
+bounded by `Limits::io_chunk_bytes`, records per-program/per-table SHA-256 and
+checks retained metadata while streaming. TTC planning retains at most 128
+small table records; no font-sized allocation is introduced. Original glyph
+IDs feed CIDToGIDMap for both ordinary and independent glyph/text resources.
+Unused resources stay subsets and used CFF complete embedding is explicitly
+refused before font emission. Existing default subset output is preserved.
+
+Original tests cover exact standalone bytes larger than the allocation cap,
+selected TTC faces, unknown tables, checksums, short reads, cancellation,
+source changes, output failure, retriable planning and mapped semantic text.
+The low-level writer foundation does not yet expose full fonts through native
+conversion/CLI/Node/browser options. Those integrations, original-font aliases,
+mode-0 evidence and production Wine raster validation remain open in #541.

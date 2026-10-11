@@ -65,6 +65,22 @@ text keeps the decoded character. Existing options and outputs are unchanged.
 
 ### Other unreleased changes
 
+- The Rust PDF writer adds `pdf::FontEmbedding` and
+  `PdfDocument::embed_font_with_embedding(&handle, &mut font, FontEmbedding::Full)`
+  (#541). Used standalone TrueType programs retain their exact bytes; TTC
+  faces retain original glyph IDs and all rendering tables in a rebuilt
+  standalone font, omitting DSIG and updating the checksum. Both ordinary
+  Unicode and mapped glyph/text resources retain correct PDF widths and
+  ToUnicode. Complete fonts use their original PostScript names, without a
+  subset prefix. Reads are chunked and output sequential; an allocation
+  never scales with the whole font. Full programs can greatly increase PDF
+  size and are read twice, with source-digest validation between passes.
+  Used CFF resources refuse `Full`; unused resources keep small subsets.
+  Existing font-admission rules apply. `embed_font` and all conversion
+  defaults still subset fonts. Native conversion, CLI and JavaScript option
+  wiring and external character aliases are follow-up work; this additive
+  low-level API alone does not claim viewer parity.
+
 - Correct vertically inverted type-1 JPEGs in HN-A/C8 image and native pages
   (#530). Type 1 now draws top-first; type 2 retains its measured bottom-first
   placement. Encoded JPEG bytes, image bounds, APIs and memory limits are

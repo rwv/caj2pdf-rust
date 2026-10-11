@@ -35,7 +35,8 @@ mod original_font {
 }
 pub(crate) use original_font::{
     CALLSUBR, CffOptions, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, build, charstrings,
-    collection_font, drawing_font, entry, get32, num, ops, otf, symbol_font, table, tables,
+    collection, collection_font, drawing_font, entry, get32, num, ops, otf, symbol_font, table,
+    tables,
 };
 use original_font::{put16, put32};
 

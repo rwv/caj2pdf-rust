@@ -21,7 +21,7 @@ pub use document::{
     ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
 pub(crate) use font::is_valid_postscript_name;
-pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, OpenTypeFont};
+pub use font::{FontEmbedding, FontGlyph, MAX_FONT_METADATA_BYTES, OpenTypeFont};
 pub use fragment::{FragmentObject, FragmentPlan, reconstruct_fragment_with_bookmarks};
 pub(crate) use fragment::{
     InspectedObject, InspectedPlan, append_replacement, reconstruct_inspected,

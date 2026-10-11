@@ -5,9 +5,10 @@
 
 mod cff;
 mod encoding;
+mod full;
 mod subset;
 pub(crate) use encoding::{CharacterMap, Characters, GlyphCharacters};
-pub(crate) use subset::{Subset, SubsetOutput};
+pub(crate) use subset::{FontProgram, SubsetOutput};
 
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
@@ -40,6 +41,17 @@ pub(crate) fn mark_code(bitmap: &mut [u8], code: usize) {
 const OUTLINE_TAGS: [[u8; 4]; 6] = [*b"glyf", *b"loca", *b"cvt ", *b"fpgm", *b"prep", *b"CFF "];
 const CFF: usize = 5;
 
+/// Font programs embedded for glyphs actually drawn in the document.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum FontEmbedding {
+    /// Embed only used glyphs (and their composite components).
+    #[default]
+    Subset,
+    /// Preserve complete TrueType programs, including unused glyphs and tables.
+    /// CFF outlines are refused when used. Unused resources remain subsets.
+    Full,
+}
+
 /// A Unicode glyph's ID and horizontal advance in font units.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FontGlyph {
@@ -51,7 +63,7 @@ pub struct FontGlyph {
 /// subset of the outlines. When a font sets several licensing bits, the
 /// least restrictive applies, as OS/2 versions 0-2 specify and readers
 /// apply to later versions too: a restricted license (bit 1) alone forbids
-/// embedding. A subset is always embedded, so from version 2, which defines
+/// embedding. The loader requires subset eligibility, so from version 2, which defines
 /// them, the no-subsetting (bit 8) and bitmap-only (bit 9) bits forbid it as
 /// well; versions 0 and 1 reserve those bits.
 fn permits_subset_embedding(version: u16, fs_type: u16) -> bool {
@@ -63,18 +75,24 @@ fn permits_subset_embedding(version: u16, fs_type: u16) -> bool {
 /// collection, with TrueType (`glyf`/`loca`) or CFF outlines.
 ///
 /// Only small metric/character tables and the CFF structures are retained;
-/// outline bytes remain in the ranged source and only drawn glyphs are later
-/// read again for a subset. This validates metadata, not every glyph
+/// outline bytes remain in the ranged source. Subset embedding reads drawn
+/// glyphs; complete embedding streams the program. This validates metadata, not every glyph
 /// outline. Variable fonts and `CFF2` are not supported.
 pub struct OpenTypeFont<'a, S> {
     pub(super) source: &'a mut S,
     face: u32,
+    /// Bounded face directory retained for complete-program embedding.
+    header: [u8; 12],
+    directory: [[u8; 16]; MAX_TABLES],
+    table_count: usize,
+    face_base: u64,
+    collection: bool,
     tables: [Vec<u8>; 8],
     /// `(offset, length)` of each present [`OUTLINE_TAGS`] table.
     outlines: [Option<(u64, u64)>; 6],
     /// Parsed CFF structures of a CFF-flavoured OpenType font.
     cff: Option<Rc<cff::Cff>>,
-    /// Outline bytes read again for subsets, counted toward input limits.
+    /// Font program bytes read again for embedding, counted toward input limits.
     subset_bytes_read: u64,
 }
 
@@ -189,6 +207,11 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         let mut font = Self {
             source,
             face,
+            header,
+            directory,
+            table_count: count,
+            face_base: base,
+            collection: collection_end != 0,
             tables,
             outlines,
             cff: None,
@@ -301,10 +324,14 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         self.cff.is_some()
     }
 
-    /// Digest of the retained metadata and outline table ranges, identifying
+    /// Digest of the directory, retained metadata and outline table ranges, identifying
     /// the font when its source is read again.
     pub(crate) fn fingerprint(&self) -> [u8; 32] {
         let mut hash = sha2::Sha256::new().chain_update(self.face.to_be_bytes());
+        hash.update(self.header);
+        for entry in &self.directory[..self.table_count] {
+            hash.update(entry);
+        }
         for table in &self.tables {
             hash.update((table.len() as u64).to_be_bytes());
             hash.update(table);

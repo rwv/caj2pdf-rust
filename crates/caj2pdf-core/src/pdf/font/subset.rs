@@ -26,16 +26,16 @@ const MORE_COMPONENTS: u16 = 0x0020;
 const WE_HAVE_AN_X_AND_Y_SCALE: u16 = 0x0040;
 const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080;
 
-/// Receives subset font program bytes in order.
+/// Receives font program bytes in order.
 pub(crate) trait SubsetOutput {
     fn put(&mut self, bytes: &[u8]) -> Result<()>;
 }
 
 /// Length and checksum of a table, as if zero-padded to a 4-byte boundary.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct Measure {
+pub(super) struct Measure {
     length: u64,
-    sum: u32,
+    pub(super) sum: u32,
 }
 
 impl Measure {
@@ -90,28 +90,30 @@ enum Table {
     Maxp,
 }
 
-/// A planned subset program of either outline format.
-pub(crate) enum Subset {
+/// A planned subset or complete font program.
+pub(crate) enum FontProgram {
     /// A TrueType program; characters map to glyphs through a PDF
     /// `CIDToGIDMap`.
     TrueType(SubsetPlan),
     /// A CID-keyed CFF program whose CIDs are the drawn characters.
     Cff(super::cff::CffSubset),
+    /// Complete TrueType program, preserving original glyph IDs.
+    Full(super::full::FullFont),
 }
 
-impl Subset {
-    /// Total bytes of the subset font program.
+impl FontProgram {
+    /// Total bytes of the font program.
     pub(crate) fn length(&self) -> u64 {
         match self {
             Self::TrueType(plan) => plan.length(),
             Self::Cff(subset) => subset.length(),
+            Self::Full(plan) => plan.length(),
         }
     }
 
-    /// Six uppercase letters identifying this subset program (ISO 32000-1
-    /// §9.6.4), derived from the PostScript name and the program's content.
-    /// Equal programs get equal tags.
-    pub(crate) fn tag(&self, name: &str) -> String {
+    /// PDF name, with a deterministic six-letter prefix only for subsets
+    /// (ISO 32000-1 §9.6.4). Complete fonts retain their PostScript name.
+    pub(crate) fn name(&self, name: &str) -> String {
         let mut hash = Sha256::new().chain_update(name);
         match self {
             Self::TrueType(plan) => {
@@ -126,11 +128,13 @@ impl Subset {
                     hash.update(part);
                 }
             }
+            Self::Full(_) => return name.to_owned(),
         }
-        hash.finalize()[..6]
+        let tag: String = hash.finalize()[..6]
             .iter()
             .map(|byte| char::from(b'A' + byte % 26))
-            .collect()
+            .collect();
+        format!("{tag}+{name}")
     }
 }
 
@@ -206,26 +210,27 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         max_length: u64,
         limits: &Limits,
         cancellation: &C,
-    ) -> Result<Subset> {
+    ) -> Result<FontProgram> {
         if let Some(cff) = self.cff.clone() {
             let subset = self.plan_cff(&cff, used, max_length, limits, cancellation)?;
-            return Ok(Subset::Cff(subset));
+            return Ok(FontProgram::Cff(subset));
         }
         let plan = self.plan_subset(used, max_length, limits, cancellation)?;
-        Ok(Subset::TrueType(plan))
+        Ok(FontProgram::TrueType(plan))
     }
 
-    /// Write a planned subset program to `output`.
+    /// Write a planned font program to `output`.
     pub(crate) fn write<O: SubsetOutput, C: Cancellation>(
         &mut self,
-        subset: &Subset,
+        program: &FontProgram,
         output: &mut O,
         limits: &Limits,
         cancellation: &C,
     ) -> Result<()> {
-        match subset {
-            Subset::TrueType(plan) => self.write_subset(plan, output, limits, cancellation),
-            Subset::Cff(subset) => {
+        match program {
+            FontProgram::TrueType(plan) => self.write_subset(plan, output, limits, cancellation),
+            FontProgram::Full(plan) => self.write_full(plan, output, limits, cancellation),
+            FontProgram::Cff(subset) => {
                 for part in subset.parts() {
                     output.put(part)?;
                 }
@@ -244,7 +249,7 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         self.subset_bytes_read
     }
 
-    fn fetch<C: Cancellation>(
+    pub(super) fn fetch<C: Cancellation>(
         &mut self,
         offset: u64,
         bytes: &mut [u8],
