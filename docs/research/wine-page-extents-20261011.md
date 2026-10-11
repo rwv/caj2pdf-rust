@@ -136,7 +136,9 @@ reference values; their placement tolerance is unchanged. One content-matrix
 test compares parsed numbers within `1e-12` rather than requiring identical
 last-decimal serialization. This is not a viewer-pixel tolerance.
 
-Production font subsetting remains unchanged. Original production source,
+The [font-program experiment](wine-font-programs-20261011.md) independently
+shows further improvements from complete caller font programs. This patch
+keeps production font subsetting unchanged. Original production source,
 generators and tests are MIT work. No foreign converter, vendor implementation
 or private HN/JBIG code was inspected or copied. #541 remains open for
 recoverable font, glyph-placement and raster differences.

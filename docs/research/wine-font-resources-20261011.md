@@ -257,3 +257,6 @@ validated at held-out dimensions/zooms, gives matching extents on all 77
 actual pages. All pages still differ in pixels. On the 42 previously
 comparable pages, 30 improve, ten are unchanged and two worsen slightly.
 The historical measurements above remain records of their own candidates.
+The [separate font-program study](wine-font-programs-20261011.md) identifies
+additional information lost during subsetting; complete-font preservation
+is not implemented by the coordinate correction.

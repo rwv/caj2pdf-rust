@@ -3262,3 +3262,23 @@ from the three selected viewer pages. Historical observations are reused
 only when the compared PDF bytes are proved identical. External fonts,
 documents, derived PDFs and captures remain outside the repository.
 
+
+### Wine complete-font and metadata diagnostics (#541, 2026-10-11)
+
+The [18-session font-program study](research/wine-font-programs-20261011.md)
+is an external experiment, separate from the coordinate implementation.
+Complete prepared caller fonts improve four measured views; cmap-only
+restoration recovers part, while other tested metadata alone has no pixel
+effect. Independent decomposed-outline, advance, bearing and units-per-em
+checks cover 1,015 unique used glyph pairs. Page boxes, content, PDF widths,
+ToUnicode and extracted text are preserved. Exact renderer causes remain
+hypotheses, and production subsetting is unchanged.
+
+`scripts/research/wine_font_programs.py` is original MIT source reviewed per
+file. It uses fontTools 4.62.1 and pikepdf 10.5.1 APIs on explicit external
+inputs, with qpdf/pdftotext validation. Twelve original PDF hashes reproduce; two corrected metadata variants
+receive fresh Wine observations after isolating lazy cmap data and mutable
+font-table state. Its whole-file diagnostic processing is not a production memory
+path or a new runtime dependency. No external implementation code was copied;
+caller font bytes, derived PDFs and captures stay outside Git. Native/CLI/
+Node/browser bounded complete-font preservation remains implementation work.
