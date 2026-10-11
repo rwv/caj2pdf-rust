@@ -1223,6 +1223,52 @@ fn mode_zero_digits_keep_unicode_and_use_ordinary_latin_with_independent_offsets
 }
 
 #[test]
+fn mode_two_ascii_digits_share_fullwidth_origins_but_keep_semantic_identity() {
+    for profile in [0, 12] {
+        for state in [0, 3, 4, 28, 31] {
+            if profile == 12 && matches!(state, 28 | 31) {
+                continue;
+            }
+            let mut selected = roles();
+            selected.latin_state3 = Some(1);
+            selected.latin_state28 = Some(1);
+            selected.latin_state31 = Some(1);
+            let words = [
+                [0x8001, 4350],
+                [0x8002, 0x1084],
+                [0x801d, state],
+                [0x80ce, 1],
+                [4772, 0xa0b0],
+                [4772, 0xa3b0],
+                [0x8004, 1],
+            ];
+            let fonts = vec![labelled_font([48, 0xff10]); 3];
+            let (result, pdf, finished) =
+                convert_with_fonts(&words, 0, &[], selected, profile, fonts);
+            result.unwrap();
+            assert!(finished);
+            let text = crate::test_support::pdf_text(&pdf);
+            assert!(text.contains("<0030> Tj"));
+            assert!(text.contains("<FF10> Tj"));
+            let matrices: Vec<Vec<f64>> = text
+                .lines()
+                .filter(|line| line.contains(" Tm "))
+                .map(|line| {
+                    line.split_whitespace()
+                        .take(6)
+                        .map(|number| number.parse().unwrap())
+                        .collect()
+                })
+                .collect();
+            assert_eq!(matrices.len(), 2);
+            for (ascii, fullwidth) in matrices[0].iter().zip(&matrices[1]) {
+                assert!((ascii - fullwidth).abs() < 1e-12);
+            }
+        }
+    }
+}
+
+#[test]
 fn mode_zero_a385_lines_decode_markers_on_both_endpoints() {
     let mut expected = None;
     for marked in [false, true] {

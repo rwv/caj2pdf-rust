@@ -226,3 +226,9 @@ records 73 synthetic Wine sessions, four exact cold repeats and negative
 cross-zoom controls. Identical geometric glyphs isolate code-dependent Latin
 origins. Original source/font/PDF reproducers retain rejected partial cells
 and the limits of zoom-specific raster predictions.
+
+The [mode-2 digit-origin correction](wine-mode2-digit-origins-20261011.md)
+separates A0 digits from alphabet placement. All 316 measured digit cells improve;
+three actual pages improve and 74 retain their prior pixels. The 59-session receipt
+retains one rejected information-bar capture, runtime parity and unresolved
+alphabet origins. Seventeen original source fixtures reproduce exactly.

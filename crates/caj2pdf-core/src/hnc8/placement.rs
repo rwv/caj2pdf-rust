@@ -287,6 +287,32 @@ pub(super) fn native_glyph_transform(
     Ok([width, 0.0, 0.0, height, x, y])
 }
 
+/// Mode-2 A0 digits in ordinary/alternate Latin selection share the CJK
+/// horizontal origin, with their top at the recorded y coordinate. Preserve
+/// the existing Latin size/style admission; CJK character mode is separate.
+pub(super) fn native_digit_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    let mut transform = native_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Latin,
+        axes,
+    )?;
+    let [left, _, _, top] = page.media_box()?;
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    transform[4] = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
+    transform[5] =
+        top - (f64::from(position[1]) - f64::from(source_origin[1])) * unit - transform[3];
+    Ok(transform)
+}
+
 /// Independently controlled HN-B mode-0 CJK and Latin placement.
 /// Resource selection and the mode-0 page extent addition are handled by the
 /// page writer. Unobserved styles/classes are not inferred from mode 2.

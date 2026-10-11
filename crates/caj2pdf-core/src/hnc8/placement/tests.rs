@@ -496,6 +496,32 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
 }
 
 #[test]
+fn mode_two_digit_origins_predict_independent_wine_controls() {
+    let geometry = source_page_geometry([1360, 1200]).unwrap();
+    let top = geometry.media_box().unwrap()[3];
+    // Literal full-em geometric ink bounds from Wine at 600%, with both
+    // ordinary and alternate resources. The digit top does not depend on em.
+    for (style, axes, position, observed) in [
+        (0x1084, [None; 2], [5802, 4904], [908.0, 490.0, 69.0]),
+        (0x10a4, [None; 2], [5802, 4904], [908.0, 490.0, 69.0]),
+        (0x1084, [Some(43); 2], [5802, 4904], [908.0, 490.0, 85.0]),
+    ] {
+        let m = native_digit_transform(geometry, [4652, 4274], position, style, axes).unwrap();
+        // Font/device rounding remains separate: the continuous outline must
+        // fall within one device pixel of the observed origin, not the old
+        // alphabet origin (8–10 px right and 5–7 px up in these controls).
+        assert!((m[4] * 8.0 - observed[0]).abs() < 1.0);
+        assert!(((top - m[5] - m[3]) * 8.0 - observed[1]).abs() < 1.0);
+        assert_eq!((m[3] * 8.0).floor(), observed[2]);
+    }
+    // Retain Latin admission; CJK-only axes/styles must not become digit
+    // support merely because the observed horizontal origins agree.
+    for (style, axes) in [(0x1084, [Some(1); 2]), (0x154a, [None; 2])] {
+        assert!(native_digit_transform(geometry, [0; 2], [0; 2], style, axes).is_err());
+    }
+}
+
+#[test]
 fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
     let page = source_page_geometry([600, 600]).unwrap();
     let origin = [4652, 4274];

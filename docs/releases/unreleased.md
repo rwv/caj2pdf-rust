@@ -97,6 +97,17 @@ unchanged. Mode-2 pages and other conversion routes are unaffected. Ten original
 Wine boundary comparisons match, while four actual mode-0 pages retain their
 previous 75% raster. Remaining glyph placement differences are tracked in #541.
 
+### Native mode-2 ASCII digit placement (#541)
+
+Raw A0B0–A0B9 digits in ordinary Latin placement now use their recorded origin
+instead of the alphabet's horizontal and vertical offsets. Font selection,
+explicit glyph aliases and semantic ASCII text remain intact. This changes PDF
+coordinates/hashes for affected C8/HN-B input in native, CLI, Node and browser,
+with both subset and full font programs; reconvert affected files. No option
+or API change. CJK character mode, mode 0, fullwidth A3 digits and letters keep
+their existing behavior. Independent Wine controls and three actual pages
+improve; other alphabet and raster differences remain tracked in #541.
+
 ### Other unreleased changes
 
 - The Rust PDF writer adds `pdf::FontEmbedding` and

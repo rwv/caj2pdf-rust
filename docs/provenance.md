@@ -3505,3 +3505,33 @@ the second reproduces 24 diagnostic content streams with unchanged font programs
 No private HN/JBIG, vendor implementation or foreign converter source is read,
 copied or migrated. No runtime dependency, production geometry, API or font
 archive changes. Resource binaries, documents, PDFs and screenshots stay external.
+
+### Mode-2 A0 digit origins (#541, 2026-10-11)
+
+The [digit-origin study](research/wine-mode2-digit-origins-20261011.md) expands
+independent geometric controls to 62 ASCII alphanumeric characters, equal/unequal
+axes, ordinary/alternate Latin and all five admitted Latin resource states.
+Recorded A0B0–A0B9 positions use the CJK horizontal origin and recorded raw y,
+without alphabet compensation. The native implementation preserves prior Latin
+style/axis admission and applies the correction only to these raw codes outside
+CJK character mode. Mode 0, fullwidth A3 digits, letters, resources and glyph
+aliases remain unchanged; no API, dependency or I/O change.
+
+Fifty-nine Wine sessions yield 78 admitted visits and one rejected information-bar
+capture. Five source and two PDF cold-repeat views are exact. All 316 digit cells
+improve. Fresh native conversion of 13 documents changes only 64 digit matrices;
+all font programs, semantic text and other operators remain unchanged. All 22
+pages in changed PDFs are freshly observed; 55 byte-identical pages explicitly
+reuse earlier observations. Three actual pages improve by 1,336 pixels in total,
+74 retain their pixels, and all 77 still differ from Wine. CLI/Node parity covers
+all 13 actual documents plus three controls; Chromium matches all six changed
+actual/control cases.
+
+`scripts/research/wine_digit_origins.py` is original MIT code reviewed per file.
+It uses existing original project framing and public fontTools APIs to reproduce
+17 sources and optionally eight original geometric fonts; optional input hashes
+are bound to the preceding study's five project-authored baseline programs.
+No vendor font is edited. The scalar native placement helper and two regression
+tests are independently authored from these GUI observations. No private HN/JBIG,
+foreign converter or vendor implementation is inspected, copied or migrated.
+Font binaries, corpus documents, PDFs and screenshots remain external.

@@ -698,14 +698,25 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
-                let mut transform = super::placement::native_glyph_transform(
-                    self.geometry,
-                    self.origin,
-                    [x, y],
-                    style,
-                    class,
-                    self.axes,
-                )?;
+                let mut transform =
+                    if class == C8GlyphClass::Latin && matches!(code, 0xa0b0..=0xa0b9) {
+                        super::placement::native_digit_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            self.axes,
+                        )?
+                    } else {
+                        super::placement::native_glyph_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            class,
+                            self.axes,
+                        )?
+                    };
                 if let Some(fraction) = baseline_fraction {
                     // Controlled symbol baselines use independent em height;
                     // resource choice does not imply ordinary Latin geometry.
