@@ -3743,3 +3743,9 @@ foreign converter or private HN/JBIG source is inspected or migrated.
 No corpus, PDF, screenshot or font bytes are committed. The source, twelve
 generated JPEGs, current baseline PDF and 32 diagnostic PDFs reproduce exactly;
 the receipt retains failed models, preparation failure and all regressions.
+
+The next orientation controls use the existing type-1/type-2 JPEG descriptor
+distinction, not a signed raw height: `decode_native_image_coordinate` admits
+unsigned width/height, while composition selects row orientation separately.
+This source-level observation constrains fixture construction; it does not
+establish how Wine rounds clipped or negative-origin images.

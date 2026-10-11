@@ -180,9 +180,13 @@ the target extent regresses **all nine** relative to the extent-only diagnostic.
 Every actual view still differs. Aggregate improvement cannot erase these
 counterexamples or justify a default conversion change.
 
-The next discriminator is an independently authored signed-height/negative-
-origin source control, with image contents away from clipped edges. It must
-separate direction from clipping and test integer rounding across zero.
+The next discriminator is an independently authored image-orientation/negative-
+origin source control, with image contents away from clipped edges. The admitted
+raw C8 width/height fields are unsigned; JPEG descriptor kinds 1 and 2 select
+opposite row orientations in the current converter, as checked by
+`hnc8/compose/tests/native_document.rs`. Construct these controls by changing
+the descriptor kind, not by inventing a signed raw height. They must separate
+direction from clipping and test integer rounding across zero.
 The all-positive, in-page black-grid endpoint model does not establish how
 negative coordinates are rounded. The actual page alone cannot supply that
 rule without confounding the two properties.
