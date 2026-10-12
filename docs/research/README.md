@@ -7,7 +7,9 @@ zero-difference completion gate. The
 [native rule-contrast correction](wine-visible-rules-20261011.md) changes 347
 axis-aligned rules and checks all 77 actual pages, with 63 diagnostic
 improvements, 14 unchanged rasters and no regressions. Every changed region
-was visually reviewed. Ornament seams remain under #541.
+was visually reviewed. The [original-font band correction](wine-ornament-bands-20261011.md)
+removes the measured double-rule tile seam under #541; general patterned
+ornaments retain their existing cadence.
 
 The [link-appearance isolation](wine-link-appearances-20261011.md) establishes
 that missing dashed underlines come from C8 application-info annotations.

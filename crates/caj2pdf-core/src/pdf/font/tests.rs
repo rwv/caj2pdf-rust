@@ -34,7 +34,7 @@ mod original_font {
     include!("../../../tests/common/font_fixture.rs");
 }
 pub(crate) use original_font::{
-    CALLSUBR, CffOptions, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, build, charstrings,
+    CALLSUBR, CffOptions, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, band_font, build, charstrings,
     collection, collection_font, drawing_font, entry, get32, num, ops, otf, symbol_font, table,
     tables,
 };

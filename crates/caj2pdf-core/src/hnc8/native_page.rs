@@ -949,6 +949,18 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     style,
                     self.axes,
                 )?;
+                if self.fonts[font].has_horizontal_bands(alias) {
+                    // Full-em rectangle bands are constant across the clip.
+                    // Overdraw beyond its right edge: Wine can contract a
+                    // horizontally stretched glyph at small vertical sizes.
+                    // The unchanged clip sets the actual length. One original
+                    // font draw avoids seams between fractional tiles.
+                    let mut transform = decoration.first_glyph;
+                    transform[0] = 2.0 * decoration.clip[2];
+                    self.page
+                        .decoration_glyph(font, alias, transform, decoration.clip)?;
+                    return Ok(());
+                }
                 for index in 0..decoration.glyph_count {
                     let mut transform = decoration.first_glyph;
                     transform[4] += f64::from(index) * transform[0];

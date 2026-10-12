@@ -343,6 +343,10 @@ An identity requires a nonempty map. These options apply only to native mode 2;
 existing per-record state restrictions still apply. Unlisted ornament values
 keep `--decoration-char` and its previous fallback behavior. The aliases remain
 nonsemantic artifacts with empty ActualText. Resources are supplied separately.
+Small unhinted full-em rectangle bands in explicitly mapped decoration fonts
+are drawn once through the original clip to avoid internal seams; other glyphs
+keep repeated placement. The supplied font program remains unchanged. See the
+[controlled comparison](research/wine-ornament-bands-20261011.md).
 
 The [mixed-state controls](research/wine-ornaments-20261011.json) confirm the
 four resource/slot pairs across 160 Wine observations, including reversed

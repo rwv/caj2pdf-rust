@@ -843,13 +843,29 @@ fn convert_ornaments(
     identity: Option<&SymbolFontIdentity>,
     mode: u8,
 ) -> (Result<ComposeReport>, Vec<u8>) {
+    convert_ornaments_with_font(
+        entries,
+        decoration,
+        identity,
+        mode,
+        crate::pdf::drawing_font(),
+    )
+}
+
+fn convert_ornaments_with_font(
+    entries: &[NativeDecorationGlyph],
+    decoration: Option<(usize, char)>,
+    identity: Option<&SymbolFontIdentity>,
+    mode: u8,
+    font: Vec<u8>,
+) -> (Result<ComposeReport>, Vec<u8>) {
     let mut fixture = fixture_with_text(Variant::C8, &[vec![]], ornament_text);
     fixture.bytes[12] = mode;
     for (index, value) in [4652u16, 4274, 1200, 1200].into_iter().enumerate() {
         fixture.bytes[28 + index * 2..30 + index * 2].copy_from_slice(&value.to_le_bytes());
     }
     let mut fonts = [C8FontSource {
-        source: Source::new(crate::pdf::drawing_font()),
+        source: Source::new(font),
         face: 0,
     }];
     let mut sink = Sink::default();
@@ -875,6 +891,62 @@ fn convert_ornaments(
         &NeverCancel,
     );
     (result, sink.bytes)
+}
+
+#[test]
+fn full_width_ornament_bands_join_without_changing_other_page_commands() {
+    let map = [1, 2, 46, 117].map(|value| NativeDecorationGlyph { value, glyph: 'A' });
+    for inset in [false, true] {
+        let convert = |entries| {
+            let (result, pdf) = convert_ornaments_with_font(
+                entries,
+                Some((0, 'A')),
+                None,
+                2,
+                crate::pdf::band_font(inset, false),
+            );
+            assert_eq!(result.unwrap().output_pages, 1);
+            crate::test_support::pdf_text(&pdf)
+                .split("stream\n")
+                .nth(1)
+                .unwrap()
+                .split("\nendstream")
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        let repeated = convert(&[]);
+        let mapped = convert(&map);
+        if inset {
+            assert_eq!(repeated, mapped);
+        } else {
+            assert_eq!(mapped.matches("/Artifact BMC").count(), 6);
+            assert!(repeated.matches("/Artifact BMC").count() > 6);
+            assert_eq!(mapped.matches("/ActualText ()").count(), 6);
+            let ordinary = |text: &str| {
+                let mut result = String::new();
+                let mut remaining = text;
+                while let Some(start) = remaining.find("q ") {
+                    let candidate = &remaining[start..];
+                    if !candidate
+                        .split('\n')
+                        .nth(1)
+                        .unwrap_or("")
+                        .contains("/Artifact")
+                    {
+                        result.push_str(&remaining[..start + 2]);
+                        remaining = &remaining[start + 2..];
+                        continue;
+                    }
+                    result.push_str(&remaining[..start]);
+                    remaining = &candidate[candidate.find("\nQ\n").unwrap() + 3..];
+                }
+                result.push_str(remaining);
+                result
+            };
+            assert_eq!(ordinary(&mapped), ordinary(&repeated));
+        }
+    }
 }
 
 #[test]

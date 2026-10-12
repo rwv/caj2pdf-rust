@@ -3,6 +3,7 @@
 //! Ranged metadata access for explicitly supplied static OpenType fonts:
 //! TrueType or CFF outlines, standalone or in a collection.
 
+mod bands;
 mod cff;
 mod encoding;
 mod full;

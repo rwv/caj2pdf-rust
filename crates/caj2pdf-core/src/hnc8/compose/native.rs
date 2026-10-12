@@ -170,7 +170,7 @@ where
     let mut font_bytes = 0u64;
     for (index, C8FontSource { source, face }) in fonts.sources.iter_mut().enumerate() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
-        let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
+        let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mapped = mapped_symbols == Some(index);
         for (enabled, identity, message) in [
@@ -198,7 +198,7 @@ where
             }
         }
         let aliases = native_glyphs::for_font(fonts.glyph_aliases, index);
-        let handle = if mapped || !aliases.is_empty() {
+        let mut handle = if mapped || !aliases.is_empty() {
             document.add_mapped_font(&font)
         } else {
             document.add_font(&font)
@@ -230,6 +230,21 @@ where
                 Hnc8Stage::Preflight,
                 Error::invalid("decoration font does not map an explicit ornament glyph"),
             ));
+        }
+        if decoration_source == Some(index) {
+            let default_alias = roles.decoration.expect("decoration source has a role").1;
+            let mut candidates = [default_alias; 5];
+            for (slot, entry) in decoration_glyphs.iter().enumerate() {
+                candidates[slot + 1] = entry.glyph;
+            }
+            handle
+                .detect_horizontal_bands(
+                    &mut font,
+                    &candidates[..decoration_glyphs.len() + 1],
+                    limits,
+                    cancellation,
+                )
+                .map_err(at.locator(Hnc8Stage::Preflight))?;
         }
         handles.push(handle);
     }

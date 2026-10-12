@@ -72,9 +72,35 @@ pub struct FontObject {
     object: ObjectId,
     slot: usize,
     characters: Vec<u8>,
+    horizontal_bands: [Option<char>; 5],
 }
 
 impl FontObject {
+    pub(crate) fn has_horizontal_bands(&self, character: char) -> bool {
+        self.horizontal_bands.contains(&Some(character))
+    }
+
+    /// Only the native decoration role asks for this bounded optional probe.
+    pub(crate) fn detect_horizontal_bands<S: RangedSource, C: Cancellation>(
+        &mut self,
+        font: &mut OpenTypeFont<'_, S>,
+        characters: &[char],
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<()> {
+        if characters.len() > self.horizontal_bands.len() {
+            return Err(Error::invalid("too many ornament glyph probes"));
+        }
+        for (slot, character) in characters.iter().enumerate() {
+            if self.supports(*character)
+                && font.horizontal_bands(*character, limits, cancellation)?
+            {
+                self.horizontal_bands[slot] = Some(*character);
+            }
+        }
+        Ok(())
+    }
+
     pub fn supports(&self, character: char) -> bool {
         let code = character as usize;
         code <= 0xffff && has_code(&self.characters, code)
@@ -198,6 +224,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             object: ids[4],
             slot: self.fonts.len() - 1,
             characters,
+            horizontal_bands: [None; 5],
         })
     }
 

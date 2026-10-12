@@ -7,6 +7,46 @@ pub fn put32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
 }
 
+/// Original two-band glyph for bounded outline and nonsemantic placement tests.
+pub fn band_font(inset: bool, long: bool) -> Vec<u8> {
+    let mut font = tables(&drawing_font());
+    let (left, right): (i16, i16) = if inset { (50, 950) } else { (-10, 1010) };
+    let points = [
+        (left, 300), (right, 300), (right, 360), (left, 360),
+        (left, 600), (right, 600), (right, 900), (left, 900),
+    ];
+    let mut glyph = vec![];
+    for value in [2, left, 300, right, 900, 3, 7, 0] {
+        glyph.extend(value.to_be_bytes());
+    }
+    glyph.extend([1; 8]);
+    for axis in 0..2 {
+        let mut previous = 0;
+        for &(x, y) in &points {
+            let coordinate = if axis == 0 { x } else { y };
+            glyph.extend((coordinate - previous).to_be_bytes());
+            previous = coordinate;
+        }
+    }
+    let length = glyph.len() as u32;
+    *table(&mut font, b"glyf") = glyph;
+    *table(&mut font, b"loca") = [0, 0, length, length].into_iter().flat_map(|v| {
+        if long { v.to_be_bytes().to_vec() } else { ((v / 2) as u16).to_be_bytes().to_vec() }
+    }).collect();
+    let head = table(&mut font, b"head");
+    put16(head, 50, u16::from(long));
+    for (i, value) in [left, 300, right, 900].into_iter().enumerate() {
+        put16(head, 36 + i * 2, value as u16);
+    }
+    let metrics = table(&mut font, b"hmtx");
+    put16(metrics, 4, 1000);
+    put16(metrics, 6, left as u16);
+    let maxp = table(&mut font, b"maxp");
+    put16(maxp, 6, 8);
+    put16(maxp, 8, 2);
+    build(font)
+}
+
 // Original minimal metadata. Glyph slots have empty outlines; this fixture
 // proves character/metric access, not rendered font validity or C8 fidelity.
 pub fn metadata_font() -> (Vec<u8>, u64) {

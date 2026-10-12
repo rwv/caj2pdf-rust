@@ -1,0 +1,3495 @@
+{
+  "schema": 1,
+  "issue": 541,
+  "baseline_commit": "a986bc0860515510beb78afa4867b4dc4770c5b2",
+  "reference": {
+    "viewer": "CAJViewer 7.3.151 Simple",
+    "wine": "8.0 32-bit",
+    "desktop": [
+      1600,
+      1200
+    ],
+    "dpi": 96,
+    "image": "sha256:6c9f5ec0610a7ff8bc45fe8e0a87dffd0ff17e42466c90b80237a1712847b95c"
+  },
+  "criterion": "Normal-reading visual agreement; harmless subpixel/antialiasing differences accepted; RGB is diagnostic.",
+  "scope": "Only full-em simple unhinted rectangular native decoration bands. Original font programs and y geometry are retained.",
+  "source_code_sha256": {
+    "crates/caj2pdf-core/src/hnc8/compose/native.rs": "1ff07073387379d782f59a6bb39e70a644b3ab95bab94fbcd64e0aa7134c23d7",
+    "crates/caj2pdf-core/src/hnc8/compose/tests/native_document.rs": "e96804c80c6406b7edbf4c82eb26cbd716412c1d4d29520574e2b36c87545d5a",
+    "crates/caj2pdf-core/src/hnc8/native_page.rs": "4d393fabb264631068d66b5e2526f976dfd1edc14091a865eabc4ce035fc316a",
+    "crates/caj2pdf-core/src/pdf/document/text.rs": "e0c2dc5197283b462edfb916ceefc048405e2ac0c665addc057e4e41bbb47bbd",
+    "crates/caj2pdf-core/src/pdf/font.rs": "3cf50ecb5e8764153c55fd9def4a46c3557bfbbd9fe92b427fceed3fafdb4a27",
+    "crates/caj2pdf-core/src/pdf/font/bands.rs": "56ad41276bfaf50a7b5e1e9548b3ae9d3f801a1679399f0cc9836b6c8a949a42",
+    "crates/caj2pdf-core/src/pdf/font/bands/tests.rs": "115fa83430b3e7264169727a8618381ef51a03dedee5953b545df81b4fc0f622",
+    "crates/caj2pdf-core/src/pdf/font/tests.rs": "c1fb700981af31119ca5a6d7bc4559b5202bf00ecc5795f07eaff56b24c47773",
+    "crates/caj2pdf-core/src/pdf/mod.rs": "90f36f5e21b62d5f3dd2feea6d0b3fc52fc7a8278e22f56da28bf70bc4bf5ad9",
+    "crates/caj2pdf-core/tests/common/font_fixture.rs": "b1ce36e2e96b94a47951c848e413da3723f81b94a05f5b5386d6c4f0336801a7",
+    "scripts/research/wine_ornament_bands.py": "c88776ce1f202357478bcb76150b1fbdfba5b8377349026a6fc84e239e601615"
+  },
+  "cli_sha256": "dfe120c1b0b6cd65eb2a60056bf8b74c281faefae3c8828fb56576dda988b120",
+  "wasm_sha256": "8e44bceddb804110ad7d08616ac6f6b89025b7a915590be7513ac4b023640e80",
+  "actual_conversions": [
+    {
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+      "mode": 2,
+      "pages": 5,
+      "pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "baseline_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+        "pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1438,
+            "pdf_glyphs": 1438,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "6befca7c948cef35c0ef5b92ce588396f19628e872cc2ec132c3f6909d89d7c9",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1347,
+            "pdf_glyphs": 1347,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "db72f79ea4b76f6d984605a2c1a776c995622bccc56ad28ddc0d326c6461792f",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 921,
+            "pdf_glyphs": 921,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "3ee7da20c78265695b05077910c1c53b452d0afac0b6aea1e920bcb6a4f8ad7b",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1169,
+            "pdf_glyphs": 1169,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "c9337285e55c6ab296e756dc7721fdc4e8eeeec1f59645be31cdaa0b1bd611d1",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 2846,
+            "pdf_glyphs": 2846,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "7dda0cd154fa226a6ff467c9f7d79de59e38e77535d3bff5260a6c556ea451d1",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442"
+    },
+    {
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+      "mode": 2,
+      "pages": 12,
+      "pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "baseline_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+        "pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1681,
+            "pdf_glyphs": 1681,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "8dee7e968da9d76eec5a82b5bf628ab411879151ec1a53f1c505632128ecf6a8",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 805,
+            "pdf_glyphs": 805,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "c92feea9ef3bf4450c029c672747370d12503a5acd1e17ea83ee00d6c054b48f",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1435,
+            "pdf_glyphs": 1435,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "0caf3b491f4fd1ad202496418c31d018bae10a428d0779c8e73cfca5c7946518",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1057,
+            "pdf_glyphs": 1057,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "227be4e173348b1da60bb78ea7902f4a4377d0b5c21ee3c046ef8a178b58f0ee",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 1737,
+            "pdf_glyphs": 1737,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "ddec7ae168c58e5049e06f100c694125a11557f8e2bd2a40389ff5f4ba5c42ff",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 1003,
+            "pdf_glyphs": 1003,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "4c68d5acdf1e3422e09edb6af0115ea04ec3265b6cdbc230c76b2dc37225cc5c",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 7,
+            "source_glyphs": 1271,
+            "pdf_glyphs": 1271,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "6f7a70a68f205d6ac5ae0b8aa3544ede8fae9de7e3ba1973eecc02ae330f6b74",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 8,
+            "source_glyphs": 1503,
+            "pdf_glyphs": 1503,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a551aec890d609fdc8438559e9476e11a9381ba34ea07accd5a67c95f4e161c0",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 9,
+            "source_glyphs": 1371,
+            "pdf_glyphs": 1371,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "b589f1a811c676194348f9274d9bfdf6a72fa74eb85d504e33d36c583224ccca",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 10,
+            "source_glyphs": 2592,
+            "pdf_glyphs": 2592,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "55050b4dbbaeacb315368f6d05229eccb3ff771ffe9767a2b96da21057603bcf",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 11,
+            "source_glyphs": 3632,
+            "pdf_glyphs": 3632,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "581de8862ed043d2619a747377036b784d0bca152764f7caf1e56c02df23388c",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 12,
+            "source_glyphs": 2606,
+            "pdf_glyphs": 2606,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "79f7bc680cfd4a805c6b4208a2ba6279e825986f52e257f657067b2091781cbf",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7"
+    },
+    {
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+      "mode": 2,
+      "pages": 4,
+      "pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "baseline_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+        "pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1536,
+            "pdf_glyphs": 1536,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "68a8f2500dfccf05e816952312c92c90b8f1839ab355e5a5f0d4513cbab7c927",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1133,
+            "pdf_glyphs": 1133,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "fbd7330e4b1715627918d7c5b67bf3765da782d0a435e273258ace1f252453c4",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1046,
+            "pdf_glyphs": 1046,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "853c7b3641d2f8ffebd6b896b20500b9aa38e7eb19b3a45e68f1d8201be73761",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 2864,
+            "pdf_glyphs": 2864,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "734ed8f44093e3211ec09fed8a96ae90e2556c6e9becbe4d6d1454239056ee81",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e"
+    },
+    {
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "mode": 2,
+      "pages": 4,
+      "pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "baseline_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+        "pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1302,
+            "pdf_glyphs": 1302,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "21101c9c10d65cf5d808a3154f50c39a7465f3fa27686ede42754cd26b4cea49",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1555,
+            "pdf_glyphs": 1555,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1b3e35baa8b1294831b70d894828db38eb85fc7af65c6c24bad9705964637557",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1470,
+            "pdf_glyphs": 1470,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1379c67ad20c4d6a25e673422e8c0b3396f3a4cec48e288780887d507413312d",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1642,
+            "pdf_glyphs": 1642,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "95458938a301c79c65fed2c0f73d9e35a221bd07933f77122ed9f22fd7cf5641",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13"
+    },
+    {
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "mode": 0,
+      "pages": 4,
+      "pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "baseline_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+        "pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 2060,
+            "pdf_glyphs": 2060,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "b0a2c1244c9fdfd67d7c28c2774319d12fa7263067812b72aa6625ef0ac1a55c",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 2569,
+            "pdf_glyphs": 2569,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "2794db168a2539c6fbdb3a58c4229bdf8badf632c663416754efb1b33b80933a",
+            "ignored_hnb_tail_bytes": 15904
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1902,
+            "pdf_glyphs": 1902,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "b50b2865ef797f091a35b8aceb2d083b8a38504c1f216e491f2ae05139b0322b",
+            "ignored_hnb_tail_bytes": 9100
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1398,
+            "pdf_glyphs": 1398,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "794bdfe91ddc1e3f60fbf97f5112ff02a0974e421bd979d231e679910b1df020",
+            "ignored_hnb_tail_bytes": 8880
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc"
+    },
+    {
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+      "mode": 2,
+      "pages": 10,
+      "pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "baseline_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+        "pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 7,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 8,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 9,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 10,
+            "source_glyphs": 1977,
+            "pdf_glyphs": 1977,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "91a38a9357aeee3c90a5d80e5ba0ef48a5781d9d5ddd671369c42b9b6fbf78b0",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b"
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "mode": 2,
+      "pages": 6,
+      "pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "baseline_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1015,
+            "pdf_glyphs": 1015,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "f2dca508d347c63179f4bf57dea30ecf0d2133632200e8af699819f14536e391",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1338,
+            "pdf_glyphs": 1338,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "497f614c7a1a0c89cfcdcd4a4d550433f8d9022080ccc377a76df2f1379674a3",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 840,
+            "pdf_glyphs": 840,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "ec2aa2a5e1f152763516b0892819e4b007c14af4450a59e140b2f1c3544940c1",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 986,
+            "pdf_glyphs": 986,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1b2edfdb80a581a20723f2408ed966d91461d8c7ec2c230e1b9bae196bb0a406",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 801,
+            "pdf_glyphs": 801,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "17dc792e85d83dc4f806a25e8f9494306e9f2d0d27e150b60d06f8674ef50c83",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 1658,
+            "pdf_glyphs": 1658,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "373acfcf55c04736b7ea89d7574aab1956a1e1e9585aecf734bb4b938d5a07d1",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51"
+    },
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "mode": 2,
+      "pages": 4,
+      "pdf_sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "baseline_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+      "changes": [
+        {
+          "page": 1,
+          "draws_before": 47,
+          "draws_after": 1
+        }
+      ],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "pdf_sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1597,
+            "pdf_glyphs": 1597,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "51bc70c6844fe9bb5ffadfe1df7fcd70bb06593e3125380a138593d2a3255f38",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 2052,
+            "pdf_glyphs": 2052,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a35083b224b46c7e7cda898381d6a0bf205c1f3589dbc2d383608afc49e6c6b1",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1683,
+            "pdf_glyphs": 1683,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "5e7562b705aa85802488a58e19a4750c2c0bdcc297d1a2fe87165b783b328d71",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 2233,
+            "pdf_glyphs": 2233,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "2274ed59dd19cb918031be4b08b13b6dedfa95218a130ea56b8af6e3fcdbe736",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "266675592ded3753b6954b46aa61ff87764c0724964ae1a7582d98c6ec5fc53f"
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "mode": 2,
+      "pages": 5,
+      "pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "baseline_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 2492,
+            "pdf_glyphs": 2492,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "6f65ab79415b3f2832299133eef35e459e83ef7093061f7efafdb6c6d17e9441",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1597,
+            "pdf_glyphs": 1597,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a23838ea761d3be497472f9affc03c95519fe7038a0a11f201596d0eaabbdefa",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1731,
+            "pdf_glyphs": 1731,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "04409de79e41768acaeeeaca43b03a19aa563acf6dbaf7a1f4c8a2dfb2fe9939",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1905,
+            "pdf_glyphs": 1905,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "7cdb778e7a8128927507d6c6916e9641c1c3ee62f74a242ab2fcd3f17eba0bd9",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 2552,
+            "pdf_glyphs": 2552,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "65c8a9bf3b62270758639e831c12fd488ad551c313dbd357f865383915f10394",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef"
+    },
+    {
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+      "mode": 2,
+      "pages": 6,
+      "pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "baseline_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+        "pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1280,
+            "pdf_glyphs": 1280,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "d71de86c89df0bc79ff6c305d1e34ece19c3a382443a8a67dc2f6d8d21d955fa",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1837,
+            "pdf_glyphs": 1837,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "ab247f8ba11e302b73758dfb05441bd511f31dffbe0b1ee1a5f8f5ee72bd9d30",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1689,
+            "pdf_glyphs": 1689,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "c3aac1a4ce2a1caf47b8d1914abb7c2507cda9c87eda57971e54ad3a3790d4e7",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1679,
+            "pdf_glyphs": 1679,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "031d827f34441c0de6967c400df28101f221c91173f20399c1461b178012ad51",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 1599,
+            "pdf_glyphs": 1599,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "4dc1030a865911479d6eb20094ad67da49ff3e0ca97565cc887742bc157aa3db",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 0,
+            "pdf_glyphs": 0,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61"
+    },
+    {
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+      "mode": 2,
+      "pages": 5,
+      "pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "baseline_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+        "pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1757,
+            "pdf_glyphs": 1757,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "89e1547d7a52ec70566ca09c3a95ddfa76c650edeeb4e29667af98a03427af37",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1938,
+            "pdf_glyphs": 1938,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1fc428fca3f2c49175ab05d04340f1dfe6074907815709b7171deb0eace28236",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1891,
+            "pdf_glyphs": 1891,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "7558d956dcf57a05ccaba4e90532fc6551f93e2ba7b81df315fb10e61634081f",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1923,
+            "pdf_glyphs": 1923,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "6210e6f732c0f1833a63ca6bef2d6baf509415a041424b9a05f6f9e85f3720ed",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 1417,
+            "pdf_glyphs": 1417,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a160728da173ec21ad24c7957d60e2d8530f592574b7dd90ef15ba9eb5e24bfb",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc"
+    },
+    {
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+      "mode": 2,
+      "pages": 7,
+      "pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "baseline_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+        "pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1367,
+            "pdf_glyphs": 1367,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "61e4d90bdeb5cca5cdfa5c9bf24fc59055aec234bccba2ea2ac795dcfa747420",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1788,
+            "pdf_glyphs": 1788,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "9fea4e854464e594d501b78637d27725e0a101322c67bd52de49f05f4d8e215d",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1774,
+            "pdf_glyphs": 1774,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "329e0f35ed279d211473b1fc198f54b6addfb6448c6d9914318dfc2a338072e9",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1832,
+            "pdf_glyphs": 1832,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "86cba181280b33a486148775234bb7194056b750c0d609545ce582762df6d567",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 1773,
+            "pdf_glyphs": 1773,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "2662b80f3e84bbdef1b9cbc41ca87f4ea52bc0cd3ff7b17833e41dec9b4c2e90",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 1721,
+            "pdf_glyphs": 1721,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "2e893b01ad8a39697c23cefa552191406e29c8d6461cbf7948c3760c0c1ad66e",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 7,
+            "source_glyphs": 1734,
+            "pdf_glyphs": 1734,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1b99492a903cce397f6f7a5e8f673e45348e4666f59f1de879ee573da4694a2e",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3"
+    },
+    {
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+      "mode": 2,
+      "pages": 5,
+      "pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "baseline_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "changes": [],
+      "resources_boxes_annotations_exact": true,
+      "semantic": {
+        "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+        "pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1444,
+            "pdf_glyphs": 1444,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "bdd8c19ac8b323d69a0fcf099124554cee39f98e6160d1f9c3abf08a8e57ac8b",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1942,
+            "pdf_glyphs": 1942,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "7d9350a3046194ac2ca8d5724a81edf13e8ad0968999074b738f24964693f2f9",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1977,
+            "pdf_glyphs": 1977,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "5f63f2546089b730a9d473195727be484246aa4422637ce34f04f7ae21b2fe48",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 2015,
+            "pdf_glyphs": 2015,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "e57bbeb1a1bcaacd833366f80346ec9791c5e12e6698374115a5f2d1944e5046",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 1693,
+            "pdf_glyphs": 1693,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "4d132fab08d8e3747b40795b275d03402338ef411ccaa18ceb077ef724d89c3e",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      },
+      "previous_pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9"
+    }
+  ],
+  "original_controls": [
+    {
+      "kind": "full",
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "mode": 2,
+      "pages": 1,
+      "pdf_sha256": "d94666f5be752da6d1192cde8ebfd7d6d712588a2c11c6c7437311365de4058d",
+      "baseline_sha256": "71a04d8bbb92111e4982d4fd5d27982aac8c43ac5f75a4051e2dbe8693933cb0",
+      "draws_before": 306,
+      "draws_after": 9,
+      "font_sha256": "3a6073f09ff904312106cf5ebc5d94c2c51196dec1ceaeddada08e7de361ada0",
+      "font_identity": "HGBZ_CNKI:3bfe0c6e",
+      "previous_pdf_sha256": "531542202f553af58798154f35cf6c107137e9afb7ee617a3387aa5040433e3f"
+    },
+    {
+      "kind": "inset",
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "mode": 2,
+      "pages": 1,
+      "pdf_sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "baseline_sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "draws_before": 306,
+      "draws_after": 306,
+      "font_sha256": "85c0857bf8250da03ed0f19e14fe2473947f4903de9ad225d48d88dea179ec59",
+      "font_identity": "HGBZ_CNKI:ec05ebe2",
+      "previous_pdf_sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3"
+    },
+    {
+      "kind": "hinted",
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "mode": 2,
+      "pages": 1,
+      "pdf_sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "baseline_sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "draws_before": 306,
+      "draws_after": 306,
+      "font_sha256": "3899c3d35fda5d7ccdd2555647404777d19f80e718beb0c575f8d7b349179c8b",
+      "font_identity": "HGBZ_CNKI:5fee6448",
+      "previous_pdf_sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7"
+    }
+  ],
+  "generator_manifest": {
+    "rows": [
+      {
+        "field": 2,
+        "style": 4162,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 4750,
+        "span": 3300
+      },
+      {
+        "field": 3,
+        "style": 4195,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 5150,
+        "span": 3300
+      },
+      {
+        "field": 4,
+        "style": 4228,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 5550,
+        "span": 3300
+      },
+      {
+        "field": 5,
+        "style": 4261,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 5950,
+        "span": 3300
+      },
+      {
+        "field": 6,
+        "style": 4294,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 6350,
+        "span": 3300
+      },
+      {
+        "field": 8,
+        "style": 4360,
+        "axes": null,
+        "value": 1,
+        "x": 4950,
+        "y": 6750,
+        "span": 3300
+      },
+      {
+        "field": 5,
+        "style": 4261,
+        "axes": null,
+        "value": 117,
+        "x": 4950,
+        "y": 7150,
+        "span": 3300
+      },
+      {
+        "field": 4,
+        "style": 4228,
+        "axes": 34,
+        "value": 1,
+        "x": 4950,
+        "y": 7550,
+        "span": 3300
+      },
+      {
+        "field": 4,
+        "style": 4228,
+        "axes": 40,
+        "value": 1,
+        "x": 4950,
+        "y": 7950,
+        "span": 3300
+      }
+    ],
+    "origin": [
+      4652,
+      4274
+    ],
+    "extent": [
+      4500,
+      4500
+    ],
+    "files": {
+      "bands.caj": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "full.ttf": "3a6073f09ff904312106cf5ebc5d94c2c51196dec1ceaeddada08e7de361ada0",
+      "hinted.ttf": "3899c3d35fda5d7ccdd2555647404777d19f80e718beb0c575f8d7b349179c8b",
+      "inset.ttf": "85c0857bf8250da03ed0f19e14fe2473947f4903de9ad225d48d88dea179ec59"
+    }
+  },
+  "generator_reproduced": true,
+  "initial_actual_diagnostic": [
+    {
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkproduction-b9a64bf99e4b",
+        "fonts-ready-barjoin-stretched-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "b66cbf7dc57982acaa7557e29bd005a09bb2d8bdd5d247b6b0ee28f3adfc3be9",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "8876788a5067fecad1d0ab8e1d60b370c27aef32e12405c7d7744d15d88f5f44",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 12505,
+      "after": 12435
+    },
+    {
+      "zoom": 100,
+      "labels": [
+        "fonts-ready-barjoin-source-100",
+        "fonts-ready-barjoin-baseline-100",
+        "fonts-ready-barjoin-stretched-100"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            123,
+            1122,
+            1118
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "13995e101fde81eb25ebe689be53d1a7383f2edc720c4d0bd2b8986c3d2ac000",
+          "component_pixels": 667969
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            133,
+            1122,
+            1128
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "60f1d523434418c1bd496247bc881db4172ef5044f28f403045dabc99adf992f",
+          "component_pixels": 667969
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            133,
+            1122,
+            1128
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "2ed3d2bf8ff8f4ee0537d38fea8e3ed6b3c416397bd9db65368d9a13a5a67a05",
+          "component_pixels": 667969
+        }
+      ],
+      "before": 24874,
+      "after": 24787
+    }
+  ],
+  "rejected_exact_width": [
+    {
+      "kind": "b9",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-barproduction-b9-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "8876788a5067fecad1d0ab8e1d60b370c27aef32e12405c7d7744d15d88f5f44",
+          "component_pixels": 376489
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 12435,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          12,
+          52,
+          495,
+          734
+        ]
+      },
+      "diagnostic_exact": true
+    },
+    {
+      "kind": "b9",
+      "zoom": 100,
+      "labels": [
+        "fonts-ready-barjoin-source-100",
+        "fonts-ready-barproduction-b9-100"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            123,
+            1122,
+            1118
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "13995e101fde81eb25ebe689be53d1a7383f2edc720c4d0bd2b8986c3d2ac000",
+          "component_pixels": 667969
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            133,
+            1122,
+            1128
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "2ed3d2bf8ff8f4ee0537d38fea8e3ed6b3c416397bd9db65368d9a13a5a67a05",
+          "component_pixels": 667969
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 24787,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          13,
+          68,
+          660,
+          978
+        ]
+      },
+      "diagnostic_exact": true
+    },
+    {
+      "kind": "full",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-barcontrol-full-source-75",
+        "fonts-ready-barcontrol-full-production-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "a463c1dc959c3581dbbda075c4f7c4bd1da18b0fe257a3739040f687bf2dc35a",
+          "component_pixels": 194041
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "c445e917ecea7b198bd09b343ff2ef47897ad53170ad938c6c05e913b137e6e8",
+          "component_pixels": 194041
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 10715,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          360
+        ]
+      },
+      "diagnostic_exact": false
+    },
+    {
+      "kind": "full",
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-barcontrol-full-source-125",
+        "fonts-ready-barcontrol-full-production-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "b8d952d23967a95ee341ff3864aa0bb800e8662158ab84045e5b75bfcec01f33",
+          "component_pixels": 535093
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "fcb30f54a8bb3c971a999522dd0f330beeb90f6289fbd8cb14ab7d447075ec7c",
+          "component_pixels": 535093
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 12185,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          48,
+          72,
+          582,
+          599
+        ]
+      },
+      "diagnostic_exact": false
+    },
+    {
+      "kind": "inset",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-barcontrol-inset-source-75",
+        "fonts-ready-barcontrol-inset-production-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "b8860efc894c362eeb23a54fdb674e5d552955a33d81e5d2a1607bacc825cbf4",
+          "component_pixels": 194041
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "cb888bfb775e7c9fa0a04480abc44efe7f3c231e11734f949442a6e10b4290bf",
+          "component_pixels": 194041
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 12679,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          350,
+          360
+        ]
+      },
+      "diagnostic_exact": false
+    },
+    {
+      "kind": "inset",
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-barcontrol-inset-source-125",
+        "fonts-ready-barcontrol-inset-production-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "c571dc8f42b4a6d6ccac0d664a8066c3147387c5dfccbb216886af7d63767c0f",
+          "component_pixels": 535093
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "ae616843e2090fac8786610dfd678fe7851a295451f94a8dfcf4b5b1cdf44eee",
+          "component_pixels": 535093
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 16765,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          48,
+          72,
+          582,
+          599
+        ]
+      },
+      "diagnostic_exact": false
+    },
+    {
+      "kind": "hinted",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-barcontrol-hinted-source-75",
+        "fonts-ready-barcontrol-hinted-production-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "a463c1dc959c3581dbbda075c4f7c4bd1da18b0fe257a3739040f687bf2dc35a",
+          "component_pixels": 194041
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "8a31266fc64c6636db85c67e1c1d466927211089d7d0a4c8f0783c8db7369379",
+          "component_pixels": 194041
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 11112,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          350,
+          360
+        ]
+      },
+      "diagnostic_exact": false
+    },
+    {
+      "kind": "hinted",
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-barcontrol-hinted-source-125",
+        "fonts-ready-barcontrol-hinted-production-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "b8d952d23967a95ee341ff3864aa0bb800e8662158ab84045e5b75bfcec01f33",
+          "component_pixels": 535093
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "f6187b8743ffff101dc09a17b353e6bd9cfeb1b9412153db75baf9040c2825c6",
+          "component_pixels": 535093
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 13221,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          48,
+          72,
+          582,
+          599
+        ]
+      },
+      "diagnostic_exact": false
+    }
+  ],
+  "accepted_overdraw": [
+    {
+      "kind": "full",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-barcontrol-full-source-75",
+        "fonts-ready-baroverdraw-full-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "a463c1dc959c3581dbbda075c4f7c4bd1da18b0fe257a3739040f687bf2dc35a",
+          "component_pixels": 194041
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            574,
+            409,
+            1015,
+            851
+          ],
+          "size": [
+            441,
+            442
+          ],
+          "rgb_sha256": "cf47f9897a1c25301f5984f600cc76bffdb589f240229fd7d6542f8d51f9677f",
+          "component_pixels": 194041
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 10576,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          350,
+          360
+        ]
+      }
+    },
+    {
+      "kind": "full",
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-barcontrol-full-source-125",
+        "fonts-ready-baroverdraw-full-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "b8d952d23967a95ee341ff3864aa0bb800e8662158ab84045e5b75bfcec01f33",
+          "component_pixels": 535093
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            420,
+            264,
+            1152,
+            997
+          ],
+          "size": [
+            732,
+            733
+          ],
+          "rgb_sha256": "04981f028ab0beae2a6f32eb4f54180708ce9c62fb212d9a5c81dc54f9518b52",
+          "component_pixels": 535093
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 12084,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          48,
+          72,
+          582,
+          599
+        ]
+      }
+    },
+    {
+      "kind": "b9",
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-baroverdraw-b9-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "856aab0bf37c16875fa3a1931007b349241b28f5e6491552630970c95cae9180",
+          "component_pixels": 376489
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 12351,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          12,
+          52,
+          496,
+          734
+        ]
+      }
+    },
+    {
+      "kind": "b9",
+      "zoom": 100,
+      "labels": [
+        "fonts-ready-barjoin-source-100",
+        "fonts-ready-baroverdraw-b9-100"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            123,
+            1122,
+            1118
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "13995e101fde81eb25ebe689be53d1a7383f2edc720c4d0bd2b8986c3d2ac000",
+          "component_pixels": 667969
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            449,
+            133,
+            1122,
+            1128
+          ],
+          "size": [
+            673,
+            995
+          ],
+          "rgb_sha256": "236e6b628aa00232eba33301fb2054eb328b51069cf65fdd33f8f09168bf7675",
+          "component_pixels": 667969
+        }
+      ],
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 24830,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          13,
+          68,
+          661,
+          978
+        ]
+      }
+    }
+  ],
+  "final_visual_agreement": [
+    {
+      "name": "b9",
+      "zoom": 75,
+      "diagnostic_exact": true,
+      "frame": {
+        "complete": true,
+        "bounds_with_border": [
+          533,
+          256,
+          1038,
+          1004
+        ],
+        "size": [
+          505,
+          748
+        ],
+        "rgb_sha256": "856aab0bf37c16875fa3a1931007b349241b28f5e6491552630970c95cae9180",
+        "component_pixels": 376489
+      }
+    },
+    {
+      "name": "b9",
+      "zoom": 100,
+      "diagnostic_exact": true,
+      "frame": {
+        "complete": true,
+        "bounds_with_border": [
+          449,
+          133,
+          1122,
+          1128
+        ],
+        "size": [
+          673,
+          995
+        ],
+        "rgb_sha256": "236e6b628aa00232eba33301fb2054eb328b51069cf65fdd33f8f09168bf7675",
+        "component_pixels": 667969
+      }
+    },
+    {
+      "name": "full",
+      "zoom": 75,
+      "diagnostic_exact": true,
+      "frame": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "cf47f9897a1c25301f5984f600cc76bffdb589f240229fd7d6542f8d51f9677f",
+        "component_pixels": 194041
+      }
+    },
+    {
+      "name": "full",
+      "zoom": 125,
+      "diagnostic_exact": true,
+      "frame": {
+        "complete": true,
+        "bounds_with_border": [
+          420,
+          264,
+          1152,
+          997
+        ],
+        "size": [
+          732,
+          733
+        ],
+        "rgb_sha256": "04981f028ab0beae2a6f32eb4f54180708ce9c62fb212d9a5c81dc54f9518b52",
+        "component_pixels": 535093
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "phase": "bar-join",
+      "label": "fonts-ready-barjoin-stretched-75",
+      "input_sha256": "c09f255ecee965bd1a2ef3882b6b2a1e2bcc0e15ad2d3c3dfe5ced3b4c0e1c3e",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "6af1014c69ae6f6bfd268a0a7740deff0ef0c54a40c3a2da6cb2feb8fdfebfc0",
+              "frame_sha256": "a4be31a94e92938089fd74b96d98962ba4858380b91cd026da5fa399098e56ea"
+            },
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "6af1014c69ae6f6bfd268a0a7740deff0ef0c54a40c3a2da6cb2feb8fdfebfc0",
+              "frame_sha256": "334ad1a5a11a300ea2e0ed37b06d88794d86b530c671eb1f9e15026fc03c8e6e"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-join",
+      "label": "fonts-ready-barjoin-source-100",
+      "input_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                123,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "c512af60fb4914139985b6f7fe1035359e5698677fb83c9771dc400fc70090fc",
+              "frame_sha256": "0cf62016e72b5363f51f8992c18ed827f556cec30c414112753132c22965d556"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                123,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "c512af60fb4914139985b6f7fe1035359e5698677fb83c9771dc400fc70090fc",
+              "frame_sha256": "0cf62016e72b5363f51f8992c18ed827f556cec30c414112753132c22965d556"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-join",
+      "label": "fonts-ready-barjoin-baseline-100",
+      "input_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "f555f22845227b28b049ca2d6bcf8b62a50138513040f0d593212b54a927b58b",
+              "frame_sha256": "2a32068ab51160333620d02c8bd40e2a8f38daeb52d331f6955c21de4560353e"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "f555f22845227b28b049ca2d6bcf8b62a50138513040f0d593212b54a927b58b",
+              "frame_sha256": "2e5ee7d3fa878d64502f7d6125dc562521b37de2e47ce9757a56aacba4a31c3b"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-join",
+      "label": "fonts-ready-barjoin-stretched-100",
+      "input_sha256": "c09f255ecee965bd1a2ef3882b6b2a1e2bcc0e15ad2d3c3dfe5ced3b4c0e1c3e",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "76d64f9f83b346a60e806fb09ab2f9ad464277b32996c26755d54aae25225e83",
+              "frame_sha256": "ed8d9625aefdb81bf65de4d304b14ad0adaf43ceb6a5b68e169d7b8b71fdd116"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "76d64f9f83b346a60e806fb09ab2f9ad464277b32996c26755d54aae25225e83",
+              "frame_sha256": "b379ae6c0efd2260731c790b4b2b60a30deaec0eb1e63481ea9b1214f86a0bdf"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barproduction-b9-75",
+      "input_sha256": "266675592ded3753b6954b46aa61ff87764c0724964ae1a7582d98c6ec5fc53f",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "6af1014c69ae6f6bfd268a0a7740deff0ef0c54a40c3a2da6cb2feb8fdfebfc0",
+              "frame_sha256": "334ad1a5a11a300ea2e0ed37b06d88794d86b530c671eb1f9e15026fc03c8e6e"
+            },
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "6af1014c69ae6f6bfd268a0a7740deff0ef0c54a40c3a2da6cb2feb8fdfebfc0",
+              "frame_sha256": "334ad1a5a11a300ea2e0ed37b06d88794d86b530c671eb1f9e15026fc03c8e6e"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barproduction-b9-100",
+      "input_sha256": "266675592ded3753b6954b46aa61ff87764c0724964ae1a7582d98c6ec5fc53f",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "76d64f9f83b346a60e806fb09ab2f9ad464277b32996c26755d54aae25225e83",
+              "frame_sha256": "b379ae6c0efd2260731c790b4b2b60a30deaec0eb1e63481ea9b1214f86a0bdf"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "76d64f9f83b346a60e806fb09ab2f9ad464277b32996c26755d54aae25225e83",
+              "frame_sha256": "b379ae6c0efd2260731c790b4b2b60a30deaec0eb1e63481ea9b1214f86a0bdf"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-full-source-75",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "21a02281d75287221064dbede3b34b701631fefba4d5c8153d9eafdf6c636c59",
+              "frame_sha256": "e97ad7a279815eb4bd7dc3db1cc64cfe82fd70ccdf29f47a42e1bbe3f395488c"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "21a02281d75287221064dbede3b34b701631fefba4d5c8153d9eafdf6c636c59",
+              "frame_sha256": "e97ad7a279815eb4bd7dc3db1cc64cfe82fd70ccdf29f47a42e1bbe3f395488c"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-full-production-75",
+      "input_sha256": "531542202f553af58798154f35cf6c107137e9afb7ee617a3387aa5040433e3f",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "073d423d0b4be283a23e589dbd69158f8c9d20da2bf3966e2e8b781e8be8fe4c",
+              "frame_sha256": "e73316fa6117a51d1fa90e9eeff27f4399e8cf4847796cdc6bda758df0847a1b"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "073d423d0b4be283a23e589dbd69158f8c9d20da2bf3966e2e8b781e8be8fe4c",
+              "frame_sha256": "e73316fa6117a51d1fa90e9eeff27f4399e8cf4847796cdc6bda758df0847a1b"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-full-source-125",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "4b3ff5dfc25d49db5d6a41eece5972a2808c67bf8208c6cdf1d4d35b230d86e6",
+              "frame_sha256": "d013db58652c7b70634214bea5006cd25fa744e50c23d7649a50ac20674fc480"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "4b3ff5dfc25d49db5d6a41eece5972a2808c67bf8208c6cdf1d4d35b230d86e6",
+              "frame_sha256": "d013db58652c7b70634214bea5006cd25fa744e50c23d7649a50ac20674fc480"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-full-production-125",
+      "input_sha256": "531542202f553af58798154f35cf6c107137e9afb7ee617a3387aa5040433e3f",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "dc0b24493e5e580e0f425069f813fcabdfbd317783da9c7908d34f8a85c1c94b",
+              "frame_sha256": "ed2b6e8afb113b0a657091091aaca7fc20461d71293e730ce25b90a2500815bb"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "dc0b24493e5e580e0f425069f813fcabdfbd317783da9c7908d34f8a85c1c94b",
+              "frame_sha256": "6613ad850efb596b68be9d06e275633845cc45f94c4dc99ba18b98e3eafdc875"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-inset-source-75",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "284f5971a7aea70020f66c94327c088987a4fdc10f4f07122b60bae80ebf502e",
+              "frame_sha256": "2e056198572c33979699b3153b2471675bcbc89247f422c2bbf6cf16e215ba2c"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "284f5971a7aea70020f66c94327c088987a4fdc10f4f07122b60bae80ebf502e",
+              "frame_sha256": "2e056198572c33979699b3153b2471675bcbc89247f422c2bbf6cf16e215ba2c"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-inset-production-75",
+      "input_sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "cea59539a2652b4188ab3f1122c5648d7c4110762168f3851a18c346d3134078",
+              "frame_sha256": "7cc1ff871860bbdf7dddcd03ad9f68b8b8e0e39e546b3c3f62a744ab0890229f"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "cea59539a2652b4188ab3f1122c5648d7c4110762168f3851a18c346d3134078",
+              "frame_sha256": "7cc1ff871860bbdf7dddcd03ad9f68b8b8e0e39e546b3c3f62a744ab0890229f"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-inset-source-125",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "557c7ab9478c28f487648c873bc1426ae6c3c8e9d55bf1e9e7f7958c422ca03d",
+              "frame_sha256": "1206b169535ef5fecfcd21ca1a7950e8909bac5ef8499db03289a2057e920cf9"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "557c7ab9478c28f487648c873bc1426ae6c3c8e9d55bf1e9e7f7958c422ca03d",
+              "frame_sha256": "1206b169535ef5fecfcd21ca1a7950e8909bac5ef8499db03289a2057e920cf9"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-inset-production-125",
+      "input_sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "90ee648006e2afab1042d382627febfb9b1c718dbf268345732fc2fb2de115b4",
+              "frame_sha256": "cab351d6db376f206e68dfe7cd67ceecd9d69319c67c74910af4c219bc89ff85"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "90ee648006e2afab1042d382627febfb9b1c718dbf268345732fc2fb2de115b4",
+              "frame_sha256": "ab5d44f9e4d204c1301bc3027b91f91da58571f3dec0fadc6cff5fb25142f759"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-hinted-source-75",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "21a02281d75287221064dbede3b34b701631fefba4d5c8153d9eafdf6c636c59",
+              "frame_sha256": "e97ad7a279815eb4bd7dc3db1cc64cfe82fd70ccdf29f47a42e1bbe3f395488c"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "21a02281d75287221064dbede3b34b701631fefba4d5c8153d9eafdf6c636c59",
+              "frame_sha256": "e97ad7a279815eb4bd7dc3db1cc64cfe82fd70ccdf29f47a42e1bbe3f395488c"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-hinted-production-75",
+      "input_sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "febc94039cbb513eb917b5db97616bf02fde73bfe52a3856699cda14174be7b7",
+              "frame_sha256": "abc3b7b1b995603de13b41b7d5d155fd7adf01109a3ed33df274169c057e37c4"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "febc94039cbb513eb917b5db97616bf02fde73bfe52a3856699cda14174be7b7",
+              "frame_sha256": "8071d3e85b67ede7d484cfe9b2b7eabedf4a037529faf64b9fc9a43f086346d3"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-hinted-source-125",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "4b3ff5dfc25d49db5d6a41eece5972a2808c67bf8208c6cdf1d4d35b230d86e6",
+              "frame_sha256": "d013db58652c7b70634214bea5006cd25fa744e50c23d7649a50ac20674fc480"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "4b3ff5dfc25d49db5d6a41eece5972a2808c67bf8208c6cdf1d4d35b230d86e6",
+              "frame_sha256": "d013db58652c7b70634214bea5006cd25fa744e50c23d7649a50ac20674fc480"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-production",
+      "label": "fonts-ready-barcontrol-hinted-production-125",
+      "input_sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "b797270cd47f16944d43351d39b16a24352da41cc3b5965c3dcd1f7ba1c83d57",
+              "frame_sha256": "127091caebee66dae1baeaaf20913105bf1ae5f786dc38f658dbb20cb7c11ffd"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "b797270cd47f16944d43351d39b16a24352da41cc3b5965c3dcd1f7ba1c83d57",
+              "frame_sha256": "127091caebee66dae1baeaaf20913105bf1ae5f786dc38f658dbb20cb7c11ffd"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-overdraw",
+      "label": "fonts-ready-baroverdraw-full-75",
+      "input_sha256": "75d2d62f585f3829f53bfcf3c1d0e4568ca31e9df16bf27b8cb2acaf2c29485f",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "a8ea7def8ac049dbe41afaaad9273ba2398761cf28ef6bc02d6fe825fd3442a9",
+              "frame_sha256": "c9cfc3a88652120a1db1b5c0a3400101349794585744bdd367c79001cc93de28"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "a8ea7def8ac049dbe41afaaad9273ba2398761cf28ef6bc02d6fe825fd3442a9",
+              "frame_sha256": "c9cfc3a88652120a1db1b5c0a3400101349794585744bdd367c79001cc93de28"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-overdraw",
+      "label": "fonts-ready-baroverdraw-full-125",
+      "input_sha256": "75d2d62f585f3829f53bfcf3c1d0e4568ca31e9df16bf27b8cb2acaf2c29485f",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74d982f5438d28028223162b46ba33cc3fd57dad9d1867ddbc0fbd2e58ab9889",
+              "frame_sha256": "5837dd64116121a1167d2be8adab64e489a5fe48a0ed631bc27669872abbf8c8"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74d982f5438d28028223162b46ba33cc3fd57dad9d1867ddbc0fbd2e58ab9889",
+              "frame_sha256": "f6b97b912698de7b6fa57b231e7d694a1238bd282fb7d7ab776d7c21c692dfbb"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-overdraw",
+      "label": "fonts-ready-baroverdraw-b9-75",
+      "input_sha256": "b6c77fa6e77c67111f9154ce05ea66fc47fd1b37e98172577ec50b2f5494b892",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74f876c5a685f31bcb975998bfef08a48b5e2a45755d68b8a9eabc0e04360608",
+              "frame_sha256": "d9c1537edf03b26e247aa32567a0fe0e2075324664dd04a6137198da9f7a2081"
+            },
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74f876c5a685f31bcb975998bfef08a48b5e2a45755d68b8a9eabc0e04360608",
+              "frame_sha256": "1c8c8fb48e03716de6d61053f0eee2b0678f4f02272af231672800a4143c6135"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-overdraw",
+      "label": "fonts-ready-baroverdraw-b9-100",
+      "input_sha256": "b6c77fa6e77c67111f9154ce05ea66fc47fd1b37e98172577ec50b2f5494b892",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "d04af1cfda3f5eeb8beb4e05fde6109e2a32dc65d84552fdcbcfa96b46032d0b",
+              "frame_sha256": "7a95316a6e6f284b2f41f12797eb14048b4e0ff341ff7777dbb97b65b59cf121"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "d04af1cfda3f5eeb8beb4e05fde6109e2a32dc65d84552fdcbcfa96b46032d0b",
+              "frame_sha256": "a16b085a1e3c287c3501c046fab496ad6f869e6dad0284687b19e3c3d45a195c"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-final",
+      "label": "fonts-ready-bandfinal-b9-75",
+      "input_sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74f876c5a685f31bcb975998bfef08a48b5e2a45755d68b8a9eabc0e04360608",
+              "frame_sha256": "1c8c8fb48e03716de6d61053f0eee2b0678f4f02272af231672800a4143c6135"
+            },
+            {
+              "bounds_with_border": [
+                531,
+                256,
+                1038,
+                1004
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74f876c5a685f31bcb975998bfef08a48b5e2a45755d68b8a9eabc0e04360608",
+              "frame_sha256": "1c8c8fb48e03716de6d61053f0eee2b0678f4f02272af231672800a4143c6135"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-final",
+      "label": "fonts-ready-bandfinal-b9-100",
+      "input_sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "zoom": 100,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "d04af1cfda3f5eeb8beb4e05fde6109e2a32dc65d84552fdcbcfa96b46032d0b",
+              "frame_sha256": "a16b085a1e3c287c3501c046fab496ad6f869e6dad0284687b19e3c3d45a195c"
+            },
+            {
+              "bounds_with_border": [
+                447,
+                133,
+                1122,
+                1128
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "d04af1cfda3f5eeb8beb4e05fde6109e2a32dc65d84552fdcbcfa96b46032d0b",
+              "frame_sha256": "a16b085a1e3c287c3501c046fab496ad6f869e6dad0284687b19e3c3d45a195c"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-final",
+      "label": "fonts-ready-bandfinal-full-75",
+      "input_sha256": "d94666f5be752da6d1192cde8ebfd7d6d712588a2c11c6c7437311365de4058d",
+      "zoom": 75,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "a8ea7def8ac049dbe41afaaad9273ba2398761cf28ef6bc02d6fe825fd3442a9",
+              "frame_sha256": "c9cfc3a88652120a1db1b5c0a3400101349794585744bdd367c79001cc93de28"
+            },
+            {
+              "bounds_with_border": [
+                572,
+                409,
+                1015,
+                851
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "a8ea7def8ac049dbe41afaaad9273ba2398761cf28ef6bc02d6fe825fd3442a9",
+              "frame_sha256": "c9cfc3a88652120a1db1b5c0a3400101349794585744bdd367c79001cc93de28"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    },
+    {
+      "phase": "bar-final",
+      "label": "fonts-ready-bandfinal-full-125",
+      "input_sha256": "d94666f5be752da6d1192cde8ebfd7d6d712588a2c11c6c7437311365de4058d",
+      "zoom": 125,
+      "observations": [
+        {
+          "requested_page": 1,
+          "stable": true,
+          "complete": true,
+          "navigation_confirmed": true,
+          "frames": [
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74d982f5438d28028223162b46ba33cc3fd57dad9d1867ddbc0fbd2e58ab9889",
+              "frame_sha256": "5837dd64116121a1167d2be8adab64e489a5fe48a0ed631bc27669872abbf8c8"
+            },
+            {
+              "bounds_with_border": [
+                418,
+                264,
+                1152,
+                997
+              ],
+              "background": [
+                94,
+                104,
+                131
+              ],
+              "complete": true,
+              "viewport_rgb_sha256": "74d982f5438d28028223162b46ba33cc3fd57dad9d1867ddbc0fbd2e58ab9889",
+              "frame_sha256": "f6b97b912698de7b6fa57b231e7d694a1238bd282fb7d7ab776d7c21c692dfbb"
+            }
+          ]
+        }
+      ],
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false
+    }
+  ],
+  "runtime": [
+    {
+      "runtime": "Node",
+      "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "bytes": 25228167,
+      "maxChunk": 65536,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "bytes": 21700542,
+      "maxChunk": 16384,
+      "pages": 12,
+      "byte_identical": true,
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "bytes": 24948872,
+      "maxChunk": 65536,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "bytes": 30443954,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "bytes": 30800943,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "bytes": 30654733,
+      "maxChunk": 65536,
+      "pages": 10,
+      "byte_identical": true,
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "bytes": 21821487,
+      "maxChunk": 16384,
+      "pages": 6,
+      "byte_identical": true,
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "bytes": 31127892,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "bytes": 32149451,
+      "maxChunk": 65536,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "bytes": 31465674,
+      "maxChunk": 65536,
+      "pages": 6,
+      "byte_identical": true,
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "bytes": 30948246,
+      "maxChunk": 16384,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "bytes": 30521654,
+      "maxChunk": 16384,
+      "pages": 7,
+      "byte_identical": true,
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "bytes": 30939308,
+      "maxChunk": 16384,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "d94666f5be752da6d1192cde8ebfd7d6d712588a2c11c6c7437311365de4058d",
+      "bytes": 23289,
+      "maxChunk": 2597,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "bytes": 26056,
+      "maxChunk": 3140,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    },
+    {
+      "runtime": "Node",
+      "sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "bytes": 26069,
+      "maxChunk": 3140,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "bytes": 25228167,
+      "maxChunk": 65536,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "bytes": 21700542,
+      "maxChunk": 16384,
+      "pages": 12,
+      "byte_identical": true,
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "bytes": 24948872,
+      "maxChunk": 65536,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "bytes": 30443954,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "bytes": 30800943,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "bytes": 30654733,
+      "maxChunk": 65536,
+      "pages": 10,
+      "byte_identical": true,
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "bytes": 21821487,
+      "maxChunk": 16384,
+      "pages": 6,
+      "byte_identical": true,
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "bytes": 31127892,
+      "maxChunk": 16384,
+      "pages": 4,
+      "byte_identical": true,
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "bytes": 32149451,
+      "maxChunk": 65536,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "bytes": 31465674,
+      "maxChunk": 65536,
+      "pages": 6,
+      "byte_identical": true,
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "bytes": 30948246,
+      "maxChunk": 16384,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "bytes": 30521654,
+      "maxChunk": 16384,
+      "pages": 7,
+      "byte_identical": true,
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "bytes": 30939308,
+      "maxChunk": 16384,
+      "pages": 5,
+      "byte_identical": true,
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "d94666f5be752da6d1192cde8ebfd7d6d712588a2c11c6c7437311365de4058d",
+      "bytes": 23289,
+      "maxChunk": 2597,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "ab9f0a7584e5cbcdbfe6e28aa4adb688a98c0a47beb7beec1ae69975257ca8b3",
+      "bytes": 26056,
+      "maxChunk": 3140,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    },
+    {
+      "runtime": "Chromium",
+      "sha256": "859112735c507e6f1d27d1ddc364922c441f0c171ab8b051384701be8255d8f7",
+      "bytes": 26069,
+      "maxChunk": 3140,
+      "pages": 1,
+      "byte_identical": true,
+      "source_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699"
+    }
+  ],
+  "tests": {
+    "workspace_passed": 1466,
+    "workspace_ignored_excluded": 7,
+    "js_passed": 192,
+    "js_skipped": 0,
+    "final_ornament_tests": 3,
+    "strict_clippy": true
+  },
+  "summary": {
+    "new_cold_sessions": 26,
+    "admitted_visits": 26,
+    "actual_documents": 13,
+    "actual_pages": 77,
+    "unchanged_documents": 12,
+    "semantic_characters": 113418,
+    "preserved_links": 133
+  },
+  "limitations": [
+    "The exact-width candidate is rejected despite passing structural/runtime tests: independent controls show endpoint contraction.",
+    "Original inset and instructed controls remain repeated and are negative selection tests, not source-fidelity passes.",
+    "General pattern cadence, band pixel phase/weight, physical annotation cadence and image-edge raster differences remain.",
+    "Final four GUI views match the visually inspected overdraw diagnostics; other page content is byte-invariant from the earlier complete 77-page review.",
+    "External documents/fonts/PDFs/screenshots are not included; no universal renderer or native Windows claim."
+  ]
+}

@@ -3984,3 +3984,23 @@ Original tests cover entity-decoded targets, page assignment, colors, malformed
 rectangles/attributes, unmeasured profiles, bounds, cancellation, short I/O,
 PDF escaping, body preservation and failed-output invalidation. Font, corpus,
 PDF and screenshot files remain outside this repository.
+
+### Original-font horizontal ornament bands (#541)
+
+`pdf/font/bands.rs` and its tests are original MIT project code based on the
+OpenType `glyf`/`loca` field definitions linked in the
+[band study](research/wine-ornament-bands-20261011.md). The bounded predicate
+recognizes simple unhinted full-em rectangles; it does not import an outline
+renderer or translate any external converter. Changes to font handles and
+native composition connect this probe to one clipped original-font draw.
+Font programs and ordinary text remain unchanged.
+
+The shared `band_font` test fixture and
+`scripts/research/wine_ornament_bands.py` independently author simple rectangles
+and a harmless stack instruction. They reuse only this project's original
+fixture/geometry builders. Generated fixtures reproduce with fontTools 4.62.1;
+no vendor outline bytes or private HN/JBIG code are committed or migrated.
+The initial exact-width stretch is retained as a rejected experiment because
+independent controls exposed shortened endpoints. The final clipped overdraw
+has no target-zoom or per-document fitted geometry. Its source/visual/runtime
+scope and remaining pitch/antialiasing limits are recorded in the report.

@@ -1,5 +1,9 @@
 # Wine ornament spacing and PDF encoding controls
 
+Later [full-em band controls](wine-ornament-bands-20261011.md) adopt a narrow
+original-font correction for continuous horizontal bands. The historical
+patterned-glyph results and rejected alternatives below remain unchanged.
+
 Follow-up to #541 and [the per-value glyph map](wine-ornaments-20261011.json).
 The remaining repeated-pattern difference is reproducible with original
 rectangles, so it is not explained by choosing the wrong vendor glyph. In the

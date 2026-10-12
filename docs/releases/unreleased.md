@@ -417,3 +417,14 @@ its dash cadence and gap in device pixels, so zoom-dependent differences
 remain. Exact RGB equality is not an acceptance gate. Original controlled
 sources and all 11 affected actual pages are compared at reading size;
 printing and target navigation remain untested.
+
+### Continuous native ornament bands (#541)
+
+Explicitly mapped native decoration glyphs that consist solely of small,
+unhinted full-em horizontal rectangles now paint once through the existing
+clip. This removes visible seams in the measured double-rule header while
+retaining the original font program and vertical geometry. Other patterns,
+ordinary text, page geometry and link appearances are unchanged. No public
+API or option is added. Reconvert affected files to receive the correction;
+PDF bytes can change. The bounded shape test and independent positive/negative
+controls are documented in the [study](../research/wine-ornament-bands-20261011.md).
