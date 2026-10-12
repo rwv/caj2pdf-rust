@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Breaking (Rust API):** add `NativeDecorationGlyph`, plus
+  `decoration_glyphs` and `decoration_font` to `Fonts`/`C8FontSources` (#541).
+  Explicit native-mode-2 mappings select distinct glyphs for ornament values
+  1, 2, 46 and 117, with optional font identity binding. CLI exposes
+  `--decoration-glyph`/`--decoration-font-identity`; JavaScript exposes
+  `decorationGlyphs`/`decorationFontIdentity`. Empty maps preserve output.
+  [Migration](docs/releases/unreleased.md#breaking-rust-api-ornament-glyph-maps-541).
+
+- **Breaking (Rust API):** `C8PageFonts` gains optional `cjk_sans`,
+  `cjk_kai` and `cjk_system` fields for the measured CJK style resources
+  in C8/HN-B (#541), including fullwidth C8 text and explicit `801c`
+  family overrides. Add `None` for each to preserve existing behavior.
+  CLI adds `--font-cjk-sans`, `--font-cjk-kai`, `--font-cjk-system`;
+  JavaScript adds `cjkSans`, `cjkKai`, `cjkSystem`. Explicit font resources
+  now support at most eleven distinct inputs. See the
+  [migration notes](docs/releases/unreleased.md#breaking-rust-api-cjk-style-font-roles-541).
+
 - Symbol glyph maps can be bound to the font they were measured on (#518).
   The binding is the PostScript name plus the `head` checkSumAdjustment, set
   with CLI `--symbol-font-identity`, JavaScript `symbolFontIdentity` or Rust

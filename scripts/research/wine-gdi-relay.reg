@@ -1,0 +1,5 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Wine\Debug]
+"RelayExclude"=-
+"RelayInclude"="gdi32.CreateFontA;gdi32.CreateFontW;gdi32.CreateFontIndirectA;gdi32.CreateFontIndirectW;gdi32.CreateFontIndirectExW;gdi32.AddFontResourceA;gdi32.AddFontResourceW;gdi32.AddFontResourceExA;gdi32.AddFontResourceExW;gdi32.AddFontMemResourceEx;gdi32.GetGlyphOutlineA;gdi32.GetGlyphOutlineW;gdi32.GetGlyphIndicesW;gdi32.GetFontData;gdi32.GetTextFaceW;gdi32.TextOutA;gdi32.TextOutW;gdi32.ExtTextOutA;gdi32.ExtTextOutW;gdi32.PolyTextOutA;gdi32.PolyTextOutW;gdi32.CreateDIBSection;gdi32.StretchDIBits;gdi32.SetDIBitsToDevice;gdi32.StretchBlt;gdi32.SetWorldTransform"

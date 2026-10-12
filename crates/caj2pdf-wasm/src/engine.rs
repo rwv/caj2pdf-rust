@@ -27,7 +27,7 @@ pub const PROGRESS_TOTAL: u32 = 1000;
 /// own description of the failure.
 pub trait Host {
     /// Copy at most `destination.len()` bytes of `resource` (0 for the
-    /// document, 1..=8 for registered fonts) at `offset` into
+    /// document, 1..=11 for registered fonts) at `offset` into
     /// `destination`, returning the count. A short read is allowed.
     fn read(&mut self, resource: u32, offset: u64, destination: &mut [u8]) -> io::Result<usize>;
     /// Accept a prefix of `bytes`, returning its length.
@@ -42,6 +42,9 @@ pub trait Host {
 
 /// The work a session performs. A `None` format is detected from the
 /// leading signature.
+// One fixed-size operation is consumed per session, never collected. Keep
+// its bounded configuration inline instead of allocating it separately.
+#[allow(clippy::large_enum_variant)]
 pub enum Operation {
     /// Convert to PDF with the registered fonts, if any.
     Convert { options: ConversionOptions<'static> },
@@ -309,6 +312,21 @@ impl Session {
         self.result.is_none() && self.fonts.set_latin_state(state, index)
     }
 
+    /// Assign a native CJK role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
+    pub fn set_c8_cjk_style(&mut self, style: u32, index: u32) -> bool {
+        self.result.is_none() && self.fonts.set_cjk_style(style, index)
+    }
+
+    /// Select subset (0) or complete TrueType (1) embedding once after roles.
+    pub fn set_c8_font_embedding(&mut self, mode: u32) -> bool {
+        self.result.is_none() && self.fonts.set_embedding(mode)
+    }
+
+    /// Add an ordinary BMP character/glyph alias in source-index/character order.
+    pub fn add_c8_font_glyph(&mut self, font: u32, character: u32, glyph: u32) -> bool {
+        self.result.is_none() && self.fonts.add_glyph_alias(font, character, glyph)
+    }
+
     /// Map an HN-B mode-0 symbol code to a glyph of the symbols role, after
     /// the roles and before running.
     pub fn add_hnb_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {
@@ -319,6 +337,16 @@ impl Session {
     /// roles and before running.
     pub fn set_hnb_symbol_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
         self.result.is_none() && self.fonts.set_symbol_font(checksum, length, words)
+    }
+
+    /// Map one native-mode-2 ornament value to a BMP glyph, before running.
+    pub fn add_c8_decoration_glyph(&mut self, value: u32, glyph: u32) -> bool {
+        self.result.is_none() && self.fonts.add_decoration_glyph(value, glyph)
+    }
+
+    /// Bind ornament aliases to the decoration font identity, before running.
+    pub fn set_c8_decoration_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
+        self.result.is_none() && self.fonts.set_decoration_font(checksum, length, words)
     }
 
     /// Run `operation` over a document of `source_size` bytes to completion.

@@ -10,6 +10,8 @@ use crate::{
 use std::io::Cursor;
 use std::io::Write;
 
+mod full;
+
 #[derive(Default)]
 struct Sink {
     bytes: Vec<u8>,
@@ -895,6 +897,9 @@ fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
             .glyph_with_replacement_text(0, 'A', matrix(10.0 + 25.0 * index as f64), 68, character)
             .unwrap();
     }
+    content
+        .glyph_with_alias_text(0, '中', matrix(60.0), 68, 'A')
+        .unwrap();
     content.glyph(0, 'A', matrix(70.0)).unwrap();
     content.finish().unwrap();
     document.embed_font(&handle, &mut font).unwrap();
@@ -902,8 +907,10 @@ fn replacement_text_is_utf16_and_counted_without_leaking_into_later_glyphs() {
     let text = pdf_text(&sink.bytes);
     assert!(text.contains("/ActualText <FEFFE6C7>"));
     assert!(text.contains("/ActualText <FEFFDB80DC00>"));
-    assert_eq!(text.matches("BDC\n").count(), 2);
-    assert_eq!(text.matches("EMC\n").count(), 2);
+    assert!(text.contains("/ActualText <FEFF0041>"));
+    assert_eq!(text.matches("<4E2D> Tj").count(), 1);
+    assert_eq!(text.matches("BDC\n").count(), 3);
+    assert_eq!(text.matches("EMC\n").count(), 3);
     assert_eq!(text.matches("<0041> Tj").count(), 3);
 }
 
@@ -1125,4 +1132,176 @@ fn bilevel_overlay_refuses_color_resources_and_poisoned_pages() {
     assert!(content.image(0, matrix(0.0)).is_err());
     assert!(content.finish().is_err());
     assert!(document.finish().is_err());
+}
+
+#[test]
+fn link_appearances_preserve_body_and_escape_uri_delimiters_with_short_writes() {
+    let limits = Limits {
+        io_chunk_bytes: 31,
+        ..Limits::default()
+    };
+    let link = LinkAnnotation {
+        rect: [10.0, 20.0, 30.0, 35.0],
+        rgb: [255, 0, 0],
+        uri: "https://example.invalid/a?x=(1)&y=<2>",
+    };
+    let mut outputs = Vec::new();
+    for include in [false, true] {
+        let mut sink = Sink::default();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+        let mut content = document.begin_content_page(page(), &[], &[]).unwrap();
+        content.segment([1.0, 2.0], [9.0, 2.0], 0.0).unwrap();
+        content
+            .finish_with_links(include.then_some(link).into_iter())
+            .unwrap();
+        document.finish().unwrap();
+        assert!(sink.max_request <= 31);
+        outputs.push(sink.bytes);
+    }
+    assert_eq!(
+        inflated_stream(&outputs[0], b"/FlateDecode"),
+        inflated_stream(&outputs[1], b"/FlateDecode")
+    );
+    let text = String::from_utf8_lossy(&outputs[1]);
+    assert!(text.contains("/Subtype /Link /Rect [10.000000 18.500000 30.000000 35.000000]"));
+    assert!(text.contains("/Subtype /Form /FormType 1 /BBox [0 0 20.000000 16.500000]"));
+    assert!(text.contains("q 1.000000 0.000000 0.000000 rg"));
+    assert!(text.contains("0.000000 0 6.750000 0.5 re f"));
+    let hex = link
+        .uri
+        .bytes()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    assert!(text.contains(&format!("/URI <{hex}>")));
+    assert!(!text.contains(link.uri));
+    let mut source = SeekableSource::new(Cursor::new(outputs.pop().unwrap())).unwrap();
+    let size = source.size();
+    let index = crate::pdf::PdfIndex::open(
+        &mut source,
+        crate::pdf::PdfRange {
+            offset: 0,
+            length: size,
+        },
+        &limits,
+        &NEVER,
+    )
+    .unwrap();
+    assert_eq!(index.pages().len(), 1);
+}
+
+#[test]
+fn failed_link_finish_invalidates_the_document() {
+    use std::{cell::Cell, rc::Rc};
+    struct Cancel(Rc<Cell<bool>>);
+    impl Cancellation for Cancel {
+        fn is_cancelled(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let link = LinkAnnotation {
+        rect: [10.0, 20.0, 30.0, 35.0],
+        rgb: [128; 3],
+        uri: "https://example.invalid/",
+    };
+    for fault in 0..5 {
+        let limits = Limits::default();
+        let cancelled = Rc::new(Cell::new(false));
+        let cancel = Cancel(cancelled.clone());
+        let mut sink = Sink::default();
+        let output_fault = sink.fail_now.clone();
+        let mut document = PdfDocument::new(&mut sink, &limits, &cancel).unwrap();
+        let content = document.begin_content_page(page(), &[], &[]).unwrap();
+        if fault == 0 {
+            cancelled.set(true);
+        }
+        if fault == 1 {
+            output_fault.set(true);
+        }
+        let link = match fault {
+            2 => LinkAnnotation {
+                rect: [0.0, 0.0, f64::NAN, 1.0],
+                ..link
+            },
+            3 => LinkAnnotation {
+                uri: "https://example.invalid/\n",
+                ..link
+            },
+            _ => link,
+        };
+        let result =
+            content.finish_with_links(std::iter::repeat_n(link, if fault == 4 { 8193 } else { 1 }));
+        assert!(result.is_err());
+        cancelled.set(false);
+        output_fault.set(false);
+        assert!(document.finish().is_err());
+    }
+}
+
+#[test]
+fn decimal_link_width_does_not_emit_an_empty_last_dash() {
+    let limits = Limits::default();
+    let mut sink = Sink::default();
+    let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+    let content = document.begin_content_page(page(), &[], &[]).unwrap();
+    content
+        .finish_with_links(std::iter::once(LinkAnnotation {
+            rect: [90.07, 20.0, 207.07, 35.0],
+            rgb: [128; 3],
+            uri: "https://example.invalid/",
+        }))
+        .unwrap();
+    document.finish().unwrap();
+    let text = String::from_utf8_lossy(&sink.bytes);
+    assert!(!text.contains(" 0 0.000000 0.5 re f"));
+}
+
+#[test]
+fn failures_inside_link_forms_actions_and_page_references_poison_output() {
+    let limits = Limits {
+        io_chunk_bytes: 31,
+        ..Limits::default()
+    };
+    let link = LinkAnnotation {
+        rect: [10.0, 20.0, 130.0, 35.0],
+        rgb: [128; 3],
+        uri: "https://example.invalid/a?x=(1)&y=<2>",
+    };
+    let mut good = Sink::default();
+    {
+        let mut document = PdfDocument::new(&mut good, &limits, &NEVER).unwrap();
+        document
+            .begin_content_page(page(), &[], &[])
+            .unwrap()
+            .finish_with_links(std::iter::once(link))
+            .unwrap();
+        document.finish().unwrap();
+    }
+    for marker in [
+        b"/Subtype /Form".as_slice(),
+        b" re f",
+        b"/URI <",
+        b"/Annots",
+    ] {
+        let at = good
+            .bytes
+            .windows(marker.len())
+            .position(|part| part == marker)
+            .unwrap()
+            + marker.len();
+        let mut sink = Sink {
+            fail_after: Some(at),
+            ..Sink::default()
+        };
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).unwrap();
+        let content = document.begin_content_page(page(), &[], &[]).unwrap();
+        assert!(matches!(
+            content
+                .finish_with_links(std::iter::once(link))
+                .unwrap_err()
+                .kind,
+            ErrorKind::Io(_)
+        ));
+        assert!(document.finish().is_err());
+        assert!(!String::from_utf8_lossy(&sink.bytes).contains("%%EOF"));
+    }
 }

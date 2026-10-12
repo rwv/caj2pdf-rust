@@ -13,7 +13,9 @@ use crate::{Error, Result};
 
 /// Empirical PDF points per raw text-coordinate unit in the measured profile.
 /// This does not assign an authoritative physical unit to the source word.
-pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 240.0 / 2473.0;
+/// Refined by independent Wine page-boundary controls, including held-out
+/// widths/heights at 75%, 100% and 150%; see the 2026-10-11 page-extent study.
+pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 72.0 / 742.0;
 /// Four-decimal reference output gives this absolute comparison tolerance.
 /// Evaluation returns full `f64` precision rather than rounding early.
 pub const EMPIRICAL_PLACEMENT_TOLERANCE_POINTS: f64 = 0.00005;
@@ -122,6 +124,15 @@ pub(super) fn source_page_geometry(size: [u16; 2]) -> Result<EmpiricalPageGeomet
         origin_points: [0.0, 0.0],
         size: source_size(size)?,
     })
+}
+
+/// Wine mode-0 page extents add ten PDF points, independently of the raw
+/// coordinate unit. Original controls distinguish this from 100 raw units.
+pub(super) fn mode_zero_page_geometry(size: [u16; 2]) -> Result<EmpiricalPageGeometry> {
+    let mut page = source_page_geometry(size)?;
+    page.size.width_points += 10.0;
+    page.size.height_points += 10.0;
+    Ok(page)
 }
 
 pub(super) fn source_image_transform(
@@ -274,6 +285,80 @@ pub(super) fn native_glyph_transform(
         y -= latin_offset * unit;
     }
     Ok([width, 0.0, 0.0, height, x, y])
+}
+
+/// Mode-2 A0 digits in ordinary/alternate Latin selection share the CJK
+/// horizontal origin, with their top at the recorded y coordinate. Preserve
+/// the existing Latin size/style admission; CJK character mode is separate.
+pub(super) fn native_digit_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    let mut transform = native_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Latin,
+        axes,
+    )?;
+    let [left, _, _, top] = page.media_box()?;
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    transform[4] = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
+    transform[5] =
+        top - (f64::from(position[1]) - f64::from(source_origin[1])) * unit - transform[3];
+    Ok(transform)
+}
+
+/// Mode-2 A0 letters use character-dependent integer source origins. These
+/// factors come from independent Wine geometric controls, not font metrics.
+/// Keep the existing Latin style/axis admission and the selected font em.
+pub(super) fn native_letter_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    axes: [Option<u16>; 2],
+    code: u16,
+) -> Result<[f64; 6]> {
+    const UPPER: [u32; 26] = [
+        8, 8, 8, 8, 10, 8, 8, 8, 17, 17, 8, 10, 5, 8, 8, 9, 8, 8, 11, 8, 6, 6, 1, 7, 7, 9,
+    ];
+    const LOWER: [u32; 26] = [
+        15, 13, 15, 13, 15, 17, 13, 13, 20, 20, 13, 20, 4, 14, 14, 13, 13, 18, 17, 18, 14, 12, 7,
+        13, 13, 13,
+    ];
+    let factor = match code {
+        0xa0c1..=0xa0da => UPPER[usize::from(code - 0xa0c1)],
+        0xa0e1..=0xa0fa => LOWER[usize::from(code - 0xa0e1)],
+        _ => return Err(Error::invalid("unverified native alphabet code")),
+    };
+    let mut transform = native_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Latin,
+        axes,
+    )?;
+    // Every admitted Latin em is an integer nominal size times 75/301.
+    // Undo that scale before integer half-up rounding; neither the font's
+    // advance nor the output zoom determines these source-coordinate offsets.
+    let width = (transform[0] * 301.0 / 75.0).round() as u32;
+    let height = (transform[3] * 301.0 / 75.0).round() as u32;
+    let x_offset = 20 + (width * factor * 5 + 64) / 128;
+    let y_offset = (height * 30 + 64) / 128;
+    let [left, _, _, top] = page.media_box()?;
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    transform[4] =
+        left + (f64::from(position[0]) - f64::from(source_origin[0]) + f64::from(x_offset)) * unit;
+    transform[5] = top
+        - (f64::from(position[1]) - f64::from(source_origin[1]) - f64::from(y_offset)) * unit
+        - transform[3];
+    Ok(transform)
 }
 
 /// Independently controlled HN-B mode-0 CJK and Latin placement.

@@ -5,7 +5,11 @@
 //! tokens, help and version; [`parse`] then checks the rules clap cannot
 //! express and keeps the documented `caj2pdf: error:` messages.
 
-use caj2pdf_core::hnc8::{NativeSymbolGlyph, SymbolFontIdentity};
+use caj2pdf_core::hnc8::{
+    C8_MAX_FONTS, MAX_NATIVE_FONT_GLYPHS, NativeDecorationGlyph, NativeFontGlyphAlias,
+    NativeSymbolGlyph, SymbolFontIdentity,
+};
+use caj2pdf_core::pdf::FontEmbedding;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsString;
@@ -24,21 +28,26 @@ pub struct ConvertOptions {
     pub no_bookmarks: bool,
     pub allow_damaged: bool,
     pub quiet: bool,
-    pub fonts: [Option<PathBuf>; 8],
+    pub fonts: [Option<PathBuf>; C8_MAX_FONTS],
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
     pub font_dir: Option<PathBuf>,
+    pub font_embedding: FontEmbedding,
+    /// `font` initially indexes FONT_FILES; Resources resolves source indices.
+    pub font_glyphs: Vec<NativeFontGlyphAlias>,
     pub decoration_char: Option<char>,
     /// Explicit symbols-font glyphs for raw HN-B mode-0 symbol codes.
     pub symbol_glyphs: Vec<NativeSymbolGlyph>,
     /// The symbols font the glyph map was measured on.
     pub symbol_font: Option<SymbolFontIdentity>,
+    pub decoration_glyphs: Vec<NativeDecorationGlyph>,
+    pub decoration_font: Option<SymbolFontIdentity>,
     /// Never search the installed fonts for native C8/HN-B text.
     pub no_system_fonts: bool,
 }
 
 /// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
 /// Each is looked up with the extensions in [`FONT_EXTENSIONS`].
-pub const FONT_FILES: [&str; 8] = [
+pub const FONT_FILES: [&str; C8_MAX_FONTS] = [
     "cjk",
     "latin",
     "alternate-latin",
@@ -47,6 +56,9 @@ pub const FONT_FILES: [&str; 8] = [
     "latin-state3",
     "latin-state28",
     "latin-state31",
+    "cjk-sans",
+    "cjk-kai",
+    "cjk-system",
 ];
 
 /// Font file extensions tried for each `--fonts DIR` role, in order. A
@@ -149,9 +161,24 @@ struct ConvertArgs {
     /// Native C8/HN-B fonts named cjk, latin, ... (.ttf/.otf/.ttc) in DIR
     #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
     fonts: Option<OsString>,
+    /// Embed used fonts as compact subsets or complete TrueType programs
+    #[arg(long, value_parser = ["subset", "full"], default_value = "subset")]
+    font_embedding: String,
+    /// Use a font's original cmap GLYPH for text CHAR, preserving text; repeatable
+    #[arg(long, value_name = "ROLE:CHAR=GLYPH", allow_hyphen_values = true)]
+    font_glyph: Vec<OsString>,
     /// Native C8/HN-B CJK font (required with --font-latin)
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk: Option<OsString>,
+    /// Optional C8/HN-B CJK font for Hei/sans styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_sans: Option<OsString>,
+    /// Optional C8/HN-B CJK font for Kai styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_kai: Option<OsString>,
+    /// Optional C8/HN-B CJK font for measured system-font styles
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    font_cjk_system: Option<OsString>,
     /// Native C8/HN-B ordinary Latin font
     #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin: Option<OsString>,
@@ -182,6 +209,12 @@ struct ConvertArgs {
     /// Require the symbols font NAME (PostScript) with head checkSumAdjustment CHECKSUM (8 hex digits)
     #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
     symbol_font_identity: Option<OsString>,
+    /// Draw CHAR (or U+XXXX) for ornament VALUE (1, 2, 46 or 117); repeatable
+    #[arg(long, value_name = "VALUE=CHAR", allow_hyphen_values = true)]
+    decoration_glyph: Vec<OsString>,
+    /// Require the decoration font NAME with head checkSumAdjustment CHECKSUM (8 hex digits)
+    #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
+    decoration_font_identity: Option<OsString>,
     /// Do not search installed fonts for native C8/HN-B text
     #[arg(long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
@@ -297,6 +330,48 @@ fn symbol_glyph(value: OsString) -> Result<NativeSymbolGlyph, String> {
     }
 }
 
+fn decoration_glyph(value: OsString) -> Result<NativeDecorationGlyph, String> {
+    const ERROR: &str =
+        "--decoration-glyph requires VALUE=CHAR: 1, 2, 46 or 117 and one BMP character or U+XXXX";
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (raw, glyph) = value.split_once('=').ok_or(ERROR)?;
+    let value = match raw {
+        "1" => 1,
+        "2" => 2,
+        "46" => 46,
+        "117" => 117,
+        _ => return Err(ERROR.into()),
+    };
+    // Reuse the established BMP literal/U+XXXX parser, with a neutral code.
+    let parsed = symbol_glyph(OsString::from(format!("0000={glyph}"))).map_err(|_| ERROR)?;
+    Ok(NativeDecorationGlyph {
+        value,
+        glyph: parsed.glyph,
+    })
+}
+
+fn font_glyph(value: OsString) -> Result<NativeFontGlyphAlias, String> {
+    const ERROR: &str =
+        "--font-glyph requires ROLE:CHAR=GLYPH with a known font role and BMP characters or U+XXXX";
+    let value = value.into_string().map_err(|_| ERROR)?;
+    let (role, pair) = value.split_once(':').ok_or(ERROR)?;
+    let font = FONT_FILES
+        .iter()
+        .position(|name| *name == role)
+        .ok_or(ERROR)?;
+    let (character, glyph) = pair.split_once('=').ok_or(ERROR)?;
+    let scalar = |value| {
+        symbol_glyph(OsString::from(format!("0000={value}")))
+            .map(|entry| entry.glyph)
+            .map_err(|_| ERROR)
+    };
+    Ok(NativeFontGlyphAlias {
+        font,
+        character: scalar(character)?,
+        glyph: scalar(glyph)?,
+    })
+}
+
 /// `NAME:CHECKSUM`: a PostScript name and an eight-digit hexadecimal `head`
 /// checkSumAdjustment. The name may itself contain `:`.
 fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
@@ -319,6 +394,9 @@ fn symbol_font_identity(value: OsString) -> Result<SymbolFontIdentity, String> {
 impl ConvertArgs {
     fn into_command(self) -> Result<Command, String> {
         const FONT: &str = "font resources require a nonempty path, not standard input";
+        if self.font_glyph.len() > MAX_NATIVE_FONT_GLYPHS {
+            return Err("too many --font-glyph aliases".into());
+        }
         let fonts = [
             self.font_cjk,
             self.font_latin,
@@ -328,6 +406,9 @@ impl ConvertArgs {
             self.font_latin_state3,
             self.font_latin_state28,
             self.font_latin_state31,
+            self.font_cjk_sans,
+            self.font_cjk_kai,
+            self.font_cjk_system,
         ];
         let mut options = ConvertOptions {
             ttkn_response_file: font_path(
@@ -337,6 +418,16 @@ impl ConvertArgs {
             no_bookmarks: self.no_bookmarks,
             allow_damaged: self.allow_damaged,
             quiet: self.quiet,
+            font_embedding: if self.font_embedding == "full" {
+                FontEmbedding::Full
+            } else {
+                FontEmbedding::Subset
+            },
+            font_glyphs: self
+                .font_glyph
+                .into_iter()
+                .map(font_glyph)
+                .collect::<Result<_, _>>()?,
             font_dir: font_path(
                 self.fonts,
                 "--fonts requires a nonempty directory path, not standard input",
@@ -350,6 +441,19 @@ impl ConvertArgs {
             symbol_font: self
                 .symbol_font_identity
                 .map(symbol_font_identity)
+                .transpose()?,
+            decoration_glyphs: self
+                .decoration_glyph
+                .into_iter()
+                .map(decoration_glyph)
+                .collect::<Result<_, _>>()?,
+            decoration_font: self
+                .decoration_font_identity
+                .map(|value| {
+                    symbol_font_identity(value).map_err(|error| {
+                        error.replace("--symbol-font-identity", "--decoration-font-identity")
+                    })
+                })
                 .transpose()?,
             no_system_fonts: self.no_system_fonts,
             ..ConvertOptions::default()
@@ -379,6 +483,26 @@ impl ConvertArgs {
         }
         if options.symbol_font.is_some() && options.symbol_glyphs.is_empty() {
             return Err("--symbol-font-identity requires --symbol-glyph".into());
+        }
+        if options.decoration_glyphs.len() > 4 {
+            return Err("--decoration-glyph accepts at most four entries".into());
+        }
+        if !options.decoration_glyphs.is_empty()
+            && options.fonts[3].is_none()
+            && options.font_dir.is_none()
+        {
+            return Err("--decoration-glyph requires --font-decoration or --fonts DIR".into());
+        }
+        if options.decoration_font.is_some() && options.decoration_glyphs.is_empty() {
+            return Err("--decoration-font-identity requires --decoration-glyph".into());
+        }
+        if options.font_dir.is_none()
+            && options.fonts.iter().all(Option::is_none)
+            && (options.font_embedding == FontEmbedding::Full || !options.font_glyphs.is_empty())
+        {
+            return Err(
+                "--font-embedding full and --font-glyph require explicit font resources".into(),
+            );
         }
         Ok(Command::Convert {
             input: endpoint(self.input.expect("clap requires INPUT"))?,

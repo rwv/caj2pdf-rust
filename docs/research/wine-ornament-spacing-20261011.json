@@ -1,0 +1,6657 @@
+{
+  "schema": 1,
+  "issue": 541,
+  "converter_commit": "5acaf1d6cbeb85528671e3de241ba437ce04400e",
+  "viewer": "CAJViewer 7.3.151 Simple",
+  "wine": "8.0 32-bit",
+  "viewport": [
+    1600,
+    1200
+  ],
+  "screen_dpi": 96,
+  "image": "sha256:6c9f5ec0610a7ff8bc45fe8e0a87dffd0ff17e42466c90b80237a1712847b95c",
+  "reference_profile": "Same pinned font/MSXML profile as wine-font-resources-20261011; only cajfonts/HGBZ_CNKI.ttf replaced by the original control",
+  "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06",
+  "source_origin": [
+    4652,
+    4274
+  ],
+  "extent": [
+    4500,
+    4500
+  ],
+  "control_rows": [
+    {
+      "field": 2,
+      "style": 4162,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 4750,
+      "span": 3300
+    },
+    {
+      "field": 3,
+      "style": 4195,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 5150,
+      "span": 3300
+    },
+    {
+      "field": 4,
+      "style": 4228,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 5550,
+      "span": 3300
+    },
+    {
+      "field": 5,
+      "style": 4261,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 5950,
+      "span": 3300
+    },
+    {
+      "field": 6,
+      "style": 4294,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 6350,
+      "span": 3300
+    },
+    {
+      "field": 8,
+      "style": 4360,
+      "axes": null,
+      "value": 1,
+      "x": 4950,
+      "y": 6750,
+      "span": 3300
+    },
+    {
+      "field": 5,
+      "style": 4261,
+      "axes": null,
+      "value": 117,
+      "x": 4950,
+      "y": 7150,
+      "span": 3300
+    },
+    {
+      "field": 4,
+      "style": 4228,
+      "axes": 34,
+      "value": 1,
+      "x": 4950,
+      "y": 7550,
+      "span": 3300
+    },
+    {
+      "field": 4,
+      "style": 4228,
+      "axes": 40,
+      "value": 1,
+      "x": 4950,
+      "y": 7950,
+      "span": 3300
+    }
+  ],
+  "hypotheses": [
+    "Nominal coordinate scale stays 240/2473 PDF points per raw unit; no fit is permitted.",
+    "Nominal style em stays step*75/301 PDF points, with steps 28/31/35/42/48/63 and explicit axes 34/40.",
+    "Wine may round each repeated advance to an integer device pixel, unlike a PDF sequence of independent fractional origins.",
+    "Doubling the font advance without changing the outline distinguishes normal advance from nominal em repetition.",
+    "Changing zoom may change repetition count; such an observation forbids a universal correction derived from one screenshot."
+  ],
+  "additional_hypotheses": [
+    "A single repeated Tj string may use a different PDF text-layout route than separate Tm origins; fixed clipping remains.",
+    "Original rectangle paths isolate glyph-raster sizing from fractional geometric origins. These do not change the declared physical placement model.",
+    "Measurements now predict native pitch=floor(nominal_em_in_device_pixels) at the four existing zooms. This is a tested display observation, not permission to calibrate PDF geometry to one zoom.",
+    "The standard permits integer-device-pixel constant spacing for TilingType 1/3. Their rounding direction must be observed, not assumed.",
+    "Type 2 distinguishes undistorted placement from constant spacing. All candidates retain the nominal em, raw endpoint, font resource and nonsemantic marking.",
+    "YStep=1000 em keeps other vertical tiles outside the original page; BBox is the authored marker em box, not a claim about arbitrary fonts.",
+    "Compare a normal one-em YStep and one-em-high paint strip using either the original font glyph or its identical authored rectangle. This distinguishes a sparse-tile limit from font-pattern support; neither is assumed.",
+    "Move the same cell scale from Matrix into BBox/XStep/YStep/content; a red unpatterned rectangle independently confirms ordinary page painting. The fiducial makes whole-page parity intentionally inapplicable to these diagnostics.",
+    "Explicit named/array Pattern color-space resources and uncolored patterns with a DeviceRGB base test whether the direct colored /Pattern cs route causes the missing painting. Ordinary red fiducials remain outside pattern operations."
+  ],
+  "reproduction": {
+    "generator": "scripts/research/wine_ornament_geometry.py",
+    "fonttools": "4.62.1",
+    "generator_sha256": "220eea52e5c274bd3f6c25f44307d8623996876142b189af5491042bab5fcf03",
+    "exact_files": {
+      "advance-1/HGBZ_CNKI.ttf": "8af12ad114d3ad1439bee1b0af64760fb558970f4eb556dc9aba547253d5e226",
+      "advance-2/HGBZ_CNKI.ttf": "3d15e9dc93737e09636a504d305b46252ae508d048fbce1fb677919e5824ee2e",
+      "ornament-metrics.caj": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "ornament-metrics.pdf": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523"
+    },
+    "all_four_byte_identical": true
+  },
+  "marker_diagnostic": {
+    "threshold": "all RGB channels < 200",
+    "components": "8-connected; 1..79 pixels wide/high; x,y > 10; bands within 2 y pixels",
+    "red_threshold": "R > 200 and G < 80 and B < 80",
+    "acceptance_tolerance": false
+  },
+  "strict_comparison": "Exact full page-component RGB including border; no registration, resampling or column removal",
+  "sessions": [
+    {
+      "label": "fonts-ready-ornament-metrics-50-source",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "source",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "0b81c272052ed194e4c1c9601f1abc8199cbd392bdf615fa9300198b0be27734",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "5c4c2c52a4785dcb4de67c4db7645a29286f94bea757e3d6b6f8de4deead5f21",
+        "5c4c2c52a4785dcb4de67c4db7645a29286f94bea757e3d6b6f8de4deead5f21"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 54,
+          "pitches": [
+            4
+          ],
+          "widths": [
+            1
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 29
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 55
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 81
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 106
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 132
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 156
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 184
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 210
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 235
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-pdf",
+      "input": "ornament-metrics.pdf",
+      "input_sha256": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523",
+      "kind": "pdf",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "414df5b04103ee286f5b27a83805b7f66a266157332544be4b1471f6f09fd9db",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "46a9df1a7ad12552e40dbc775b7fa36ba2420f17c2a2a44d046948efebae5ed3",
+        "46a9df1a7ad12552e40dbc775b7fa36ba2420f17c2a2a44d046948efebae5ed3"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            4,
+            5
+          ],
+          "widths": [
+            1
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 30
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 55
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 81
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 106
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            7,
+            8
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 132
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 156
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 184
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 210
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 236
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-repeat",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "repeat",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "0b81c272052ed194e4c1c9601f1abc8199cbd392bdf615fa9300198b0be27734",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "819a081770bdccaacc438738b8024007c18dd31db0608fff0712ed014794a874",
+        "5c4c2c52a4785dcb4de67c4db7645a29286f94bea757e3d6b6f8de4deead5f21"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 54,
+          "pitches": [
+            4
+          ],
+          "widths": [
+            1
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 29
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 55
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 81
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 106
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 132
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 156
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 184
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            5
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 210
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 235
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-source",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "source",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "daa574eecf741fff975bb1875de4adc8b99add2c72c25651da68454f22f53ee8",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7",
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 54,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 44
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 83
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 120
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 30,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 197
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 234
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 275
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 314
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            9
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 353
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pdf",
+      "input": "ornament-metrics.pdf",
+      "input_sha256": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523",
+      "kind": "pdf",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5391e962376e4ed24b5f0721cb7cca6384ca9cd82b0e60a4a1c00b9b7f55f3c2",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c875231105f542074e6998c31141282695d4a061242581152ab15b38bb774e98",
+        "c875231105f542074e6998c31141282695d4a061242581152ab15b38bb774e98"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 44
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            7,
+            8
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 82
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 121
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 197
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 234
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 275
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 315
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            9,
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 353
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-repeat",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "repeat",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "daa574eecf741fff975bb1875de4adc8b99add2c72c25651da68454f22f53ee8",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7",
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 54,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 44
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 83
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 120
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 30,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 197
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 234
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 275
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 314
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            9
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 353
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-source",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "source",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "0acbd4a2617c58d5f006cfac989e5b19f362a7ec8eedc23b36419e02ac38c1bf",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "53f0e3e7787f2bc7541abffe74b243a3d0b5e1fb14f48737dd65116f72c2fbc4",
+        "9f1fb0594f6ccf3e383273631151c6a427c27fe4311efdfde13c5884117ac01c"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 48,
+          "pitches": [
+            9
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 58
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 109
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 39,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 161
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 211
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 29,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 262
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 311
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 367
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 39,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 419
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 470
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-pdf",
+      "input": "ornament-metrics.pdf",
+      "input_sha256": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523",
+      "kind": "pdf",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "8a25bed72ffa2a9937b72acdc51df7407de1c8980d995699dc2dad35b6ed7e52",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "7f2b42158fe4cd210a51be2ceb793b3c23e885498fb6df2eb6805964cf2431cc",
+        "e702a0dcfda4d555f60086e7433ba044f37192518b3733b585ce132dca3392a4"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            9,
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 58
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 109
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 160
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 211
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 262
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 311
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 367
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 419
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            3,
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 470
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-repeat",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "repeat",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "0acbd4a2617c58d5f006cfac989e5b19f362a7ec8eedc23b36419e02ac38c1bf",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "53f0e3e7787f2bc7541abffe74b243a3d0b5e1fb14f48737dd65116f72c2fbc4",
+        "9f1fb0594f6ccf3e383273631151c6a427c27fe4311efdfde13c5884117ac01c"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 48,
+          "pitches": [
+            9
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 58
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 109
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 39,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 161
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 211
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 29,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 262
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 311
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 367
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 39,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 419
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 470
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-source",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "source",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "f94844379fdd2891e7357a29f2b713b8889b8ed8f368727db255d6489022b738",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3",
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 50,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 87
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 164
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            17
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 240
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 316
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 28,
+          "pitches": [
+            23
+          ],
+          "widths": [
+            6
+          ],
+          "height": [
+            11
+          ],
+          "observed_y": 392
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31
+          ],
+          "widths": [
+            8
+          ],
+          "height": [
+            15
+          ],
+          "observed_y": 466
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 549
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            16
+          ],
+          "widths": [
+            1,
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 628
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 34,
+          "pitches": [
+            19
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 705
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pdf",
+      "input": "ornament-metrics.pdf",
+      "input_sha256": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523",
+      "kind": "pdf",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "f46f2cadf65845052b873d9902d7ebe4f4dd167eecb67db27f14fbde4c82e147",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "c9dbdc2f375cefe10cb54918aa36fdbbe79a294719d6584ad9fb58c93ce0cb17",
+        "c9dbdc2f375cefe10cb54918aa36fdbbe79a294719d6584ad9fb58c93ce0cb17"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 87
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 163
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            17,
+            18
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 240
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 316
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            23,
+            24
+          ],
+          "widths": [
+            6
+          ],
+          "height": [
+            12
+          ],
+          "observed_y": 392
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31,
+            32
+          ],
+          "widths": [
+            8
+          ],
+          "height": [
+            16
+          ],
+          "observed_y": 466
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 549
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            16,
+            17
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 629
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            19,
+            20
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 705
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-repeat",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "repeat",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "f94844379fdd2891e7357a29f2b713b8889b8ed8f368727db255d6489022b738",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3",
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 50,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 87
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 164
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            17
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 240
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 316
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 28,
+          "pitches": [
+            23
+          ],
+          "widths": [
+            6
+          ],
+          "height": [
+            11
+          ],
+          "observed_y": 392
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31
+          ],
+          "widths": [
+            8
+          ],
+          "height": [
+            15
+          ],
+          "observed_y": 466
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 549
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            16
+          ],
+          "widths": [
+            1,
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 628
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 34,
+          "pitches": [
+            19
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 705
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-advance2",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "advance2",
+      "zoom_percent": 75,
+      "advance_multiplier": 2,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "daa574eecf741fff975bb1875de4adc8b99add2c72c25651da68454f22f53ee8",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7",
+        "cabadf1be3b59049df5cbe2e7bcb5c3153b2555d4771bec8d7adef2fde5091c7"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 54,
+          "pitches": [
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 44
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 83
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 120
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 30,
+          "pitches": [
+            11
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 197
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 22,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 234
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            10
+          ],
+          "widths": [
+            1,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 275
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            8
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 314
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 36,
+          "pitches": [
+            9
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 353
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-advance2",
+      "input": "ornament-metrics.caj",
+      "input_sha256": "c9a892381d180a8768ab77f26c09b81c76f05994fcbc93045263df636e58a699",
+      "kind": "advance2",
+      "zoom_percent": 150,
+      "advance_multiplier": 2,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "f94844379fdd2891e7357a29f2b713b8889b8ed8f368727db255d6489022b738",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3",
+        "01ac4ab1169d2da1c90b796e7c2e8b0fec672028b8344749015604b608d599b3"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 50,
+          "pitches": [
+            13
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 87
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 43,
+          "pitches": [
+            15
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 164
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            17
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 240
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 316
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 28,
+          "pitches": [
+            23
+          ],
+          "widths": [
+            6
+          ],
+          "height": [
+            11
+          ],
+          "observed_y": 392
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31
+          ],
+          "widths": [
+            8
+          ],
+          "height": [
+            15
+          ],
+          "observed_y": 466
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            20
+          ],
+          "widths": [
+            1,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 549
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 41,
+          "pitches": [
+            16
+          ],
+          "widths": [
+            1,
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 628
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 34,
+          "pitches": [
+            19
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 705
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-coalesced",
+      "input": "ornament-metrics-coalesced.pdf",
+      "input_sha256": "4cb4211f242dfab2bb7d332143e463799101aa8800895547b506840800fb1276",
+      "kind": "coalesced",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "414df5b04103ee286f5b27a83805b7f66a266157332544be4b1471f6f09fd9db",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "46a9df1a7ad12552e40dbc775b7fa36ba2420f17c2a2a44d046948efebae5ed3",
+        "46a9df1a7ad12552e40dbc775b7fa36ba2420f17c2a2a44d046948efebae5ed3"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            4,
+            5
+          ],
+          "widths": [
+            1
+          ],
+          "height": [
+            2
+          ],
+          "observed_y": 30
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 55
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 81
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 106
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            7,
+            8
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 132
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 156
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 184
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            5,
+            6
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 210
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 236
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-coalesced",
+      "input": "ornament-metrics-coalesced.pdf",
+      "input_sha256": "4cb4211f242dfab2bb7d332143e463799101aa8800895547b506840800fb1276",
+      "kind": "coalesced",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "f166af250655fee5ba9e868241a0f087313dd3a9c7e706bc92fa5a917540b12e",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "736564c2f1d5f3296f1f7cfcd75e97d3fa501d10f5bbaa9995b99c5a7a70b60b",
+        "909c5fdc94c77d2fd3bdf4d56e6b53b01fde65d8ea7475f2a6f1473d204035b9"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 47,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            1,
+            2
+          ],
+          "height": [
+            3
+          ],
+          "observed_y": 44
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            7,
+            8
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 82
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 121
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 197
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 234
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 275
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2
+          ],
+          "height": [
+            4
+          ],
+          "observed_y": 315
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            9,
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 353
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-coalesced",
+      "input": "ornament-metrics-coalesced.pdf",
+      "input_sha256": "4cb4211f242dfab2bb7d332143e463799101aa8800895547b506840800fb1276",
+      "kind": "coalesced",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "8a25bed72ffa2a9937b72acdc51df7407de1c8980d995699dc2dad35b6ed7e52",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "7f2b42158fe4cd210a51be2ceb793b3c23e885498fb6df2eb6805964cf2431cc",
+        "e702a0dcfda4d555f60086e7433ba044f37192518b3733b585ce132dca3392a4"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            9,
+            10
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 58
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 109
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 160
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 211
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 262
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 311
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 367
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 419
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            3,
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 470
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-coalesced",
+      "input": "ornament-metrics-coalesced.pdf",
+      "input_sha256": "4cb4211f242dfab2bb7d332143e463799101aa8800895547b506840800fb1276",
+      "kind": "coalesced",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "f46f2cadf65845052b873d9902d7ebe4f4dd167eecb67db27f14fbde4c82e147",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "c9dbdc2f375cefe10cb54918aa36fdbbe79a294719d6584ad9fb58c93ce0cb17",
+        "c9dbdc2f375cefe10cb54918aa36fdbbe79a294719d6584ad9fb58c93ce0cb17"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 87
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 163
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            17,
+            18
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 240
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 316
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            23,
+            24
+          ],
+          "widths": [
+            6
+          ],
+          "height": [
+            12
+          ],
+          "observed_y": 392
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31,
+            32
+          ],
+          "widths": [
+            8
+          ],
+          "height": [
+            16
+          ],
+          "observed_y": 466
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 549
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            16,
+            17
+          ],
+          "widths": [
+            4
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 629
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            19,
+            20
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 705
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-paths",
+      "input": "ornament-metrics-paths.pdf",
+      "input_sha256": "d1dca61dcb5b056389d4c188dad2e520bfa6a76d57d50185749f031e3ada3120",
+      "kind": "paths",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "25de782f0e66ff38e3495aed93d35936602dda866c29e74cbe3d26b185dae931",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "4917ec94b9ade408a71db563fa52667bd60b05d8a10c3030b716813842c011b9",
+        "4917ec94b9ade408a71db563fa52667bd60b05d8a10c3030b716813842c011b9"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            6,
+            7
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            4,
+            5
+          ],
+          "observed_y": 43
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            7,
+            8
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            4,
+            5
+          ],
+          "observed_y": 82
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 120
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3,
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 158
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            11,
+            12
+          ],
+          "widths": [
+            3,
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 196
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 233
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            10,
+            11
+          ],
+          "widths": [
+            3,
+            4
+          ],
+          "height": [
+            7
+          ],
+          "observed_y": 274
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            8,
+            9
+          ],
+          "widths": [
+            2,
+            3
+          ],
+          "height": [
+            5
+          ],
+          "observed_y": 314
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            9,
+            10
+          ],
+          "widths": [
+            1,
+            3,
+            4
+          ],
+          "height": [
+            6
+          ],
+          "observed_y": 352
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-paths",
+      "input": "ornament-metrics-paths.pdf",
+      "input_sha256": "d1dca61dcb5b056389d4c188dad2e520bfa6a76d57d50185749f031e3ada3120",
+      "kind": "paths",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "MARKERS_PRESENT",
+      "eligible_as_fidelity_improvement": true,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "3fb228c339688cf87f30bf658a7e0af3b2c6bbed0151b108c22ee4947c3ba4e3",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "e052264f0abb5a36655b365dc01c61fe6677a8b250e9932ddb4348dfa12e0524",
+        "e052264f0abb5a36655b365dc01c61fe6677a8b250e9932ddb4348dfa12e0524"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": [
+        {
+          "field": 2,
+          "style": 4162,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 4750,
+          "span": 3300,
+          "count": 46,
+          "pitches": [
+            13,
+            14
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            8
+          ],
+          "observed_y": 86
+        },
+        {
+          "field": 3,
+          "style": 4195,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5150,
+          "span": 3300,
+          "count": 42,
+          "pitches": [
+            15,
+            16
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 163
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5550,
+          "span": 3300,
+          "count": 37,
+          "pitches": [
+            17,
+            18
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            10
+          ],
+          "observed_y": 239
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 5950,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5,
+            6
+          ],
+          "height": [
+            12
+          ],
+          "observed_y": 315
+        },
+        {
+          "field": 6,
+          "style": 4294,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6350,
+          "span": 3300,
+          "count": 27,
+          "pitches": [
+            23,
+            24
+          ],
+          "widths": [
+            6,
+            7
+          ],
+          "height": [
+            13
+          ],
+          "observed_y": 391
+        },
+        {
+          "field": 8,
+          "style": 4360,
+          "axes": null,
+          "value": 1,
+          "x": 4950,
+          "y": 6750,
+          "span": 3300,
+          "count": 21,
+          "pitches": [
+            31,
+            32
+          ],
+          "widths": [
+            8,
+            9
+          ],
+          "height": [
+            17
+          ],
+          "observed_y": 465
+        },
+        {
+          "field": 5,
+          "style": 4261,
+          "axes": null,
+          "value": 117,
+          "x": 4950,
+          "y": 7150,
+          "span": 3300,
+          "count": 31,
+          "pitches": [
+            20,
+            21
+          ],
+          "widths": [
+            5,
+            6
+          ],
+          "height": [
+            12
+          ],
+          "observed_y": 548
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 34,
+          "value": 1,
+          "x": 4950,
+          "y": 7550,
+          "span": 3300,
+          "count": 38,
+          "pitches": [
+            16,
+            17
+          ],
+          "widths": [
+            4,
+            5
+          ],
+          "height": [
+            9
+          ],
+          "observed_y": 628
+        },
+        {
+          "field": 4,
+          "style": 4228,
+          "axes": 40,
+          "value": 1,
+          "x": 4950,
+          "y": 7950,
+          "span": 3300,
+          "count": 33,
+          "pitches": [
+            19,
+            20
+          ],
+          "widths": [
+            4,
+            5,
+            6
+          ],
+          "height": [
+            11
+          ],
+          "observed_y": 704
+        }
+      ]
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-pattern1",
+      "input": "ornament-metrics-pattern1.pdf",
+      "input_sha256": "6fa04863c6fa923b19d286761baf029b42dd78ffb2b1ef0113c74ca0aa2dd651",
+      "kind": "pattern1",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "5f8f7b5ff535a6410fb5a0c978f29c5b5d0899e6a7d388cefdc6def766465640",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "cd7af2777fd418740472ccb0b0c81d7a807636c6db00b727f058e7043f802dfe",
+        "c86f9f2c1d5fa9249bce47f499114e6fc8984caa2273019393e2c26c1992c61c"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pattern1",
+      "input": "ornament-metrics-pattern1.pdf",
+      "input_sha256": "6fa04863c6fa923b19d286761baf029b42dd78ffb2b1ef0113c74ca0aa2dd651",
+      "kind": "pattern1",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "deb9a030e5105ebc17d25820720040c43eeb53625c8c6ea3dff2aebda4b0743c",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2",
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-pattern1",
+      "input": "ornament-metrics-pattern1.pdf",
+      "input_sha256": "6fa04863c6fa923b19d286761baf029b42dd78ffb2b1ef0113c74ca0aa2dd651",
+      "kind": "pattern1",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "62433edecab4fe2233f9966f63dfeb3f47987058ee8c645295fd1a0514eef8a6",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "de9139d21b74bcbcc9403ec3d6806af8332dc1fd3b3fa8b350dae8a2f92947fa",
+        "9ddb62547a35fcd2b584d00f2af2bace6b9825d919c8162c7bb02991d3dc3e81"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pattern1",
+      "input": "ornament-metrics-pattern1.pdf",
+      "input_sha256": "6fa04863c6fa923b19d286761baf029b42dd78ffb2b1ef0113c74ca0aa2dd651",
+      "kind": "pattern1",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "fc192597b1b06143a7ef8cc46f7d0548ba26dd702a5641308b129fed4a3ff877",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864",
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-pattern2",
+      "input": "ornament-metrics-pattern2.pdf",
+      "input_sha256": "8b5702d9a53ae8246294845025911bad6ebc635a27510805a459696c1ec90b51",
+      "kind": "pattern2",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "5f8f7b5ff535a6410fb5a0c978f29c5b5d0899e6a7d388cefdc6def766465640",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "c86f9f2c1d5fa9249bce47f499114e6fc8984caa2273019393e2c26c1992c61c",
+        "c86f9f2c1d5fa9249bce47f499114e6fc8984caa2273019393e2c26c1992c61c"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pattern2",
+      "input": "ornament-metrics-pattern2.pdf",
+      "input_sha256": "8b5702d9a53ae8246294845025911bad6ebc635a27510805a459696c1ec90b51",
+      "kind": "pattern2",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "deb9a030e5105ebc17d25820720040c43eeb53625c8c6ea3dff2aebda4b0743c",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2",
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-pattern2",
+      "input": "ornament-metrics-pattern2.pdf",
+      "input_sha256": "8b5702d9a53ae8246294845025911bad6ebc635a27510805a459696c1ec90b51",
+      "kind": "pattern2",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "62433edecab4fe2233f9966f63dfeb3f47987058ee8c645295fd1a0514eef8a6",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "de9139d21b74bcbcc9403ec3d6806af8332dc1fd3b3fa8b350dae8a2f92947fa",
+        "9ddb62547a35fcd2b584d00f2af2bace6b9825d919c8162c7bb02991d3dc3e81"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pattern2",
+      "input": "ornament-metrics-pattern2.pdf",
+      "input_sha256": "8b5702d9a53ae8246294845025911bad6ebc635a27510805a459696c1ec90b51",
+      "kind": "pattern2",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "fc192597b1b06143a7ef8cc46f7d0548ba26dd702a5641308b129fed4a3ff877",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864",
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-50-pattern3",
+      "input": "ornament-metrics-pattern3.pdf",
+      "input_sha256": "4a58dc4504c048f1fe2346f989cfe22cebd66ecb6548184e7058dab43a12fcb5",
+      "kind": "pattern3",
+      "zoom_percent": 50,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          647,
+          482,
+          942,
+          778
+        ],
+        "size": [
+          295,
+          296
+        ],
+        "rgb_sha256": "5f8f7b5ff535a6410fb5a0c978f29c5b5d0899e6a7d388cefdc6def766465640",
+        "component_pixels": 86731
+      },
+      "capture_file_sha256": [
+        "c86f9f2c1d5fa9249bce47f499114e6fc8984caa2273019393e2c26c1992c61c",
+        "c86f9f2c1d5fa9249bce47f499114e6fc8984caa2273019393e2c26c1992c61c"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pattern3",
+      "input": "ornament-metrics-pattern3.pdf",
+      "input_sha256": "4a58dc4504c048f1fe2346f989cfe22cebd66ecb6548184e7058dab43a12fcb5",
+      "kind": "pattern3",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "deb9a030e5105ebc17d25820720040c43eeb53625c8c6ea3dff2aebda4b0743c",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2",
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-100-pattern3",
+      "input": "ornament-metrics-pattern3.pdf",
+      "input_sha256": "4a58dc4504c048f1fe2346f989cfe22cebd66ecb6548184e7058dab43a12fcb5",
+      "kind": "pattern3",
+      "zoom_percent": 100,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          493,
+          337,
+          1079,
+          924
+        ],
+        "size": [
+          586,
+          587
+        ],
+        "rgb_sha256": "62433edecab4fe2233f9966f63dfeb3f47987058ee8c645295fd1a0514eef8a6",
+        "component_pixels": 342811
+      },
+      "capture_file_sha256": [
+        "de9139d21b74bcbcc9403ec3d6806af8332dc1fd3b3fa8b350dae8a2f92947fa",
+        "9ddb62547a35fcd2b584d00f2af2bace6b9825d919c8162c7bb02991d3dc3e81"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pattern3",
+      "input": "ornament-metrics-pattern3.pdf",
+      "input_sha256": "4a58dc4504c048f1fe2346f989cfe22cebd66ecb6548184e7058dab43a12fcb5",
+      "kind": "pattern3",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "fc192597b1b06143a7ef8cc46f7d0548ba26dd702a5641308b129fed4a3ff877",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864",
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-stripfont",
+      "input": "ornament-metrics-stripfont.pdf",
+      "input_sha256": "f97435eec19acf39c0c77246deba44a673f6c80aba7f89cd0e1b9de720994670",
+      "kind": "stripfont",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "deb9a030e5105ebc17d25820720040c43eeb53625c8c6ea3dff2aebda4b0743c",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "ea4a0facfec30530b5c21e13e5f0e66bfc14cc972a55dd6b770dc4566c235892",
+        "ea4a0facfec30530b5c21e13e5f0e66bfc14cc972a55dd6b770dc4566c235892"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-stripfont",
+      "input": "ornament-metrics-stripfont.pdf",
+      "input_sha256": "f97435eec19acf39c0c77246deba44a673f6c80aba7f89cd0e1b9de720994670",
+      "kind": "stripfont",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "fc192597b1b06143a7ef8cc46f7d0548ba26dd702a5641308b129fed4a3ff877",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864",
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-striprect",
+      "input": "ornament-metrics-striprect.pdf",
+      "input_sha256": "20482840d8532021192b7eb67afa24f59318c10fb86f1ca2c1229905f00f5aed",
+      "kind": "striprect",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "deb9a030e5105ebc17d25820720040c43eeb53625c8c6ea3dff2aebda4b0743c",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2",
+        "7684629038a7d91f7e1558d6d0f3a7a1059402b91888fc6849f2ba4656ce7bb2"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-striprect",
+      "input": "ornament-metrics-striprect.pdf",
+      "input_sha256": "20482840d8532021192b7eb67afa24f59318c10fb86f1ca2c1229905f00f5aed",
+      "kind": "striprect",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "fc192597b1b06143a7ef8cc46f7d0548ba26dd702a5641308b129fed4a3ff877",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864",
+        "b5d7a1639935e989d7ced428eef0116a652a8a12f1bdb809c3e7da5f7ac61864"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": false,
+      "red_pixels": 0,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pointfont",
+      "input": "ornament-metrics-pointfont.pdf",
+      "input_sha256": "844ed45a5a895609115216505db8dba604fb7bf0de70c7e44cbd7ef2edce1eac",
+      "kind": "pointfont",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5475faeb2b0f5a131d7e60921419f8c685547f7ea634ba65de1c1568fab813ac",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27",
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 420,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pointfont",
+      "input": "ornament-metrics-pointfont.pdf",
+      "input_sha256": "844ed45a5a895609115216505db8dba604fb7bf0de70c7e44cbd7ef2edce1eac",
+      "kind": "pointfont",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "5b402fc4f4e124a82ada384648d0961b8edfca073d99214dfba0d6c1dad53187",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "cded081792c4defc734bd995ff968deaade1c351d12038a7ff14c2b0820b5ce1",
+        "cded081792c4defc734bd995ff968deaade1c351d12038a7ff14c2b0820b5ce1"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 1640,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-pointrect",
+      "input": "ornament-metrics-pointrect.pdf",
+      "input_sha256": "0e5bf6062b2ce04e8da42bd53dbc506da4498289510b91bcd91d6beea88ff957",
+      "kind": "pointrect",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5475faeb2b0f5a131d7e60921419f8c685547f7ea634ba65de1c1568fab813ac",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27",
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 420,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-150-pointrect",
+      "input": "ornament-metrics-pointrect.pdf",
+      "input_sha256": "0e5bf6062b2ce04e8da42bd53dbc506da4498289510b91bcd91d6beea88ff957",
+      "kind": "pointrect",
+      "zoom_percent": 150,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          356,
+          191,
+          1233,
+          1069
+        ],
+        "size": [
+          877,
+          878
+        ],
+        "rgb_sha256": "5b402fc4f4e124a82ada384648d0961b8edfca073d99214dfba0d6c1dad53187",
+        "component_pixels": 768253
+      },
+      "capture_file_sha256": [
+        "cded081792c4defc734bd995ff968deaade1c351d12038a7ff14c2b0820b5ce1",
+        "cded081792c4defc734bd995ff968deaade1c351d12038a7ff14c2b0820b5ce1"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 1640,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-patternname",
+      "input": "ornament-metrics-patternname.pdf",
+      "input_sha256": "03220f272c7aa880ed8722865c893cc8b01b71a6cc67facebdb2c60263b47ae9",
+      "kind": "patternname",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5475faeb2b0f5a131d7e60921419f8c685547f7ea634ba65de1c1568fab813ac",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27",
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 420,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-patternarray",
+      "input": "ornament-metrics-patternarray.pdf",
+      "input_sha256": "25fda14736afae738b05a7494ec3a3ec074cf2f9b384e06d8b905cea3ee508d3",
+      "kind": "patternarray",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5475faeb2b0f5a131d7e60921419f8c685547f7ea634ba65de1c1568fab813ac",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27",
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 420,
+      "rows": []
+    },
+    {
+      "label": "fonts-ready-ornament-metrics-75-patternuncolored",
+      "input": "ornament-metrics-patternuncolored.pdf",
+      "input_sha256": "0b4dd8016ebe41056bf0870bf6fac37194d1974472cfe47d8b1c29021e576f45",
+      "kind": "patternuncolored",
+      "zoom_percent": 75,
+      "advance_multiplier": 1,
+      "status": "OBSERVED",
+      "marker_status": "NO_MARKERS",
+      "eligible_as_fidelity_improvement": false,
+      "page": {
+        "complete": true,
+        "bounds_with_border": [
+          574,
+          409,
+          1015,
+          851
+        ],
+        "size": [
+          441,
+          442
+        ],
+        "rgb_sha256": "5475faeb2b0f5a131d7e60921419f8c685547f7ea634ba65de1c1568fab813ac",
+        "component_pixels": 194041
+      },
+      "capture_file_sha256": [
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27",
+        "c40aec907899cc71c19d105311179b07c076082fa07b9be7345bb9655a0a3e27"
+      ],
+      "driver_sha256": "e2ffc8db45b3f4e9085370cec5d1efc05027f9d9eec5c9b178bc7ce1324d9946",
+      "stable": true,
+      "navigation_confirmed": true,
+      "complete": true,
+      "source_unchanged": true,
+      "cleanup": true,
+      "oom": false,
+      "extra_fiducial": true,
+      "red_pixels": 420,
+      "rows": []
+    }
+  ],
+  "source_step_model": [
+    {
+      "zoom_percent": 50,
+      "field": 2,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 4.651162790697675,
+      "predicted_pitch": 4,
+      "observed_pitch": 4,
+      "count": 54
+    },
+    {
+      "zoom_percent": 50,
+      "field": 3,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 5.149501661129568,
+      "predicted_pitch": 5,
+      "observed_pitch": 5,
+      "count": 43
+    },
+    {
+      "zoom_percent": 50,
+      "field": 4,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 5.813953488372092,
+      "predicted_pitch": 5,
+      "observed_pitch": 5,
+      "count": 43
+    },
+    {
+      "zoom_percent": 50,
+      "field": 5,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 6.9767441860465125,
+      "predicted_pitch": 6,
+      "observed_pitch": 6,
+      "count": 36
+    },
+    {
+      "zoom_percent": 50,
+      "field": 6,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 7.9734219269103,
+      "predicted_pitch": 7,
+      "observed_pitch": 7,
+      "count": 31
+    },
+    {
+      "zoom_percent": 50,
+      "field": 8,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 10.465116279069768,
+      "predicted_pitch": 10,
+      "observed_pitch": 10,
+      "count": 22
+    },
+    {
+      "zoom_percent": 50,
+      "field": 5,
+      "axes": null,
+      "value": 117,
+      "nominal_em_pixels": 6.9767441860465125,
+      "predicted_pitch": 6,
+      "observed_pitch": 6,
+      "count": 36
+    },
+    {
+      "zoom_percent": 50,
+      "field": 4,
+      "axes": 34,
+      "value": 1,
+      "nominal_em_pixels": 5.647840531561461,
+      "predicted_pitch": 5,
+      "observed_pitch": 5,
+      "count": 43
+    },
+    {
+      "zoom_percent": 50,
+      "field": 4,
+      "axes": 40,
+      "value": 1,
+      "nominal_em_pixels": 6.644518272425249,
+      "predicted_pitch": 6,
+      "observed_pitch": 6,
+      "count": 36
+    },
+    {
+      "zoom_percent": 75,
+      "field": 2,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 6.9767441860465125,
+      "predicted_pitch": 6,
+      "observed_pitch": 6,
+      "count": 54
+    },
+    {
+      "zoom_percent": 75,
+      "field": 3,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 7.724252491694353,
+      "predicted_pitch": 7,
+      "observed_pitch": 7,
+      "count": 46
+    },
+    {
+      "zoom_percent": 75,
+      "field": 4,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 8.720930232558139,
+      "predicted_pitch": 8,
+      "observed_pitch": 8,
+      "count": 41
+    },
+    {
+      "zoom_percent": 75,
+      "field": 5,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 10.465116279069768,
+      "predicted_pitch": 10,
+      "observed_pitch": 10,
+      "count": 33
+    },
+    {
+      "zoom_percent": 75,
+      "field": 6,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 11.960132890365449,
+      "predicted_pitch": 11,
+      "observed_pitch": 11,
+      "count": 30
+    },
+    {
+      "zoom_percent": 75,
+      "field": 8,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 15.697674418604652,
+      "predicted_pitch": 15,
+      "observed_pitch": 15,
+      "count": 22
+    },
+    {
+      "zoom_percent": 75,
+      "field": 5,
+      "axes": null,
+      "value": 117,
+      "nominal_em_pixels": 10.465116279069768,
+      "predicted_pitch": 10,
+      "observed_pitch": 10,
+      "count": 33
+    },
+    {
+      "zoom_percent": 75,
+      "field": 4,
+      "axes": 34,
+      "value": 1,
+      "nominal_em_pixels": 8.471760797342192,
+      "predicted_pitch": 8,
+      "observed_pitch": 8,
+      "count": 41
+    },
+    {
+      "zoom_percent": 75,
+      "field": 4,
+      "axes": 40,
+      "value": 1,
+      "nominal_em_pixels": 9.966777408637874,
+      "predicted_pitch": 9,
+      "observed_pitch": 9,
+      "count": 36
+    },
+    {
+      "zoom_percent": 100,
+      "field": 2,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 9.30232558139535,
+      "predicted_pitch": 9,
+      "observed_pitch": 9,
+      "count": 48
+    },
+    {
+      "zoom_percent": 100,
+      "field": 3,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 10.299003322259136,
+      "predicted_pitch": 10,
+      "observed_pitch": 10,
+      "count": 43
+    },
+    {
+      "zoom_percent": 100,
+      "field": 4,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 11.627906976744184,
+      "predicted_pitch": 11,
+      "observed_pitch": 11,
+      "count": 39
+    },
+    {
+      "zoom_percent": 100,
+      "field": 5,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 13.953488372093025,
+      "predicted_pitch": 13,
+      "observed_pitch": 13,
+      "count": 33
+    },
+    {
+      "zoom_percent": 100,
+      "field": 6,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 15.9468438538206,
+      "predicted_pitch": 15,
+      "observed_pitch": 15,
+      "count": 29
+    },
+    {
+      "zoom_percent": 100,
+      "field": 8,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 20.930232558139537,
+      "predicted_pitch": 20,
+      "observed_pitch": 20,
+      "count": 22
+    },
+    {
+      "zoom_percent": 100,
+      "field": 5,
+      "axes": null,
+      "value": 117,
+      "nominal_em_pixels": 13.953488372093025,
+      "predicted_pitch": 13,
+      "observed_pitch": 13,
+      "count": 33
+    },
+    {
+      "zoom_percent": 100,
+      "field": 4,
+      "axes": 34,
+      "value": 1,
+      "nominal_em_pixels": 11.295681063122922,
+      "predicted_pitch": 11,
+      "observed_pitch": 11,
+      "count": 39
+    },
+    {
+      "zoom_percent": 100,
+      "field": 4,
+      "axes": 40,
+      "value": 1,
+      "nominal_em_pixels": 13.289036544850498,
+      "predicted_pitch": 13,
+      "observed_pitch": 13,
+      "count": 33
+    },
+    {
+      "zoom_percent": 150,
+      "field": 2,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 13.953488372093025,
+      "predicted_pitch": 13,
+      "observed_pitch": 13,
+      "count": 50
+    },
+    {
+      "zoom_percent": 150,
+      "field": 3,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 15.448504983388705,
+      "predicted_pitch": 15,
+      "observed_pitch": 15,
+      "count": 43
+    },
+    {
+      "zoom_percent": 150,
+      "field": 4,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 17.441860465116278,
+      "predicted_pitch": 17,
+      "observed_pitch": 17,
+      "count": 38
+    },
+    {
+      "zoom_percent": 150,
+      "field": 5,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 20.930232558139537,
+      "predicted_pitch": 20,
+      "observed_pitch": 20,
+      "count": 33
+    },
+    {
+      "zoom_percent": 150,
+      "field": 6,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 23.920265780730897,
+      "predicted_pitch": 23,
+      "observed_pitch": 23,
+      "count": 28
+    },
+    {
+      "zoom_percent": 150,
+      "field": 8,
+      "axes": null,
+      "value": 1,
+      "nominal_em_pixels": 31.395348837209305,
+      "predicted_pitch": 31,
+      "observed_pitch": 31,
+      "count": 21
+    },
+    {
+      "zoom_percent": 150,
+      "field": 5,
+      "axes": null,
+      "value": 117,
+      "nominal_em_pixels": 20.930232558139537,
+      "predicted_pitch": 20,
+      "observed_pitch": 20,
+      "count": 33
+    },
+    {
+      "zoom_percent": 150,
+      "field": 4,
+      "axes": 34,
+      "value": 1,
+      "nominal_em_pixels": 16.943521594684384,
+      "predicted_pitch": 16,
+      "observed_pitch": 16,
+      "count": 41
+    },
+    {
+      "zoom_percent": 150,
+      "field": 4,
+      "axes": 40,
+      "value": 1,
+      "nominal_em_pixels": 19.93355481727575,
+      "predicted_pitch": 19,
+      "observed_pitch": 19,
+      "count": 34
+    }
+  ],
+  "source_comparisons": [
+    {
+      "zoom": 50,
+      "kind": "pdf",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 2918,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          19,
+          29,
+          233,
+          239
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 50,
+      "kind": "repeat",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 50,
+      "kind": "coalesced",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 2918,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          19,
+          29,
+          233,
+          239
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 50,
+      "kind": "pattern1",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 1788,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          19,
+          29,
+          232,
+          238
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 50,
+      "kind": "pattern2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 1788,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          19,
+          29,
+          232,
+          238
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 50,
+      "kind": "pattern3",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 1788,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          19,
+          29,
+          232,
+          238
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 75,
+      "kind": "pdf",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 5960,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          350,
+          358
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 75,
+      "kind": "repeat",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 75,
+      "kind": "advance2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 75,
+      "kind": "coalesced",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 5963,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          350,
+          358
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 75,
+      "kind": "paths",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 8364,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          43,
+          350,
+          358
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 75,
+      "kind": "pattern1",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 3711,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          357
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 75,
+      "kind": "pattern2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 3711,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          357
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 75,
+      "kind": "pattern3",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 3711,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          357
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 75,
+      "kind": "stripfont",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 3711,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          357
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 75,
+      "kind": "striprect",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 3711,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          28,
+          44,
+          349,
+          357
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 100,
+      "kind": "pdf",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 10923,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          38,
+          58,
+          466,
+          477
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 100,
+      "kind": "repeat",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 100,
+      "kind": "coalesced",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 10923,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          38,
+          58,
+          466,
+          477
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 100,
+      "kind": "pattern1",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 6679,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          38,
+          58,
+          464,
+          476
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 100,
+      "kind": "pattern2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 6679,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          38,
+          58,
+          464,
+          476
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 100,
+      "kind": "pattern3",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 6679,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          38,
+          58,
+          464,
+          476
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 150,
+      "kind": "pdf",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 21626,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          699,
+          715
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 150,
+      "kind": "repeat",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 150,
+      "kind": "advance2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      },
+      "interpretation": "Exact source control repeat; not a source/PDF compatibility result"
+    },
+    {
+      "zoom": 150,
+      "kind": "coalesced",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 21626,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          699,
+          715
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 150,
+      "kind": "paths",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 26710,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          86,
+          699,
+          715
+        ]
+      },
+      "interpretation": "Source/PDF difference retained"
+    },
+    {
+      "zoom": 150,
+      "kind": "pattern1",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 14330,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          698,
+          714
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 150,
+      "kind": "pattern2",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 14330,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          698,
+          714
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 150,
+      "kind": "pattern3",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 14330,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          698,
+          714
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 150,
+      "kind": "stripfont",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 14330,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          698,
+          714
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    },
+    {
+      "zoom": 150,
+      "kind": "striprect",
+      "difference": {
+        "comparable": true,
+        "changed_pixels": 14330,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          57,
+          87,
+          698,
+          714
+        ]
+      },
+      "interpretation": "DISQUALIFIED: no ornament markers; fewer differing pixels do not establish fidelity"
+    }
+  ],
+  "baseline_vs_coalesced": [
+    {
+      "zoom_percent": 50,
+      "baseline_pdf_vs_coalesced": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      }
+    },
+    {
+      "zoom_percent": 75,
+      "baseline_pdf_vs_coalesced": {
+        "comparable": true,
+        "changed_pixels": 3,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          349,
+          44,
+          350,
+          47
+        ]
+      }
+    },
+    {
+      "zoom_percent": 100,
+      "baseline_pdf_vs_coalesced": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      }
+    },
+    {
+      "zoom_percent": 150,
+      "baseline_pdf_vs_coalesced": {
+        "comparable": true,
+        "changed_pixels": 0,
+        "maximum_absolute_channel_delta": 0,
+        "bounds_in_page": null
+      }
+    }
+  ],
+  "independent_pdf_checks": {
+    "mupdf": "1.27.2",
+    "scale": 1,
+    "checks": [
+      {
+        "file": "ornament-metrics-coalesced.pdf",
+        "sha256": "4cb4211f242dfab2bb7d332143e463799101aa8800895547b506840800fb1276",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4872,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "4d50093809769222937892164e47ba9d679f64372e4840f9ec3279a7a0986327"
+      },
+      {
+        "file": "ornament-metrics-paths.pdf",
+        "sha256": "d1dca61dcb5b056389d4c188dad2e520bfa6a76d57d50185749f031e3ada3120",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4851,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "b40510d4e3dddecfcb778a4fca27c1068d83ea1a9e5d1c5dd7e3c654fd2a52fb"
+      },
+      {
+        "file": "ornament-metrics-pattern1.pdf",
+        "sha256": "6fa04863c6fa923b19d286761baf029b42dd78ffb2b1ef0113c74ca0aa2dd651",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4227,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "137af8fd07c49b0870e93ae7280c9cd8c71a48e193eaebb63191764d1e273143"
+      },
+      {
+        "file": "ornament-metrics-pattern2.pdf",
+        "sha256": "8b5702d9a53ae8246294845025911bad6ebc635a27510805a459696c1ec90b51",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4227,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "137af8fd07c49b0870e93ae7280c9cd8c71a48e193eaebb63191764d1e273143"
+      },
+      {
+        "file": "ornament-metrics-pattern3.pdf",
+        "sha256": "4a58dc4504c048f1fe2346f989cfe22cebd66ecb6548184e7058dab43a12fcb5",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4227,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "137af8fd07c49b0870e93ae7280c9cd8c71a48e193eaebb63191764d1e273143"
+      },
+      {
+        "file": "ornament-metrics-patternarray.pdf",
+        "sha256": "25fda14736afae738b05a7494ec3a3ec074cf2f9b384e06d8b905cea3ee508d3",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 5503,
+        "mupdf_red_pixels": 380,
+        "mupdf_rgb_sha256": "aa7f5add3dc1787f6ef54addbc6009e51425e374b8e623cc46978bf2d8370ee2"
+      },
+      {
+        "file": "ornament-metrics-patternname.pdf",
+        "sha256": "03220f272c7aa880ed8722865c893cc8b01b71a6cc67facebdb2c60263b47ae9",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 5503,
+        "mupdf_red_pixels": 380,
+        "mupdf_rgb_sha256": "aa7f5add3dc1787f6ef54addbc6009e51425e374b8e623cc46978bf2d8370ee2"
+      },
+      {
+        "file": "ornament-metrics-patternuncolored.pdf",
+        "sha256": "0b4dd8016ebe41056bf0870bf6fac37194d1974472cfe47d8b1c29021e576f45",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 5503,
+        "mupdf_red_pixels": 380,
+        "mupdf_rgb_sha256": "aa7f5add3dc1787f6ef54addbc6009e51425e374b8e623cc46978bf2d8370ee2"
+      },
+      {
+        "file": "ornament-metrics-pointfont.pdf",
+        "sha256": "844ed45a5a895609115216505db8dba604fb7bf0de70c7e44cbd7ef2edce1eac",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 5505,
+        "mupdf_red_pixels": 380,
+        "mupdf_rgb_sha256": "3419f142b729d74bfc48e26cb642fcbfb2199dc23dbedca3dd661cdf218d70ad"
+      },
+      {
+        "file": "ornament-metrics-pointrect.pdf",
+        "sha256": "0e5bf6062b2ce04e8da42bd53dbc506da4498289510b91bcd91d6beea88ff957",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 5503,
+        "mupdf_red_pixels": 380,
+        "mupdf_rgb_sha256": "aa7f5add3dc1787f6ef54addbc6009e51425e374b8e623cc46978bf2d8370ee2"
+      },
+      {
+        "file": "ornament-metrics-stripfont.pdf",
+        "sha256": "f97435eec19acf39c0c77246deba44a673f6c80aba7f89cd0e1b9de720994670",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4326,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "bbb0df5d47ebac50d3e8092ab40c683a1162710a3e1f3ca748f04416c37bbf1f"
+      },
+      {
+        "file": "ornament-metrics-striprect.pdf",
+        "sha256": "20482840d8532021192b7eb67afa24f59318c10fb86f1ca2c1229905f00f5aed",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4463,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "4653726781ecfc1c1ada22d8c63c59aefabf3ff40928f5351e44df95c6f4e636"
+      },
+      {
+        "file": "ornament-metrics.pdf",
+        "sha256": "fe7836e3a55b245d3f6e304363b4e89b4fb108dc8315129134e0ad47bcd03523",
+        "qpdf": true,
+        "text_empty": true,
+        "mupdf_dark_pixels": 4869,
+        "mupdf_red_pixels": 0,
+        "mupdf_rgb_sha256": "f835cafa2b5755c6d65a896139f391c5063d545027e7eb29a0b11db424831c75"
+      }
+    ],
+    "pymupdf": "1.27.2.2"
+  },
+  "script_sha256": {
+    "analyze_ornament_metrics.py": "8d4104d667c2a3cd7bc3c347d171ca0b9bbf61f814ee8555c5359d4e1ec08efb",
+    "page_pixels.py": "17c61142d693ebae7d780372913593f2b790e2392e008ea4e8d2553379dbe470",
+    "run_audit_v7.py": "a97f377dc1b78dac5a332eca44a08074fa8b665033e6db14e87af636d7b43b48",
+    "prepare_ornament_pdf_discriminators.py": "b0b05f20ee307e8a3a939662d2e1c847cee010e9d452157de3cd94905aee0652",
+    "prepare_ornament_patterns.py": "09e517ee57c3990197ad385e6a0c98021d52f59e8a2d5cde0ef7b05698ab59e9",
+    "prepare_ornament_pattern_strips.py": "684b10133a03560b9eb1fd01caa4aedca015a064639911560edf920edb5aea0c",
+    "prepare_ornament_pattern_points.py": "36bbf442f39185f417548eac5ae689857c175aef74fbc81d7cf9128dfbb8ddc7",
+    "prepare_ornament_pattern_colors.py": "9e29c7450fc59120d6f71a156aeb0acb782744e17fbb2bc1aca39e1467175d77"
+  },
+  "limits": [
+    "Device-pixel observations for the pinned profile; no authoritative physical-unit rule or per-document fit.",
+    "No production placement change; all 77 actual-input source/PDF differences remain unresolved.",
+    "Blank pattern candidates are disqualified, not fidelity improvements.",
+    "PDF patterns with extra red fiducials intentionally have no source whole-page parity comparison.",
+    "The rejected candidates do not establish that every PDF pattern is unsupported by Wine CAJViewer.",
+    "No external fonts, documents, PDF files or screenshots are included."
+  ]
+}

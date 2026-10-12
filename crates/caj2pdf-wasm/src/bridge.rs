@@ -201,6 +201,20 @@ pub extern "C" fn caj2pdf_c8_add_font(size: u64, face: u32) -> u32 {
     with_session(0, |session| session.add_font_source(size, face))
 }
 
+/// Set subset (0, default) or complete TrueType (1) embedding after font roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_font_embedding(mode: u32) -> u32 {
+    with_session(0, |session| session.set_c8_font_embedding(mode) as u32)
+}
+
+/// Add an ordinary BMP text/glyph alias, strictly ordered by (font, character).
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_add_font_glyph(font: u32, character: u32, glyph: u32) -> u32 {
+    with_session(0, |session| {
+        session.add_c8_font_glyph(font, character, glyph) as u32
+    })
+}
+
 /// Assign zero-based font indices and the optional decoration alias.
 /// `u32::MAX` marks an absent alternate Latin or decoration role; core then
 /// applies the documented CJK/Latin fallback. Returns 1 when accepted.
@@ -239,6 +253,12 @@ pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
     with_session(0, |session| session.set_c8_latin_state(state, index) as u32)
 }
 
+/// Assign a native CJK style role (`0x0800`, `0x0c00` or system `0x0400`) after the base roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_cjk_style(style: u32, index: u32) -> u32 {
+    with_session(0, |session| session.set_c8_cjk_style(style, index) as u32)
+}
+
 /// Map an HN-B mode-0 symbol code to a BMP glyph of the symbols role, after
 /// the roles. Rejects a non-BMP glyph, a missing symbols role and more than
 /// 21 entries; the core checks codes and duplicates per native document.
@@ -269,6 +289,36 @@ pub extern "C" fn caj2pdf_hnb_set_symbol_font(
     let words = [w0, w1, w2, w3, w4, w5, w6, w7];
     with_session(0, |session| {
         session.set_hnb_symbol_font(checksum, length, words) as u32
+    })
+}
+
+/// Map a native-mode-2 ornament value to a BMP glyph after roles. Accepts
+/// at most four entries; the core validates values and duplicates.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_add_decoration_glyph(value: u32, glyph: u32) -> u32 {
+    with_session(0, |session| {
+        session.add_c8_decoration_glyph(value, glyph) as u32
+    })
+}
+
+/// Bind ornament aliases to the decoration font. The name encoding is the
+/// same bounded representation as `caj2pdf_hnb_set_symbol_font`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn caj2pdf_c8_set_decoration_font(
+    checksum: u32,
+    length: u32,
+    w0: u64,
+    w1: u64,
+    w2: u64,
+    w3: u64,
+    w4: u64,
+    w5: u64,
+    w6: u64,
+    w7: u64,
+) -> u32 {
+    with_session(0, |session| {
+        session.set_c8_decoration_font(checksum, length, [w0, w1, w2, w3, w4, w5, w6, w7]) as u32
     })
 }
 

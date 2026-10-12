@@ -63,7 +63,89 @@ Node and browser accept `hnc8.fonts.symbolGlyphs`, an iterable of
 use the same core map: the listed codes draw exactly the chosen glyph, and
 text keeps the decoded character. Existing options and outputs are unchanged.
 
+### Breaking Rust API: original programs and ordinary glyph aliases (#541)
+
+`Fonts` and `C8FontSources` gain `embedding` and `glyph_aliases`. For previous
+behavior, use `FontEmbedding::Subset` and an empty `Vec`/slice, or
+`..Fonts::default()`. `write_c8_native_page` takes an additional alias slice
+after decoration glyphs; pass `&[]` when no aliases are needed. Nonempty
+`NativeFontGlyphAlias { font, character, glyph }` lists must be strictly sorted
+by source index and BMP character; their target glyphs must exist. Aliases
+preserve semantic text and do not mutate embedded font cmaps.
+
+CLI adds `--font-embedding subset|full` and repeatable
+`--font-glyph ROLE:CHAR=GLYPH` with explicit font resources. Node/browser add
+`hnc8.fonts.embedding` and `glyphAliases: [{ role, character, glyph }]`.
+Raw WASM adds `caj2pdf_c8_set_font_embedding` and
+`caj2pdf_c8_add_font_glyph` after base-role registration. Defaults retain
+subsetting and empty maps. Complete TrueType programs preserve original bytes
+(or selected TTC face tables) using bounded reads, with larger PDFs; used CFF
+full embedding is refused. See [CLI usage](../cli.md) and
+[host configuration](../io-architecture.md). Remaining Wine differences are
+tracked in #541; using original fonts does not establish pixel parity.
+
+### Breaking PDF geometry: HN-B mode-0 page padding (#541)
+
+Native mode-0 page extents now add 10 PDF points after converting raw dimensions
+with the measured `72/742` point unit. Previously they added 100 raw units,
+about 9.7035 points. Width and height each increase by about 0.2965 point, and
+bottom-origin drawing coordinates follow the corrected page height. This
+applies to native Rust, CLI, Node and browser, with either subset or full fonts.
+Update stored page-box expectations and PDF hashes by reconverting mode-0
+inputs; there is no new option or API field. Font bytes and semantic text are
+unchanged. Mode-2 pages and other conversion routes are unaffected. Ten original
+Wine boundary comparisons match, while four actual mode-0 pages retain their
+previous 75% raster. Remaining glyph placement differences are tracked in #541.
+
+### Native mode-2 ASCII digit placement (#541)
+
+Raw A0B0–A0B9 digits in ordinary Latin placement now use their recorded origin
+instead of the alphabet's horizontal and vertical offsets. Font selection,
+explicit glyph aliases and semantic ASCII text remain intact. This changes PDF
+coordinates/hashes for affected C8/HN-B input in native, CLI, Node and browser,
+with both subset and full font programs; reconvert affected files. No option
+or API change. CJK character mode, mode 0, fullwidth A3 digits and letters keep
+their existing behavior. Independent Wine controls and three actual pages
+improve; other alphabet and raster differences remain tracked in #541.
+
+### Native mode-2 ASCII letter placement (#541)
+
+Raw A0C1–A0DA and A0E1–A0FA letters in ordinary Latin placement now use the
+character-dependent integer origins measured in Wine, replacing the previous
+class-wide width compensation. Existing style/axis admission, font programs,
+glyph aliases and semantic text remain intact. This changes PDF coordinates
+and hashes for affected C8/HN-B input across native, CLI, Node and browser,
+with both subset and full programs; reconvert affected files. No option or API
+change. CJK character mode, mode 0, fullwidth A3 letters and digits keep their
+separate placement rules. In the existing 77-page Wine cohort, 37 pages improve,
+40 retain their prior rasters and none regress. All pages still have pixel
+differences; device rounding and unequal-axis rasterization remain open in #541.
+
 ### Other unreleased changes
+
+- Native C8/HN-B header, table and other admitted axis-aligned segments use
+  gray-127 device hairlines to match Wine CAJViewer's lighter appearance
+  (#544). Diagonals remain black; coordinates, font programs, semantic text
+  and admission rules are unchanged. This changes affected PDF hashes across
+  native, CLI, Node and browser; reconvert to receive the correction. No API,
+  dependency or buffering change. All 77 observed pages retain or improve
+  diagnostic agreement, with every changed region visually reviewed. Small
+  vertical-coverage and overlapping-line raster differences remain.
+
+- The Rust PDF writer adds `pdf::FontEmbedding` and
+  `PdfDocument::embed_font_with_embedding(&handle, &mut font, FontEmbedding::Full)`
+  (#541). Used standalone TrueType programs retain their exact bytes; TTC
+  faces retain original glyph IDs and all rendering tables in a rebuilt
+  standalone font, omitting DSIG and updating the checksum. Both ordinary
+  Unicode and mapped glyph/text resources retain correct PDF widths and
+  ToUnicode. Complete fonts use their original PostScript names, without a
+  subset prefix. Reads are chunked and output sequential; an allocation
+  never scales with the whole font. Full programs can greatly increase PDF
+  size and are read twice, with source-digest validation between passes.
+  Used CFF resources refuse `Full`; unused resources keep small subsets.
+  Existing font-admission rules apply. `embed_font` and all conversion
+  defaults still subset fonts. Native conversion, CLI, Node/browser and raw
+  WASM now expose this option with external glyph aliases, as described above.
 
 - Correct vertically inverted type-1 JPEGs in HN-A/C8 image and native pages
   (#530). Type 1 now draws top-first; type 2 retains its measured bottom-first
@@ -217,3 +299,132 @@ errors. Native, CLI, Node and browser share the bounded core behavior with
 no public API or dependency change. See the
 [bounds](../pdf-input.md#retained-catalog-and-incomplete-page-tree) and
 [provenance](../provenance.md#retained-catalog-and-incomplete-page-tree-456).
+
+### Breaking Rust API: CJK style font roles (#541)
+
+`hnc8::C8PageFonts` gains three optional source indices: `cjk_sans`,
+`cjk_kai`, and `cjk_system`. Existing struct literals add:
+
+```rust,ignore
+cjk_sans: None,
+cjk_kai: None,
+cjk_system: None,
+```
+
+When supplied, these roles select the measured CJK fonts using the original
+raw style, including styles whose geometry is normalized to another value.
+They apply to C8 (both character modes) and HN-B native modes 0 and 2.
+The admitted `801c` family control overrides the CJK family until the next
+`8002` style record; it preserves geometry and ordinary Latin selection.
+Missing optional fonts or missing CJK glyphs use the base `cjk` fallback.
+These roles also select C8 fullwidth Latin letters, ideographic space and
+fullwidth ampersand; ordinary Latin and raw low-byte `006c`/`0070` keep their
+previous resource rules. No font is bundled or
+looked up by these options; `cjk_system` is a caller-supplied source.
+
+The matching CLI flags and directory stems are `--font-cjk-sans` /
+`cjk-sans`, `--font-cjk-kai` / `cjk-kai`, and `--font-cjk-system` /
+`cjk-system`. Node/browser use `hnc8.fonts.cjkSans`, `cjkKai`, `cjkSystem`.
+Raw WASM adds `caj2pdf_c8_set_cjk_style(style, index)` after base role
+registration; the selectors are `0x0800`, `0x0c00`, and `0x0400`.
+These adapter additions are compatible. Rust callers should use
+`hnc8::C8_MAX_FONTS` (eleven) for resource bounds. Font I/O stays ranged,
+embedding stays sequential, and shared inputs are still embedded once.
+The three absent roles preserve the existing eight-entry PDF resource list.
+
+This change addresses font selection, not full Wine pixel parity. Latin
+resource aliases, punctuation, decorations, positioning and rasterization
+must still be assessed separately; #541 remains open.
+
+## Breaking Rust API: ornament glyph maps (#541)
+
+`hnc8::C8FontSources` adds `decoration_glyphs: &[NativeDecorationGlyph]` and
+`decoration_font: Option<&SymbolFontIdentity>`. Add `&[]` and `None` to retain
+previous output. Owned `Fonts` adds the corresponding `Vec` and owned identity;
+use `..Fonts::default()` or add an empty vector and `None`.
+`write_c8_native_page` takes an extra decoration-map slice immediately after
+the symbol-map slice. Pass `&[]` for the legacy global decoration alias.
+
+Each entry maps a decimal native ornament value to a nonsemantic BMP glyph of
+the explicit decoration role. Four unique values (1, 2, 46, 117) are supported;
+mapped glyphs must exist in that resource. Identity binding uses the same
+PostScript-name/checksum representation as symbols. The map applies only to
+mode 2 and preserves existing record/state restrictions, Artifact/ActualText
+marking and drawing geometry. Unlisted values use the previous global alias.
+
+CLI, Node and browser options are additive. Raw WASM adds
+`caj2pdf_c8_add_decoration_glyph(value, glyph)` and
+`caj2pdf_c8_set_decoration_font(checksum, length, w0, ..., w7)` after roles,
+using the existing bounded font-name encoding. Use matching JS/WASM builds.
+No font binaries or automatic downloads are added.
+
+
+### Breaking C8 font behavior: CJK-mode alphabet aliases (#541)
+
+Correct the glyph selection for all 62 raw `a0` letters/digits while `80ce/0`
+is active. Native, CLI, Node and browser now query the measured GBK alias in
+the styled CJK font; previously they queried ASCII in the base CJK font.
+ActualText preserves the existing source ASCII character, and exact aliases
+do not increment substitution counts. `80ce/1` restores ordinary Latin.
+
+Callers rendering this combination must supply the measured alias in the
+selected font (for example U+7283 for raw `a0c1`), including optional CJK
+style fonts. An absent optional role still uses the base CJK font, but a
+missing glyph in the selected font fails instead of silently drawing ASCII.
+No public API, font-read bound or coordinate model changes. All 77 actual
+inventory pages remain byte-identical; six original controls improve while
+retaining pixel differences. See the [evidence](../research/wine-cjk-aliases-20261011.md).
+
+
+### Breaking HN/C8/NH PDF geometry: refined coordinate scale (#541)
+
+The empirical raw-coordinate scale changes from `240/2473` to `72/742`
+points throughout the shared geometry path. Native Rust, CLI, Node and
+browser outputs can change page dimensions, positions and PDF bytes/hashes.
+Regenerate affected snapshots and coordinate expectations; for example,
+`raw_width * 240 / 2473` becomes `raw_width * 72 / 742`. No API signatures,
+font/payload I/O bounds, dependencies, `72/300` image-pixel scale or `75/301`
+font-em scale change. The fraction is an empirical model, not a proved
+physical source unit.
+
+Independent controls and held-out dimensions/zooms predict observed page
+extents. All 77 inventoried actual pages now match Wine extents, with pixel
+differences still present. Among 42 previously comparable pages, 30 improve,
+ten are unchanged and two worsen slightly; all 113,418 source characters
+are preserved and all 13 Node/native PDFs are byte-identical. Additional
+HN-A/C8/NH checks cover 43 selected pages, not all 433 NH pages. See the
+[67-session evidence and remaining limits](../research/wine-page-extents-20261011.md).
+
+### Breaking native C8 behavior: preserve link appearances (#545)
+
+Native Rust, CLI, Node and browser conversion now emits the measured
+application-info links as PDF `/Link` annotations with explicit appearance
+Forms. Previously all notes were counted and visually discarded. Their source
+page, rectangle, color and HTTP(S) URI are retained without accessing the
+URI; body streams, font/image resources and semantic text are unchanged.
+The original font setup is unaffected. Reconvert files to receive the marks.
+
+Unknown required note styles/types/units/versions or URI profiles now produce
+an unsupported-format error. Callers must handle that error instead of
+assuming metadata notes are always ignored. Damaged packages remain located
+warnings; inspection and the image-only diagnostic API retain their existing
+metadata-only behavior. No public field, WASM ABI, option or dependency is
+added. See [the admitted profile and bounds](../cli.md#c8-application-info).
+
+The appearance is a documented physical approximation: 0.5-point filled
+marks, 6.75/2.25-point dash-dot-dot runs and a 1.5-point lower gap. Wine keeps
+its dash cadence and gap in device pixels, so zoom-dependent differences
+remain. Exact RGB equality is not an acceptance gate. Original controlled
+sources and all 11 affected actual pages are compared at reading size;
+printing and target navigation remain untested.
+
+### Continuous native ornament bands (#541)
+
+Explicitly mapped native decoration glyphs that consist solely of small,
+unhinted full-em horizontal rectangles now paint once through the existing
+clip. This removes visible seams in the measured double-rule header while
+retaining the original font program and vertical geometry. Other patterns,
+ordinary text, page geometry and link appearances are unchanged. No public
+API or option is added. Reconvert affected files to receive the correction;
+PDF bytes can change. The bounded shape test and independent positive/negative
+controls are documented in the [study](../research/wine-ornament-bands-20261011.md).

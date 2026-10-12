@@ -4,19 +4,25 @@
 
 use super::*;
 use crate::hnc8::{
-    C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol, write_c8_native_page,
+    C8_MAX_FONTS, C8PageFonts, NativeDecorationGlyph, NativeSymbolGlyph, SymbolFontIdentity,
+    is_mode_zero_symbol, write_c8_native_page,
 };
-use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
+use crate::hnc8::{NativeFontGlyphAlias, native_glyphs};
+use crate::pdf::{FontEmbedding, FontObject, ImageObject, OpenTypeFont};
 use std::io::Write;
 
 /// Explicit ranged font sources, embedded once per document.
-/// Multiple roles may reference one source index. At most eight distinct
+/// Multiple roles may reference one source index. At most eleven distinct
 /// resources are needed by the admitted profile; no system fonts are searched.
 /// Absent optional roles and unmapped characters follow the
 /// [`C8PageFonts`] fallback rule.
 pub struct C8FontSources<'a, F> {
     pub sources: &'a mut [C8FontSource<F>],
     pub roles: C8PageFonts,
+    /// How used font programs are embedded. Subsets are the default.
+    pub embedding: FontEmbedding,
+    /// Ordinary text aliases, strictly sorted by source index and character.
+    pub glyph_aliases: &'a [NativeFontGlyphAlias],
     /// Explicit HN-B mode-0 symbol glyphs from the `symbols` font. Each code
     /// appears once and draws exactly its glyph; other codes keep the
     /// [`C8PageFonts`] rules. Must be empty for any other native profile.
@@ -25,6 +31,11 @@ pub struct C8FontSources<'a, F> {
     pub symbol_glyphs: &'a [NativeSymbolGlyph],
     /// The font `symbol_glyphs` was measured on; requires a nonempty map.
     pub symbol_font: Option<&'a SymbolFontIdentity>,
+    /// Explicit nonsemantic aliases for admitted `8010` values in native mode 2.
+    /// Requires `roles.decoration`; at most four unique entries, without fallback.
+    pub decoration_glyphs: &'a [NativeDecorationGlyph],
+    /// The decoration font the map was measured on; requires a nonempty map.
+    pub decoration_font: Option<&'a SymbolFontIdentity>,
 }
 
 /// One font resource: a ranged source and its face index, zero for a
@@ -60,7 +71,7 @@ where
     validate(limits)?;
     let roles = fonts.roles;
     let count = fonts.sources.len();
-    if !(1..=8).contains(&count)
+    if !(1..=C8_MAX_FONTS).contains(&count)
         || [roles.cjk, roles.latin]
             .into_iter()
             .chain(roles.alternate_latin)
@@ -69,13 +80,18 @@ where
             .chain(roles.latin_state3)
             .chain(roles.latin_state28)
             .chain(roles.latin_state31)
+            .chain(roles.cjk_sans)
+            .chain(roles.cjk_kai)
+            .chain(roles.cjk_system)
             .any(|index| index >= count)
     {
         return Err(At::NONE.error(
             Hnc8Stage::Preflight,
-            Error::invalid("C8 font roles require 1..=8 explicit resources with valid indices"),
+            Error::invalid("C8 font roles require 1..=11 explicit resources with valid indices"),
         ));
     }
+    native_glyphs::validate(fonts.glyph_aliases, count, limits)
+        .map_err(|error| At::NONE.error(Hnc8Stage::Preflight, error))?;
     let symbol_glyphs = fonts.symbol_glyphs;
     let mapped_symbols = if symbol_glyphs.is_empty() {
         None
@@ -102,6 +118,20 @@ where
             return refuse("native symbol glyph code is mapped more than once");
         }
     }
+    let decoration_glyphs = fonts.decoration_glyphs;
+    crate::hnc8::native_page::validate_decoration_glyphs(decoration_glyphs, roles)
+        .map_err(|error| At::NONE.error(Hnc8Stage::Preflight, error))?;
+    let decoration_source = if decoration_glyphs.is_empty() {
+        None
+    } else {
+        roles.decoration.map(|(index, _)| index)
+    };
+    if fonts.decoration_font.is_some() && decoration_source.is_none() {
+        return Err(At::NONE.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("decoration font identity requires decoration glyphs"),
+        ));
+    }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
@@ -124,6 +154,15 @@ where
             Error::invalid("native symbol glyphs apply only to HN-B mode-0 text"),
         ));
     }
+    if decoration_source.is_some() && header.native_mode != Some(2) {
+        return Err(at.error(
+            Hnc8Stage::Preflight,
+            Error::invalid("decoration glyphs require native mode 2"),
+        ));
+    }
+    let (application_info, links) = reader
+        .application_info_with_links()
+        .map_err(|error| container(error, Hnc8Stage::Container))?;
     let mut document =
         PdfDocument::new(sink, limits, cancellation).map_err(at.locator(Hnc8Stage::Pdf))?;
     let mut handles: Vec<FontObject> =
@@ -131,29 +170,46 @@ where
     let mut font_bytes = 0u64;
     for (index, C8FontSource { source, face }) in fonts.sources.iter_mut().enumerate() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
-        let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
+        let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Preflight))?;
         let mapped = mapped_symbols == Some(index);
-        if mapped && let Some(identity) = fonts.symbol_font {
-            let checksum = font.checksum_adjustment();
-            let name = font.postscript_name();
-            let (checksum, name) = (
-                checksum.map_err(at.locator(Hnc8Stage::Preflight))?,
-                name.map_err(at.locator(Hnc8Stage::Preflight))?,
-            );
-            if checksum != identity.checksum_adjustment || name != identity.postscript_name {
-                return Err(at.error(
-                    Hnc8Stage::Preflight,
-                    Error::invalid("symbols font does not match the expected identity"),
-                ));
+        for (enabled, identity, message) in [
+            (
+                mapped,
+                fonts.symbol_font,
+                "symbols font does not match the expected identity",
+            ),
+            (
+                decoration_source == Some(index),
+                fonts.decoration_font,
+                "decoration font does not match the expected identity",
+            ),
+        ] {
+            if enabled && let Some(identity) = identity {
+                let checksum = font.checksum_adjustment();
+                let name = font.postscript_name();
+                let (checksum, name) = (
+                    checksum.map_err(at.locator(Hnc8Stage::Preflight))?,
+                    name.map_err(at.locator(Hnc8Stage::Preflight))?,
+                );
+                if checksum != identity.checksum_adjustment || name != identity.postscript_name {
+                    return Err(at.error(Hnc8Stage::Preflight, Error::invalid(message)));
+                }
             }
         }
-        let handle = if mapped {
+        let aliases = native_glyphs::for_font(fonts.glyph_aliases, index);
+        let mut handle = if mapped || !aliases.is_empty() {
             document.add_mapped_font(&font)
         } else {
             document.add_font(&font)
         }
         .map_err(at.locator(Hnc8Stage::Pdf))?;
+        if !aliases.iter().all(|entry| handle.supports(entry.glyph)) {
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("font does not map an explicit native glyph alias"),
+            ));
+        }
         // A missing source glyph is refused, never drawn by fallback.
         if mapped
             && !symbol_glyphs
@@ -165,19 +221,71 @@ where
                 Error::invalid("symbols font does not map a native symbol glyph"),
             ));
         }
+        if decoration_source == Some(index)
+            && !decoration_glyphs
+                .iter()
+                .all(|entry| handle.supports(entry.glyph))
+        {
+            return Err(at.error(
+                Hnc8Stage::Preflight,
+                Error::invalid("decoration font does not map an explicit ornament glyph"),
+            ));
+        }
+        if decoration_source == Some(index) {
+            let default_alias = roles.decoration.expect("decoration source has a role").1;
+            let mut candidates = [default_alias; 5];
+            for (slot, entry) in decoration_glyphs.iter().enumerate() {
+                candidates[slot + 1] = entry.glyph;
+            }
+            handle
+                .detect_horizontal_bands(
+                    &mut font,
+                    &candidates[..decoration_glyphs.len() + 1],
+                    limits,
+                    cancellation,
+                )
+                .map_err(at.locator(Hnc8Stage::Preflight))?;
+        }
         handles.push(handle);
     }
     // Fixed profile bound avoids a second allocation for references.
-    let references = [
-        &handles[roles.cjk],
-        &handles[roles.latin],
-        &handles[roles.alternate_latin.unwrap_or(roles.cjk)],
-        &handles[roles.decoration.map_or(roles.cjk, |(index, _)| index)],
-        &handles[roles.symbols.unwrap_or(roles.cjk)],
-        &handles[roles.latin_state3.unwrap_or(roles.cjk)],
-        &handles[roles.latin_state28.unwrap_or(roles.cjk)],
-        &handles[roles.latin_state31.unwrap_or(roles.cjk)],
+    let source_indices = [
+        roles.cjk,
+        roles.latin,
+        roles.alternate_latin.unwrap_or(roles.cjk),
+        roles.decoration.map_or(roles.cjk, |(index, _)| index),
+        roles.symbols.unwrap_or(roles.cjk),
+        roles.latin_state3.unwrap_or(roles.cjk),
+        roles.latin_state28.unwrap_or(roles.cjk),
+        roles.latin_state31.unwrap_or(roles.cjk),
+        roles.cjk_sans.unwrap_or(roles.cjk),
+        roles.cjk_kai.unwrap_or(roles.cjk),
+        roles.cjk_system.unwrap_or(roles.cjk),
     ];
+    let references = source_indices.map(|index| &handles[index]);
+    // Preserve the existing PDF resource list when the new roles are absent.
+    let reference_count = if roles.cjk_system.is_some() {
+        11
+    } else if roles.cjk_kai.is_some() {
+        10
+    } else if roles.cjk_sans.is_some() {
+        9
+    } else {
+        8
+    };
+    // A shared source can occupy several page slots. Remap its aliases once,
+    // within at most eleven BMP maps and the caller's allocation limit.
+    let alias_count = source_indices[..reference_count]
+        .iter()
+        .map(|index| native_glyphs::for_font(fonts.glyph_aliases, *index).len())
+        .sum();
+    let mut page_aliases = page_vector(alias_count, limits, "native page font aliases")
+        .map_err(at.locator(Hnc8Stage::Preflight))?;
+    for (font, source) in source_indices[..reference_count].iter().enumerate() {
+        for entry in native_glyphs::for_font(fonts.glyph_aliases, *source) {
+            page_aliases.push(NativeFontGlyphAlias { font, ..*entry });
+        }
+    }
     let page_roles = C8PageFonts {
         cjk: 0,
         latin: 1,
@@ -187,6 +295,9 @@ where
         latin_state3: roles.latin_state3.map(|_| 5),
         latin_state28: roles.latin_state28.map(|_| 6),
         latin_state31: roles.latin_state31.map(|_| 7),
+        cjk_sans: roles.cjk_sans.map(|_| 8),
+        cjk_kai: roles.cjk_kai.map(|_| 9),
+        cjk_system: roles.cjk_system.map(|_| 10),
     };
     let mut report = ComposeReport::new(header);
     // C8/HN-B outlines are unverified; a request writes none and is reported.
@@ -252,11 +363,14 @@ where
         report.output_pages = write_c8_native_page(
             &mut reader,
             &mut document,
-            &references,
+            &references[..reference_count],
             page_roles,
             symbol_glyphs,
+            decoration_glyphs,
+            &page_aliases,
             &images,
             &top_first,
+            &links,
         )
         .map_err(|error| container(error, Hnc8Stage::Text))?
             + 1;
@@ -269,10 +383,10 @@ where
         let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .map_err(at.locator(Hnc8Stage::Pdf))?;
         document
-            .embed_font(handle, &mut font)
+            .embed_font_with_embedding(handle, &mut font, fonts.embedding)
             .map_err(at.locator(Hnc8Stage::Pdf))?;
     }
-    report.conversion = finish_document(&mut reader, document, &mut report, at)?;
+    report.conversion = finish_with_application_info(document, &mut report, at, application_info)?;
     report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);
     Ok(report)
 }

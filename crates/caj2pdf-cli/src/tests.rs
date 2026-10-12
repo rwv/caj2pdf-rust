@@ -1468,6 +1468,9 @@ fn native_font_options_preserve_paths_and_validate_roles() {
         "--font-latin-state3=e",
         "--font-latin-state28=f",
         "--font-latin-state31=g",
+        "--font-cjk-sans=h",
+        "--font-cjk-kai=i",
+        "--font-cjk-system=j",
         "--decoration-char",
         "A",
     ])
@@ -1484,7 +1487,10 @@ fn native_font_options_preserve_paths_and_validate_roles() {
             Some("d".into()),
             Some("e".into()),
             Some("f".into()),
-            Some("g".into())
+            Some("g".into()),
+            Some("h".into()),
+            Some("i".into()),
+            Some("j".into())
         ]
     );
     assert_eq!(options.decoration_char, Some('A'));
@@ -1596,6 +1602,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
     assert!(roles.alternate_latin.is_none() && roles.decoration.is_none());
     assert!(roles.symbols.is_none() && roles.latin_state3.is_none());
     assert!(roles.latin_state28.is_none() && roles.latin_state31.is_none());
+    assert!(roles.cjk_sans.is_none() && roles.cjk_kai.is_none() && roles.cjk_system.is_none());
     assert_eq!(resources.inputs.len(), 2);
     // A decoration alias needs a decoration font from the directory or a flag.
     let mut options = font_options(&dir.0);
@@ -1626,7 +1633,10 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
     assert_eq!(roles.latin_state3, Some(5));
     assert_eq!(roles.latin_state28, Some(6));
     assert_eq!(roles.latin_state31, Some(7));
-    assert_eq!(resources.inputs.len(), 8);
+    assert_eq!(roles.cjk_sans, Some(8));
+    assert_eq!(roles.cjk_kai, Some(9));
+    assert_eq!(roles.cjk_system, Some(10));
+    assert_eq!(resources.inputs.len(), 11);
 }
 
 #[test]
@@ -1728,4 +1738,114 @@ fn private_use_substitution_warning_is_explicit_and_zero_is_quiet() {
     assert!(text.contains("1 private-use glyph(s)"));
     assert!(text.contains("visual substitute"));
     assert!(text.contains("original private-use codes retained in PDF ActualText"));
+}
+
+#[test]
+fn decoration_glyph_options_use_decimal_values_and_explicit_fonts() {
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.caj",
+        "--fonts=dir",
+        "--decoration-glyph=1=A",
+        "--decoration-glyph=117=U+4E2D",
+        "--decoration-font-identity=CajFixture:1234ABCD",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        options.decoration_glyphs,
+        [
+            caj2pdf_core::hnc8::NativeDecorationGlyph {
+                value: 1,
+                glyph: 'A'
+            },
+            caj2pdf_core::hnc8::NativeDecorationGlyph {
+                value: 117,
+                glyph: '中'
+            },
+        ]
+    );
+    assert_eq!(
+        options.decoration_font.unwrap().checksum_adjustment,
+        0x1234_abcd
+    );
+    for value in [
+        "0=A", "3=A", "75=A", "0x75=A", "117=", "1=AB", "1=😀", "1=U+D800",
+    ] {
+        assert!(parse_str(&["input.caj", "--fonts=dir", "--decoration-glyph", value]).is_err());
+    }
+    for args in [
+        vec!["input.caj", "--decoration-glyph=1=A"],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-font-identity=CajFixture:1234ABCD",
+        ],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-glyph=1=A",
+            "--decoration-font-identity=Bad/Name:1234ABCD",
+        ],
+        vec![
+            "input.caj",
+            "--fonts=dir",
+            "--decoration-glyph=1=A",
+            "--decoration-glyph=2=A",
+            "--decoration-glyph=46=A",
+            "--decoration-glyph=117=A",
+            "--decoration-glyph=1=A",
+        ],
+    ] {
+        assert!(parse_str(&args).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn original_font_glyph_options_require_roles_and_bmp_scalars() {
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.caj",
+        "--fonts=dir",
+        "--font-embedding=full",
+        "--font-glyph=latin:A=U+4E2D",
+        "--font-glyph=cjk:U+4E2D=A",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        options.font_embedding,
+        caj2pdf_core::pdf::FontEmbedding::Full
+    );
+    assert_eq!(
+        options.font_glyphs[0],
+        caj2pdf_core::hnc8::NativeFontGlyphAlias {
+            font: 1,
+            character: 'A',
+            glyph: '中'
+        }
+    );
+    assert_eq!(
+        options.font_glyphs[1],
+        caj2pdf_core::hnc8::NativeFontGlyphAlias {
+            font: 0,
+            character: '中',
+            glyph: 'A'
+        }
+    );
+    for value in [
+        "other:A=B",
+        "latin:A=",
+        "latin:=A",
+        "latin:AA=B",
+        "latin:A=😀",
+        "latin:😀=A",
+        "latin:U+D800=A",
+        "latin:A=U+D800",
+    ] {
+        assert!(parse_str(&["input.caj", "--fonts=dir", "--font-glyph", value]).is_err());
+    }
+    assert!(parse_str(&["input.caj", "--font-embedding=full"]).is_err());
+    assert!(parse_str(&["input.caj", "--font-glyph=latin:A=B"]).is_err());
+    assert!(parse_str(&["input.caj", "--fonts=dir", "--font-embedding=unknown"]).is_err());
 }

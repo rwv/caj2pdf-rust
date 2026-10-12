@@ -1,5 +1,25 @@
 # Research notes
 
+Current Wine acceptance uses **normal-reading visual agreement**, including
+original supplied fonts; harmless subpixel/antialiasing differences are
+acceptable. Exact RGB counts in historical notes are diagnostics, not a
+zero-difference completion gate. The
+[native rule-contrast correction](wine-visible-rules-20261011.md) changes 347
+axis-aligned rules and checks all 77 actual pages, with 63 diagnostic
+improvements, 14 unchanged rasters and no regressions. Every changed region
+was visually reviewed. The [original-font band correction](wine-ornament-bands-20261011.md)
+removes the measured double-rule tile seam under #541; general patterned
+ornaments retain their existing cadence.
+
+The [link-appearance isolation](wine-link-appearances-20261011.md) establishes
+that missing dashed underlines come from C8 application-info annotations.
+Original controls measure their coordinate, color and device-fixed dash
+behavior. Native conversion now preserves 133 links on 11 actual pages as
+PDF annotations with thin filled appearances (#545). All body/font/image
+resources remain unchanged; ten unannotated PDFs stay byte-exact. Fifteen
+fresh Wine views reproduce the inspected treatment. Cross-zoom dash cadence
+remains approximate; printing and navigation are untested.
+
 The format investigations, oracle reports and validation runs behind the
 decoders now live in the
 [caj2pdf-samples repository](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes)
@@ -185,3 +205,153 @@ stream byte sequences match qpdf; 180 pages render and 97 outline destinations
 are valid. Initial-IV initialization, production three-runtime support and
 complete viewer equivalence remain unmet. The earlier URL-copy failures stay
 historical evidence; no conversion totals or format support claims change.
+
+The [Wine native font-resource follow-up](wine-font-resources-20261011.md)
+identifies Huaguang Song/Hei/Kai and system Song selection, separates mode-2
+Latin aliases from mode-0 Unicode queries, and verifies all 13 native documents
+with measured caller fonts. It preserves remaining extent/pixel differences
+and the viewer startup workaround; #541 remains open.
+
+The [Wine ornament-spacing controls](wine-ornament-spacing-20261011.md)
+provide an original reproducible C8/font fixture and 43 session receipts.
+They isolate zoom-dependent integer repetition from font advances, retain
+rejected PDF encodings, and leave production geometry unchanged.
+
+
+The [CJK character-mode alias follow-up](wine-cjk-aliases-20261011.md) records
+760 font queries, six real-font before/after improvements with exact source
+repeats, and eleven negative geometry/PDF controls. Independent ActualText
+keeps semantic characters intact; all 77 actual PDF pages remain byte-identical.
+The original generator reproduces thirteen controls without external inputs.
+
+The [original-font production comparison](wine-original-font-production-20261011.md)
+validates bounded native/CLI/Node/browser font transport and explicit ordinary
+aliases against all 77 Wine pages, including mode 0, with cold repeats and
+independent glyph/semantic checks. Remaining pixel differences stay open.
+
+The [mode-0 page-padding follow-up](wine-mode0-page-padding-20261011.md)
+separates the ten-point page margin from the raw coordinate unit. Ten boundary
+comparisons, including a held-out size, match Wine; four actual page rasters
+remain unchanged at 75%. The eight-source generator, 61-session receipt and
+26 native/Node byte comparisons preserve unresolved glyph-position hypotheses.
+
+The [mode-0 font-metric and rounding controls](wine-mode0-font-rounding-20261011.md)
+exclude vertical-metric changes and four equivalent PDF encodings as fixes.
+Across seven zooms, 156 relative CJK/Latin measurements support separate device
+rounding of the existing ten-unit offset. High-zoom and positive font controls
+retain the limits of that inference; production geometry remains unchanged.
+
+The [axis rasterization and character-origin study](wine-axis-rasterization-20261011.md)
+records 73 synthetic Wine sessions, four exact cold repeats and negative
+cross-zoom controls. Identical geometric glyphs isolate code-dependent Latin
+origins. Original source/font/PDF reproducers retain rejected partial cells
+and the limits of zoom-specific raster predictions.
+
+The [mode-2 digit-origin correction](wine-mode2-digit-origins-20261011.md)
+separates A0 digits from alphabet placement. All 316 measured digit cells improve;
+three actual pages improve and 74 retain their prior pixels. The 59-session receipt
+retains one rejected information-bar capture, runtime parity and unresolved
+alphabet origins. Seventeen original source fixtures reproduce exactly.
+
+The [mode-2 alphabet-origin correction](wine-mode2-alphabet-origins-20261011.md)
+establishes integer character/size offsets using 1,612 geometric observations,
+including 624 held-out predictions. All 880 selected production letter cells
+improve. The existing 77-page cohort has 37 improvements, 40 unchanged rasters
+and no regressions; remaining device rounding and raster differences stay open.
+The 61-session receipt retains failed hypotheses, rejected captures and full
+CLI/Node/Chromium parity. Nine original source controls reproduce exactly.
+
+The [Type 3 rasterization controls](wine-type3-rasterization-20261011.md)
+exclude further character-procedure encodings as a correction for the tested
+Wine frames. Nested `d0` text retains baseline pixels; `d1` nested text is blank
+despite visible rectangle controls. All 28 original-outline path frames regress.
+The 62-session receipt and 32-PDF reproducer retain missing glyphs, a rejected
+frame comparison and an interrupted observer resumed without restarting Wine.
+
+The [grayscale JPEG and interpolation controls](wine-jpeg-decode-controls-20261011.md)
+retain 17 Wine sessions and 51 complete page visits. Full-resolution decoded
+Flate, explicit interpolation and their combination leave all 27 treatment
+frames identical to their PDF baselines across three zooms. An inverted-image
+control changes all three selected pages. Source differences remain, with no
+production change or general claim about renderer behavior.
+
+The [form and transparency controls](wine-transparency-controls-20261011.md)
+retain 38 cold Wine sessions. Ordinary forms, isolated groups and equivalent
+origin/axis decompositions preserve all 35 baseline frames across seven views.
+A separate half-opacity control changes the frame but loses visible ink in
+31 of 42 glyph cells. All 21 diagnostic PDFs reproduce exactly; neither
+alternative supplies a production fidelity correction.
+
+The [vertical CID origin controls](wine-vertical-origins-20261011.md) distinguish
+responses to per-CID and default metric encodings in 35 Wine sessions. Responsive
+range/default equivalents retain baseline pixels; four array-based equivalents
+regress. Two cold source repeats and all 29 output reproductions are exact.
+The observer's initial cell-boundary failure and deliberately displaced controls
+remain separate from complete-frame fidelity; no production fix is adopted.
+
+The [public GDI relay controls](wine-gdi-relay-controls-20261011.md) retain twelve
+cold Wine sessions and independent API logging probes. All frames equal their
+unobserved references. Four initial logs truncate; eight filtered traces retain
+every selected record. Source/PDF final bitmap dimensions match at four views,
+but glyph-query APIs seen in the positive probe are absent from the selected
+viewer traces. This narrows the observation boundary without identifying an
+internal renderer or fixing the remaining source/PDF pixel differences.
+
+The [native image endpoint study](wine-image-endpoints-20261011.md) records
+79 cold Wine sessions and 93 admitted visits. Original black grids isolate
+inclusive native endpoint sizing on 132 axes. Target-zoom extent diagnostics
+make six grid views exact and improve nine selected actual views, but two
+cross-zoom controls regress. No production fix is adopted; #543 tracks the
+remaining general endpoint/resampling correction under #406.
+
+The [image-route and sampling study](wine-image-routes-sampling-20261011.md)
+adds 51 cold sessions / 65 admitted visits. Tested patterns lose ink; target
+extents plus reversed sample rows make five original control views exact.
+Actual-page and cross-zoom counterexamples prevent a general production fix.
+The subsequent study below independently varies descriptor orientation and clipping.
+
+The [JPEG descriptor and signed-clipping study](wine-image-signed-clipping-20261011.md)
+adds 97 cold sessions / 133 admitted visits. Descriptor-only changes make all
+five type-2 in-page views exact with target extents alone. Independent signed
+controls isolate residuals to negative positions; every nonnegative cell is
+exact after the declared grid corrections. Signed rounding/origin carry and
+zoom-independent integer-pixel clipping retain actual-page regressions.
+Six source/current-PDF pairs and 56 diagnostics reproduce exactly. #543 remains
+open; no production rendering change is adopted.
+
+The [device-coordinate clipping study](wine-image-device-clipping-20261011.md)
+adds 88 cold sessions / 88 admitted visits. Paired grayscale controls isolate
+clipped sampling; device-derived pixel windows, vertical-origin carry and an
+adjacent-row diagnostic make ten whole gray/RGB control views exact at declared
+zooms. Held-out 125/175% failures and numeric-bound regressions remain.
+Both new source/current-PDF pairs and 64 diagnostics reproduce exactly.
+Research JPEG/mask admission checks are corrected with positive and negative
+controls. #543 remains open for a general production correction.
+
+The [image Form and direct-clipping study](wine-image-forms-20261011.md)
+adds 44 cold sessions / 68 admitted visits. Tight ordinary Forms remove a few
+gray and mixed-page edge differences; direct unit-square clipping reproduces
+all ten corresponding frames without Forms. Tight transparency groups regress
+at 100%, while image-only pages and black endpoint sizes remain unresolved.
+All 30 diagnostic PDFs reproduce exactly, with eight exact cold repeat visits.
+This supports further evaluation of clipping, not a general rendering fix;
+#543 and the production fidelity obligations remain open.
+
+The [full-cohort direct-clipping study](wine-image-clip-cohort-20261011.md)
+adds fresh native and candidate views of all 77 pages. Five improve, 71 retain
+pixels and one regresses, rejecting unconditional clipping. The counterexample
+changes from regression at 75% to improvement at 95%; an equivalent
+page-coordinate clip reproduces the same pixels. All 31 new comparison PDFs
+reproduce, and all 77 fresh native crops equal the historical crops. The
+85-session receipt admits 230 visits, retaining twelve incomplete captures and
+six unobserved startup-failure visits separately. #543 remains open; no
+production correction is adopted.
+
+
+The [RGB decoding and edge-control study](wine-image-rgb-edge-decode-20261011.md)
+adds 62 cold Wine sessions / 86 admitted visits. All 24 decoder/interpolation
+comparisons retain exact frames when clipping state is fixed. Independently
+generated RGB controls reproduce clipping regressions across reversed paint
+order; 432 declared panel windows account for all changed pixels. Four sources,
+eighteen new PDFs and five legacy gray PDFs reproduce exactly. No production
+correction is adopted; #543 remains open.

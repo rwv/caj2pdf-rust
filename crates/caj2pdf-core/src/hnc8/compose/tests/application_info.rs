@@ -146,7 +146,8 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             native_text,
         );
         if tail {
-            append_package(&mut fixture.bytes, XML.as_bytes(), XML.len() as u32);
+            let xml = XML.replace("<NoteItems><Item/><Item/></NoteItems>", "<NoteItems/>");
+            append_package(&mut fixture.bytes, xml.as_bytes(), xml.len() as u32);
         }
         let mut fonts = [C8FontSource {
             source: Source::new(crate::pdf::drawing_font()),
@@ -157,10 +158,14 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
                 sources: &mut fonts,
                 roles: roles(),
                 symbol_glyphs: &[],
                 symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
             },
             None,
             ComposeOptions::default(),
@@ -174,4 +179,72 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
     assert!(!contains(&pdfs[0], b"/Info"));
     assert!(contains(&pdfs[1], b"/CNKI_DOI <FEFF"));
     assert!(contains(&pdfs[1], b"/CNKI_URL <FEFF"));
+}
+
+#[test]
+fn native_links_preserve_body_and_warn_or_refuse_without_silent_loss() {
+    let xml = "<Package><Note-Package><NoteItems Unit='PointsM' Version='1.0'><Item Type='Link' Page='2' Color='00808080' LineStyle='4' ShowType='1'><RC l='100' t='200' r='900' b='500'/><Item Type='UrlLink' Aim='https://example.invalid/?x=1&amp;y=2'/></Item></NoteItems></Note-Package></Package>";
+    let run = |xml: Option<&str>| {
+        let mut fixture = fixture_with_text(Variant::C8, &[vec![], vec![]], native_text);
+        if let Some(xml) = xml {
+            append_package(&mut fixture.bytes, xml.as_bytes(), xml.len() as u32);
+        }
+        let mut source = Source::new(fixture.bytes);
+        source.short = 3;
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
+        let mut sink = Sink::default();
+        let limits = Limits {
+            io_chunk_bytes: 31,
+            ..Limits::default()
+        };
+        let result = convert_c8_native_pdf(
+            &mut source,
+            &mut sink,
+            C8FontSources {
+                embedding: Default::default(),
+                glyph_aliases: &[],
+                sources: &mut fonts,
+                roles: roles(),
+                symbol_glyphs: &[],
+                symbol_font: None,
+                decoration_glyphs: &[],
+                decoration_font: None,
+            },
+            None,
+            ComposeOptions::default(),
+            &limits,
+            &NeverCancel,
+        );
+        assert!(source.max_request <= 31 && sink.max_request <= 31);
+        (result, sink.bytes)
+    };
+    let (plain, body) = run(None);
+    plain.unwrap();
+    let (result, linked) = run(Some(xml));
+    assert_eq!(
+        result.unwrap().application_info,
+        ApplicationInfoStatus::Read
+    );
+    let text = String::from_utf8_lossy(&linked);
+    assert_eq!(text.matches("/Subtype /Link").count(), 1);
+    assert_eq!(text.matches("/Annots").count(), 1);
+    assert_eq!(
+        crate::test_support::inflated_stream(&linked, b"/FlateDecode"),
+        crate::test_support::inflated_stream(&body, b"/FlateDecode")
+    );
+    let (result, damaged) = run(Some(&xml.replace("r='900'", "r='0'")));
+    assert!(matches!(
+        result.unwrap().application_info,
+        ApplicationInfoStatus::Ignored(_)
+    ));
+    assert_eq!(damaged, body);
+    let (result, refused) = run(Some(&xml.replace("LineStyle='4'", "LineStyle='9'")));
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ErrorKind::UnsupportedFormat
+    ));
+    assert!(refused.is_empty());
 }

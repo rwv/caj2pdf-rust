@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { convert, spoolToTempFile } from "../node.mjs";
 import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
-import { syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnbProfile, privateAliasFont, syntheticNativeC8Profiles, syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeC8HanStyles, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -15,6 +15,61 @@ const source = (bytes) => new Blob([bytes]);
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 const required = (font) => ({ cjk: font, latin: font });
+
+test("C8 CJK-mode aliases retain semantic A, exact family selection and bounded reads", async (t) => {
+  const bytes = privateAliasFont(fontBytes, 0x7283), reads = {};
+  const base = trackedBlob(source(bytes), reads);
+  const extra = () => trackedBlob(source(bytes), reads);
+  const fonts = { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() };
+  const parts = [];
+  const result = await convert(await wasmModule(), source(syntheticNativeC8CjkAliases()), sink(parts), {
+    includeBookmarks: false, chunkSize: 32, hnc8: { fonts },
+  });
+  assert.equal(result.substitutedGlyphs, 0n);
+  assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+  const pdf = Buffer.concat(parts), text = pageText(pdf);
+  assert.equal(text.match(/<7283> Tj/g).length, 8);
+  assert.equal(text.match(/\/ActualText <FEFF0041>/g).length, 8);
+  assert.equal(text.match(/<0041> Tj/g).length, 4);
+  for (const role of [8, 9, 10]) assert.ok(text.includes(`/F${role} 1 Tf`));
+  await validatePdf(t, pdf, 1);
+  await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8CjkAliases()), sink(), {
+    includeBookmarks: false, hnc8: { fonts: { ...fonts, cjkSans: source(fontBytes) } },
+  }), /no supported BMP glyph/);
+});
+
+test("C8 Han/fullwidth style fonts preserve characters and bounded reads on the public Node path", async (t) => {
+  for (const [code, unicode] of [[0xd6d0, "4E2D"], [0xa3c1, "FF21"]]) {
+    for (const shared of [false, true]) {
+      const reads = {};
+      const bytes = code === 0xd6d0 ? fontBytes : privateAliasFont(fontBytes, 0xff21);
+      const base = trackedBlob(source(bytes), reads);
+      const extra = () => shared ? base : trackedBlob(source(bytes), reads);
+      const parts = [];
+      const result = await convert(await wasmModule(), source(syntheticNativeC8HanStyles(code)), sink(parts), {
+        includeBookmarks: false, chunkSize: 32,
+        hnc8: { fonts: { ...required(base), cjkSans: extra(), cjkKai: extra(), cjkSystem: extra() } },
+      });
+      assert.equal(result.pagesConverted, 1);
+      assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+      const pdf = Buffer.concat(parts);
+      const text = pageText(pdf);
+      assert.equal(text.match(/\/FontFile2 /g).length, shared ? 1 : 4);
+      assert.equal(text.match(new RegExp(`<${unicode}> Tj`, "g")).length, 8);
+      assert.equal(text.match(/<0041> Tj/g).length, 4);
+      let after = 0;
+      for (const token of ["/F8 1 Tf", `<${unicode}> Tj`, "/F9 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F9 1 Tf", `<${unicode}> Tj`, "/F0 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F0 1 Tf", `<${unicode}> Tj`, "/F8 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj",
+                           "/F10 1 Tf", `<${unicode}> Tj`, "/F0 1 Tf", `<${unicode}> Tj`, "/F1 1 Tf", "<0041> Tj"]) {
+        const at = text.indexOf(token, after);
+        assert.ok(at >= 0, token);
+        after = at + token.length;
+      }
+      await validatePdf(t, pdf, 1);
+    }
+  }
+});
 
 test("native C8/HN-B public Node path reads fonts in bounded ranges and preserves pages", async (t) => {
   for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {
@@ -334,4 +389,94 @@ test("HN-B symbol glyph maps bound to a font identity refuse other fonts", async
   await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
     includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols: source(symbolBytes), symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 1 } } },
   }), TypeError);
+});
+
+test("mixed ornament aliases preserve ordinary text, geometry and bounded font reads", async (t) => {
+  const reads = {}, font = trackedBlob(source(fontBytes), reads);
+  const run = async decorationGlyphs => {
+    const parts = [];
+    await convert(await wasmModule(), source(syntheticNativeC8Ornaments()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...required(font),
+        decoration: { source: font, character: "A" }, decorationGlyphs,
+        ...(decorationGlyphs ? { decorationFontIdentity: fixtureFontIdentity(fontBytes) } : {}),
+      } },
+    });
+    return Buffer.concat(parts);
+  };
+  const pdf = await run(ornamentGlyphs), reference = await run(undefined), text = pageText(pdf);
+  assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+  assert.equal(text.match(/\/FontFile2 /g).length, 1);
+  assert.ok(text.includes("<4E2D> Tj"));
+  const painting = value => value.split("stream\n")[1].split("\nendstream")[0];
+  assert.equal(painting(text).replaceAll("<4E2D> Tj", "<0041> Tj"), painting(pageText(reference)));
+  assert.ok(text.includes("/Artifact BMC\n/Span << /ActualText () >> BDC"));
+  assert.deepEqual(await run(ornamentGlyphs.map(entry => ({ ...entry, glyph: "A" }))), reference);
+  await validatePdf(t, pdf, 1);
+});
+
+test("ornament maps reject invalid values, missing glyphs and wrong font identities", async () => {
+  const wasm = await wasmModule(), font = source(fontBytes);
+  const base = { ...required(font), decoration: { source: font, character: "A" }, decorationGlyphs: ornamentGlyphs };
+  const run = async fonts => {
+    const parts = [];
+    try { await convert(wasm, source(syntheticNativeC8Ornaments()), sink(parts), { includeBookmarks: false, hnc8: { fonts } }); }
+    catch (error) { assert.ok(!Buffer.concat(parts).includes(Buffer.from("%%EOF"))); throw error; }
+  };
+  for (const decorationGlyphs of [[{ value: 3, glyph: "A" }], [{ value: 1, glyph: "😀" }], [{ value: 1, glyph: "A" }, { value: 1, glyph: "中" }]]) {
+    await assert.rejects(run({ ...base, decorationGlyphs }), /decoration glyph/);
+  }
+  await assert.rejects(run({ ...base, decoration: undefined }), TypeError);
+  await assert.rejects(run({ ...base, decorationGlyphs: [{ value: 1, glyph: "B" }] }), /does not map/);
+  for (const identity of [{ ...fixtureFontIdentity(fontBytes), postscriptName: "Wrong" }, { ...fixtureFontIdentity(fontBytes), checksumAdjustment: 0 }]) {
+    await assert.rejects(run({ ...base, decorationFontIdentity: identity }), /expected identity/);
+  }
+  await assert.rejects(run({ ...base, decorationGlyphs: [], decorationFontIdentity: fixtureFontIdentity(fontBytes) }), TypeError);
+  let consumed = 0;
+  function* excessive() { for (const entry of ornamentGlyphs) { consumed++; yield entry; } while (true) { consumed++; yield ornamentGlyphs[0]; } }
+  await assert.rejects(run({ ...base, decorationGlyphs: excessive() }), /at most four/);
+  assert.equal(consumed, 5);
+});
+
+test("original font aliases preserve complete programs and semantic text through bounded Node reads", async (t) => {
+  for (const embedding of ["subset", "full"]) {
+    const reads = {}, font = trackedBlob(source(fontBytes), reads), parts = [];
+    const result = await convert(await wasmModule(), source(syntheticNativeC8()), sink(parts), {
+      includeBookmarks: false, chunkSize: 32,
+      hnc8: { fonts: { ...required(font), embedding, glyphAliases: [{ role: "latin", character: "A", glyph: "中" }] } },
+    });
+    assert.equal(result.substitutedGlyphs, 0n);
+    assert.ok(reads.maxRead > 0 && reads.maxRead <= 32);
+    const pdf = Buffer.concat(parts), text = pageText(pdf);
+    assert.ok(text.includes("<0001> <0041>"));
+    assert.ok(text.includes("/W [ 1 [ 1000 ] ]"));
+    if (embedding === "full") {
+      assert.ok(text.includes(fontBytes.toString("latin1")), "original program must be embedded verbatim");
+      assert.ok(text.includes("/BaseFont /CajFixture /"));
+    }
+    await validatePdf(t, pdf, 1);
+  }
+});
+
+test("font alias options reject invalid and shared duplicate keys before reading inputs", async () => {
+  const font = source(fontBytes), module = await wasmModule();
+  for (const glyphAliases of [
+    [{ role: "absent", character: "A", glyph: "中" }],
+    [{ role: "latinState3", character: "A", glyph: "中" }],
+    [{ role: "latin", character: "😀", glyph: "A" }],
+    [{ role: "latin", character: "A", glyph: "\ud800" }],
+    [{ role: "latin", character: "A", glyph: "中" }, { role: "cjk", character: "A", glyph: "A" }],
+  ]) {
+    await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+      hnc8: { fonts: { ...required(font), glyphAliases } },
+    }), /alias/);
+  }
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(font), embedding: "unknown" } },
+  }), /embedding/);
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(font), glyphAliases: [{ role: "latin", character: "A", glyph: "B" }] } },
+  }), /does not map an explicit native glyph alias/);
+  await assert.rejects(convert(module, source(syntheticNativeC8()), sink(), {
+    hnc8: { fonts: { ...required(source(cffBytes)), embedding: "full" } },
+  }), /requires TrueType outlines/);
 });

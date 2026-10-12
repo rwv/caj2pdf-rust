@@ -3,7 +3,12 @@
 use super::*;
 
 fn text(words: &[[u16; 2]], mode: u8) -> String {
-    let (result, pdf, finished) = convert(words, 0, &[], roles(), mode);
+    let fonts = if words.contains(&[0x80ce, 0]) {
+        vec![cjk_alias_font(); 3]
+    } else {
+        Vec::new()
+    };
+    let (result, pdf, finished) = convert_with_fonts(words, 0, &[], roles(), mode, fonts);
     result.unwrap();
     assert!(finished);
     crate::test_support::pdf_text(&pdf)
@@ -185,7 +190,20 @@ fn c8_field_four_tortoise_brackets_match_discriminating_opener_controls() {
                     .unwrap()
                     .to_owned()
             };
-            assert_eq!(draw(&actual), draw(&reference));
+            let numbers = |value: String| {
+                value
+                    .split_whitespace()
+                    .map(|word| word.parse::<f64>().unwrap())
+                    .collect::<Vec<_>>()
+            };
+            let actual = numbers(draw(&actual));
+            let reference = numbers(draw(&reference));
+            assert_eq!(actual.len(), 6);
+            assert_eq!(reference.len(), 6);
+            for (actual, reference) in actual.iter().zip(reference) {
+                // Equivalent arithmetic paths can differ by one binary64 ULP.
+                assert!((actual - reference).abs() < 1e-12);
+            }
             let mut unmeasured = words;
             unmeasured[1][1] = 0x1063;
             assert!(convert(&unmeasured, 0, &[], roles(), 11).0.is_err());

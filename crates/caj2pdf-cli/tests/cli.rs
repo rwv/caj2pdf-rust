@@ -2166,3 +2166,41 @@ fn ttkn_response_file_success_and_failed_output_cleanup() {
         ["output.pdf", "response.txt", "source.pdf"]
     );
 }
+
+#[test]
+fn complete_original_fonts_and_glyph_aliases_preserve_atomic_cli_output() {
+    let scratch = Scratch::new("original-fonts");
+    scratch.write("input.c8", &native_c8_pages(false));
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    scratch.write("font.ttf", font);
+    let flags = [
+        "input.c8",
+        "--font-cjk=font.ttf",
+        "--font-latin=font.ttf",
+        "--font-embedding=full",
+        "--no-bookmarks",
+    ];
+    let mut args = flags.to_vec();
+    args.extend(["--font-glyph=latin:A=中", "-o", "full.pdf"]);
+    assert_success(&scratch.run(args));
+    let pdf = fs::read(scratch.path("full.pdf")).unwrap();
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/BaseFont /CajFixture /"));
+    assert!(text.contains("/W [ 1 [ 1000 ] ]"));
+    assert_eq!(text.matches("/FontFile2 ").count(), 1);
+    assert_eq!(validate_pdf(&scratch.path("full.pdf")).0, 2);
+    for aliases in [
+        vec!["--font-glyph=latin:A=B"],
+        vec!["--font-glyph=latin:A=中", "--font-glyph=cjk:A=A"],
+        vec!["--font-glyph=latin-state3:A=中"],
+    ] {
+        let mut args = flags.to_vec();
+        args.extend(aliases);
+        args.extend(["-o", "failed.pdf"]);
+        let result = scratch.run(args);
+        assert!(!result.status.success());
+        assert!(!scratch.path("failed.pdf").exists());
+    }
+    assert_eq!(fs::read(scratch.path("font.ttf")).unwrap(), font);
+    assert_eq!(scratch.entries(), ["font.ttf", "full.pdf", "input.c8"]);
+}

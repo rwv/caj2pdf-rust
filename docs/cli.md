@@ -75,9 +75,11 @@ Regenerate affected PDF snapshots instead of preserving the old geometry.
 Zero declared extents now produce a located geometry error. HN-B keeps its
 separately measured single-JPEG behavior.
 
-The source-unit-to-point factor remains empirical (`240 / 2473`); this correction
-does not claim exact CAJViewer rasterization or establish a universal physical
-unit. See the [controlled field checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/cajviewer-hnc8-kdh.md#controlled-geometry-checks).
+The source-unit-to-point factor remains empirical. It is now `72 / 742`,
+refined from `240 / 2473` by independent Wine boundary controls and held-out
+dimensions/zooms. All 77 inventoried page extents match, while pixel differences
+remain. Regenerate geometry/PDF snapshots; the factor is not an established
+universal physical unit. See the [boundary evidence](research/wine-page-extents-20261011.md).
 
 ### Experimental HN/C8 options
 
@@ -114,6 +116,9 @@ directory under fixed names and pass `--fonts DIR`:
 | Role | File in `DIR` | Per-role flag |
 | --- | --- | --- |
 | CJK (required) | `cjk.ttf` | `--font-cjk FILE` |
+| CJK Hei/sans | `cjk-sans.ttf` | `--font-cjk-sans FILE` |
+| CJK Kai | `cjk-kai.ttf` | `--font-cjk-kai FILE` |
+| CJK system-font styles | `cjk-system.ttf` | `--font-cjk-system FILE` |
 | Ordinary Latin (required) | `latin.ttf` | `--font-latin FILE` |
 | Alternate Latin (`801d/4`) | `alternate-latin.ttf` | `--font-alternate-latin FILE` |
 | Decoration alias | `decoration.ttf` | `--font-decoration FILE` |
@@ -126,6 +131,35 @@ minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
 `NAME.ttc` (the first face of a collection). Without any font option, the
 [installed fonts](#installed-fonts) are searched instead; no font is bundled.
 A missing CJK or Latin font fails before output staging.
+
+The three optional CJK roles select fonts for the measured C8 and HN-B
+styles. `cjk-sans` handles high bits `0x0800`, `cjk-kai` handles `0x0c00`,
+and `cjk-system` handles the measured system-font styles (`0x0400`, `0x1400`,
+style-zero explicit axes and the recorded exceptional flags). The source
+style is preserved for font selection before geometry aliases are applied.
+`801c/2`, `/3`, `/4` override it with sans, Kai and base CJK respectively;
+a later `8002` style record resets the override. Axis controls preserve it.
+Other styles use `cjk`. The roles select Han and, in C8, fullwidth Latin
+letters, ideographic space and fullwidth ampersand. Ordinary Latin and the
+raw low-byte `006c`/`0070` letters keep their existing resource rules.
+These roles apply in both C8 character-selection modes and HN-B native modes
+0 and 2. Missing optional roles or missing CJK glyphs fall back to `cjk`.
+For C8 `80ce/0`, raw `a0` digits and Latin letters use the selected CJK font's
+measured raw-GBK alias while ActualText preserves their source ASCII text.
+Missing optional roles still use `cjk`, but the selected font must contain
+that alias: neither its ASCII glyph nor another font is a fallback. `80ce/1`
+restores ordinary Latin selection. This exact mapping is not counted as a
+glyph substitution. See the [alias controls](research/wine-cjk-aliases-20261011.md).
+
+`--font-cjk-system` is an explicit font path, including with
+`--no-system-fonts`; it does not trigger system discovery.
+
+In the measured Wine profile, the four resources are HGSS (base), HGHT
+(sans), HGKT (Kai), and SimSun (system). Font names alone do not establish
+Latin glyph aliases: mode 2 and mode 0 query different cmap slots. See the
+[Wine font observations](research/wine-font-resources-20261011.md) for the
+measured scope and remaining placement differences.
+
 Any other missing file leaves its role absent.
 
 Fonts are static OpenType fonts with TrueType (`glyf`) or CFF outlines,
@@ -290,14 +324,34 @@ identify four different glyph slots in external `HGBZ_CNKI.ttf` (SHA-256
 | 46 | U+5D41 |
 | 117 | U+5D95 |
 
-For the measured value-46 document, add
-`--font-decoration /external/HGBZ_CNKI.ttf --decoration-char '嵁'`
-to the chosen CJK/Latin recipe. The literal character is U+5D41, a font lookup
-alias with no text meaning here. Resources are supplied separately and are
-not downloaded or bundled. This corrects the selected pattern; ordinary text
-fonts and viewer-dependent repetition/raster differences remain separate.
-One global alias cannot represent multiple different ornament values within
-a document. The report records the exact four single-value documents tested.
+Use a per-value map to select all four patterns in one document:
+
+```sh
+caj2pdf input.caj -o output.pdf --fonts /external/prepared-fonts \
+  --font-decoration /external/HGBZ_CNKI.ttf \
+  --decoration-glyph 1=U+5D04 --decoration-glyph 2=U+5D05 \
+  --decoration-glyph 46=U+5D41 --decoration-glyph 117=U+5D95 \
+  --decoration-font-identity HGBZ_CNKI:9ce78b5d
+```
+
+`--decoration-glyph VALUE=CHAR` accepts decimal values 1, 2, 46 and 117;
+CHAR is one BMP scalar or `U+XXXX`. At most four unique entries are accepted.
+The explicitly supplied decoration font must map each glyph; missing glyphs
+never fall back. `--decoration-font-identity NAME:CHECKSUM` optionally binds
+the map to the font's PostScript name and eight-digit hex `head` checksum.
+An identity requires a nonempty map. These options apply only to native mode 2;
+existing per-record state restrictions still apply. Unlisted ornament values
+keep `--decoration-char` and its previous fallback behavior. The aliases remain
+nonsemantic artifacts with empty ActualText. Resources are supplied separately.
+Small unhinted full-em rectangle bands in explicitly mapped decoration fonts
+are drawn once through the original clip to avoid internal seams; other glyphs
+keep repeated placement. The supplied font program remains unchanged. See the
+[controlled comparison](research/wine-ornament-bands-20261011.md).
+
+The [mixed-state controls](research/wine-ornaments-20261011.json) confirm the
+four resource/slot pairs across 160 Wine observations, including reversed
+order. This fixes pattern selection; text placement and raster differences
+remain separate. Empty maps preserve existing output.
 
 One measured four-page C8 PDF triggers a CAJViewer 7.3/Wine 8.0 failure during
 the single-page/75% procedure. Keep the viewer in **continuous mode** and set
@@ -329,7 +383,7 @@ not deliberate tampering that keeps the checksum field. It requires
 Coverage alone does not guarantee compatible glyph widths or bearings: a
 substitute can overlap at the fixed source positions, including in the viewer.
 See the [C8 same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).
-At most eight distinct sources are accepted. Node/browser expose the same
+At most eleven distinct sources are accepted. Node/browser expose the same
 roles, and the same fallback, as `hnc8.fonts` options.
 
 Font path flags accept separate values or `--font-cjk=FILE` spelling, and
@@ -337,9 +391,35 @@ Font path flags accept separate values or `--font-cjk=FILE` spelling, and
 Repeating a role or `--fonts`, giving per-role flags without both
 `--font-cjk` and `--font-latin` (and without `--fonts`), or using `-` as a
 font path is a usage error. Reuse the same path for multiple roles to embed
-it once. Only the glyphs a document draws are embedded, as a compressed
-subset, so the size of the supplied font file barely affects the output.
+it once. By default, only drawn glyphs are embedded as a compressed subset.
 Native C8/HN-B font options are rejected for other document formats.
+
+`--font-embedding full` embeds used standalone TrueType fonts byte-for-byte.
+For TTC inputs, it rebuilds the selected face with original glyph IDs and
+table data, omitting DSIG and recalculating the checksum. Unused resources
+remain small subsets; used CFF fonts refuse complete embedding. The default
+is `--font-embedding subset`. Complete fonts can substantially enlarge PDFs;
+their programs are streamed twice with bounded reads and change detection.
+
+Repeat `--font-glyph ROLE:CHAR=GLYPH` to select an original cmap entry for
+ordinary native text while preserving its decoded character in the PDF:
+
+```sh
+caj2pdf input.caj -o output.pdf --fonts /external/original-fonts \
+  --font-embedding full --font-glyph latin:U+0031=U+6571
+```
+
+This single mapping illustrates the measured HGBZ digit `1`; a complete
+document can require many other aliases and style resources. ROLE uses the
+font flag names without `font-` (for example, `latin-state3`); CHAR and GLYPH
+are BMP scalars or `U+XXXX`. The role must be supplied, and its font must map
+GLYPH. Duplicate `(source, CHAR)` keys are refused, including roles sharing
+one source. Aliases apply to ordinary text only; explicit mode-0 symbol maps
+and nonsemantic decorations keep their separate selections. Maps are external
+configuration, never inferred from a font name. At most eleven BMP maps are
+accepted, also subject to the allocation limit. Both new options require
+explicit font resources. Empty aliases and subset embedding retain the
+previous behavior; aliases also work with subset embedding.
 
 Font files are read twice: metadata before the first page, then metadata
 and the drawn glyphs after the last page. They must not change during
@@ -398,9 +478,28 @@ Some C8 files end with an application-info package (see
 `inspect` reports its DOI, URL and annotation count. Conversion writes a PDF
 document information dictionary only when a DOI or URL is present:
 the custom keys `/CNKI_DOI` and `/CNKI_URL` hold the verbatim identifier and
-URL as UTF-16BE text strings. No title is invented
-and annotations are not converted. Other inputs and C8 files without a package
-produce unchanged output.
+URL as UTF-16BE text strings. No title is invented.
+
+Native C8 conversion also preserves the measured `Link` / `LineStyle=4` /
+`ShowType=1` appearance in `PointsM`, version 1.0: PDF link annotations carry
+explicit dash-dot-dot underlines and the source HTTP(S) URI. Conversion never
+opens, fetches or executes a target. Appearance Forms leave the page body,
+font programs, images and semantic text unchanged. The fixed physical line
+pattern approximates Wine's device-fixed marks; small weight, phase and
+cross-zoom differences remain. Printing and link navigation are not validated.
+
+This is a behavior change: native conversion now refuses unknown note types,
+styles, units, versions, child structures and target encodings instead of
+silently losing required appearance. Reconvert admitted inputs; handle
+`UnsupportedFormat` / JavaScript `UnsupportedFormatError` for other profiles.
+The image-only diagnostic API still extracts only document metadata.
+`inspect` retains its DOI/URL/count schema. No new option is needed.
+
+Link state is capped at 8,192 entries and one 4,096-byte URI per entry,
+with the XML, directory and aggregate target bytes bounded by
+`Limits.max_allocation_bytes`; the existing 1 MiB package ceiling remains.
+Per-page PDF references are bounded separately. Other inputs and C8 files
+without annotations retain their previous output.
 
 A defective package never fails `convert` or `inspect`. The PDF is written
 exactly as without a package, and one located line is printed on standard

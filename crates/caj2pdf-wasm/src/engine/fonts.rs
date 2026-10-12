@@ -6,7 +6,11 @@
 use super::{Host, HostSource};
 use caj2pdf_core::{
     Fonts as FontResources, RangedSource,
-    hnc8::{C8FontSource, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity},
+    hnc8::{
+        C8_MAX_FONTS, C8FontSource, C8PageFonts, MAX_NATIVE_FONT_GLYPHS, NativeDecorationGlyph,
+        NativeFontGlyphAlias, NativeSymbolGlyph, SymbolFontIdentity,
+    },
+    pdf::FontEmbedding,
 };
 use std::cell::RefCell;
 
@@ -16,16 +20,60 @@ const MAX_SYMBOL_GLYPHS: usize = 21;
 /// Explicitly registered font resources and their roles.
 #[derive(Default)]
 pub(super) struct Fonts {
-    sizes: [u64; 8],
-    faces: [u32; 8],
+    sizes: [u64; C8_MAX_FONTS],
+    faces: [u32; C8_MAX_FONTS],
     count: usize,
     roles: Option<C8PageFonts>,
+    embedding: Option<FontEmbedding>,
+    glyph_aliases: Vec<NativeFontGlyphAlias>,
     /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
     symbol_glyphs: Vec<NativeSymbolGlyph>,
     symbol_font: Option<SymbolFontIdentity>,
+    decoration_glyphs: Vec<NativeDecorationGlyph>,
+    decoration_font: Option<SymbolFontIdentity>,
 }
 
 impl Fonts {
+    pub(super) fn set_embedding(&mut self, mode: u32) -> bool {
+        let embedding = match mode {
+            0 => FontEmbedding::Subset,
+            1 => FontEmbedding::Full,
+            _ => return false,
+        };
+        if self.roles.is_none() || self.embedding.is_some() {
+            return false;
+        }
+        self.embedding = Some(embedding);
+        true
+    }
+
+    pub(super) fn add_glyph_alias(&mut self, font: u32, character: u32, glyph: u32) -> bool {
+        let (Some(character), Some(glyph)) = (char::from_u32(character), char::from_u32(glyph))
+        else {
+            return false;
+        };
+        let font = font as usize;
+        if self.roles.is_none()
+            || font >= self.count
+            || character > '\u{ffff}'
+            || glyph > '\u{ffff}'
+            || self.glyph_aliases.len() == MAX_NATIVE_FONT_GLYPHS
+            || self
+                .glyph_aliases
+                .last()
+                .is_some_and(|entry| (entry.font, entry.character) >= (font, character))
+            || self.glyph_aliases.try_reserve(1).is_err()
+        {
+            return false;
+        }
+        self.glyph_aliases.push(NativeFontGlyphAlias {
+            font,
+            character,
+            glyph,
+        });
+        true
+    }
+
     pub(super) fn count(&self) -> usize {
         self.count
     }
@@ -48,6 +96,23 @@ impl Fonts {
             3 => &mut roles.latin_state3,
             28 => &mut roles.latin_state28,
             31 => &mut roles.latin_state31,
+            _ => return false,
+        };
+        if index as usize >= self.count || role.is_some() {
+            return false;
+        }
+        *role = Some(index as usize);
+        true
+    }
+
+    pub(super) fn set_cjk_style(&mut self, style: u32, index: u32) -> bool {
+        let Some(roles) = &mut self.roles else {
+            return false;
+        };
+        let role = match style {
+            0x0800 => &mut roles.cjk_sans,
+            0x0c00 => &mut roles.cjk_kai,
+            0x0400 => &mut roles.cjk_system,
             _ => return false,
         };
         if index as usize >= self.count || role.is_some() {
@@ -82,20 +147,45 @@ impl Fonts {
         {
             return false;
         }
-        let mut bytes = [0u8; 64];
-        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
-            chunk.copy_from_slice(&word.to_le_bytes());
-        }
-        let Ok(name) = std::str::from_utf8(&bytes[..length as usize]) else {
+        let Some(identity) = font_identity(checksum, length, words) else {
             return false;
         };
-        if !SymbolFontIdentity::is_valid_postscript_name(name) {
+        self.symbol_font = Some(identity);
+        true
+    }
+
+    /// Register at most four ornament aliases. The core validates values and duplicates.
+    pub(super) fn add_decoration_glyph(&mut self, value: u32, glyph: u32) -> bool {
+        let (Ok(value), Some(glyph)) = (u16::try_from(value), char::from_u32(glyph)) else {
+            return false;
+        };
+        if self.roles.is_none_or(|roles| roles.decoration.is_none())
+            || glyph > '\u{ffff}'
+            || self.decoration_glyphs.len() == 4
+        {
             return false;
         }
-        self.symbol_font = Some(SymbolFontIdentity {
-            checksum_adjustment: checksum,
-            postscript_name: name.to_owned(),
-        });
+        self.decoration_glyphs
+            .push(NativeDecorationGlyph { value, glyph });
+        true
+    }
+
+    /// Bind ornament aliases to an explicitly supplied font, once after roles.
+    pub(super) fn set_decoration_font(
+        &mut self,
+        checksum: u32,
+        length: u32,
+        words: [u64; 8],
+    ) -> bool {
+        if self.roles.is_none_or(|roles| roles.decoration.is_none())
+            || self.decoration_font.is_some()
+        {
+            return false;
+        }
+        let Some(identity) = font_identity(checksum, length, words) else {
+            return false;
+        };
+        self.decoration_font = Some(identity);
         true
     }
 
@@ -145,19 +235,24 @@ impl Fonts {
             latin_state3: None,
             latin_state28: None,
             latin_state31: None,
+            cjk_sans: None,
+            cjk_kai: None,
+            cjk_system: None,
         });
         true
     }
 }
 
 impl Fonts {
-    /// The registered fonts as host resources 1..=8 for one conversion;
+    /// The registered fonts as host resources 1..=11 for one conversion;
     /// `None` when none are registered.
     pub(super) fn resources<'h, H: Host + 'h>(
         &self,
         host: &'h RefCell<&'h mut H>,
     ) -> Option<FontResources<'h>> {
         (self.count != 0).then(|| FontResources {
+            embedding: self.embedding.unwrap_or_default(),
+            glyph_aliases: self.glyph_aliases.clone(),
             sources: (0..self.count)
                 .map(|index| {
                     let source: Box<dyn RangedSource + 'h> =
@@ -171,6 +266,24 @@ impl Fonts {
             roles: self.roles,
             symbol_glyphs: self.symbol_glyphs.clone(),
             symbol_font: self.symbol_font.clone(),
+            decoration_glyphs: self.decoration_glyphs.clone(),
+            decoration_font: self.decoration_font.clone(),
         })
     }
+}
+
+/// Decode the bounded ABI representation shared by explicit font identities.
+fn font_identity(checksum: u32, length: u32, words: [u64; 8]) -> Option<SymbolFontIdentity> {
+    if length > 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 64];
+    for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+        chunk.copy_from_slice(&word.to_le_bytes());
+    }
+    let name = std::str::from_utf8(&bytes[..length as usize]).ok()?;
+    SymbolFontIdentity::is_valid_postscript_name(name).then(|| SymbolFontIdentity {
+        checksum_adjustment: checksum,
+        postscript_name: name.to_owned(),
+    })
 }

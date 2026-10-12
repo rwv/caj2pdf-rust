@@ -14,7 +14,9 @@ mod compose;
 mod inflate;
 mod jpeg;
 mod native;
+mod native_glyphs;
 mod native_page;
+pub use native_glyphs::{MAX_NATIVE_FONT_GLYPHS, NativeFontGlyphAlias};
 mod outline;
 mod placement;
 mod structure;
@@ -38,8 +40,8 @@ pub(crate) use native::{
 pub(crate) use native_page::labelled_font;
 pub(crate) use native_page::write_c8_native_page;
 pub use native_page::{
-    C8_DEFAULT_DECORATION_ALIAS, C8PageFonts, NativeSymbolGlyph, SymbolFontIdentity,
-    is_mode_zero_symbol,
+    C8_DEFAULT_DECORATION_ALIAS, C8_MAX_FONTS, C8PageFonts, NativeDecorationGlyph,
+    NativeSymbolGlyph, SymbolFontIdentity, is_mode_zero_symbol,
 };
 pub use outline::{MAX_RECORDED_OUTLINE_DEFECTS, OutlineDefect, OutlineRepair, OutlineReport};
 pub(crate) use placement::{

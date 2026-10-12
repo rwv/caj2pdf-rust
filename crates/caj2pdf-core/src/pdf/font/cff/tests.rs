@@ -205,9 +205,9 @@ fn name_keyed_fonts_become_desubroutinized_cid_subsets() {
     assert_eq!(&select[..8], [3, 0, 1, 0, 0, 0, 0, 4]);
     // The subset is measured and tagged by its program bytes.
     let (planned, _) = plan(&font, &['中', 'B', 'A']).unwrap();
-    let planned = super::super::subset::Subset::Cff(planned);
+    let planned = super::super::subset::FontProgram::Cff(planned);
     assert_eq!(planned.length(), subset.len() as u64);
-    assert_eq!(planned.tag("Fixture").len(), 6);
+    assert_eq!(planned.name("Fixture").len(), 14);
 }
 
 #[test]

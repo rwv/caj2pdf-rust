@@ -12,8 +12,9 @@ use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
 
 /// Source units per image pixel when every image fits in a 16-bit extent.
-/// At [`RENDER_DPI`] one image pixel is then one device pixel:
-/// `1000 × 240 / 2473` points at `0.7419 / 72` pixels per point.
+/// `1000 × 72 / 742` points would give one device pixel at 0.742 DPI.
+/// Keep [`RENDER_DPI`] slightly lower to avoid an extra boundary pixel from
+/// outward rounding of a serialized non-integral PDF extent.
 pub const UNITS_PER_PIXEL: u32 = 1000;
 pub const RENDER_DPI: &str = "0.7419";
 

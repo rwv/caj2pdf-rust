@@ -240,9 +240,56 @@ test("Chromium: HN/C8 converts from a caller Worker with OPFS and Blob fonts", o
   // Mapped symbol glyphs match the Node conversion byte for byte.
   const { convert } = await import("../node.mjs");
   const { wasmModule } = await import("./helpers.mjs");
-  const { syntheticNativeHnb } = await import("./hnc8-fixtures.mjs");
+  const { syntheticNativeC8, syntheticNativeC8CjkAliases, syntheticNativeC8Ornaments, ornamentGlyphs, fixtureFontIdentity, syntheticNativeHnb, syntheticNativeC8HanStyles, privateAliasFont } = await import("./hnc8-fixtures.mjs");
   const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
   const font = new Blob([fontBytes]);
+  const originalParts = [];
+  await convert(await wasmModule(), new Blob([syntheticNativeC8()]), {
+    async writeChunk(bytes) { originalParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font,
+    embedding: "full", glyphAliases: [{ role: "latin", character: "A", glyph: "中" }] } } });
+  const originalPdf = Buffer.from(result.originalFontPdf);
+  assert.deepEqual(originalPdf, Buffer.concat(originalParts));
+  assert.ok(pageText(originalPdf).includes(fontBytes.toString("latin1")));
+  assert.ok(pageText(originalPdf).includes("<0001> <0041>"));
+  await validatePdf(t, originalPdf, 1);
+  for (const [code, unicode, browserPdf] of [[0xd6d0, "4E2D", result.hanStylePdf], [0xa3c1, "FF21", result.fullwidthStylePdf]]) {
+    const styleBytes = code === 0xd6d0 ? fontBytes : privateAliasFont(fontBytes, 0xff21);
+    const styleFont = new Blob([styleBytes]);
+    const hanParts = [];
+    await convert(await wasmModule(), new Blob([syntheticNativeC8HanStyles(code)]), {
+      async writeChunk(bytes) { hanParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+    }, {
+      includeBookmarks: false, chunkSize: 32,
+      hnc8: { fonts: { cjk: styleFont, latin: styleFont, cjkSans: new Blob([styleBytes]), cjkKai: new Blob([styleBytes]), cjkSystem: new Blob([styleBytes]) } },
+    });
+    const hanStylePdf = Buffer.from(browserPdf);
+    assert.deepEqual(hanStylePdf, Buffer.concat(hanParts));
+    const hanText = pageText(hanStylePdf);
+    assert.equal(hanText.match(new RegExp(`<${unicode}> Tj`, "g")).length, 8);
+    assert.equal(hanText.match(/<0041> Tj/g).length, 4);
+    assert.ok(hanText.includes("/F8 1 Tf") && hanText.includes("/F9 1 Tf") && hanText.includes("/F10 1 Tf"));
+    await validatePdf(t, hanStylePdf, 1);
+  }
+  const cjkAliasParts = [];
+  const aliasBytes = privateAliasFont(fontBytes, 0x7283), aliasFont = new Blob([aliasBytes]);
+  const aliasReport = await convert(await wasmModule(), new Blob([syntheticNativeC8CjkAliases()]), {
+    async writeChunk(bytes) { cjkAliasParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: aliasFont, latin: aliasFont,
+    cjkSans: new Blob([aliasBytes]), cjkKai: new Blob([aliasBytes]), cjkSystem: new Blob([aliasBytes]),
+  } } });
+  assert.equal(aliasReport.substitutedGlyphs, 0n);
+  assert.deepEqual(Buffer.from(result.cjkAliasPdf), Buffer.concat(cjkAliasParts));
+  await validatePdf(t, Buffer.from(result.cjkAliasPdf), 1);
+  const ornamentParts = [];
+  await convert(await wasmModule(), new Blob([syntheticNativeC8Ornaments()]), {
+    async writeChunk(bytes) { ornamentParts.push(bytes.slice()); return bytes.length; }, async flush() {},
+  }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font,
+    decoration: { source: font, character: "A" }, decorationGlyphs: ornamentGlyphs,
+    decorationFontIdentity: fixtureFontIdentity(fontBytes),
+  } } });
+  assert.deepEqual(Buffer.from(result.ornamentPdf), Buffer.concat(ornamentParts));
+  await validatePdf(t, Buffer.from(result.ornamentPdf), 1);
   const nodeParts = [];
   await convert(await wasmModule(), new Blob([syntheticNativeHnb(0)]), { async writeChunk(bytes) { nodeParts.push(bytes.slice()); return bytes.length; }, async flush() {} }, {
     includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font, symbols: new Blob([await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url))]), symbolGlyphs: [{ code: 0xa1a1, glyph: "\uff1a" }, { code: 0xa3ba, glyph: " " }], symbolFontIdentity: { postscriptName: "CajFixture", checksumAdjustment: 0x79f42dc3 } } },

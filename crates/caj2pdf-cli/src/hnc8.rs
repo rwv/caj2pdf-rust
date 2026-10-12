@@ -10,7 +10,7 @@ use crate::{
 };
 use caj2pdf_core::{
     Fonts, Limits, RangedSource,
-    hnc8::{C8_DEFAULT_DECORATION_ALIAS, C8FontSource},
+    hnc8::{C8_DEFAULT_DECORATION_ALIAS, C8_MAX_FONTS, C8FontSource},
     native::SeekableSource,
 };
 use std::{
@@ -24,9 +24,13 @@ pub struct Resources {
     pub inputs: Vec<Input>,
     pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
     /// Collection face of each opened font source.
-    pub font_faces: [u32; 8],
+    pub font_faces: [u32; C8_MAX_FONTS],
     pub symbol_glyphs: Vec<caj2pdf_core::hnc8::NativeSymbolGlyph>,
     pub symbol_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
+    pub decoration_glyphs: Vec<caj2pdf_core::hnc8::NativeDecorationGlyph>,
+    pub decoration_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
+    pub embedding: caj2pdf_core::pdf::FontEmbedding,
+    pub glyph_aliases: Vec<caj2pdf_core::hnc8::NativeFontGlyphAlias>,
 }
 
 impl Resources {
@@ -50,21 +54,81 @@ impl Resources {
             })
             .collect::<caj2pdf_core::Result<_>>()?;
         Ok(Some(Fonts {
+            embedding: self.embedding,
+            glyph_aliases: self.glyph_aliases.clone(),
             sources,
             roles: Some(roles),
             symbol_glyphs: self.symbol_glyphs.clone(),
             symbol_font: self.symbol_font.clone(),
+            decoration_glyphs: self.decoration_glyphs.clone(),
+            decoration_font: self.decoration_font.clone(),
         }))
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
         let mut resources = Self::default();
-        let mut fonts: [Option<(PathBuf, u32)>; 8] = Default::default();
+        let mut fonts: [Option<(PathBuf, u32)>; C8_MAX_FONTS] = Default::default();
         for (font, path) in fonts.iter_mut().zip(font_paths(options)?) {
             *font = path.as_deref().map(font_face).transpose()?;
         }
         resources.open_fonts(&fonts, options.decoration_char, limits)?;
+        resources.embedding = options.font_embedding;
+        if let Some(roles) = resources.font_roles {
+            let indices = [
+                Some(roles.cjk),
+                Some(roles.latin),
+                roles.alternate_latin,
+                roles.decoration.map(|(font, _)| font),
+                roles.symbols,
+                roles.latin_state3,
+                roles.latin_state28,
+                roles.latin_state31,
+                roles.cjk_sans,
+                roles.cjk_kai,
+                roles.cjk_system,
+            ];
+            limits
+                .check_allocation(
+                    (options.font_glyphs.len()
+                        * size_of::<caj2pdf_core::hnc8::NativeFontGlyphAlias>())
+                        as u64,
+                )
+                .map_err(|error| CliError::runtime(error.to_string()))?;
+            resources
+                .glyph_aliases
+                .try_reserve_exact(options.font_glyphs.len())
+                .map_err(|_| CliError::runtime("native font glyph alias allocation failed"))?;
+            for entry in &options.font_glyphs {
+                let font = indices[entry.font].ok_or_else(|| {
+                    CliError::usage(format!(
+                        "--font-glyph requires the {} font role",
+                        FONT_FILES[entry.font]
+                    ))
+                })?;
+                resources
+                    .glyph_aliases
+                    .push(caj2pdf_core::hnc8::NativeFontGlyphAlias { font, ..*entry });
+            }
+            resources
+                .glyph_aliases
+                .sort_unstable_by_key(|entry| (entry.font, entry.character));
+            if resources
+                .glyph_aliases
+                .windows(2)
+                .any(|pair| (pair[0].font, pair[0].character) == (pair[1].font, pair[1].character))
+            {
+                return Err(CliError::usage(
+                    "--font-glyph maps a font character more than once",
+                ));
+            }
+        }
         resources.symbol_glyphs.clone_from(&options.symbol_glyphs);
         resources.symbol_font.clone_from(&options.symbol_font);
+        resources
+            .decoration_glyphs
+            .clone_from(&options.decoration_glyphs);
+        resources
+            .decoration_font
+            .clone_from(&options.decoration_font);
         Ok(resources)
     }
 
@@ -75,7 +139,7 @@ impl Resources {
         fonts: &crate::system_fonts::Installed,
         limits: &Limits,
     ) -> Result<(), CliError> {
-        let mut roles: [Option<(PathBuf, u32)>; 8] = Default::default();
+        let mut roles: [Option<(PathBuf, u32)>; C8_MAX_FONTS] = Default::default();
         for (role, choice) in roles.iter_mut().zip(&fonts.choices) {
             *role = Some((choice.path.clone(), choice.face));
         }
@@ -85,7 +149,7 @@ impl Resources {
     /// Open each distinct `(file, face)` once and assign the roles.
     fn open_fonts(
         &mut self,
-        fonts: &[Option<(PathBuf, u32)>; 8],
+        fonts: &[Option<(PathBuf, u32)>; C8_MAX_FONTS],
         decoration_char: Option<char>,
         limits: &Limits,
     ) -> Result<(), CliError> {
@@ -93,7 +157,7 @@ impl Resources {
             return Ok(());
         }
         let mut faces = Vec::new();
-        let mut indices = [0; 8];
+        let mut indices = [0; C8_MAX_FONTS];
         for (role, face) in fonts.iter().enumerate() {
             if let Some(face) = face {
                 indices[role] = if let Some(index) = faces.iter().position(|f| f == face) {
@@ -119,6 +183,9 @@ impl Resources {
             latin_state3: role(5),
             latin_state28: role(6),
             latin_state31: role(7),
+            cjk_sans: role(8),
+            cjk_kai: role(9),
+            cjk_system: role(10),
             decoration: role(3).map(|index| {
                 (
                     index,
@@ -133,7 +200,7 @@ impl Resources {
 /// Resolve explicit role paths, then fill absent roles from `--fonts DIR`.
 /// A missing optional file leaves its role to the core fallback; any other
 /// metadata failure keeps the path so opening it reports the actual error.
-fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError> {
+fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; C8_MAX_FONTS], CliError> {
     let mut paths = options.fonts.clone();
     let Some(directory) = &options.font_dir else {
         return Ok(paths);
@@ -175,6 +242,11 @@ fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError
             "--decoration-char requires a decoration font; {}",
             missing(3)
         )));
+    }
+    if !options.decoration_glyphs.is_empty() && paths[3].is_none() {
+        return Err(CliError::usage(
+            "decoration glyphs require an explicit decoration font",
+        ));
     }
     if !options.symbol_glyphs.is_empty() && paths[4].is_none() {
         return Err(CliError::runtime(format!(

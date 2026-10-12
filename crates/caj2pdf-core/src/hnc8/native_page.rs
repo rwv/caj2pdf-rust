@@ -7,6 +7,7 @@ use super::{
     Variant, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate, empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
+use super::{NativeFontGlyphAlias, native_glyphs};
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, Result};
 use std::io::Write;
@@ -38,7 +39,18 @@ pub struct C8PageFonts {
     /// C8 Latin resources selected by `801d/28` and `801d/31`.
     pub latin_state28: Option<usize>,
     pub latin_state31: Option<usize>,
+    /// Optional native CJK font for style high bits `0x0800` (Hei/sans).
+    /// Selects Han and the measured C8 fullwidth letters, space and ampersand.
+    pub cjk_sans: Option<usize>,
+    /// Optional native CJK font for style high bits `0x0c00` (Kai).
+    pub cjk_kai: Option<usize>,
+    /// Optional CJK font for the measured system-font styles, including
+    /// `0x0400`, `0x1400` and style-zero explicit axes. No system lookup occurs.
+    pub cjk_system: Option<usize>,
 }
+
+/// Maximum distinct resources in the admitted native font-role profile.
+pub const C8_MAX_FONTS: usize = 11;
 
 /// Nonsemantic decoration alias drawn when no decoration role is supplied.
 pub const C8_DEFAULT_DECORATION_ALIAS: char = '\u{25ba}';
@@ -55,6 +67,40 @@ pub struct NativeSymbolGlyph {
     pub code: u16,
     /// A BMP character the `symbols` font maps to the intended outline.
     pub glyph: char,
+}
+
+/// An explicit `8010` ornament value and its decoration-font cmap alias.
+/// The glyph remains nonsemantic (Artifact with empty ActualText).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeDecorationGlyph {
+    /// One admitted horizontal ornament: 1, 2, 46 or 117.
+    pub value: u16,
+    /// A BMP alias mapped by the explicit `decoration` font, without fallback.
+    pub glyph: char,
+}
+
+pub(crate) fn validate_decoration_glyphs(
+    glyphs: &[NativeDecorationGlyph],
+    roles: C8PageFonts,
+) -> Result<()> {
+    if glyphs.len() > 4 || (!glyphs.is_empty() && roles.decoration.is_none()) {
+        return Err(invalid(
+            "decoration glyphs require a decoration font and at most four entries",
+        ));
+    }
+    for (index, entry) in glyphs.iter().enumerate() {
+        if !matches!(entry.value, 1 | 2 | 46 | 117)
+            || entry.glyph > '\u{ffff}'
+            || glyphs[..index]
+                .iter()
+                .any(|other| other.value == entry.value)
+        {
+            return Err(invalid(
+                "decoration glyphs require unique admitted values and BMP aliases",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The `symbols` font a [`NativeSymbolGlyph`] map was measured on: its `head`
@@ -137,14 +183,18 @@ pub(crate) fn admits_native_mode(header: super::Header) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn write_c8_native_page<S, W, C>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: &mut PdfDocument<'_, W, C>,
     fonts: &[&FontObject],
     roles: C8PageFonts,
     symbol_glyphs: &[NativeSymbolGlyph],
+    decoration_glyphs: &[NativeDecorationGlyph],
+    glyph_aliases: &[NativeFontGlyphAlias],
     images: &[ImageObject],
     top_first: &[bool],
+    links: &[super::appinfo::links::Link],
 ) -> Result<u32>
 where
     S: RangedSource,
@@ -159,6 +209,13 @@ where
         offset: reader.current.map_or(0, |p| p.page.text.offset),
     };
     let source_error = |source| loc.locate(source);
+    native_glyphs::validate(glyph_aliases, fonts.len(), reader.limits).map_err(source_error)?;
+    validate_decoration_glyphs(decoration_glyphs, roles).map_err(source_error)?;
+    if !decoration_glyphs.is_empty() && header.native_mode != Some(2) {
+        return Err(source_error(invalid(
+            "decoration glyphs require native mode 2",
+        )));
+    }
     if !matches!(header.variant, Variant::C8 | Variant::HnB) {
         return Err(loc.unsupported("native page composition variant"));
     }
@@ -182,14 +239,13 @@ where
     let size = header
         .page_size
         .ok_or_else(|| source_error(invalid("native page size is missing")))?;
-    let mut geometry = super::placement::source_page_geometry(size).map_err(source_error)?;
     let legacy = header.native_mode == Some(0);
-    if legacy {
-        // Add in source units before conversion, without overflowing u16 extents.
-        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-        geometry.size.width_points = (f64::from(size[0]) + 100.0) * unit;
-        geometry.size.height_points = (f64::from(size[1]) + 100.0) * unit;
+    let geometry = if legacy {
+        super::placement::mode_zero_page_geometry(size)
+    } else {
+        super::placement::source_page_geometry(size)
     }
+    .map_err(source_error)?;
     let origin = header
         .native_origin
         .ok_or_else(|| source_error(invalid("native page origin is missing")))?;
@@ -201,6 +257,8 @@ where
         fonts,
         roles,
         symbol_glyphs,
+        decoration_glyphs,
+        glyph_aliases,
         geometry,
         origin,
         top_first,
@@ -208,6 +266,7 @@ where
         non_image_painted: false,
         image_overlay: None,
         style: None,
+        cjk_style_override: None,
         axes: [None; 2],
         latin: Some(roles.latin),
         skew: 0.0,
@@ -217,7 +276,23 @@ where
         legacy,
     };
     reader.visit_native_records(&mut writer)?;
-    page.finish().map_err(source_error)
+    let page_number = current.page.page_number;
+    let first = links.partition_point(|link| link.page < page_number);
+    let last = links.partition_point(|link| link.page <= page_number);
+    page.finish_with_links(links[first..last].iter().map(|link| {
+        let [l, t, r, b] = link.rect.map(|v| f64::from(v) / 100.0);
+        crate::pdf::LinkAnnotation {
+            rect: [
+                l,
+                geometry.size.height_points - b,
+                r,
+                geometry.size.height_points - t,
+            ],
+            rgb: link.rgb,
+            uri: &link.uri,
+        }
+    }))
+    .map_err(source_error)
 }
 
 fn invalid(reason: &'static str) -> Error {
@@ -230,6 +305,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     roles: C8PageFonts,
     /// Explicit source glyphs for mode-0 symbol codes, drawn without fallback.
     symbol_glyphs: &'r [NativeSymbolGlyph],
+    decoration_glyphs: &'r [NativeDecorationGlyph],
+    glyph_aliases: &'r [NativeFontGlyphAlias],
     geometry: EmpiricalPageGeometry,
     origin: [u16; 2],
     top_first: &'r [bool],
@@ -239,6 +316,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     /// drawing before that image selects binary AND; leading images replace.
     image_overlay: Option<bool>,
     style: Option<u16>,
+    /// Family selected by `801c` since the latest `8002` style record.
+    cjk_style_override: Option<u16>,
     axes: [Option<u16>; 2],
     /// Current Latin resource state; `None` selects the role fallback.
     latin: Option<usize>,
@@ -314,12 +393,13 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
             } => self.skew = 0.105,
             NativeRecord::Control { tag: 0x8002, value } => {
                 self.style = Some(value);
+                self.cjk_style_override = None;
                 self.axes = [None; 2];
             }
             NativeRecord::Control {
                 tag: 0x801c,
-                value: 2..=4,
-            } => (),
+                value: value @ 2..=4,
+            } => self.cjk_style_override = Some(value << 10),
             NativeRecord::Control {
                 tag: tag @ (0x8070 | 0x8071),
                 value,
@@ -398,6 +478,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 ..
             } if self.variant == Variant::HnB => (),
             NativeRecord::Glyph { x, y, style, code } => {
+                let font_style = style;
                 // Original CJK/Latin/symbol pairs establish these regular flags
                 // across fields 2..=8, including a rectangular held-out control.
                 let style = if self.variant == Variant::HnB
@@ -526,6 +607,27 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified native punctuation size fields"));
                 }
                 let latin = self.latin;
+                // In C8 CJK character mode, the A0 alphabet/digits query the
+                // raw two-byte GBK slot in the styled CJK resource. That font
+                // lookup does not replace the mode-2 source character.
+                let cjk_alias =
+                    if self.cjk_mode && code >> 8 == 0xa0 && character.is_ascii_alphanumeric() {
+                        let [lead, trail] = code.to_be_bytes();
+                        crate::gb18030::decode_two_byte(lead, trail)
+                    } else {
+                        None
+                    };
+                // Original Wine queries distinguish styled Han and these
+                // C8 fullwidth glyphs from the base-resource low-byte letters.
+                let cjk = if ('\u{3400}'..='\u{9fff}').contains(&character)
+                    || cjk_alias.is_some()
+                    || (self.variant == Variant::C8
+                        && matches!(code, 0xa1a1 | 0xa3a6 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa))
+                {
+                    self.cjk_style_font(font_style)
+                } else {
+                    self.roles.cjk
+                };
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
@@ -539,7 +641,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         {
                             return Err(invalid("unverified C8 CJK-mode glyph placement"));
                         }
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     0xa0a6
                     | 0xa0ae
@@ -602,25 +704,47 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                         (C8GlyphClass::Cjk, latin, None)
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, Some(self.roles.latin), None),
-                    0xa1a1 | 0xa3a6 => (C8GlyphClass::Cjk, Some(self.roles.cjk), None),
+                    0xa1a1 | 0xa3a6 => (C8GlyphClass::Cjk, Some(cjk), None),
                     0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     0xa1a2 | 0xa1a3 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
-                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
+                        (C8GlyphClass::Cjk, Some(cjk), None)
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
-                let mut transform = super::placement::native_glyph_transform(
-                    self.geometry,
-                    self.origin,
-                    [x, y],
-                    style,
-                    class,
-                    self.axes,
-                )?;
+                let mut transform =
+                    if class == C8GlyphClass::Latin && matches!(code, 0xa0b0..=0xa0b9) {
+                        super::placement::native_digit_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            self.axes,
+                        )?
+                    } else if class == C8GlyphClass::Latin
+                        && matches!(code, 0xa0c1..=0xa0da | 0xa0e1..=0xa0fa)
+                    {
+                        super::placement::native_letter_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            self.axes,
+                            code,
+                        )?
+                    } else {
+                        super::placement::native_glyph_transform(
+                            self.geometry,
+                            self.origin,
+                            [x, y],
+                            style,
+                            class,
+                            self.axes,
+                        )?
+                    };
                 if let Some(fraction) = baseline_fraction {
                     // Controlled symbol baselines use independent em height;
                     // resource choice does not imply ordinary Latin geometry.
@@ -701,24 +825,33 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     transform[2] = transform[0] * self.skew;
                 }
                 // Keep the verified current gray local to each glyph draw.
-                let font = self.font(font, character);
-                if character == '\u{e6c7}'
+                if let Some(alias) = cjk_alias {
+                    // The selected CJK font must contain this measured alias;
+                    // ordinary ASCII or another resource is not a substitute.
+                    let alias =
+                        native_glyphs::lookup(self.glyph_aliases, cjk, character).unwrap_or(alias);
+                    self.page
+                        .glyph_with_alias_text(cjk, alias, transform, self.gray, character)?;
+                } else if character == '\u{e6c7}'
                     && self
                         .fonts
-                        .get(font)
-                        .is_some_and(|font| !font.supports(character))
+                        .get(self.font(font, character))
+                        .is_some_and(|resource| {
+                            !resource.supports(self.glyph(self.font(font, character), character))
+                        })
                 {
                     // The viewer paints an acute-accented Gamma-like shape for
                     // A661, but Copy yields a bullet. Use a visual substitute
                     // from the caller's font and retain the PUA in ActualText.
                     let alias = '\u{0403}';
                     let font = self.font(Some(self.roles.latin), alias);
+                    let alias = self.glyph(font, alias);
                     self.page.glyph_with_replacement_text(
                         font, alias, transform, self.gray, character,
                     )?;
                 } else {
-                    self.page
-                        .glyph_with_gray(font, character, transform, self.gray)?;
+                    let font = self.font(font, character);
+                    self.draw_text(font, character, transform, self.gray)?;
                 }
             }
             NativeRecord::Drawing { .. }
@@ -771,7 +904,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified C8 segment coordinate flags"));
                 }
                 let [from, to] = empirical_c8_segment(self.geometry, self.origin, points, style)?;
-                self.page.segment(from, to, 0.0)?;
+                self.draw_segment(from, to)?;
             }
             NativeRecord::Drawing {
                 tag: 0x8010,
@@ -785,13 +918,26 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                 {
                     return Err(invalid("unverified C8 decoration 117 state"));
                 }
-                let (font, alias) = self
+                let (role, default_alias) = self
                     .roles
                     .decoration
                     .map_or((None, C8_DEFAULT_DECORATION_ALIAS), |(font, alias)| {
                         (Some(font), alias)
                     });
-                let font = self.font(font, alias);
+                let explicit = self
+                    .decoration_glyphs
+                    .iter()
+                    .find(|entry| entry.value == value);
+                let (font, alias) = match explicit {
+                    Some(entry) => (
+                        role.ok_or_else(|| invalid("missing mapped decoration font"))?,
+                        entry.glyph,
+                    ),
+                    None => (
+                        self.font_with_glyph(role, default_alias, default_alias),
+                        default_alias,
+                    ),
+                };
                 let style = self
                     .style
                     .or_else(|| (self.axes != [None; 2]).then_some(0))
@@ -803,6 +949,18 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     style,
                     self.axes,
                 )?;
+                if self.fonts[font].has_horizontal_bands(alias) {
+                    // Full-em rectangle bands are constant across the clip.
+                    // Overdraw beyond its right edge: Wine can contract a
+                    // horizontally stretched glyph at small vertical sizes.
+                    // The unchanged clip sets the actual length. One original
+                    // font draw avoids seams between fractional tiles.
+                    let mut transform = decoration.first_glyph;
+                    transform[0] = 2.0 * decoration.clip[2];
+                    self.page
+                        .decoration_glyph(font, alias, transform, decoration.clip)?;
+                    return Ok(());
+                }
                 for index in 0..decoration.glyph_count {
                     let mut transform = decoration.first_glyph;
                     transform[4] += f64::from(index) * transform[0];
@@ -846,14 +1004,71 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
 }
 
 impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    /// An explicit family overrides the original style, before geometry aliases.
+    /// Original C8/HN-B controls distinguish these three optional CJK roles.
+    fn cjk_style_font(&self, style: u16) -> usize {
+        let style = self.cjk_style_override.unwrap_or(style);
+        match style & 0xfc00 {
+            0x0800 => self.roles.cjk_sans,
+            0x0c00 => self.roles.cjk_kai,
+            0x0400 | 0x1400 => self.roles.cjk_system,
+            _ if matches!(
+                style,
+                0 | 0x6084 | 0x64c6 | 0x9c84 | 0xa4a5 | 0xb94c | 0xe58c
+            ) =>
+            {
+                self.roles.cjk_system
+            }
+            _ => None,
+        }
+        .unwrap_or(self.roles.cjk)
+    }
+
     /// Apply the [`C8PageFonts`] fallback rule to a selected role. An index
     /// outside the page resources is kept so the draw reports it.
     fn font(&self, role: Option<usize>, character: char) -> usize {
+        let glyph = role.map_or(character, |font| self.glyph(font, character));
+        self.font_with_glyph(role, character, glyph)
+    }
+
+    fn font_with_glyph(&self, role: Option<usize>, character: char, glyph: char) -> usize {
         match role.map(|index| (index, self.fonts.get(index))) {
             Some((index, None)) => index,
-            Some((index, Some(font))) if font.supports(character) => index,
+            Some((index, Some(font))) if font.supports(glyph) => index,
             _ if is_cjk_coded(character) => self.roles.cjk,
             _ => self.roles.latin,
+        }
+    }
+
+    fn glyph(&self, font: usize, character: char) -> char {
+        native_glyphs::lookup(self.glyph_aliases, font, character).unwrap_or(character)
+    }
+
+    fn draw_segment(&mut self, from: [f64; 2], to: [f64; 2]) -> Result<()> {
+        // Original controls at four zooms establish lighter axis-aligned rules
+        // independently of text gray, style, endpoint order and mode. Preserve
+        // coordinates and the device hairline; this matches observed appearance,
+        // not an assertion that the source encodes an explicit gray pen.
+        if from[0] == to[0] || from[1] == to[1] {
+            self.page.stroke_polyline(&[from, to], 0.0, 127)
+        } else {
+            self.page.segment(from, to, 0.0)
+        }
+    }
+
+    fn draw_text(
+        &mut self,
+        font: usize,
+        character: char,
+        transform: [f64; 6],
+        gray: u8,
+    ) -> Result<()> {
+        let glyph = self.glyph(font, character);
+        if glyph == character {
+            self.page.glyph_with_gray(font, character, transform, gray)
+        } else {
+            self.page
+                .mapped_glyph(font, glyph, character, transform, gray)
         }
     }
 
@@ -927,7 +1142,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 for end in &mut ends {
                     end[1] += 5.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                self.page.segment(ends[0], ends[1], 0.0)?;
+                self.draw_segment(ends[0], ends[1])?;
             }
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character_for_mode(0, code)
@@ -951,7 +1166,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     }
                     // The mode-0 decoder accepts only Han after the explicit
                     // alphabet and symbol classes handled above.
-                    _ => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
+                    _ => (C8GlyphClass::Cjk, Some(self.cjk_style_font(style))),
                 };
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(
@@ -990,8 +1205,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                         .mapped_glyph(symbols, entry.glyph, character, transform, 68)?;
                 } else {
                     let font = self.font(font, character);
-                    self.page
-                        .glyph_with_gray(font, character, transform, 68)?;
+                    self.draw_text(font, character, transform, 68)?;
                 }
             }
             _ => return Err(invalid("unverified HN-B mode-0 rendering record")),

@@ -325,7 +325,7 @@ export async function validateMultiImageHn(t, bytes) {
     assert.ok(box, "page has a MediaBox");
     const bounds = box[1].trim().split(/\s+/).map(Number);
     assert.equal(bounds.length, 4);
-    [0, 0, 100 * 240 / 2473, 200 * 240 / 2473].forEach((value, axis) =>
+    [0, 0, 100 * 72 / 742, 200 * 72 / 742].forEach((value, axis) =>
       assert.ok(Math.abs(bounds[axis] - value) < 0.000001, `page boundary ${axis}`));
     assert.equal(page.images.length, 2);
     for (const [index, image] of page.images.entries()) {
@@ -340,7 +340,7 @@ export async function validateMultiImageHn(t, bytes) {
     const content = (await run("qpdf", [`--show-object=${page.contents[0].split(" ")[0]}`, "--filtered-stream-data", path])).stdout;
     const draws = [...content.matchAll(/([\d.e+\- ]+) cm\s+\/Im(\d+) Do/g)];
     assert.equal(draws.length, 2);
-    const scale = 240 / 2473;
+    const scale = 72 / 742;
     for (let i = 0; i < 2; i++) {
       assert.equal(Number(draws[i][2]), i);
       const matrix = draws[i][1].trim().split(/\s+/).map(Number);

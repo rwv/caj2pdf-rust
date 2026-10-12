@@ -18,8 +18,61 @@ fn page() -> EmpiricalPageGeometry {
 
 #[test]
 fn documented_factors_and_comparison_precision_are_explicit() {
-    assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 240.0 / 2473.0);
+    assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 72.0 / 742.0);
     assert_eq!(EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, 0.00005);
+}
+
+#[test]
+fn page_extents_predict_independent_wine_device_boundaries() {
+    // Literal white-page extents observed in original fixed-geometry controls.
+    // The last three square dimensions were withheld from factor selection.
+    for (width, height, expected_width, expected_height) in [
+        (4736, 2800, [460.0, 613.0, 919.0], [272.0, 362.0, 543.0]),
+        (5105, 2800, [495.0, 660.0, 991.0], [272.0, 362.0, 543.0]),
+        (5166, 2800, [501.0, 668.0, 1003.0], [272.0, 362.0, 543.0]),
+        (5168, 2800, [501.0, 669.0, 1003.0], [272.0, 362.0, 543.0]),
+        (2973, 2973, [288.0, 385.0, 577.0], [288.0, 385.0, 577.0]),
+        (4038, 4038, [392.0, 522.0, 784.0], [392.0, 522.0, 784.0]),
+        (5150, 5150, [500.0, 666.0, 999.0], [500.0, 666.0, 999.0]),
+    ] {
+        let size = source_page_geometry([width, height]).unwrap().size;
+        for ((zoom, width), height) in [0.75, 1.0, 1.5]
+            .into_iter()
+            .zip(expected_width)
+            .zip(expected_height)
+        {
+            for (points, observed) in [(size.width_points, width), (size.height_points, height)] {
+                assert_eq!((points * (96.0 / 72.0) * zoom).round(), observed);
+            }
+        }
+    }
+}
+
+#[test]
+fn mode_zero_extents_match_independent_wine_controls_and_held_out_dimensions() {
+    // White-page dimensions from fixed 96-dpi Wine controls, excluding the
+    // independently measured four horizontal/five vertical border pixels.
+    for (width, height, zoom, expected) in [
+        (2500, 2300, 0.75, [253.0, 233.0]),
+        (2500, 2300, 1.0, [337.0, 311.0]),
+        (2500, 2300, 1.5, [505.0, 466.0]),
+        (3100, 3400, 0.75, [311.0, 340.0]),
+        (3100, 3400, 1.0, [414.0, 453.0]),
+        (3100, 3400, 1.5, [622.0, 680.0]),
+        (5105, 4200, 0.75, [505.0, 418.0]),
+        (5105, 4200, 1.0, [674.0, 557.0]),
+        (5105, 4200, 1.5, [1011.0, 835.0]),
+        (4736, 2800, 1.0, [626.0, 376.0]), // Held out before observations.
+    ] {
+        let size = mode_zero_page_geometry([width, height]).unwrap().size;
+        for (points, pixels) in [size.width_points, size.height_points]
+            .into_iter()
+            .zip(expected)
+        {
+            assert_eq!((points * (96.0 / 72.0) * zoom).round(), pixels);
+        }
+    }
+    assert!(mode_zero_page_geometry([0, 100]).is_err());
 }
 
 #[test]
@@ -50,11 +103,11 @@ fn fractional_negative_pdf_origin_and_off_page_translation_are_preserved() {
         }
     );
     assert_eq!(page.media_box().unwrap(), [-3.25, 1.125, 20.75, 61.125]);
-    let ctm = empirical_image_transform(page, 3, 7, point(2473, 2473)).unwrap();
+    let ctm = empirical_image_transform(page, 3, 7, point(742, 742)).unwrap();
     close(ctm[0], 0.72);
     assert_eq!(&ctm[1..3], &[0.0, 0.0]);
     close(ctm[3], -1.68);
-    assert_eq!(&ctm[4..], &[236.75, -178.875]);
+    assert_eq!(&ctm[4..], &[68.75, -10.875]);
     // The image is outside both page axes. Its source origin is not clipped.
     assert!(ctm[4] > page.media_box().unwrap()[2]);
     assert!(ctm[5] < page.media_box().unwrap()[1]);
@@ -66,8 +119,8 @@ fn zero_origin_is_top_left_and_positive_y_moves_downward() {
     let top = empirical_image_transform(page, 50, 100, point(0, 0)).unwrap();
     assert_eq!(top, [12.0, 0.0, 0.0, -24.0, 0.0, 24.0]);
     let moved = empirical_image_transform(page, 50, 100, point(1, 1)).unwrap();
-    close(moved[4], 240.0 / 2473.0);
-    close(moved[5], 24.0 - 240.0 / 2473.0);
+    close(moved[4], 72.0 / 742.0);
+    close(moved[5], 24.0 - 72.0 / 742.0);
     assert_eq!(&top[..4], &moved[..4]);
     // Coordinates remain unrounded; four-decimal precision is a comparison
     // policy, rather than a loss of precision during field evaluation.
@@ -85,11 +138,11 @@ fn source_order_repeats_and_pixel_dimensions_do_not_change_coordinate_roles() {
     assert!(transforms[1][5] > transforms[0][5]);
     let resized = empirical_image_transform(page, 11, 2, coordinates[0]).unwrap();
     // Compare returned binary64 values, not x87 extended intermediates.
-    // Independently rounded exact coordinates are -13/4 + 480/2473 and
-    // 489/8 - 960/2473. Pixel dimensions must not change either translation.
+    // Independently rounded exact coordinates are -13/4 + 144/742 and
+    // 489/8 - 288/742. Pixel dimensions must not change either translation.
     for transform in [transforms[0], transforms[2], resized] {
-        assert_eq!(transform[4].to_bits(), 0xc008727dabbc819b);
-        assert_eq!(transform[5].to_bits(), 0x404e5e4fb5779033);
+        assert_eq!(transform[4].to_bits(), 0xc008728b62ac81ba);
+        assert_eq!(transform[5].to_bits(), 0x404e5e516c559037);
     }
     close(resized[0], 2.64);
     close(resized[3], -0.48);
@@ -286,9 +339,9 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
         // x87 may retain enough intermediate precision to avoid the two
         // accumulated binary64 rounding errors demonstrated above. Accept
         // success only for the one binary64 y within the existing tolerance
-        // of the exact result: 2^38 + 54/25 - 3360/2473. Its neighbors miss by
-        // -0.0000567930524666 and +0.0000652772600334 points respectively.
-        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_3349),
+        // of the exact result: 2^38 + 54/25 - 1008/742. Its neighbors miss by
+        // -0.0000567972435142 and +0.0000652730689858 points respectively.
+        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_334c),
         Err(error) => assert!(matches!(
             error,
             Error {
@@ -311,8 +364,8 @@ fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
         point(u16::MAX, u16::MAX),
     ] {
         let ctm = empirical_image_transform(page, 1, 1, coordinate).unwrap();
-        close(ctm[4], -3.25 + f64::from(coordinate.x) * 240.0 / 2473.0);
-        close(ctm[5], 61.125 - f64::from(coordinate.y) * 240.0 / 2473.0);
+        close(ctm[4], -3.25 + f64::from(coordinate.x) * 72.0 / 742.0);
+        close(ctm[5], 61.125 - f64::from(coordinate.y) * 72.0 / 742.0);
         if coordinate.x >= 32768 {
             assert!(ctm[4] > page.media_box().unwrap()[2]);
         }
@@ -443,6 +496,32 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
 }
 
 #[test]
+fn mode_two_digit_origins_predict_independent_wine_controls() {
+    let geometry = source_page_geometry([1360, 1200]).unwrap();
+    let top = geometry.media_box().unwrap()[3];
+    // Literal full-em geometric ink bounds from Wine at 600%, with both
+    // ordinary and alternate resources. The digit top does not depend on em.
+    for (style, axes, position, observed) in [
+        (0x1084, [None; 2], [5802, 4904], [908.0, 490.0, 69.0]),
+        (0x10a4, [None; 2], [5802, 4904], [908.0, 490.0, 69.0]),
+        (0x1084, [Some(43); 2], [5802, 4904], [908.0, 490.0, 85.0]),
+    ] {
+        let m = native_digit_transform(geometry, [4652, 4274], position, style, axes).unwrap();
+        // Font/device rounding remains separate: the continuous outline must
+        // fall within one device pixel of the observed origin, not the old
+        // alphabet origin (8–10 px right and 5–7 px up in these controls).
+        assert!((m[4] * 8.0 - observed[0]).abs() < 1.0);
+        assert!(((top - m[5] - m[3]) * 8.0 - observed[1]).abs() < 1.0);
+        assert_eq!((m[3] * 8.0).floor(), observed[2]);
+    }
+    // Retain Latin admission; CJK-only axes/styles must not become digit
+    // support merely because the observed horizontal origins agree.
+    for (style, axes) in [(0x1084, [Some(1); 2]), (0x154a, [None; 2])] {
+        assert!(native_digit_transform(geometry, [0; 2], [0; 2], style, axes).is_err());
+    }
+}
+
+#[test]
 fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
     let page = source_page_geometry([600, 600]).unwrap();
     let origin = [4652, 4274];
@@ -457,8 +536,8 @@ fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
         .unwrap();
         // Counts independently observed at 486% and 993%, including partial tails.
         assert_eq!(d.glyph_count, count);
-        close(d.first_glyph[4], 5.822887181560857);
-        close(d.first_glyph[5], 48.045519517768646);
+        close(d.first_glyph[4], 5.822102425876011);
+        close(d.first_glyph[5], 48.038456716605026);
         close(
             d.clip[2],
             f64::from(length) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
@@ -538,9 +617,9 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
         let horizontal =
             empirical_c8_segment(page, [4652, 4274], [[4682, 4304], [4832, 4304]], style).unwrap();
         // Original segment-axes control: relative endpoints (30,30)/(180,30).
-        close(horizontal[0][0], 12000.0 / 2473.0);
-        close(horizontal[1][0], 48000.0 / 2473.0);
-        close(horizontal[0][1], 132000.0 / 2473.0);
+        close(horizontal[0][0], 3600.0 / 742.0);
+        close(horizontal[1][0], 14400.0 / 742.0);
+        close(horizontal[0][1], 39600.0 / 742.0);
         assert_eq!(horizontal[0][1], horizontal[1][1]);
         let reverse =
             empirical_c8_segment(page, [4652, 4274], [[4832, 4304], [4682, 4304]], style).unwrap();
@@ -895,4 +974,68 @@ fn nju_title_matches_measured_95_without_inferring_neighboring_styles() {
     assert!(
         native_glyph_transform(p, [0; 2], [0; 2], 0x096b, C8GlyphClass::Latin, [None; 2]).is_err()
     );
+}
+
+#[test]
+fn mode_two_alphabet_origins_match_independent_integer_measurements() {
+    let geometry = source_page_geometry([210, 188]).unwrap();
+    let top = geometry.media_box().unwrap()[3];
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    // Literal integer origins recovered from all 52 separate Wine pages at
+    // 5000/4000%. The shifted, reversed alternate-font pages independently
+    // predict the same origins. Font advances are identical in these probes.
+    for (style, axes, y_offset, measured_x) in [
+        (
+            0x1084,
+            [None; 2],
+            8.0,
+            [
+                31, 31, 31, 31, 34, 31, 31, 31, 43, 43, 31, 34, 27, 31, 31, 32, 31, 31, 35, 31, 28,
+                28, 21, 30, 30, 32, 41, 38, 41, 38, 41, 43, 38, 38, 47, 47, 38, 47, 25, 39, 39, 38,
+                38, 45, 43, 45, 39, 36, 30, 38, 38, 38,
+            ],
+        ),
+        (
+            0x10a4,
+            [None; 2],
+            8.0,
+            [
+                33, 33, 33, 33, 36, 33, 33, 33, 48, 48, 33, 36, 28, 33, 33, 35, 33, 33, 38, 33, 30,
+                30, 22, 31, 31, 35, 45, 41, 45, 41, 45, 48, 41, 41, 53, 53, 41, 53, 27, 43, 43, 41,
+                41, 50, 48, 50, 43, 40, 31, 41, 41, 41,
+            ],
+        ),
+        (
+            0x1084,
+            [Some(43); 2],
+            10.0,
+            [
+                33, 33, 33, 33, 37, 33, 33, 33, 49, 49, 33, 37, 28, 33, 33, 35, 33, 33, 38, 33, 30,
+                30, 22, 32, 32, 35, 45, 42, 45, 42, 45, 49, 42, 42, 54, 54, 42, 54, 27, 44, 44, 42,
+                42, 50, 49, 50, 44, 40, 32, 42, 42, 42,
+            ],
+        ),
+    ] {
+        for (character, observed_x) in (b'A'..=b'Z').chain(b'a'..=b'z').zip(measured_x) {
+            let m = native_letter_transform(
+                geometry,
+                [4652, 4274],
+                [4667, 4309],
+                style,
+                axes,
+                0xa080 + u16::from(character),
+            )
+            .unwrap();
+            close(m[4], (15.0 + f64::from(observed_x)) * unit);
+            close(m[5], top - (35.0 - y_offset) * unit - m[3]);
+        }
+    }
+    for code in [0xa0b0, 0xa0db, 0xa0e0, 0xa3c1] {
+        assert!(
+            native_letter_transform(geometry, [0; 2], [0; 2], 0x1084, [None; 2], code).is_err()
+        );
+    }
+    for (style, axes) in [(0x1084, [Some(1); 2]), (0x154a, [None; 2])] {
+        assert!(native_letter_transform(geometry, [0; 2], [0; 2], style, axes, 0xa0c1).is_err());
+    }
 }

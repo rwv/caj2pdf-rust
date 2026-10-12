@@ -3109,3 +3109,898 @@ unchanged. All added source is original MIT; documents, external fonts/outlines,
 PDFs, screenshots and vendor programs stay external. No private HN/JBIG or
 foreign-converter implementation was read/copied. Samples #106 and #406/#441
 retain full resource/geometry/fidelity obligations beyond this scoped diagnosis.
+
+## Wine native CJK style resources (#541)
+
+The [2026-10-11 observations and metadata](research/wine-font-resources-20261011.md)
+resolve the earlier unconfirmed Han resource markers by retaining localized
+family names. Thirty-two controlled sessions decode 283 original markers:
+HGSS, HGHT, HGKT and SimSun are distinct resources in the measured C8/HN-B
+profiles. C8 character modes and Latin resource states preserve Han selection;
+font selection must precede raw-style normalization for geometry. The optional
+`cjk_sans`, `cjk_kai` and `cjk_system` roles implement those observations across
+native, CLI, Node and browser without changing missing-role fallback.
+
+Twenty additional forward/reverse sessions confirm 590 C8 fullwidth queries,
+including the complete Latin alphabet, ideographic space and ampersand. Those
+characters use the same measured CJK style resources. Seventy-two mixed-code
+queries preserve the distinct low-byte-letter rules and both character modes;
+the subsequent [CJK-mode alias study](research/wine-cjk-aliases-20261011.md)
+resolves all 62 ordinary Latin alphabet/digit aliases.
+The supplemental metadata retains each exact raw code, style, resource and
+cmap argument.
+Real-page review exposed an ignored `801c` family override. Twelve axis-control
+sessions (384 queries) reject an axis-reset hypothesis; four state-control
+sessions (114 queries) and eight confirmation sessions (228 queries) establish
+`801c/2` Hei, `/3` Kai and `/4` Song, persistence across axes and reset by
+`8002`. The intermediate candidate and startup failures remain recorded;
+only admitted C8 and HN-B mode-2 controls change family state. The added native/Node/browser fixtures use only original
+geometric font shapes and retain decoded character identity.
+
+The independently authored query-font generator reproduces eighteen observed
+font controls byte-for-byte. Separate byte queries and reversed inventories
+confirm 520 non-CJK raw-code/role/profile combinations, including all 21 HN-B
+mode-0 HGFX symbols. Mode 0 and mode 2 have incompatible Latin cmap queries;
+font names alone are insufficient. Experimental mode-2 aliases preserve all
+outline/metric tables and are not built into the converter. The report retains
+initial unmarked symbols, failed CJK-only system-font UI controls and the
+four-page Wine PDF startup failure and subsequent GUI-only workaround.
+
+All 13 documents / 77 pages convert with the measured caller fonts; qpdf and
+independent full character-order checks pass for 113,418 characters. The ten
+image-only pages remain separate from typography evidence. Complete Wine page
+comparisons retain 35 extent differences and 42 equal-extent pixel differences;
+none establishes exact fidelity. The final family-state fix reduces strict
+changed pixels on nine equal-extent pages from 756,145 to 594,185 compared
+with the initial Han-style candidate; other equal-extent counts do not rise.
+An additional six-page PDF has only one admitted stable bootstrap visit and
+three failed startup attempts, so repeatable cold-start success is not claimed.
+Twelve mode-2 documents / 73 pages remain
+byte-identical to current main when the optional roles are absent. #541 and
+broader #406 obligations remain open. Source code and synthetic controls are
+original MIT work; no font outlines, external documents, vendor programs or
+foreign/private HN/JBIG implementation source are added or copied.
+
+### Wine per-value ornament mapping follow-up (#541, 2026-10-11)
+
+The [metadata-only receipt](research/wine-ornaments-20261011.json) records
+four fresh Wine CAJViewer 7.3 query sessions and 160 observations. Original
+MIT geometric marker fonts identify full cmap arguments independently of vendor
+outlines, across Latin/CJK state changes and reversed record order. Results
+agree with the earlier isolated resource study: `8010` values 1/2/46/117 use
+HGBZ U+5D04/U+5D05/U+5D41/U+5D95. These are font lookup aliases, not document
+characters. Font identity includes the measured SHA-256 and PostScript/head
+fingerprint; no resource bytes are added here.
+
+The production map, bounded transport, CLI options, JavaScript options and
+mixed-value fixtures are original MIT work. Tests use the existing original
+rectangle/triangle font. No vendor implementation, private HN/JBIG source,
+foreign converter, corpus document, rendered page or font outline was copied.
+No dependency or font allocation limit changes. Existing native-mode/state
+restrictions, sequential output, ranged input and nonsemantic marking remain.
+This closes the single-global-alias limitation for the four measured values;
+it does not close the remaining placement, pixel or Wine startup discrepancies.
+
+### Wine ornament-spacing controls (#541, 2026-10-11)
+
+The [43-session study](research/wine-ornament-spacing-20261011.md) replaces
+only the disposable reference profile's ornament font with original rectangle
+glyphs. Four zooms, four exact cold source repeats and two doubled-advance
+controls establish the measured integer-floor device-pixel step for all 36
+source-row observations. Coalesced text and equivalent rectangle paths do not
+improve fidelity; 23 PDF pattern sessions display no ornament markers, with
+ordinary red fiducials visible in all seven applicable sessions. All thirteen
+unique PDFs pass qpdf, have empty extracted text and paint markers in MuPDF.
+Blank Wine pages are failures, regardless of lower changed-pixel counts.
+
+`scripts/research/wine_ornament_geometry.py` is original MIT research source.
+Its C8 framing and geometric font construction derive from the project's own
+MIT [C8 fixture](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/cajviewer/c8_style_fixture.py)
+and [geometric font generator](https://github.com/rwv/caj2pdf-samples/blob/d4769cb0e3883c136845e17399c14900054d51d3/research/cajviewer/c8_geometric_font.py),
+reviewed per file. It reads no external font or document and reproduces all
+three observed source/font hashes with fontTools 4.62.1. The PDF experiments
+use dictionary facts from Adobe PDF Reference 1.6, section 4.6; no external
+renderer implementation was inspected or copied. Vendor programs remain
+opaque, and no vendor/private HN/JBIG or foreign-converter source is used.
+Only the generator, documentation and metadata enter this repository; generated
+fonts, C8/PDF files and screenshots remain external. Production placement,
+runtime APIs, dependencies and memory bounds are unchanged. #541 remains open.
+
+
+### Wine CJK-mode alphabet aliases (#541, 2026-10-11)
+
+The [59-session follow-up](research/wine-cjk-aliases-20261011.md) records 760
+independent font queries, forward/reverse agreement and six real-font visual
+improvements, each with an exact cold source repeat. The core selects the
+observed raw-GBK alias in the styled CJK font while retaining established
+ASCII source text in ActualText. This is an exact alias, not a lossy glyph
+substitute; missing aliases fail in the selected font. No new public API,
+dependency, font limit or placement model is introduced.
+
+`scripts/research/wine_cjk_aliases.py` is original MIT source using only the
+standard library. Its framing derives from the same project-owned MIT C8
+fixture reviewed above; all thirteen generated controls reproduce the
+observed hashes. Test outlines remain the project's original rectangles and
+triangles. Preserved-system-font marker copies, vendor font bytes, actual
+inputs, PDFs and captures remain external. No vendor implementation, private
+HN/JBIG source or foreign converter code was inspected or copied.
+
+Eleven geometry/PDF-factorization controls retain negative results, including
+two image-only pages explicitly excluded from typography evidence. All 13
+actual documents / 77 pages retain identical PDF bytes and all 113,418
+characters. Node/native bytes agree for the six corrected synthetic PDFs;
+real Chromium and Node share original geometric tests. Remaining pixel,
+page-extent and viewer-startup failures are not closed by this scoped fix.
+
+
+### Wine coordinate-unit refinement (#541, 2026-10-11)
+
+The [67-session boundary study](research/wine-page-extents-20261011.md)
+refines the empirical scale to `72/742` from `240/2473`. Four independently
+authored width controls constrain the candidate; three new square dimensions
+at three zooms test predictions for both axes. Literal observed extents,
+source hashes, cold repeats, countercontrols, all 77 actual page comparisons
+and 43 additional selected HN-A/C8/NH pages are retained. No per-document
+factor or resized comparison is used. The result remains empirical rather
+than an authoritative physical-unit claim. Pixel differences and two small
+regressions remain explicit.
+
+`scripts/research/wine_page_extents.py` is original MIT source, reviewed per
+file, and imports the project-owned C8 framing already reviewed above. It
+reads no external input and reproduces all seven source hashes using only
+the standard library. The existing original rectangle-font generator is
+reused without changing its outlines. Exact rational arithmetic independently
+provides the updated binary64 golden values; placement tolerance is retained.
+A parsed PDF-matrix check uses `1e-12` to permit a last-bit numeric difference,
+without relaxing any raster criterion. No vendor program, private HN/JBIG
+implementation or foreign converter was inspected or copied.
+
+All production input/output bounds and dependencies remain unchanged. Qpdf,
+independent semantic order and native/Node PDF identity pass for all 13
+main-inventory documents. The full 433-page NH conversion is distinguished
+from the three selected viewer pages. Historical observations are reused
+only when the compared PDF bytes are proved identical. External fonts,
+documents, derived PDFs and captures remain outside the repository.
+
+
+### Wine complete-font and metadata diagnostics (#541, 2026-10-11)
+
+The [18-session font-program study](research/wine-font-programs-20261011.md)
+is an external experiment, separate from the coordinate implementation.
+Complete prepared caller fonts improve four measured views; cmap-only
+restoration recovers part, while other tested metadata alone has no pixel
+effect. Independent decomposed-outline, advance, bearing and units-per-em
+checks cover 1,015 unique used glyph pairs. Page boxes, content, PDF widths,
+ToUnicode and extracted text are preserved. Exact renderer causes remain
+hypotheses, and production subsetting is unchanged.
+
+`scripts/research/wine_font_programs.py` is original MIT source reviewed per
+file. It uses fontTools 4.62.1 and pikepdf 10.5.1 APIs on explicit external
+inputs, with qpdf/pdftotext validation. Twelve original PDF hashes reproduce; two corrected metadata variants
+receive fresh Wine observations after isolating lazy cmap data and mutable
+font-table state. Its whole-file diagnostic processing is not a production memory
+path or a new runtime dependency. No external implementation code was copied;
+caller font bytes, derived PDFs and captures stay outside Git. Native/CLI/
+Node/browser bounded complete-font preservation remains implementation work.
+
+
+### Full-program mode-2 inventory follow-up (#541, 2026-10-11)
+
+The [17-session follow-up receipt](research/wine-full-font-inventory-20261011.json)
+compares complete font programs on all twelve mode-2 documents / 73 pages at
+the refined coordinate scale. It retains 59 improvements, ten unchanged
+image-only pages, four regressions, three unobserved startup attempts and
+nine exact repeated page views. Two failures came from editing zoom before
+numeric document readiness; waiting for those fields does not alter the
+final numeric or raster admission criteria. A separate fatal-error dialog
+remains evidence of intermittent viewer failure, despite later successes.
+
+The original MIT diagnostic generator gains only optional variant selection.
+All twelve complete-font PDF hashes reproduce. Qpdf, text, page geometry,
+content and width preservation pass; 9,905 used glyph pairs are independently
+checked per resource/document. Mode-0 full-program transport and bounded
+production integration remain open. There are no runtime dependency, memory,
+API or default-output changes in this research follow-up.
+
+
+### Unchanged original font programs (#541, 2026-10-11)
+
+The [15-session original-program follow-up](research/wine-original-font-inventory-20261011.json)
+restores original Latin TTF programs in the twelve complete-font diagnostic
+PDFs. It checks that only cmap and head checksum differ from their prepared
+counterparts, while original GIDs, other tables and all PDF text/geometry
+remain unchanged. All 73 mode-2 pages have matching extents; 63 improve and
+ten image-only pages remain unchanged against both the subset and prepared
+full-program baselines. None regress; seven cold repeated views agree exactly.
+All actual pages still differ. Mode-0 and production transport remain open.
+
+`scripts/research/wine_original_font_programs.py` is original MIT code, reviewed
+per file, using public fontTools/pikepdf APIs and explicit external font/PDF
+inputs. It reproduces all twelve output hashes, including qpdf, extracted-text
+and PDF-dictionary/content checks. Whole-file research processing is not a
+runtime dependency or production memory path. No vendor renderer, private
+HN/JBIG code or foreign converter implementation was copied or inspected;
+font binaries, documents, PDFs and screenshots remain outside Git.
+
+
+### Bounded complete TrueType embedding foundation (#541, 2026-10-11)
+
+`pdf/font/full.rs`, its tests and `pdf/document/text/tests/full.rs` are original
+MIT code authored for the original-program evidence above. The supporting
+font reader/directory, program dispatch and PDF writer changes reuse only
+project-owned code. No private module, vendor code or foreign converter
+implementation was migrated. No new dependency or font fixture is added.
+Tests construct fonts from the existing original geometric TTF/TTC/CFF
+fixtures and opaque synthetic table/trailing bytes.
+
+The [OpenType font-file specification](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
+provides sorted table records, file-relative TTC offsets, four-byte table
+padding and the `0xB1B0AFBA` checksum adjustment. The
+[DSIG specification](https://learn.microsoft.com/en-us/typography/opentype/spec/dsig)
+describes signatures tied to font data: a repacked collection face omits DSIG.
+Standalone TTF bytes are copied exactly, including unknown tables/trailing
+bytes. The existing PDF font dictionaries follow
+[ISO 32000-1](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf),
+including the subset-only name prefix (§9.6.4), TrueType CID mappings (§9.7)
+and embedded font streams (§9.9). Only normative descriptions were used.
+
+The reader retains a fixed 128-entry directory alongside its existing bounded
+metadata. Complete embedding makes two ranged passes with one reusable buffer
+bounded by `Limits::io_chunk_bytes`, records per-program/per-table SHA-256 and
+checks retained metadata while streaming. TTC planning retains at most 128
+small table records; no font-sized allocation is introduced. Original glyph
+IDs feed CIDToGIDMap for both ordinary and independent glyph/text resources.
+Unused resources stay subsets and used CFF complete embedding is explicitly
+refused before font emission. Existing default subset output is preserved.
+
+Original tests cover exact standalone bytes larger than the allocation cap,
+selected TTC faces, unknown tables, checksums, short reads, cancellation,
+source changes, output failure, retriable planning and mapped semantic text.
+The low-level writer foundation does not yet expose full fonts through native
+conversion/CLI/Node/browser options. Those integrations, original-font aliases,
+mode-0 evidence and production Wine raster validation remain open in #541.
+
+
+### Original-program conversion and external aliases (#541, 2026-10-11)
+
+`hnc8/native_glyphs.rs` and the native composer/page-writer, conversion options,
+CLI parser/resource loader, raw WASM session/bridge and JS Worker/type changes
+are original MIT work. They reuse the project's mapped glyph/text PDF writer
+and bounded complete-program foundation. No private module, HN/JBIG code,
+vendor implementation or foreign converter source was migrated. The only
+resource rules used are the preceding Wine measurements and explicit caller
+configuration; there is no font-name inference or new runtime dependency.
+
+Ordinary aliases are sorted unique `(source index, BMP character)` entries,
+validated against source glyph coverage. Shared source indices are remapped
+to page slots once, bounded by eleven BMP maps and `Limits`. Original TrueType
+programs retain their bytes; selected TTC faces retain original tables/GIDs
+with the documented standalone-header/checksum changes. Explicit mode-0 symbol
+maps and nonsemantic decorations bypass ordinary aliases. Defaults still use
+empty maps and subsets. New native/CLI/Node/browser tests use only the existing
+original geometric font fixtures, including shared sources, independent glyph/
+text identity, missing/invalid aliases, bounded I/O and failed-output cleanup.
+The real Chromium test reads original fonts through OPFS and agrees with Node.
+
+The [production comparison](research/wine-original-font-production-20261011.md)
+closes the earlier transport and mode-0 measurement gaps: 18 Wine sessions
+retain two failed startups, all 77 admitted pages and seven exact cold repeats.
+Compared with the refined-scale subset baseline, 67 pages improve, ten remain
+unchanged and none regress; 1,371,646 differing pixels disappear. All page
+extents match. The 73 mode-2 renders match the preceding diagnostic exactly;
+the four mode-0 pages improve modestly. Every actual page still differs.
+
+`scripts/research/verify_original_font_output.py` is original MIT research
+code reviewed per file. It independently resolves drawn CIDs, compares
+fontTools-decomposed outlines/advances/bearings and PDF widths, and checks all
+other content operators and page boxes using pikepdf. Used standalone programs
+must match supplied originals exactly; TTC tables must match except DSIG and
+head checksum. This external whole-file checker adds no production dependency
+or memory path. Explicit ToUnicode/ActualText source-order validation remains
+a separate check; empty maps on unused resources are accepted, while every
+painted CID still requires a mapping. Fonts, corpus documents, output PDFs
+and screenshots remain outside Git.
+
+### Mode-0 additive page padding (#541, 2026-10-11)
+
+The [Wine mode-0 padding study](research/wine-mode0-page-padding-20261011.md)
+establishes ten additive PDF points independently of the raw `72/742` unit.
+Ten original boundary comparisons include three zooms and a held-out dimension
+pair; the corrected formula matches all ten while the former 100-raw-unit
+addition matches only three. Four actual pages retain their previous 75% RGB
+frames, and 73 mode-2 pages retain identical PDF bytes. Thirteen fresh production
+sessions, three exact cold repeat views, source-order checks and 26 native/Node
+byte comparisons validate the change. Unresolved glyph-position hypotheses
+and failed preparation/decimal-preservation checks are retained in the receipt.
+
+`scripts/research/wine_mode0_page_extents.py` is original MIT research code,
+reviewed per file. It uses the project's independently established HN-B framing
+and authored glyph grids, reproducing eight measured controls exactly with only
+the Python standard library. No private parser/JBIG module, vendor implementation
+or foreign converter was consulted or migrated. The native geometry helper and
+literal observed-dimension regression are also original MIT work. No new runtime
+dependency or allocation is introduced. Geometric resource fonts are original
+controls; a separate system-font diagnostic retains external metadata/unused
+glyphs and is not wholly project-authored. All font binaries, corpus documents
+and raster evidence remain external.
+
+### Mode-0 font metrics and device rounding (#541, 2026-10-11)
+
+The [rounding controls](research/wine-mode0-font-rounding-20261011.md) retain
+52 admitted sessions and four failed diagnostic startups. Original geometric
+fonts isolate Windows, hhea and typographic metrics while preserving outlines,
+cmaps and advances. Eight treatment/zoom source and PDF comparisons are exact
+to baseline; translating the authored glyph outline provides a positive control.
+Four equivalent PDF encodings also preserve all twelve observed frames. No
+production geometry or external font program is changed.
+
+Seven zooms, including two held-out configurations, produce 156 measured
+CJK/Latin relative offsets consistent with independently truncating the existing
+ten-raw-unit displacement to device pixels. High-zoom bounds distinguish this
+from a physical baseline or font-size correction. These are geometric synthetic
+observations, not complete glyph placement or actual-corpus fidelity acceptance.
+Filtered Wine diagnostic frames equal unobserved controls, but their selected
+font-creation messages do not identify the content resources; no content API
+path is inferred from missing events. Unfiltered capped logs and preparation
+failures remain recorded.
+
+`scripts/research/wine_mode0_font_rounding.py` is original MIT code reviewed
+per file. It reuses the project's independently established HN-B framing,
+reproduces four authored sources, and optionally creates thirty font variants
+from five checksum-verified original geometric controls. It uses fontTools
+only in the external research path, adds no runtime dependency, and never
+accepts unverified vendor fonts as mutation inputs. Public OpenType/Win32
+documentation supplies metric definitions only. No private HN/JBIG module,
+foreign converter or vendor implementation is consulted or migrated; font,
+PDF, document and screenshot binaries remain outside Git.
+
+
+### Original-font mode-0 digit aliases (#541, 2026-10-11)
+
+The [digit/parenthesis study](research/wine-mode0-digit-aliases-20261011.md)
+corrects an external-font recipe omission: mode-0 letters use ordinary slots,
+but ten digits and two parentheses query private HGBZ cmap slots. Existing
+low/high-byte and reversed-order measurements already contain these twelve
+selections. Applying them through the caller-supplied alias API preserves
+semantic text, font programs and geometry; it also eliminates an unintended
+parenthesis fallback to CJK resources. No converter implementation changes.
+
+Twenty-eight fresh Wine sessions admit 31 page visits, including three exact
+cold repeats. All six whole control frames and all four actual mode-0 pages
+improve, while five small-font control cells regress slightly in strict pixels.
+Independent tight-ink diagnostics isolate shape from translation; their exact
+matches are not counted as page fidelity. All actual pages still differ.
+Mode-2 configuration and its prior 73 page views are unchanged evidence.
+
+`scripts/research/wine_original_glyphs.py` is original MIT research code reviewed
+per file. It reuses the project's independently authored HN-B/C8 framing and
+reproduces six original controls without reading vendor fonts or code. Used
+original TTF bytes and selected TTC tables are verified independently of text
+order and glyph matrices. Fonts, external corpus, PDFs and screenshots remain
+outside this repository; no private parser/JBIG implementation is migrated.
+
+### Axis rasterization and character origins (#541, 2026-10-11)
+
+The [axis/origin study](research/wine-axis-rasterization-20261011.md) records
+73 fresh synthetic Wine visits and four exact cold source repeats. Eight
+independently authored HN-B mode-2 documents isolate equal/unequal font axes,
+character codes and positions. Zoom-specific PDF matrix diagnostics preserve
+original resource programs, glyph identity and semantic text; cross-zoom and
+equivalent Tf/Tz controls retain their negative results. They are not a
+production correction or additional actual-corpus compatibility evidence.
+
+Five project-authored geometric font profiles independently vary advance,
+outline width and x/y offsets; no vendor font is edited. Identical glyphs still
+exhibit character-dependent origins. Six first-grid frames have rejected
+truncated cell diagnostics; fresh expanded cells pass. Complete-page RGB scores
+remain unaligned and exact, with small-page component bounds independently
+checked against geometry and both capture audits.
+
+`scripts/research/wine_axis_rasters.py` and
+`scripts/research/wine_axis_pdf_diagnostic.py` are original MIT research code,
+reviewed per file. They use existing project-authored container writers,
+standard-library metadata and public fontTools/pikepdf APIs. The first reproduces
+eight source fixtures and optionally 25 checksum-pinned geometric font variants;
+the second reproduces 24 diagnostic content streams with unchanged font programs.
+No private HN/JBIG, vendor implementation or foreign converter source is read,
+copied or migrated. No runtime dependency, production geometry, API or font
+archive changes. Resource binaries, documents, PDFs and screenshots stay external.
+
+### Mode-2 A0 digit origins (#541, 2026-10-11)
+
+The [digit-origin study](research/wine-mode2-digit-origins-20261011.md) expands
+independent geometric controls to 62 ASCII alphanumeric characters, equal/unequal
+axes, ordinary/alternate Latin and all five admitted Latin resource states.
+Recorded A0B0–A0B9 positions use the CJK horizontal origin and recorded raw y,
+without alphabet compensation. The native implementation preserves prior Latin
+style/axis admission and applies the correction only to these raw codes outside
+CJK character mode. Mode 0, fullwidth A3 digits, letters, resources and glyph
+aliases remain unchanged; no API, dependency or I/O change.
+
+Fifty-nine Wine sessions yield 78 admitted visits and one rejected information-bar
+capture. Five source and two PDF cold-repeat views are exact. All 316 digit cells
+improve. Fresh native conversion of 13 documents changes only 64 digit matrices;
+all font programs, semantic text and other operators remain unchanged. All 22
+pages in changed PDFs are freshly observed; 55 byte-identical pages explicitly
+reuse earlier observations. Three actual pages improve by 1,336 pixels in total,
+74 retain their pixels, and all 77 still differ from Wine. CLI/Node parity covers
+all 13 actual documents plus three controls; Chromium matches all six changed
+actual/control cases.
+
+`scripts/research/wine_digit_origins.py` is original MIT code reviewed per file.
+It uses existing original project framing and public fontTools APIs to reproduce
+17 sources and optionally eight original geometric fonts; optional input hashes
+are bound to the preceding study's five project-authored baseline programs.
+No vendor font is edited. The scalar native placement helper and two regression
+tests are independently authored from these GUI observations. No private HN/JBIG,
+foreign converter or vendor implementation is inspected, copied or migrated.
+Font binaries, corpus documents, PDFs and screenshots remain external.
+
+### Mode-2 A0 alphabet origins (#541, 2026-10-11)
+
+The [alphabet-origin study](research/wine-mode2-alphabet-origins-20261011.md)
+uses nine independently authored 64-page HN-B/C8 geometric controls to establish
+character-dependent integer x offsets and a nominal-height y offset. All 1,612
+geometric source origins match, including 624 observations held out from the
+exact formula selection. The initial midpoint hypothesis and its 35/312 size
+prediction failures remain recorded. Original-program low-zoom diagnostics
+retain two cell regressions despite three improved complete frames.
+
+Sixty-one Wine sessions yield 2,011 admitted visits, two rejected information-bar
+captures and six unobserved planned startup visits. Forty source and two PDF
+cold repeats are exact. Production controls cover 186 fresh pages and 880
+improved letter cells. Fresh conversion of the existing 13-document cohort
+changes 15,337 letter matrices only: 37 actual pages improve, 40 retain their
+rasters and none regress, reducing differences by 178,865 pixels. Forty-nine
+pages have fresh PDF observations; 28 reuse byte-identical prior PDFs. All 77
+still differ from Wine. CLI/Node/Chromium byte parity covers every actual
+document and all nine controls, with bounded output chunks.
+
+`scripts/research/wine_alphabet_origins.py` is original MIT code reviewed per
+file. It reuses the project's independently authored container writers and
+checksum-pinned geometric font-state helper to reproduce nine sources and
+eight project-authored fonts. The scalar placement helper and regression tests
+are independently authored from GUI measurements; prior profile admission is
+preserved. No dependency, allocation, API or I/O strategy changes. No private
+HN/JBIG, vendor implementation or foreign converter is inspected or migrated.
+The public receipt excludes article text and per-character corpus traces;
+font, corpus, PDF and screenshot binaries remain external.
+
+### Type 3 drawing-path controls (#541, 2026-10-11)
+
+The [Type 3 study](research/wine-type3-rasterization-20261011.md) uses the four
+existing original axis fixtures, fresh PDFs from the alphabet implementation,
+and unchanged external font programs. Nested-text procedures, independent
+coordinate normalization, positive rectangle controls and original glyph
+outline paths distinguish rendering behavior without changing production.
+Seven `d0` frames equal their baselines; sixteen tested `d1` nested-text frames
+have no glyph ink. One frame-dimension mismatch is retained as noncomparable.
+All 28 path frames regress, including two missing point-coordinate glyph cells.
+Sixty-two stable numeric-confirmed visits, two exact cold source repeats,
+source integrity and cleanup records retain these negative results.
+
+`scripts/research/wine_type3_diagnostic.py` is original MIT research code reviewed
+per file. It uses the project's original fixture generator, public PDF Type 3
+definitions and pikepdf/PyMuPDF/fontTools APIs. Original glyph IDs and outlines
+are external font data; no vendor implementation, foreign converter or private
+HN/JBIG code is inspected or migrated. Selected outline glyphs have no per-glyph
+instructions. The helper reproduces 32 diagnostic content/font configurations,
+preserving semantic text and original embedded programs. It adds no runtime
+dependency or conversion API. Font, document, PDF and screenshot binaries stay
+external. An interrupted host observer resumes verified-live sessions; its
+termination and setup/analysis failures remain recorded.
+
+### Grayscale JPEG and interpolation controls (#534, 2026-10-11)
+
+The [JPEG decode study](research/wine-jpeg-decode-controls-20261011.md) holds
+page geometry, drawing operators and eleven external font programs unchanged
+while varying image encoding and interpolation. In 17 cold Wine sessions, 51
+page visits are complete, stable and numeric-confirmed. All 27 treatment frames
+equal their PDF baselines; every baseline still differs from the native source.
+Three source cold repeats and six historical comparisons are exact. Deliberate
+grayscale inversion changes all three selected positive-control frames.
+No production correction or general decoder/resampling cause is established.
+
+`scripts/research/wine_jpeg_decode_diagnostic.py` is independently authored MIT
+research code reviewed per file. It uses installed Pillow/pikepdf/zlib/qpdf APIs
+to reproduce five external diagnostic PDFs and metadata. Seventeen grayscale
+images are processed one at a time with a ten-million-pixel bound per image;
+the utility is not part of the converter's production I/O path. No vendor,
+private HN/JBIG or foreign converter implementation is inspected or migrated.
+Corpus images and original fonts are external data, never committed here.
+The helper adds no runtime dependency or production behavior change.
+
+The accompanying validation record retains a real CI failure in the existing
+file-truncation test. Original MIT change `d836ae7` attaches its rejection
+assertion before awaiting file I/O, preserving the assertion and runtime code.
+All 192 concurrent JS tests and the commit's four quality gates/nine regular
+native jobs pass; 17 optional/release skips are reported separately.
+
+### Form and transparency controls (#541, 2026-10-11)
+
+The [transparency study](research/wine-transparency-controls-20261011.md) retains
+38 cold Wine sessions over the existing four original axis fixtures. All 35
+full-opacity form/group frames retain their baseline pixels across seven views,
+including split-origin and normalized-axis decompositions. Both cold source
+repeats are exact. The half-opacity control changes 1,040 pixels but leaves
+31 of 42 glyph cells without visible ink; it is not a conformance/fidelity pass.
+All visits are complete, stable and numeric-confirmed, with intact inputs and
+removed containers. No remaining placement/raster defect is corrected.
+
+`scripts/research/wine_transparency_diagnostic.py` is independently authored MIT
+research code reviewed per file. It reuses the project's original axis fixtures
+and Type 3 diagnostic utilities, pikepdf/PyMuPDF APIs, qpdf and the public PDF
+transparency-group definitions. Original embedded font programs remain unchanged;
+decomposed transforms agree within 1e-25 points and semantic glyphs are preserved.
+All 21 diagnostic PDFs and their metadata reproduce exactly. Independent MuPDF
+renders respond differently to isolation and are not substituted for Wine.
+No vendor implementation, foreign converter or private HN/JBIG code is inspected
+or migrated. Fonts, fixtures, PDFs and screenshots stay external. No runtime
+dependency, API, I/O strategy or production behavior changes.
+
+### Vertical CID origin controls (#541, 2026-10-11)
+
+The [vertical-origin study](research/wine-vertical-origins-20261011.md) tests
+another carrier for glyph offsets without changing original embedded programs.
+In 35 cold Wine sessions, 19 of 23 mathematically equivalent views retain PDF
+baseline pixels and four regress. Ten deliberate displacement controls establish
+scoped differences among metric representations; two cold source repeats match.
+All frames remain complete/stable/numeric-confirmed and inputs remain intact.
+The initial inherited-cell guard failure is retained; revised diagnostic cells
+come from the original grid, with no change to complete-frame RGB comparisons.
+
+`scripts/research/wine_vertical_origin_diagnostic.py` is independently authored
+MIT research code reviewed per file. It uses original fixture/PDF helpers,
+pikepdf/PyMuPDF APIs, qpdf and public PDF vertical-metric definitions. Serialized
+origin decompositions agree within 1e-25 points. The default-metric variants
+deliberately change PDF width metadata while keeping font programs and physical
+per-glyph painting transforms. All 29 generated outputs (25 distinct PDF hashes)
+and their metadata reproduce exactly. No vendor implementation, foreign converter
+or private HN/JBIG is inspected or migrated. Fonts, fixtures, PDFs and screenshots
+stay external. No production correction, dependency, API or I/O change results;
+actual-corpus fidelity and #541 remain open.
+
+### Public GDI relay controls (#541, 2026-10-11)
+
+The [relay study](research/wine-gdi-relay-controls-20261011.md) records twelve
+cold Wine sessions on original synthetic axis controls and unchanged resource
+fonts. Every complete/stable/numeric-confirmed frame equals its unobserved
+reference. Four initial logs reach their cap; eight corrected filtered traces
+reach EOF without losing a selected record. Independent public Win32 API probes
+validate logging in all twelve sessions. Matching final bitmap dimensions and
+absent selected glyph-query calls do not identify an internal renderer or prove
+an upstream cause; the default caller exclusions remain documented.
+
+`scripts/research/wine_gdi_relay_probe.c`, `wine_gdi_relay_filter.py` and
+`wine-gdi-relay.reg` are independently authored MIT research inputs reviewed per
+file. They use public Win32 declarations, Wine's documented relay configuration
+and Python's standard library. The C/configuration bytes and the filter's AST
+match the observed inputs. An original stream verifies the public filter's
+16 MiB boundary, unrelated-message exclusion and explicit dropped-byte report.
+No viewer implementation, private object or passed bitmap buffer is read;
+no foreign converter or private HN/JBIG code is inspected, copied or migrated.
+Public artifacts contain metadata and original helpers; font/document/PDF/image
+and executable binaries remain external. No production, dependency, API, I/O,
+font-archive or runtime-parity change follows. #541 remains open.
+
+The JPEG follow-up report/receipt correct an earlier issue-state statement:
+#534 had already closed via the unresolved-classification path in #538 and
+samples #115. Their existing image controls and baseline work are reused for
+future #406 fidelity work; they are not unfulfilled #534 classification steps.
+This correction changes scope/status wording only, not observations or hashes
+of measured inputs, fonts, outputs or captures.
+
+### Native image endpoint controls (#543, 2026-10-11)
+
+The [image endpoint study](research/wine-image-endpoints-20261011.md) records
+79 cold Wine sessions / 93 admitted complete, stable, numeric-confirmed visits.
+Original black JPEG grids distinguish inclusive native endpoints from PDF
+ceil-of-extent behavior on 132 axes. An explicit target-zoom extent diagnostic
+makes six black-grid views exact and improves all nine selected actual views,
+but two cross-zoom controls regress. No production correction is adopted;
+all 77 production cohort pages still differ. Closed #534's classification
+is not a resolution of these rendering differences; #543 tracks the fix.
+
+Per-file provenance review: `scripts/research/wine_image_endpoint_controls.py`
+is original MIT fixture-generation code using project-owned C8 framing facts
+and the original MIT asymmetric-image pattern pinned in the report;
+`wine_black_image_diagnostic.py` is original MIT Pillow/pikepdf research code
+for verified bounded solid-black images and PDF rectangle/stencil controls;
+`wine_image_device_grid.py` is original MIT rational-matrix research code,
+preserving payloads, font programs and nonimage operators while deliberately
+changing physical extents at a declared zoom. No vendor, foreign converter
+or private HN/JBIG implementation is inspected or migrated. Generated source,
+PDF, screenshot and font bytes remain external. Installed research libraries
+are not new production dependencies; production bounded I/O is unchanged.
+
+All six sources/current baseline PDFs reproduce byte-exactly. An initial
+diagnostic byte comparison failed because of nondeterministic trailer IDs.
+After requesting deterministic IDs, all 43 modified outputs reproduce every
+observed byte except the trailer ID; ten deterministic repeat outputs are
+byte-exact. The failure and original capture identities remain retained.
+
+### Image drawing routes and sampling direction (#543, 2026-10-11)
+
+The [image-route study](research/wine-image-routes-sampling-20261011.md)
+records 51 cold Wine sessions and 65 admitted visits. Fourteen tested pattern
+views lose all ink, while original grayscale controls isolate a sampling-
+direction interaction: target extents plus reversed decoded rows and a
+compensating matrix make five complete control views exact. Two actual views
+regress with row reversal alone; all nine actual views regress relative to
+extent-only when combined. No production correction is adopted. Signed
+coordinates and page clipping remain independently unmeasured confounders.
+
+Per-file review: `scripts/research/wine_image_pattern_diagnostic.py` is original
+MIT code exercising public PDF pattern/clip/stroke semantics;
+`wine_image_sampling_controls.py` is original MIT generation of bounded gray
+ramps/stripes with project-owned C8 framing facts; and
+`wine_image_orientation_diagnostic.py` is original MIT full-resolution image
+decode/reversal/Flate diagnostics with exact compensating matrices. The latter
+bounds each decoded image to ten million pixels, retains original JPEGs and
+verifies font/page/nonimage-operator preservation. These external research
+utilities are separate from production bounded I/O. No vendor implementation,
+foreign converter or private HN/JBIG source is inspected or migrated.
+No corpus, PDF, screenshot or font bytes are committed. The source, twelve
+generated JPEGs, current baseline PDF and 32 diagnostic PDFs reproduce exactly;
+the receipt retains failed models, preparation failure and all regressions.
+
+The next orientation controls use the existing type-1/type-2 JPEG descriptor
+distinction, not a signed raw height: `decode_native_image_coordinate` admits
+unsigned width/height, while composition selects row orientation separately.
+This source-level observation constrains fixture construction; it does not
+establish how Wine rounds clipped or negative-origin images.
+
+### JPEG descriptor orientation and clipping (#543, 2026-10-11)
+
+The [signed-image study](research/wine-image-signed-clipping-20261011.md)
+records 97 cold Wine sessions / 133 admitted visits. Changing only descriptor
+kind 1 to 2 isolates the row-orientation effect: all five in-page type-2 views
+are exact with target extents alone. Independent negative-origin controls
+match all 144 nonnegative cells after the declared grid correction; residuals
+remain in clipped cells. Signed rounding/origin carry regresses two actual
+100% views. Three zoom-independent integer-pixel clipping constructions each
+regress four actual views. No production correction is adopted.
+
+Per-file review: `scripts/research/wine_image_signed_controls.py` is original
+MIT fixture code using the adjacent project-owned C8 and gray/RGB generators;
+it changes only recorded descriptor bytes and independently declares signed
+positions while keeping encoded fields unsigned. `wine_image_signed_grid_diagnostic.py`
+is original MIT rational-matrix code for floor/truncation/origin-carry probes
+at an explicit target zoom; recovered integer rectangles match all 216 source
+declarations. `wine_image_pixel_clip_diagnostic.py` is original MIT Pillow/pikepdf
+code that tests quantized decoded-pixel windows without a zoom argument.
+It bounds each decoded image to ten million pixels and preserves original
+JPEG resources, font programs and nonimage operators. Quantized cropping
+changes the painted pixel field despite preserving visible support.
+
+All six sources/current baseline pairs and 56 diagnostics reproduce byte-exactly.
+An initial reproduction-wrapper metadata-key failure is retained. No vendor,
+foreign converter or private HN/JBIG implementation is inspected or migrated;
+no corpus, PDF, screenshot or font bytes are committed. These external research
+tools do not change production dependencies, APIs or bounded I/O. #543 remains
+open for the general rendering correction and implementation acceptance.
+
+### Device-coordinate image clipping (#543, 2026-10-11)
+
+The [device-clipping study](research/wine-image-device-clipping-20261011.md)
+records 88 cold Wine sessions / 88 admitted visits. Original paired grayscale
+controls separate matching in-page samples from clipped samples. Truncated
+device endpoints and nearest source-window rounding make three horizontal
+gray views and two independent RGB views exact. A vertical-origin carry and
+explicit adjacent-row band make another five gray/RGB views exact. Held-out
+125/175% views retain differences; numeric extent bounds also regress.
+No production correction or new actual-corpus result is claimed.
+
+Per-file provenance review: `scripts/research/wine_image_clipped_pairs.py` is
+original MIT generation of bounded grayscale ramps in project-owned C8
+framing; `wine_image_device_crop_diagnostic.py` is original MIT rational
+endpoint/window code with per-image decoded limits and retained originals;
+`wine_image_device_crop_followup.py` is original MIT origin/guard/edge-row
+diagnostics with explicit painted-field changes; and
+`wine_image_device_extent_rounding.py` is original MIT binary64/rational-bound
+research code. Their declared-zoom geometry changes are not production fixes.
+No vendor, foreign converter or private HN/JBIG implementation is inspected
+or migrated. Sources, fonts, PDFs and screenshots remain external.
+
+The existing original MIT orientation and world-coordinate pixel-clip helpers
+also receive an admission correction: previously unprefixed option names
+failed to check actual `/DecodeParms`, `/Mask` and `/SMask`. The helpers now
+reject decode/mask overrides and unsupported JPEG parameters before decoding, while explicitly
+admitting the known RGB `/ColorTransform 1` profile. Six positive admissions
+and fifteen negative refusals pass; admitted legacy RGB outputs remain
+byte-exact. This changes research input validation, not the production parser.
+
+Both new source/current-PDF pairs and all 64 diagnostic PDFs reproduce
+byte-exactly. Retained failures include the initial strict RGB admission,
+the pre-observation correction of a hand-calculated held-out edge assertion,
+guard-padding regressions and both numeric-bound counterexamples. All original
+font programs and page boxes remain unchanged; added edge images are explicitly
+recorded. Production dependencies, APIs and bounded I/O are unchanged.
+
+### Image Forms and direct clipping (#543, 2026-10-11)
+
+The [image-Form study](research/wine-image-forms-20261011.md) records 44 cold
+Wine sessions / 68 admitted visits. Five image-only Form constructions retain
+original payloads, net matrix tokens, fonts, nonimage operators and semantic
+text. Tight ordinary bounds improve a few gray and mixed-page edges, while
+tight isolated groups regress at 100%. The unchanged direct-clip helper then
+reproduces all ten matching ordinary-Form frames. This separates a small
+clipping response from the unresolved general endpoint/sampling correction;
+no production change or new full-cohort/runtime result is claimed.
+
+Per-file provenance review: `scripts/research/wine_image_form_diagnostic.py`
+is original MIT pikepdf research code, independently authored from the public
+PDF Form/group definitions and this project's image operators. It neither
+decodes images nor accepts a target zoom. Its function ASTs match the observed
+prototype; 27 Form PDFs and metadata reproduce byte-for-byte. The existing
+original MIT `wine_image_pattern_diagnostic.py` is reused unchanged; its three
+new direct-clip PDFs also reproduce exactly. Independent MuPDF construction
+checks and every counterexample are retained separately from Wine scores.
+No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
+Corpus, font, PDF and screenshot bytes remain external; production APIs,
+dependencies and bounded I/O are unchanged. #543 remains open.
+
+### Full-cohort direct clipping (#543, 2026-10-11)
+
+The [full-cohort clipping study](research/wine-image-clip-cohort-20261011.md)
+adds fresh candidate and native views of all 13 documents / 77 pages. Direct
+clipping improves five pages, preserves 71 and regresses one; its 600-pixel
+aggregate reduction does not establish a safe correction. The same actual
+page regresses at 75% but improves at 95%. A geometry-equivalent clip before
+the original matrix reproduces all eight corresponding tested frames.
+
+Per-file provenance review: `scripts/research/wine_image_clip_diagnostic.py`
+is original MIT pikepdf code that inserts an image-space path without changing
+matrix tokens, payloads, fonts or other operators. It explicitly preserves
+image-free pages and the existing bilevel overlay state. All 57 image draws,
+31 bilevel resources and 113,418 semantic characters are accounted for; six
+image-free documents remain byte-identical.
+`wine_image_page_clip_diagnostic.py` is original MIT code that copies the
+original rectangle tokens into a clip before the image matrix. It retains
+an intermediate PDF and verifies byte-exact restoration of content after
+undoing only the inserted rectangles; no source-window or zoom fitting occurs.
+
+All 31 new comparison PDFs, five intermediates and three earlier clipping
+outputs reproduce byte-for-byte, with exact metadata and CLI/function checks.
+Across 85 cold attempts, 230 visits are admitted; twelve incomplete captures
+and six unobserved startup-failure visits remain excluded. All 77 fresh native
+crops match historical crops. Final primary references pass both viewport and
+independent-paper admission after seven historical source sessions expose
+information-bar flags; no acceptance rule is relaxed. Preparation/verifier
+failures and every regression are retained. No vendor, foreign converter or
+private HN/JBIG code is inspected or migrated, and no corpus/font/PDF/screenshot
+bytes are committed. Production code, APIs, dependencies and bounded I/O are
+unchanged; #543/#541/#406 remain open.
+
+
+### RGB image decoding and edge controls (#543, 2026-10-11)
+
+The [RGB edge study](research/wine-image-rgb-edge-decode-20261011.md) records
+62 cold Wine sessions / 86 admitted visits. On the actual clipping
+counterexample, all 24 decoder/interpolation comparisons retain exact pixels
+when clipping state is held constant. Four inverted-image controls change.
+Original RGB panels also regress under clipping at 95%, with exact reversed
+paint-order results. No production correction is adopted.
+
+Per-file provenance review: `scripts/research/wine_jpeg_decode_diagnostic.py`
+extends the original MIT helper with explicit RGB admission, channel counts
+and removal of DCT-only parameters from decoded Flate. It accepts only absent
+parameters or the measured ColorTransform1 dictionary. Two positive admissions
+and ten expected refusals pass, and all five prior grayscale PDFs/metadata
+remain byte-exact. `wine_image_edge_controls.py` is original MIT source that
+generates RGB gradients/stripes and known project C8 image records. It varies
+source resolution, declared top-origin phase, boundary colors, descriptor
+direction and paint order without copying any external image or implementation.
+
+All four original sources and eighteen new PDFs/metadata reproduce byte-exactly.
+Six cold repeats, eight historical actual references and eighteen order
+comparisons are exact. Eleven original font programs, physical matrices and
+10,277 semantic characters are preserved in the actual-document variants;
+decoded/inverted image payload changes are explicitly recorded. The initial
+pre-observation RGB-parameter refusal and all visual regressions are retained.
+No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
+Corpus, font, PDF and screenshot bodies remain external. Production code,
+APIs, dependencies and bounded I/O are unchanged; #543/#541/#406 remain open.
+
+### Native rule contrast (#544, 2026-10-11)
+
+The [rule-contrast report](research/wine-visible-rules-20261011.md) records
+independent original controls at four zooms, phase and endpoint reversals,
+mode-0 framing and text-state controls. Horizontal/vertical segments have
+lighter observed interiors than diagonals. The production writer uses
+gray-127 device hairlines for admitted axis-aligned segments, preserving
+coordinates, admission and the black diagonal encoding. This is an empirical
+appearance approximation, not a claim of an encoded gray pen. No zoom or
+document-specific fitting is introduced.
+
+Per-file provenance review: `scripts/research/wine_rule_controls.py` is
+original MIT code authored from this project's established record framing
+and admitted geometry. It generates three independent sources and reuses
+the project's original mode-0 wrapper. All three sources and their manifest
+reproduce exactly. `hnc8/native_page.rs` and its new regression are original
+MIT changes using the existing bounded PDF path writer and partial-I/O
+fixtures. No vendor, foreign converter or private HN/JBIG implementation is
+inspected or migrated. Fonts, corpus documents, PDFs and screenshots remain
+external.
+
+All 77 actual output pages are observed again; every changed region is
+visually reviewed. The 347 rule changes preserve page geometry, original
+font/image streams, resource dictionaries, all other content and semantic
+text. Sixteen native/Node/Chromium comparisons are byte-identical. The receipt
+retains all 55 cold sessions, 140 admitted visits, one failed startup and its
+independent retry, rejected finite-width diagnostics and browser setup
+failures. The user's normal-reading criterion accepts harmless subpixel
+differences; the remaining ornament/underline findings stay open under #541.
+
+### C8 application-info link appearances (#545, 2026-10-11)
+
+The [link-appearance study](research/wine-link-appearances-20261011.md)
+independently removes only application-info notes from three actual sources,
+preserving every preceding byte. All six unchanged-XML repacks retain exact
+pixels; removing only notes matches removing the whole tail and removes
+only visible underlines. The 13-document inventory contains 133 links on
+11 pages in these three sources. This extends the appearance evidence for
+#302's previously count-only `NoteItems`; it does not change that completed
+issue's implementation scope.
+
+Per-file provenance review: `scripts/research/wine_link_controls.py` is
+original MIT code using this project's independently established C8 framing
+and observed application-info element/attribute names. Its four documents
+contain independently authored rectangles, page assignments, colors and
+reserved `.invalid` targets, with no external text or font data. They and
+their manifest reproduce exactly. Source controls at two zooms and two page
+sizes establish hundredth-point positions, color order and device-fixed
+dash/gap behavior; four cold repeated visits agree.
+
+The external diagnostic PDF writer uses explicit Link appearance Forms and
+retains original page content and resolved resource streams. A verifier's
+initial object-ID assumption fails because pikepdf renumbers references;
+graph/payload comparison replaces that invalid invariant. PDF arrays,
+explicit segments, actual-page annotation candidates and a half-opacity
+treatment remain diagnostics, with visible weight differences retained.
+No production annotation parser/emitter is adopted. No vendor, foreign
+converter or private HN/JBIG implementation is inspected or copied; corpus,
+font, PDF, XML body and screenshot data remain external.
+
+
+### Bounded native C8 link output (#545)
+
+`hnc8/appinfo/links.rs` and `pdf/document/links.rs` are original MIT project
+implementations derived from the independent controls documented in
+[the link appearance study](research/wine-link-appearances-20261011.md).
+The former extends the existing project-owned UTF-8 scanner with borrowed
+events and a fixed attribute directory; the latter writes ordinary PDF Link
+annotations and self-contained Form streams. Neither reads vendor code nor
+copies/transliterates any external converter. Existing source files only
+connect these original components to native composition and retain the
+metadata-only inspection interface. No private HN/JBIG module is migrated.
+
+The 0.5-point filled appearance is an empirical visual approximation selected
+after the opaque hairline, half-opacity and 0.75-point filled diagnostics.
+It preserves source RGB values and adds no opacity state. It does not assert
+that the source stores a physical pen width. Native device-fixed dash cadence
+cannot be represented identically at every zoom by this physical PDF pattern.
+Original tests cover entity-decoded targets, page assignment, colors, malformed
+rectangles/attributes, unmeasured profiles, bounds, cancellation, short I/O,
+PDF escaping, body preservation and failed-output invalidation. Font, corpus,
+PDF and screenshot files remain outside this repository.
+
+### Original-font horizontal ornament bands (#541)
+
+`pdf/font/bands.rs` and its tests are original MIT project code based on the
+OpenType `glyf`/`loca` field definitions linked in the
+[band study](research/wine-ornament-bands-20261011.md). The bounded predicate
+recognizes simple unhinted full-em rectangles; it does not import an outline
+renderer or translate any external converter. Changes to font handles and
+native composition connect this probe to one clipped original-font draw.
+Font programs and ordinary text remain unchanged.
+
+The shared `band_font` test fixture and
+`scripts/research/wine_ornament_bands.py` independently author simple rectangles
+and a harmless stack instruction. They reuse only this project's original
+fixture/geometry builders. Generated fixtures reproduce with fontTools 4.62.1;
+no vendor outline bytes or private HN/JBIG code are committed or migrated.
+The initial exact-width stretch is retained as a rejected experiment because
+independent controls exposed shortened endpoints. The final clipped overdraw
+has no target-zoom or per-document fitted geometry. Its source/visual/runtime
+scope and remaining pitch/antialiasing limits are recorded in the report.

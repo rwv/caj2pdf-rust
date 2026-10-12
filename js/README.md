@@ -537,6 +537,9 @@ await convert(wasm, documentSource, outputSink, {
   hnc8: {
     fonts: {
       cjk: cjkFontSource,
+      cjkSans: sansFontSource, // Optional native CJK Hei/sans styles.
+      cjkKai: kaiFontSource, // Optional native CJK Kai styles.
+      cjkSystem: systemFontSource, // Explicit font for measured system-font styles.
       latin: latinFontSource,
       // Optional roles; absent ones use the fallback rule below.
       alternateLatin: alternateFontSource, // 801d/4 Latin resource.
@@ -554,6 +557,35 @@ await convert(wasm, documentSource, outputSink, {
 });
 ```
 
+To preserve original TrueType programs, set `hnc8.fonts.embedding: "full"`.
+The default is `"subset"`. Standalone programs keep their exact bytes;
+collections preserve the selected face's original glyph IDs and tables in
+a rebuilt standalone font, without DSIG. Used CFF resources reject `"full"`;
+unused resources remain subsets. Complete programs use bounded ranged reads
+but can substantially increase output size.
+
+`hnc8.fonts.glyphAliases` accepts an iterable of
+`{ role, character, glyph }`, for example:
+
+```js
+const fonts = {
+  cjk: cjkFontSource,
+  latin: originalLatinFontSource,
+  embedding: "full",
+  glyphAliases: [{ role: "latin", character: "1", glyph: "\u6571" }],
+};
+```
+
+This illustrates one measured resource mapping, not a complete font recipe.
+Both characters must be BMP scalars. `role` names a supplied font property
+(such as `latinState3`); its original cmap selects `glyph`, while extracted
+text retains `character`. Source programs are never edited. Duplicate source/
+character keys, including aliases through shared roles, and missing glyphs
+reject conversion. At most eleven BMP maps are accepted, with Rust-side
+allocation limits. Aliases also work with subsets. Explicit symbol-code maps
+and nonsemantic decorations bypass ordinary aliases. Font inputs, transport
+and source deduplication retain the same rules in Node and browsers.
+
 `symbolGlyphs` selects, by its BMP character-map entry, the `symbols` glyph
 drawn for each listed raw HN-B mode-0 symbol code. Extracted text keeps the
 decoded character, so codes that decode alike can keep distinct source
@@ -563,6 +595,18 @@ conversion; listed codes never fall back. No mapping is built in (#518).
 `symbolFontIdentity` (a PostScript name and the `head` table
 checkSumAdjustment) binds the map to the font it was measured on: any other
 `symbols` font rejects the conversion. It requires `symbolGlyphs`.
+
+`cjkSans`, `cjkKai` and `cjkSystem` select the measured CJK style resources
+in C8 and HN-B native modes 0/2; the original style is used before geometry
+normalization. Explicit `801c/2`, `/3`, `/4` override the family with sans,
+Kai and base CJK; the next `8002` resets it. They use the same ranged font inputs and face selection as
+`cjk`. Optional roles can share sources. The maximum is eleven distinct
+font sources. These roles select Han and, in C8, fullwidth Latin letters,
+ideographic space and fullwidth ampersand. Ordinary Latin and the raw low-byte
+`006c`/`0070` letters keep their existing resource rules. These options do not
+perform system font discovery. See the
+[CLI style table](../docs/cli.md#native-c8-font-resources) and
+[Wine measurements](../docs/research/wine-font-resources-20261011.md).
 
 **Fallback rule** (implemented in the core, so CLI, Node and browser
 behave the same): each glyph uses the font of the role the source selects.
@@ -615,13 +659,38 @@ positioning gaps. Font-name equality and embedded-font coverage are insufficient
 the HN-B mode-0 symbol map is not a general C8 ordinary-character map. Preserve
 semantic Unicode separately from any measured font lookup alias.
 
-The default `►` is a visible substitute. For the measured C8 ornament value 46,
-an externally supplied, hash-verified HGBZ resource uses
-`decoration: { source: decorationFontSource, character: "\u5d41" }`.
-See the [resource identities and other measured values](../docs/cli.md#notes).
-This existing option selects one alias for the whole document; it does not
-automatically select different patterns for mixed ornament values or establish
-ordinary-text/font/raster fidelity.
+In C8 CJK character mode (`80ce/0`), raw `a0` digits and Latin letters select
+the measured raw-GBK alias in the active CJK font. ActualText keeps their
+source ASCII characters, and `substitutedGlyphs` stays unchanged. An absent
+optional style role uses `cjk`; a selected font missing its alias is an error.
+There is no ASCII-glyph or different-resource fallback for this case.
+`80ce/1` restores ordinary Latin selection. Extractors must honor ActualText
+to return the semantic character instead of the display alias.
+
+The default `►` is a visible substitute. A caller-supplied, hash-verified
+HGBZ resource can select all four measured ornament patterns in one document:
+
+```js
+const decorationOptions = {
+  decoration: { source: decorationFontSource, character: "\u5d41" },
+  decorationGlyphs: [
+    { value: 1, glyph: "\u5d04" }, { value: 2, glyph: "\u5d05" },
+    { value: 46, glyph: "\u5d41" }, { value: 117, glyph: "\u5d95" },
+  ],
+  decorationFontIdentity: { postscriptName: "HGBZ_CNKI", checksumAdjustment: 2632420189 },
+};
+// Spread decorationOptions into hnc8.fonts alongside cjk and latin.
+```
+
+`decorationGlyphs` consumes at most five iterable entries before rejecting a
+map longer than four. Values must be unique and glyphs must be BMP scalars.
+An explicit decoration role is required; missing mapped glyphs fail instead of
+falling back. The optional identity binds the map to the measured font and
+requires a nonempty map. Only native mode 2 accepts the map; admitted record
+states are unchanged. Unlisted values retain `decoration.character` and the
+legacy fallback. These aliases draw nonsemantic artifacts with empty ActualText.
+See the [measured resource identities](../docs/cli.md#notes). This does not
+establish ordinary-text or pixel fidelity.
 
 Keep fonts unchanged until conversion settles; the converter does not close
 caller-owned descriptors. Forward-only fonts can use the existing bounded

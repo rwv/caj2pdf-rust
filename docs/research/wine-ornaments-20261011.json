@@ -1,0 +1,451 @@
+{
+  "schema": 1,
+  "issue": 541,
+  "viewer": "CAJViewer 7.3.151 Simple",
+  "wine": "8.0 32-bit",
+  "zoom_percent": 200,
+  "viewport": [
+    1600,
+    1200
+  ],
+  "screen_dpi": 96,
+  "controls": [
+    {
+      "label": "fonts-ready-query-0-ornaments-0-ornament",
+      "source_sha256": "85f7a4b70f214fee5e6477e571f072ebea3c4861b354e04e3613faa799730ddd",
+      "shift": 0,
+      "cells": 80,
+      "page_rgb_sha256": "ca5908aadfdda4a2f2fc4f7b2c8378409b881326631c7d3bb19da0d5ebcc00a4",
+      "stable": true,
+      "navigation_confirmed": true,
+      "source_unchanged": true,
+      "cleanup": true
+    },
+    {
+      "label": "fonts-ready-query-8-ornaments-0-ornament",
+      "source_sha256": "85f7a4b70f214fee5e6477e571f072ebea3c4861b354e04e3613faa799730ddd",
+      "shift": 8,
+      "cells": 80,
+      "page_rgb_sha256": "cae9622a2495b150f5f5d531db795fcc79ad7c7ddfdb71ca4ad75eec9651ba79",
+      "stable": true,
+      "navigation_confirmed": true,
+      "source_unchanged": true,
+      "cleanup": true
+    },
+    {
+      "label": "fonts-ready-query-0-ornaments-1-ornament",
+      "source_sha256": "9c2f14b756a93d6596d1458e4bfec76544ccd04ae2776470027901144f02c78b",
+      "shift": 0,
+      "cells": 80,
+      "page_rgb_sha256": "9cee610c5a284b8d7bacda86c5d8aa035f649869e3f5123936662470e347e063",
+      "stable": true,
+      "navigation_confirmed": true,
+      "source_unchanged": true,
+      "cleanup": true
+    },
+    {
+      "label": "fonts-ready-query-8-ornaments-1-ornament",
+      "source_sha256": "9c2f14b756a93d6596d1458e4bfec76544ccd04ae2776470027901144f02c78b",
+      "shift": 8,
+      "cells": 80,
+      "page_rgb_sha256": "cae9622a2495b150f5f5d531db795fcc79ad7c7ddfdb71ca4ad75eec9651ba79",
+      "stable": true,
+      "navigation_confirmed": true,
+      "source_unchanged": true,
+      "cleanup": true
+    }
+  ],
+  "observations": 160,
+  "unique_queries": 80,
+  "states": {
+    "latin": [
+      0,
+      3,
+      4,
+      28,
+      31
+    ],
+    "cjk_family": [
+      null,
+      2,
+      3,
+      4
+    ],
+    "style": "10a5",
+    "character_mode": 1
+  },
+  "reverse_agrees": true,
+  "font": {
+    "filename": "HGBZ_CNKI.ttf",
+    "sha256": "c44abe24684e5c0ea849b43116dc97a97d2eeda5b36eb33d490090f7d0723758",
+    "postscript_name": "HGBZ_CNKI",
+    "checksum_adjustment": 2632420189
+  },
+  "mappings": [
+    {
+      "value": 1,
+      "cmap_argument": 23812,
+      "glyph_id": 1862
+    },
+    {
+      "value": 2,
+      "cmap_argument": 23813,
+      "glyph_id": 1863
+    },
+    {
+      "value": 46,
+      "cmap_argument": 23873,
+      "glyph_id": 1909
+    },
+    {
+      "value": 117,
+      "cmap_argument": 23957,
+      "glyph_id": 1981
+    }
+  ],
+  "limits": [
+    "Resource/cmap query evidence; not a pixel-parity assertion.",
+    "Existing geometry/state admission restrictions remain.",
+    "Vendor and corpus bytes are not included."
+  ],
+  "scripts_sha256": {
+    "prepare_ornament_queries.py": "ad050d238e256294a6d1904a0123946c250ef58f71193e9b8d96af4e1c058b17",
+    "decode_ornament_query.py": "e445468e2a7d4886635b53f6bb361d878983ef3727fe69a4fe0320cfcd6d2020"
+  },
+  "validation": {
+    "documents": 13,
+    "pages": 77,
+    "qpdf_pass": true,
+    "semantic_sequence_pass": true,
+    "node_corpus": [
+      {
+        "source": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "pages": 6,
+        "sha256": "9a605649f6b37a4cf329ceb1948904208797bb5a9400af124dd8e3a1dd074aed",
+        "bytes": 291959,
+        "maxChunk": 16384,
+        "byte_identical_to_native": true
+      },
+      {
+        "source": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "pages": 4,
+        "sha256": "cdc7d40272bba1569a6e17f7c91532de568e115ae33d40e41e226f6efaefa21d",
+        "bytes": 370412,
+        "maxChunk": 16384,
+        "byte_identical_to_native": true
+      },
+      {
+        "source": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "pages": 5,
+        "sha256": "fae841b5ef874452be4654a5faa3dfed7e3fac80a3a0b06a1ffe440e8f3429fd",
+        "bytes": 899506,
+        "maxChunk": 65536,
+        "byte_identical_to_native": true
+      }
+    ],
+    "node_chromium_tests": {
+      "passed": 44,
+      "skipped": 0
+    },
+    "native_workspace_tests": "PASS; optional corpus tests not configured are excluded from compatibility claims",
+    "clippy": "PASS",
+    "rustdoc": "PASS",
+    "default_mode2_regression": {
+      "documents": 12,
+      "pages": 73,
+      "byte_identical_to_frozen_main": true
+    },
+    "comparison_counts": {
+      "DIMENSIONS_DIFFER": 35,
+      "PIXELS_DIFFER": 42,
+      "EXACT": 0
+    },
+    "changed_page_frames": 3,
+    "unchanged_page_frames": 74,
+    "repeat_sessions": [
+      {
+        "source": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "status": "NOT_CONFIRMED",
+        "error": "RuntimeError: canonical startup layout not reached",
+        "cleanup": true,
+        "source_unchanged": true,
+        "oom": false
+      },
+      {
+        "source": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "status": "OBSERVED",
+        "error": null,
+        "cleanup": true,
+        "source_unchanged": true,
+        "oom": false,
+        "identical_pages": 4
+      },
+      {
+        "source": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "status": "OBSERVED",
+        "error": null,
+        "cleanup": true,
+        "source_unchanged": true,
+        "oom": false,
+        "identical_pages": 5
+      }
+    ],
+    "startup_limit": "90e7b47716c3: one direct cold visit confirms six pages; the independent repeat never reaches the canonical startup UI and logs a stack overflow. Repeatable startup remains unresolved."
+  },
+  "outputs": [
+    {
+      "source": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+      "pdf_sha256": "0425900722b3998631bcb3d62d399924e899731d108335abfa4e15be524c40b6",
+      "pages": 5,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+      "pdf_sha256": "039eaa2294bf5e09e1111c16a6101dff676a1863123d5d46a3c7db9ee582183d",
+      "pages": 12,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+      "pdf_sha256": "535832f8855dd45169d31a0d89bd45f05de7bdffe7a6e272e1707a6eee3a924f",
+      "pages": 4,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "pdf_sha256": "3cfb4ad33236bae82da0da6d3c3124f963c62736971cc21ca9e206b06adbcda9",
+      "pages": 4,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "pdf_sha256": "5be0410db7deb7696b5fd7170fe2499afe3a5429452903d9124a2cb11d5914b4",
+      "pages": 4,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+      "pdf_sha256": "ef02a26fe5daa10314ccee158bbbec583e62a426527506b6a639906c1d7e2841",
+      "pages": 10,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "pdf_sha256": "9a605649f6b37a4cf329ceb1948904208797bb5a9400af124dd8e3a1dd074aed",
+      "pages": 6,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "pdf_sha256": "cdc7d40272bba1569a6e17f7c91532de568e115ae33d40e41e226f6efaefa21d",
+      "pages": 4,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "pdf_sha256": "fae841b5ef874452be4654a5faa3dfed7e3fac80a3a0b06a1ffe440e8f3429fd",
+      "pages": 5,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+      "pdf_sha256": "775be5a039e11051afc7aace668c418efbfd3dfb217f3a1fcbbc2ae78f8b4aca",
+      "pages": 6,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+      "pdf_sha256": "d07aeb77b926def17eebde66e4552707fdf8c42ffc16cdef24949bfec6e5f856",
+      "pages": 5,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+      "pdf_sha256": "43d60a715e8b656f0b9a67580cbdd471dc6589729586f299b6bbcbe4bddab17b",
+      "pages": 7,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    },
+    {
+      "source": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+      "pdf_sha256": "659ed60d2c04c25ed26576e1591ea6ba528e135be9c9a7e291f48a55822d73b9",
+      "pages": 5,
+      "cli_sha256": "c1582ad2895f09cbcd85f641014934cc83f07394f77a378bb36b1eefaa231c06"
+    }
+  ],
+  "changed_pages": [
+    {
+      "source": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "page": 6,
+      "pdf_sha256": "9a605649f6b37a4cf329ceb1948904208797bb5a9400af124dd8e3a1dd074aed",
+      "source_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          275,
+          1035,
+          1005
+        ],
+        "size": [
+          499,
+          730
+        ],
+        "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+        "component_pixels": 363043
+      },
+      "pdf_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          536,
+          265,
+          1035,
+          995
+        ],
+        "size": [
+          499,
+          730
+        ],
+        "rgb_sha256": "3e208adfdbb8a743bec969dcd5ef11c97135eec77d27dbdc67e958bddea9e8ae",
+        "component_pixels": 363043
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 35201,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          10,
+          21,
+          488,
+          719
+        ]
+      },
+      "previous_comparison": {
+        "comparable": true,
+        "changed_pixels": 35437,
+        "maximum_absolute_channel_delta": 255,
+        "bounds_in_page": [
+          10,
+          21,
+          488,
+          719
+        ]
+      },
+      "pdf_session": "fonts-ready-final-v7-90e7b47716c3-pdf"
+    },
+    {
+      "source": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "page": 1,
+      "pdf_sha256": "cdc7d40272bba1569a6e17f7c91532de568e115ae33d40e41e226f6efaefa21d",
+      "source_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          533,
+          266,
+          1038,
+          1014
+        ],
+        "size": [
+          505,
+          748
+        ],
+        "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+        "component_pixels": 376489
+      },
+      "pdf_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          533,
+          256,
+          1039,
+          1004
+        ],
+        "size": [
+          506,
+          748
+        ],
+        "rgb_sha256": "94f5fd59a598f79edd288ceb998a565d114e4698eed2cf453d539212ef20e484",
+        "component_pixels": 377236
+      },
+      "comparison": {
+        "comparable": false,
+        "source_size": [
+          505,
+          748
+        ],
+        "candidate_size": [
+          506,
+          748
+        ]
+      },
+      "previous_comparison": {
+        "comparable": false,
+        "source_size": [
+          505,
+          748
+        ],
+        "candidate_size": [
+          506,
+          748
+        ]
+      },
+      "pdf_session": "fonts-ready-final-v7-b9a64bf99e4b-pdf"
+    },
+    {
+      "source": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "page": 5,
+      "pdf_sha256": "fae841b5ef874452be4654a5faa3dfed7e3fac80a3a0b06a1ffe440e8f3429fd",
+      "source_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          534,
+          257,
+          1037,
+          1023
+        ],
+        "size": [
+          503,
+          766
+        ],
+        "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+        "component_pixels": 384031
+      },
+      "pdf_frame": {
+        "complete": true,
+        "bounds_with_border": [
+          534,
+          247,
+          1037,
+          1013
+        ],
+        "size": [
+          503,
+          766
+        ],
+        "rgb_sha256": "d03774a93e080cae727f799f19125aa3b3d469181360d69bf7d86743a76878a0",
+        "component_pixels": 384031
+      },
+      "comparison": {
+        "comparable": true,
+        "changed_pixels": 50305,
+        "maximum_absolute_channel_delta": 254,
+        "bounds_in_page": [
+          11,
+          23,
+          494,
+          734
+        ]
+      },
+      "previous_comparison": {
+        "comparable": true,
+        "changed_pixels": 50736,
+        "maximum_absolute_channel_delta": 254,
+        "bounds_in_page": [
+          9,
+          23,
+          494,
+          734
+        ]
+      },
+      "pdf_session": "fonts-ready-final-v7-d6a23a9cfd0f-pdf"
+    }
+  ]
+}

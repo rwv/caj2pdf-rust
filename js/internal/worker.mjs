@@ -168,19 +168,41 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
       ? exports.caj2pdf_c8_set_fonts(...fonts.roles)
       : exports.caj2pdf_c8_set_fonts_with_symbols(...fonts.roles, fonts.symbols);
     if (roles !== 1) return { invalid: "WASM rejected C8 font roles" };
+    if (fonts.embedding === "full" && exports.caj2pdf_c8_set_font_embedding?.(1) !== 1) {
+      return { invalid: "WASM rejected complete font embedding" };
+    }
+    for (const [font, character, glyph] of fonts.glyphAliases) {
+      if (exports.caj2pdf_c8_add_font_glyph?.(font, character, glyph) !== 1) {
+        return { invalid: "WASM rejected a native font glyph alias" };
+      }
+    }
     for (const state of [3, 28, 31]) {
       const index = fonts[`latinState${state}`];
       if (index !== undefined && exports.caj2pdf_c8_set_latin_state(state, index) !== 1) {
         return { invalid: `WASM rejected the state-${state} Latin font role` };
       }
     }
-    if (fonts.symbolFontIdentity !== undefined) {
-      const { postscriptName, checksumAdjustment } = fonts.symbolFontIdentity;
+    for (const [style, index] of [[0x0800, fonts.cjkSans], [0x0c00, fonts.cjkKai], [0x0400, fonts.cjkSystem]]) {
+      if (index !== undefined && exports.caj2pdf_c8_set_cjk_style?.(style, index) !== 1) {
+        return { invalid: "WASM rejected a C8 CJK style font role" };
+      }
+    }
+    for (const [identity, setter, role] of [
+      [fonts.symbolFontIdentity, exports.caj2pdf_hnb_set_symbol_font, "symbol"],
+      [fonts.decorationFontIdentity, exports.caj2pdf_c8_set_decoration_font, "decoration"],
+    ]) {
+      if (identity === undefined) continue;
+      const { postscriptName, checksumAdjustment } = identity;
       const view = new DataView(new ArrayBuffer(64));
       for (let i = 0; i < postscriptName.length; i++) view.setUint8(i, postscriptName.charCodeAt(i));
       const words = Array.from({ length: 8 }, (_, i) => view.getBigUint64(i * 8, true));
-      if (exports.caj2pdf_hnb_set_symbol_font?.(checksumAdjustment, postscriptName.length, ...words) !== 1) {
-        return { invalid: "WASM rejected the symbol font identity" };
+      if (setter?.(checksumAdjustment, postscriptName.length, ...words) !== 1) {
+        return { invalid: `WASM rejected the ${role} font identity` };
+      }
+    }
+    for (const [value, glyph] of fonts.decorationGlyphs) {
+      if (exports.caj2pdf_c8_add_decoration_glyph?.(value, glyph) !== 1) {
+        return { invalid: `WASM rejected the decoration glyph for value ${value}` };
       }
     }
     for (const [code, glyph] of fonts.symbolGlyphs) {

@@ -175,7 +175,7 @@ test("JPEG descriptors preserve encoded bytes and select their row orientation",
     assert.ok(matrix, "image has a placement matrix");
     const expected = kind === 1 ? [80, 40, 0, 160] : [80, -40, 0, 200];
     expected.forEach((value, axis) =>
-      assert.ok(Math.abs(Number(matrix[axis + 1]) - value * 240 / 2473) < 0.000001));
+      assert.ok(Math.abs(Number(matrix[axis + 1]) - value * 72 / 742) < 0.000001));
   }
   new DataView(bytes.buffer).setUint32(0x190, 1, true);
   bytes[0x19c] = 0; // The type tag cannot bypass JPEG validation.

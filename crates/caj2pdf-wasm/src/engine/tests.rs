@@ -871,6 +871,7 @@ fn native_c8_font_resources_are_read_as_host_resources() {
     assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     assert_eq!(session.add_font_source(10, 0), 0);
     assert!(!session.set_c8_latin_state(3, 0));
+    assert!(!session.set_c8_cjk_style(0x0800, 0));
     assert!(!session.add_hnb_symbol_glyph(0xa1af, 0x41));
 }
 
@@ -926,25 +927,32 @@ fn font_configuration_rejects_invalid_resources_and_roles() {
     let mut session = Session::default();
     assert_eq!(session.add_font_source(0, 0), 0);
     assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    for id in 1..=8 {
+    for id in 1..=11 {
         assert_eq!(session.add_font_source(100, 0), id);
     }
     assert_eq!(session.add_font_source(100, 0), 0);
-    for (decoration, alias) in [(8, 65), (0, 0xd800), (0, 0x10000)] {
+    for (decoration, alias) in [(11, 65), (0, 0xd800), (0, 0x10000)] {
         assert!(!session.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
-    assert!(!session.set_c8_fonts(0, 1, 8, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, 11));
+    assert!(!session.set_c8_fonts(0, 1, 11, u32::MAX, 0, u32::MAX));
     assert!(!session.set_c8_latin_state(3, 5));
+    assert!(!session.set_c8_cjk_style(0x0800, 8));
     assert!(session.set_c8_fonts(0, 1, 2, 3, 65, 4));
-    assert!(!session.set_c8_latin_state(3, 8));
+    assert!(!session.set_c8_latin_state(3, 11));
     assert!(session.set_c8_latin_state(3, 5));
     assert!(!session.set_c8_latin_state(3, 5));
     assert!(!session.set_c8_latin_state(99, 6));
     for (state, index) in [(28, 6), (31, 7)] {
-        assert!(!session.set_c8_latin_state(state, 8));
+        assert!(!session.set_c8_latin_state(state, 11));
         assert!(session.set_c8_latin_state(state, index));
         assert!(!session.set_c8_latin_state(state, index));
+    }
+    assert!(!session.set_c8_cjk_style(0x1000, 8));
+    for (style, index) in [(0x0800, 8), (0x0c00, 9), (0x0400, 10)] {
+        assert!(!session.set_c8_cjk_style(style, 11));
+        assert!(session.set_c8_cjk_style(style, index));
+        assert!(!session.set_c8_cjk_style(style, index));
     }
     assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
     assert_eq!(session.add_font_source(100, 0), 0);
@@ -1047,4 +1055,69 @@ fn ttkn_response_registration_is_explicit_consumed_and_conversion_only() {
             .message()
             .contains(std::str::from_utf8(response).unwrap())
     );
+}
+
+#[test]
+fn ornament_registration_requires_roles_and_is_bounded() {
+    let mut session = Session::default();
+    assert!(!session.add_c8_decoration_glyph(1, 0x41));
+    assert!(!session.set_c8_decoration_font(0, 1, [65; 8]));
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, 0, 0x41, u32::MAX));
+    for (value, glyph) in [(0x10001, 0x41), (1, 0xd800), (1, 0x10000)] {
+        assert!(!session.add_c8_decoration_glyph(value, glyph));
+    }
+    for value in [1, 2, 46, 117] {
+        assert!(session.add_c8_decoration_glyph(value, 0x41));
+    }
+    assert!(!session.add_c8_decoration_glyph(1, 0x41));
+    assert!(!session.set_c8_decoration_font(0, 65, [65; 8]));
+    assert!(!session.set_c8_decoration_font(0, 0, [65; 8]));
+    assert!(session.set_c8_decoration_font(0, 1, [65; 8]));
+    assert!(!session.set_c8_decoration_font(0, 1, [65; 8]));
+}
+
+#[test]
+fn full_font_embedding_and_aliases_reach_native_conversion_through_host_resources() {
+    let bytes = native_c8();
+    let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
+    let mut session = Session::default();
+    assert!(!session.set_c8_font_embedding(1));
+    assert!(!session.add_c8_font_glyph(0, 65, 0x4e2d));
+    assert_eq!(session.add_font_source(font.len() as u64, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_c8_font_embedding(2));
+    assert!(session.set_c8_font_embedding(1));
+    assert!(!session.set_c8_font_embedding(0));
+    for (source, character, glyph) in [
+        (1, 65, 65),
+        (0, 0xd800, 65),
+        (0, 65, 0xd800),
+        (0, 0x10000, 65),
+        (0, 65, 0x10000),
+    ] {
+        assert!(!session.add_c8_font_glyph(source, character, glyph));
+    }
+    assert!(session.add_c8_font_glyph(0, 65, 0x4e2d));
+    assert!(!session.add_c8_font_glyph(0, 65, 65));
+    assert!(!session.add_c8_font_glyph(0, 64, 65));
+    let mut host = Memory {
+        fonts: vec![font],
+        ..Memory::new(&bytes).short(3)
+    };
+    assert_eq!(
+        session.run(
+            &mut host,
+            bytes.len() as u64,
+            limits(32),
+            native_operation()
+        ),
+        Status::Done,
+        "{}",
+        session.message()
+    );
+    assert!(host.max_read <= 32 && host.max_write <= 32);
+    assert!(String::from_utf8_lossy(&host.output).contains("/BaseFont /CajFixture /"));
+    assert!(!session.add_c8_font_glyph(0, 66, 65));
+    assert!(!session.set_c8_font_embedding(1));
 }

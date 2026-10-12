@@ -30,6 +30,6 @@ export function nativeC8Fonts(
   font: Blob,
 ) {
   return convert(wasm, source, sink, { includeBookmarks: false, hnc8: {
-    fonts: { cjk: font, latin: { source: font, face: 1 }, decoration: { source: font, character: 'A' } },
+    fonts: { embedding: "full", glyphAliases: [{ role: "latin", character: "A", glyph: "中" }], cjk: font, latin: { source: font, face: 1 }, cjkSans: font, cjkKai: font, cjkSystem: font, decoration: { source: font, character: 'A' } },
   } });
 }

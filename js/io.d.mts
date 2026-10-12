@@ -167,14 +167,35 @@ export declare function requireSinkChunk(bytes: unknown): void;
  * collection (`.ttc`). */
 export type C8Font<Input> = Input | { source: Input; face?: number };
 
+/** Ordinary text glyph selection in an unchanged font program. Both strings
+ * are one BMP scalar; character remains the semantic text. Shared resources
+ * share aliases, so each (resource, character) must occur only once. */
+export interface C8FontGlyphAlias {
+  role: "cjk" | "latin" | "alternateLatin" | "decoration" | "symbols" |
+    "latinState3" | "latinState28" | "latinState31" | "cjkSans" | "cjkKai" | "cjkSystem";
+  character: string;
+  glyph: string;
+}
+
 /** Explicit C8 resources. Reuse the same input across roles to embed once.
  * Inputs remain caller-owned and must stay unchanged until conversion settles.
  * Only `cjk` and `latin` are required. An absent optional role, or a role font
  * that does not map a character, falls back to `cjk` for CJK-coded characters
  * and to `latin` otherwise; a glyph missing from that font still fails. */
 export interface C8Fonts<Input> {
+  /** Default: subset. Full preserves used TrueType programs with bounded
+   * reads; TTC faces are repacked. Used CFF fonts refuse full embedding. */
+  embedding?: "subset" | "full";
+  /** Explicit ordinary text aliases. Symbol-code maps and decorations bypass them. */
+  glyphAliases?: Iterable<C8FontGlyphAlias>;
   cjk: C8Font<Input>;
   latin: C8Font<Input>;
+  /** C8/HN-B CJK resources for Hei/sans (0x0800) and Kai (0x0c00) styles.
+   * Selects Han and measured C8 fullwidth letters, space and ampersand. */
+  cjkSans?: C8Font<Input>;
+  cjkKai?: C8Font<Input>;
+  /** CJK font for measured system-font styles; supplied explicitly, never discovered. */
+  cjkSystem?: C8Font<Input>;
   alternateLatin?: C8Font<Input>;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
   symbols?: C8Font<Input>;
@@ -191,6 +212,17 @@ export interface C8Fonts<Input> {
   latinState31?: C8Font<Input>;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
   decoration?: { source: C8Font<Input>; character: string };
+  /** At most four nonsemantic mode-2 ornament aliases; requires decoration.
+   * Unlisted values keep decoration.character; mapped glyphs never fall back. */
+  decorationGlyphs?: Iterable<C8DecorationGlyph>;
+  /** Bind decorationGlyphs to the measured font; requires a nonempty map. */
+  decorationFontIdentity?: C8SymbolFontIdentity;
+}
+
+/** Selects the decoration font's BMP cmap glyph for one native ornament value. */
+export interface C8DecorationGlyph {
+  value: 1 | 2 | 46 | 117;
+  glyph: string;
 }
 
 /** Selects, by its BMP character-map entry, the `symbols` glyph drawn for one

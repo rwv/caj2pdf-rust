@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Subset OpenType font resources and incremental mixed-page content.
+//! Embedded OpenType font resources and incremental mixed-page content.
 
 use super::*;
-use crate::pdf::OpenTypeFont;
 use crate::pdf::font::{
-    CHANGED, CharacterMap, Characters, GlyphCharacters, Subset, SubsetOutput, has_code, mark_code,
+    CHANGED, CharacterMap, Characters, FontProgram, GlyphCharacters, SubsetOutput, has_code,
+    mark_code,
 };
+use crate::pdf::{FontEmbedding, OpenTypeFont};
 use std::io::Write;
 
 const BMP_BITMAP_BYTES: usize = 8192;
@@ -17,6 +18,8 @@ enum GlyphText {
     Character,
     Decoration,
     Replacement(char),
+    /// Exact source-font alias with independent semantic text, not a substitute.
+    Alias(char),
     /// Exact text for a glyph selected from a separately encoded font slot.
     Mapped(char),
 }
@@ -63,21 +66,48 @@ impl FontEncoding {
 ///
 /// A fixed 8 KiB bitmap records which BMP Unicode characters can be drawn.
 /// The font program and metric tables are not retained by this handle; the
-/// subset is written by [`PdfDocument::embed_font`] after the last page.
+/// program is written by [`PdfDocument::embed_font`] or
+/// [`PdfDocument::embed_font_with_embedding`] after the last page.
 pub struct FontObject {
     object: ObjectId,
     slot: usize,
     characters: Vec<u8>,
+    horizontal_bands: [Option<char>; 5],
 }
 
 impl FontObject {
+    pub(crate) fn has_horizontal_bands(&self, character: char) -> bool {
+        self.horizontal_bands.contains(&Some(character))
+    }
+
+    /// Only the native decoration role asks for this bounded optional probe.
+    pub(crate) fn detect_horizontal_bands<S: RangedSource, C: Cancellation>(
+        &mut self,
+        font: &mut OpenTypeFont<'_, S>,
+        characters: &[char],
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<()> {
+        if characters.len() > self.horizontal_bands.len() {
+            return Err(Error::invalid("too many ornament glyph probes"));
+        }
+        for (slot, character) in characters.iter().enumerate() {
+            if self.supports(*character)
+                && font.horizontal_bands(*character, limits, cancellation)?
+            {
+                self.horizontal_bands[slot] = Some(*character);
+            }
+        }
+        Ok(())
+    }
+
     pub fn supports(&self, character: char) -> bool {
         let code = character as usize;
         code <= 0xffff && has_code(&self.characters, code)
     }
 }
 
-/// Document-owned state of an added font until its subset is embedded.
+/// Document-owned state of an added font until its program is embedded.
 pub(super) struct PendingFont {
     /// Font file and its length, descriptor, descendant and Type 0 font.
     ids: [ObjectId; 5],
@@ -91,7 +121,7 @@ pub(super) struct PendingFont {
     embedded: bool,
 }
 
-/// Feeds subset program bytes into an open zlib-compressed stream.
+/// Feeds font program bytes into an open zlib-compressed stream.
 struct FontStream<'w, 'a, W: Write, C: Cancellation> {
     writer: &'w mut PdfWriter<'a, W, C>,
     deflate: &'w mut Deflate,
@@ -132,7 +162,8 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     ///
     /// Characters use BMP Unicode CIDs with an explicit CID-to-glyph map and
     /// ToUnicode. Nothing is written yet: draws record the characters used,
-    /// and [`Self::embed_font`] must embed the subset before [`Self::finish`].
+    /// and [`Self::embed_font`] or [`Self::embed_font_with_embedding`] must
+    /// embed its program before [`Self::finish`].
     /// No system lookup or glyph substitution is performed.
     pub fn add_font<S: RangedSource>(&mut self, font: &OpenTypeFont<'_, S>) -> Result<FontObject> {
         self.register_font(font, false)
@@ -193,6 +224,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             object: ids[4],
             slot: self.fonts.len() - 1,
             characters,
+            horizontal_bands: [None; 5],
         })
     }
 
@@ -203,7 +235,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             .ok_or(Error::invalid("PDF font was not added to this document"))
     }
 
-    /// Count font outline bytes read for a subset toward the input limit.
+    /// Count font program bytes read for embedding toward the input limit.
     fn count_font_input(&mut self, bytes: u64) -> Result<()> {
         let total = self.input_bytes_read.saturating_add(bytes);
         self.limits.check_input_size(total)?;
@@ -243,6 +275,23 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         handle: &FontObject,
         font: &mut OpenTypeFont<'_, S>,
     ) -> Result<()> {
+        self.embed_font_with_embedding(handle, font, FontEmbedding::Subset)
+    }
+
+    /// Embed a used font as a subset or a complete TrueType program.
+    ///
+    /// Complete standalone fonts retain their exact bytes; collection faces
+    /// retain all rendering tables and glyph IDs with a rebuilt standalone
+    /// directory/checksum (without the collection's DSIG). Reads stay ranged
+    /// and output sequential. Planning/writing compare source digests and
+    /// metadata. Unused resources remain small subsets; used CFF fonts refuse
+    /// `Full`. The caller must discard partial output after a write error.
+    pub fn embed_font_with_embedding<S: RangedSource>(
+        &mut self,
+        handle: &FontObject,
+        font: &mut OpenTypeFont<'_, S>,
+        embedding: FontEmbedding,
+    ) -> Result<()> {
         self.ensure_image_page_intact()?;
         self.writer.ensure_idle()?;
         let pending = self.font(handle)?;
@@ -255,26 +304,26 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
         let [file, file_length, descriptor, descendant, object] = pending.ids;
         let mapping = pending.mapping;
         let before = font.subset_bytes_read();
-        let plan = font.subset(
-            pending.encoding.characters(),
-            MAX_PDF_INTEGER,
-            self.limits,
-            self.cancellation,
-        )?;
+        let used = pending.encoding.characters();
+        let plan = if embedding == FontEmbedding::Full && used.codes().next().is_some() {
+            FontProgram::Full(font.plan_full(MAX_PDF_INTEGER, self.limits, self.cancellation)?)
+        } else {
+            font.subset(used, MAX_PDF_INTEGER, self.limits, self.cancellation)?
+        };
         self.count_font_input(font.subset_bytes_read() - before)?;
         let pending = &self.fonts[handle.slot];
-        let name = format!("{}+{}", plan.tag(&pending.name), pending.name);
+        let name = plan.name(&pending.name);
         let mut deflate = self.take_deflate()?;
         let before = font.subset_bytes_read();
         self.image_page_failed = true;
         let unicode = self.font_unicode_cmap(handle.slot, &mut deflate)?;
         let (program, file_key, subtype) = match &plan {
-            Subset::TrueType(_) => (
+            FontProgram::TrueType(_) | FontProgram::Full(_) => (
                 format!("/Length1 {}", plan.length()),
                 "FontFile2",
                 "CIDFontType2",
             ),
-            Subset::Cff(_) => (
+            FontProgram::Cff(_) => (
                 "/Subtype /CIDFontType0C".to_owned(),
                 "FontFile3",
                 "CIDFontType0",
@@ -292,17 +341,25 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
 
         let face = font.face()?;
         let mut cid_map = String::new();
-        if let (Subset::TrueType(plan), Some([mapping, mapping_length])) = (&plan, mapping) {
+        if let Some([mapping, mapping_length]) = mapping {
             self.writer
                 .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")?;
             let mut stream = FontStream::new(&mut self.writer, &mut deflate);
             let used = self.fonts[handle.slot].encoding.characters();
+            let subset = if let FontProgram::TrueType(subset) = &plan {
+                Some(subset)
+            } else {
+                None
+            };
             // CID-to-glyph entries up to the highest drawn CID.
             let last = used.codes().next_back();
             for code in last.map_or(0..0, |last| 0..usize::from(last) + 1) {
-                let glyph = used
-                    .glyph(code)
-                    .map_or(0, |character| plan.glyph(&face, character));
+                let glyph = used.glyph(code).map_or(0, |character| {
+                    subset.map_or_else(
+                        || face.glyph_index(character).map_or(0, |id| id.0),
+                        |plan| plan.glyph(&face, character),
+                    )
+                });
                 stream.put(&glyph.to_be_bytes())?;
             }
             stream.finish()?;
@@ -592,6 +649,26 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         )
     }
 
+    /// Paint a measured source-font alias while retaining its semantic text.
+    /// Unlike a lossy substitute, this does not increment substituted_glyphs.
+    pub(crate) fn glyph_with_alias_text(
+        &mut self,
+        font: usize,
+        alias: char,
+        transform: [f64; 6],
+        gray: u8,
+        character: char,
+    ) -> Result<()> {
+        self.draw_glyph(
+            font,
+            alias,
+            transform,
+            Some(gray),
+            None,
+            GlyphText::Alias(character),
+        )
+    }
+
     /// Draw one glyph clipped to `[left, bottom, width, height]` in PDF points.
     /// Extents must be positive. Clipping is local to this draw and does not
     /// affect later content. This retains the ordinary glyph's Unicode mapping;
@@ -680,7 +757,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             GlyphText::Decoration => {
                 self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?
             }
-            GlyphText::Replacement(character) => {
+            GlyphText::Replacement(character) | GlyphText::Alias(character) => {
                 self.emit(b"/Span << /ActualText <FEFF")?;
                 for unit in character.encode_utf16(&mut [0; 2]) {
                     self.emit(format!("{unit:04X}").as_bytes())?;
@@ -694,9 +771,10 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         match text {
             GlyphText::Character | GlyphText::Mapped(_) => (),
             GlyphText::Decoration => self.emit(b"EMC\nEMC\n")?,
-            GlyphText::Replacement(_) => {
+            GlyphText::Replacement(_) | GlyphText::Alias(_) => {
                 self.emit(b"EMC\n")?;
-                self.document.substituted_glyphs += 1;
+                self.document.substituted_glyphs +=
+                    u64::from(matches!(text, GlyphText::Replacement(_)));
             }
         }
         if gray.is_some() || clip.is_some() {
@@ -811,6 +889,13 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     }
 
     pub fn finish(self) -> Result<u32> {
+        self.finish_with_links(std::iter::empty())
+    }
+
+    pub(crate) fn finish_with_links<'u>(
+        self,
+        links: impl Iterator<Item = LinkAnnotation<'u>> + Clone,
+    ) -> Result<u32> {
         if self.failed {
             return Err(Error::invalid(
                 "PDF content page cannot finish after a failed draw",
@@ -821,6 +906,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         deflate.finish(&mut document.writer)?;
         document.writer.end_stream()?;
         document.deflate = Some(deflate);
+        let annotations = document.write_link_annotations(links)?;
         let parent = document
             .leaf
             .as_ref()
@@ -854,7 +940,13 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         }
         document
             .writer
-            .write_bytes(format!(" >> >> /Contents {} 0 R >>", self.content.number()).as_bytes())?;
+            .write_bytes(format!(" >> >> /Contents {} 0 R", self.content.number()).as_bytes())?;
+        if let Some(annotations) = annotations {
+            document
+                .writer
+                .write_bytes(format!(" /Annots {} 0 R", annotations.number()).as_bytes())?;
+        }
+        document.writer.write_bytes(b" >>")?;
         document.writer.end_object()?;
         let index = document.register_page(self.page)?;
         document.image_page_failed = false;
