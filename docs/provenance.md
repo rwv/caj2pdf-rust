@@ -4018,3 +4018,13 @@ per-file hashes; no document corpus is distributed. Existing `sha2` and
 there are no new registry dependencies. The build adapter invokes curl for
 HTTPS retrieval, or verifies an explicitly supplied offline pack. The core has
 no network or filesystem policy.
+
+### Single resource manifest (#551)
+
+`scripts/generate-font-manifest.py` is original MIT project code. It derives
+`bundled_fonts/resources.rs` and `js/internal/font-pack.mjs` from the existing
+CLI `font-pack.json`, preserving resource order, shared ranges, hashes and
+attribution. The generated constants are committed for self-contained Cargo
+and npm packages and verified in CI. This moves previously reviewed resource
+facts without migrating external implementation code, changing font programs
+or glyph observations, or adding runtime dependencies.

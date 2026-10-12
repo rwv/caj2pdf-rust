@@ -26,6 +26,13 @@ original-file digest. [Font notices](../crates/caj2pdf-cli/FONT-NOTICES.txt)
 retain the original embedded attribution; these data assets are separate from
 the MIT-licensed converter source.
 
+The JSON manifest is the only hand-maintained resource list. After changing it,
+maintainers run `python3 scripts/generate-font-manifest.py` to regenerate the
+checked-in Rust and JavaScript constants; CI runs the same command with
+`--check` to reject drift. Cargo and npm packages carry their derived constants,
+so consumers need neither Python nor the repository's other package sources.
+The separately measured glyph/identity tables are not generated from this list.
+
 Native CLI binaries embed the pack and work offline, including in the scratch
 container. Core and standalone WASM do not embed fonts or perform network I/O.
 Registry source archives remain small. Building the native CLI needs `curl` to

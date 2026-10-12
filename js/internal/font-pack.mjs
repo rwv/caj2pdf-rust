@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-// Versioned resource facts; must match the native manifest and core preset.
+// Generated from crates/caj2pdf-cli/font-pack.json; do not edit.
+// Regenerate with python3 scripts/generate-font-manifest.py.
+
 export const FONT_PACK = {
   "version": 1,
   "url": "https://github.com/rwv/caj2pdf-rust/releases/download/fonts-v1/caj2pdf-fonts-v1.bin",
