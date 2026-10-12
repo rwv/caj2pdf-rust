@@ -1,4 +1,4 @@
-# TTKN server-response PDFs (unreleased)
+# TTKN server-response PDFs
 
 The measured TTKN server/authentication profile converts when the caller
 supplies its matching response. This is a 32-character hexadecimal ASCII
@@ -112,4 +112,4 @@ match. This comparison establishes agreement with the independent recovery,
 not all-page pixel agreement with the vendor viewer. The original viewer
 control covers opening, the first page and populated contents. Other TTKN
 profiles, unavailable responses and the broader fidelity goal remain open
-in #415/#406. No release was published for this change.
+in #415/#406. This conversion path first ships in [v0.7.0](releases/v0.7.0.md).

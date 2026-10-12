@@ -28,7 +28,7 @@ should handle `info.pageCount === null` before using it as a number; the
 `Format` union also includes `"caa"`. Existing successful document inspections
 still return numeric page counts.
 
-## TTKN response input (unreleased)
+## TTKN response input
 
 For the [measured TTKN server profile](../docs/ttkn-pdf.md), pass
 `{ ttknResponse: response }` to `convert`. It must be exactly 32 hexadecimal

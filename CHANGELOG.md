@@ -2,13 +2,38 @@
 
 ## Unreleased
 
+No changes recorded yet.
+
+## v0.7.0
+
+See the [release notes and migration guide](docs/releases/v0.7.0.md).
+
+- **Breaking:** original-font options extend Rust font structs; corrected
+  HN/C8/NH coordinates and C8 CJK aliases change affected PDF geometry/output.
+  Native C8 now preserves measured link appearances and refuses unknown
+  required note profiles. Reconvert affected inputs and update expectations.
+- Original TrueType programs, glyph aliases, measured Latin origins, lighter
+  rules and continuous ornament bands improve Wine agreement on the reviewed
+  13-document / 77-page cohort (#541, #544, #545). Fonts remain caller-supplied.
+- Convert the measured TTKN server PDF with an explicit matching response
+  across Rust, CLI, Node and browser (#504, #505). Other TTKN profiles remain
+  unsupported; no authentication endpoint is contacted.
+- Add measured NJU C8 profiles, correct type-1 JPEG orientation, and expand
+  bounded CAJ/KDH recovery, named PDF outline destinations and object-stream
+  collection validation. See the versioned notes for evidence and limits.
+- **Breaking (JavaScript):** expose simultaneous conversion/spool-cleanup
+  failures as `AggregateError`; fix the Worker cancellation wakeup (#454).
+- **Breaking (CLI):** TEB inspection now reports `not-implemented` instead of
+  `drm-encrypted`; the format remains unsupported (#469).
+- Include the classic-Worker IIFE bundling fix (#433, #517).
+
 - **Breaking (Rust API):** add `NativeDecorationGlyph`, plus
   `decoration_glyphs` and `decoration_font` to `Fonts`/`C8FontSources` (#541).
   Explicit native-mode-2 mappings select distinct glyphs for ornament values
   1, 2, 46 and 117, with optional font identity binding. CLI exposes
   `--decoration-glyph`/`--decoration-font-identity`; JavaScript exposes
   `decorationGlyphs`/`decorationFontIdentity`. Empty maps preserve output.
-  [Migration](docs/releases/unreleased.md#breaking-rust-api-ornament-glyph-maps-541).
+  [Migration](docs/releases/v0.7.0.md#breaking-rust-api-ornament-glyph-maps-541).
 
 - **Breaking (Rust API):** `C8PageFonts` gains optional `cjk_sans`,
   `cjk_kai` and `cjk_system` fields for the measured CJK style resources
@@ -17,7 +42,7 @@
   CLI adds `--font-cjk-sans`, `--font-cjk-kai`, `--font-cjk-system`;
   JavaScript adds `cjkSans`, `cjkKai`, `cjkSystem`. Explicit font resources
   now support at most eleven distinct inputs. See the
-  [migration notes](docs/releases/unreleased.md#breaking-rust-api-cjk-style-font-roles-541).
+  [migration notes](docs/releases/v0.7.0.md#breaking-rust-api-cjk-style-font-roles-541).
 
 - Symbol glyph maps can be bound to the font they were measured on (#518).
   The binding is the PostScript name plus the `head` checkSumAdjustment, set
@@ -36,7 +61,7 @@
   (#518). `Fonts` implements `Default`. Add `symbol_glyphs: Vec::new()` (or
   `&[]`), or use `..Fonts::default()`. Empty maps leave output unchanged; CLI
   and JavaScript are unchanged. See the
-  [unreleased notes](docs/releases/unreleased.md#breaking-rust-api-native-symbol-glyph-maps-518).
+  [release notes](docs/releases/v0.7.0.md#breaking-rust-api-native-symbol-glyph-maps-518).
 
 - Accept measured complete block padding and the unused object-zero xref
   sentinel overflow in public Archive.org PDFs (#495, #496).

@@ -50,12 +50,12 @@ await writer.close();
 
 | Input | Status |
 | --- | --- |
-| PDF | Supported: copied, with documented [repairs](docs/pdf-input.md). The unreleased [TTKN server profile](docs/ttkn-pdf.md) requires an explicit response. |
+| PDF | Supported: copied, with documented [repairs](docs/pdf-input.md). The [TTKN server profile](docs/ttkn-pdf.md) requires an explicit response. |
 | CAJ | Supported, with its bookmarks. |
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
 | C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
-| CAA (unreleased) | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
+| CAA | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
 | TEB | Recognized, conversion not implemented; detection does not establish encryption or recoverability. |
 
 The [support matrix](docs/conformance.md#current-support-and-release-status)
