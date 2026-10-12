@@ -260,13 +260,13 @@ impl Fonts {
     /// The registered fonts as host resources 1..=11 for one conversion;
     /// `None` when none are registered.
     pub(super) fn resources<'h, H: Host + 'h>(
-        &self,
+        self,
         host: &'h RefCell<&'h mut H>,
         limits: &caj2pdf_core::Limits,
     ) -> caj2pdf_core::Result<Option<FontResources<'h>>> {
         let mut resources = (self.count != 0).then(|| FontResources {
             embedding: self.embedding.unwrap_or_default(),
-            glyph_aliases: self.glyph_aliases.clone(),
+            glyph_aliases: self.glyph_aliases,
             sources: (0..self.count)
                 .map(|index| {
                     let source: Box<dyn RangedSource + 'h> =
@@ -278,10 +278,10 @@ impl Fonts {
                 })
                 .collect(),
             roles: self.roles,
-            symbol_glyphs: self.symbol_glyphs.clone(),
-            symbol_font: self.symbol_font.clone(),
-            decoration_glyphs: self.decoration_glyphs.clone(),
-            decoration_font: self.decoration_font.clone(),
+            symbol_glyphs: self.symbol_glyphs,
+            symbol_font: self.symbol_font,
+            decoration_glyphs: self.decoration_glyphs,
+            decoration_font: self.decoration_font,
         });
         if let (Some(mode), Some(fonts)) = (self.bundled_mode, resources.as_mut()) {
             caj2pdf_core::bundled_fonts::configure(fonts, mode, limits)?;

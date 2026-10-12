@@ -25,63 +25,47 @@ pub struct Resources {
     // Retain opened input identities so --force cannot overwrite a font.
     pub inputs: Vec<Input>,
     pub bundled_mode: Option<u32>,
-    pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
+    /// Configuration is the core representation; sources borrow the open files later.
+    pub(super) config: Fonts<'static>,
     /// Collection face of each opened font source.
-    pub font_faces: [u32; C8_MAX_FONTS],
-    pub symbol_glyphs: Vec<caj2pdf_core::hnc8::NativeSymbolGlyph>,
-    pub symbol_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
-    pub decoration_glyphs: Vec<caj2pdf_core::hnc8::NativeDecorationGlyph>,
-    pub decoration_font: Option<caj2pdf_core::hnc8::SymbolFontIdentity>,
-    pub embedding: caj2pdf_core::pdf::FontEmbedding,
-    pub glyph_aliases: Vec<caj2pdf_core::hnc8::NativeFontGlyphAlias>,
+    pub(super) font_faces: [u32; C8_MAX_FONTS],
 }
 
 impl Resources {
     pub fn has_fonts(&self) -> bool {
-        self.bundled_mode.is_some() || self.font_roles.is_some()
+        self.bundled_mode.is_some() || self.config.roles.is_some()
     }
 
-    /// The opened fonts and their roles, for one conversion.
-    pub fn fonts(&mut self) -> caj2pdf_core::Result<Option<Fonts<'_>>> {
-        if let Some(mode) = self.bundled_mode {
-            let sources = caj2pdf_core::bundled_fonts::RESOURCES
+    /// Move configuration into the conversion while borrowing its opened files.
+    pub fn take_fonts(&mut self) -> caj2pdf_core::Result<Option<Fonts<'_>>> {
+        if !self.has_fonts() {
+            return Ok(None);
+        }
+        let mut fonts: Fonts<'_> = std::mem::take(&mut self.config);
+        fonts.sources = if self.bundled_mode.is_some() {
+            caj2pdf_core::bundled_fonts::RESOURCES
                 .iter()
                 .map(|&(offset, size)| {
                     let source: Box<dyn RangedSource> =
                         Box::new(&FONT_PACK[offset as usize..(offset + size) as usize]);
                     C8FontSource { source, face: 0 }
                 })
-                .collect();
-            let mut fonts = Fonts {
-                sources,
-                ..Fonts::default()
-            };
-            caj2pdf_core::bundled_fonts::configure(&mut fonts, mode, &Limits::default())?;
-            return Ok(Some(fonts));
-        }
-        let Some(roles) = self.font_roles else {
-            return Ok(None);
+                .collect()
+        } else {
+            self.inputs
+                .iter_mut()
+                .zip(self.font_faces)
+                .map(|(input, face)| {
+                    let source: Box<dyn RangedSource + '_> =
+                        Box::new(SeekableSource::new(&mut input.file)?);
+                    Ok(C8FontSource { source, face })
+                })
+                .collect::<caj2pdf_core::Result<_>>()?
         };
-        let sources = self
-            .inputs
-            .iter_mut()
-            .zip(self.font_faces)
-            .map(|(input, face)| {
-                let source: Box<dyn RangedSource + '_> =
-                    Box::new(SeekableSource::new(&mut input.file)?);
-                Ok(C8FontSource { source, face })
-            })
-            .collect::<caj2pdf_core::Result<_>>()?;
-        Ok(Some(Fonts {
-            embedding: self.embedding,
-            glyph_aliases: self.glyph_aliases.clone(),
-            sources,
-            roles: Some(roles),
-            symbol_glyphs: self.symbol_glyphs.clone(),
-            symbol_font: self.symbol_font.clone(),
-            decoration_glyphs: self.decoration_glyphs.clone(),
-            decoration_font: self.decoration_font.clone(),
-        }))
+        if let Some(mode) = self.bundled_mode {
+            caj2pdf_core::bundled_fonts::configure(&mut fonts, mode, &Limits::default())?;
+        }
+        Ok(Some(fonts))
     }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
         let mut resources = Self::default();
@@ -90,8 +74,9 @@ impl Resources {
             *font = path.as_deref().map(font_face).transpose()?;
         }
         resources.open_fonts(&fonts, options.decoration_char, limits)?;
-        resources.embedding = options.font_embedding;
-        if let Some(roles) = resources.font_roles {
+        let config = &mut resources.config;
+        config.embedding = options.font_embedding;
+        if let Some(roles) = config.roles {
             let indices = [
                 Some(roles.cjk),
                 Some(roles.latin),
@@ -112,7 +97,7 @@ impl Resources {
                         as u64,
                 )
                 .map_err(|error| CliError::runtime(error.to_string()))?;
-            resources
+            config
                 .glyph_aliases
                 .try_reserve_exact(options.font_glyphs.len())
                 .map_err(|_| CliError::runtime("native font glyph alias allocation failed"))?;
@@ -123,14 +108,14 @@ impl Resources {
                         FONT_FILES[entry.font]
                     ))
                 })?;
-                resources
+                config
                     .glyph_aliases
                     .push(caj2pdf_core::hnc8::NativeFontGlyphAlias { font, ..*entry });
             }
-            resources
+            config
                 .glyph_aliases
                 .sort_unstable_by_key(|entry| (entry.font, entry.character));
-            if resources
+            if config
                 .glyph_aliases
                 .windows(2)
                 .any(|pair| (pair[0].font, pair[0].character) == (pair[1].font, pair[1].character))
@@ -140,14 +125,12 @@ impl Resources {
                 ));
             }
         }
-        resources.symbol_glyphs.clone_from(&options.symbol_glyphs);
-        resources.symbol_font.clone_from(&options.symbol_font);
-        resources
+        config.symbol_glyphs.clone_from(&options.symbol_glyphs);
+        config.symbol_font.clone_from(&options.symbol_font);
+        config
             .decoration_glyphs
             .clone_from(&options.decoration_glyphs);
-        resources
-            .decoration_font
-            .clone_from(&options.decoration_font);
+        config.decoration_font.clone_from(&options.decoration_font);
         Ok(resources)
     }
 
@@ -194,7 +177,7 @@ impl Resources {
             }
         }
         let role = |index: usize| fonts[index].as_ref().map(|_| indices[index]);
-        self.font_roles = Some(caj2pdf_core::hnc8::C8PageFonts {
+        self.config.roles = Some(caj2pdf_core::hnc8::C8PageFonts {
             cjk: indices[0],
             latin: indices[1],
             alternate_latin: role(2),

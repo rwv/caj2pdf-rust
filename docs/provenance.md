@@ -4028,3 +4028,15 @@ attribution. The generated constants are committed for self-contained Cargo
 and npm packages and verified in CI. This moves previously reviewed resource
 facts without migrating external implementation code, changing font programs
 or glyph observations, or adding runtime dependencies.
+
+### Adapter font configuration (#552)
+
+The CLI holds the existing core `Fonts` configuration and moves it into one
+conversion, attaching the same platform-owned ranged sources. WASM moves its
+registration metadata into the conversion instead of cloning it; its public
+`Session` remains `Send + Sync` by retaining source-free registration storage.
+This original MIT refactor removes duplicate CLI metadata and map/identity
+clones without changing validation, logical resource IDs, tables, font
+programs, public interfaces or dependencies. JavaScript resolves optional
+role indices once for both registration and glyph aliases. No external
+implementation or private code is migrated.

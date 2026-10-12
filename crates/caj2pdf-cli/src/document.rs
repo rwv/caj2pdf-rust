@@ -74,7 +74,7 @@ pub fn convert<W: Write>(
 ) -> Result<ConversionReport, CliError> {
     let result = (|| {
         let mut source = ranged(&mut input.file)?;
-        let fonts = resources.fonts().map_err(|error| error.to_string())?;
+        let fonts = resources.take_fonts().map_err(|error| error.to_string())?;
         let mut progress = Progress::new(terminal);
         let options = ConversionOptions { fonts, ..options };
         let result = match response {

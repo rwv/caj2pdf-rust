@@ -1597,7 +1597,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
     fs::write(dir.0.join("cjk.ttf"), b"cjk").unwrap();
     fs::write(dir.0.join("latin.ttf"), b"latin").unwrap();
     let resources = load_fonts(&font_options(&dir.0)).unwrap();
-    let roles = resources.font_roles.unwrap();
+    let roles = resources.config.roles.unwrap();
     assert_eq!((roles.cjk, roles.latin), (0, 1));
     assert!(roles.alternate_latin.is_none() && roles.decoration.is_none());
     assert!(roles.symbols.is_none() && roles.latin_state3.is_none());
@@ -1626,7 +1626,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
         fs::write(dir.0.join(format!("{name}.ttf")), name).unwrap();
     }
     let resources = load_fonts(&options).unwrap();
-    let roles = resources.font_roles.unwrap();
+    let roles = resources.config.roles.unwrap();
     assert_eq!(roles.alternate_latin, Some(2));
     assert_eq!(roles.decoration, Some((3, 'A')));
     assert_eq!(roles.symbols, Some(4));
@@ -1654,7 +1654,7 @@ fn explicit_font_flags_override_the_directory_and_entries_are_opened() {
     options.fonts[1] = Some(dir.0.join("cjk.ttf"));
     options.fonts[3] = Some(dir.0.join("latin.ttf"));
     let resources = load_fonts(&options).unwrap();
-    let roles = resources.font_roles.unwrap();
+    let roles = resources.config.roles.unwrap();
     assert_eq!((roles.cjk, roles.latin), (0, 0));
     assert_eq!(
         roles.decoration,
@@ -1664,7 +1664,7 @@ fn explicit_font_flags_override_the_directory_and_entries_are_opened() {
     // Without a directory, explicit flags behave as before.
     options.font_dir = None;
     let resources = load_fonts(&options).unwrap();
-    assert_eq!(resources.font_roles.unwrap().latin, 0);
+    assert_eq!(resources.config.roles.unwrap().latin, 0);
 }
 
 #[test]
@@ -1683,7 +1683,7 @@ fn font_collections_are_found_in_directories_and_selected_by_face_suffix() {
     assert!(resources.is_err());
     options.fonts[5] = None;
     let resources = load_fonts(&options).unwrap();
-    let roles = resources.font_roles.unwrap();
+    let roles = resources.config.roles.unwrap();
     assert_eq!((roles.cjk, roles.latin), (0, 1));
     // The same collection opened again as face 2 is a distinct source.
     assert_eq!(roles.alternate_latin, Some(2));
