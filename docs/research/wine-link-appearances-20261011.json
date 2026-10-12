@@ -1,0 +1,5791 @@
+{
+  "schema": 1,
+  "issue": 545,
+  "reference": {
+    "viewer": "CAJViewer 7.3.151 Simple",
+    "wine": "8.0 32-bit",
+    "desktop": [
+      1600,
+      1200
+    ],
+    "dpi": 96,
+    "image": "sha256:6c9f5ec0610a7ff8bc45fe8e0a87dffd0ff17e42466c90b80237a1712847b95c"
+  },
+  "criterion": "Normal-reading visual agreement; harmless subpixel differences accepted; RGB counts are diagnostics, not a gate.",
+  "production_commit": "b19d62d761ab0aacee5a8904c14de0fde81ae421",
+  "production_change": false,
+  "verification_note": "Initial verifier rejected changed indirect reference numbers after pikepdf annotation insertion; resolved resource graphs and raw stream payloads then compared exactly. Object-ID identity is not claimed.",
+  "sources": [
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "native_prefix_bytes": 34600,
+      "native_prefix_sha256": "3fcecb0b8c6c2b8b95e5dea9f8fa1733165bfb715412c543afadbb25d1d56e37",
+      "notes": 35,
+      "item_types": [
+        "Link"
+      ],
+      "line_styles": [
+        "4"
+      ],
+      "show_types": [
+        "1"
+      ],
+      "variants": {
+        "source": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "repacked": "19fd20954fc0a725b9d0a06437928fd06a743922b5c34c72b092255307a02535",
+        "no-notes": "d91d319aece4265298fb413b929a0a357f2e57e05447c96f9d2ce44ce8892a5f",
+        "no-info": "3fcecb0b8c6c2b8b95e5dea9f8fa1733165bfb715412c543afadbb25d1d56e37"
+      }
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "native_prefix_bytes": 596838,
+      "native_prefix_sha256": "8916a3c1ef31e4ecc49630e0738d0418bee853b8897197025edfc921d671b8b5",
+      "notes": 75,
+      "item_types": [
+        "Link"
+      ],
+      "line_styles": [
+        "4"
+      ],
+      "show_types": [
+        "1"
+      ],
+      "variants": {
+        "source": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "repacked": "5fe84334363f5ebaf849c8f72e848fc819cddef4cac2380565c60dbfd010aed3",
+        "no-notes": "4cb45064bc5f3a9d8f53b7d6bfc4f701b4b0ef325f6724bfc80b56ce6fd38ead",
+        "no-info": "8916a3c1ef31e4ecc49630e0738d0418bee853b8897197025edfc921d671b8b5"
+      }
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "native_prefix_bytes": 39425,
+      "native_prefix_sha256": "a42dc0907db549ea2776424f7db49e82cc0182a3dd2b23c47c7963228e9bc8db",
+      "notes": 23,
+      "item_types": [
+        "Link"
+      ],
+      "line_styles": [
+        "4"
+      ],
+      "show_types": [
+        "1"
+      ],
+      "variants": {
+        "source": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "repacked": "1415c597b0bfa9eb735f3345527ab2ac251fd417c866797892a87918847bfcf8",
+        "no-notes": "b214161102b26e4548b7702013249c66d3a7d640cb067ba0d568978008ab4948",
+        "no-info": "a42dc0907db549ea2776424f7db49e82cc0182a3dd2b23c47c7963228e9bc8db"
+      }
+    }
+  ],
+  "actual_views": [
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "page": 1,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "b2a043d10639a29245d456fdfd673b4df8216ea6a2a1d0202ebe4e76774eb653",
+          "component_pixels": 376489
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "b2a043d10639a29245d456fdfd673b4df8216ea6a2a1d0202ebe4e76774eb653",
+          "component_pixels": 376489
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 539,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            33,
+            141,
+            473,
+            734
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 539,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            33,
+            141,
+            473,
+            734
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          141,
+          141
+        ],
+        [
+          174,
+          174
+        ],
+        [
+          187,
+          187
+        ],
+        [
+          258,
+          258
+        ],
+        [
+          733,
+          733
+        ]
+      ],
+      "file": "b9a64bf99e4b-p1.png"
+    },
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "page": 4,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "a17709ce61ad7094c2fa672c3bccbbc635460defef3567e8c00069193bfc9ba8",
+          "component_pixels": 376489
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "a17709ce61ad7094c2fa672c3bccbbc635460defef3567e8c00069193bfc9ba8",
+          "component_pixels": 376489
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 1798,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            263,
+            496,
+            494,
+            722
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 1798,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            263,
+            496,
+            494,
+            722
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          496,
+          496
+        ],
+        [
+          510,
+          510
+        ],
+        [
+          523,
+          523
+        ],
+        [
+          536,
+          536
+        ],
+        [
+          549,
+          549
+        ],
+        [
+          562,
+          562
+        ],
+        [
+          576,
+          576
+        ],
+        [
+          589,
+          589
+        ],
+        [
+          602,
+          602
+        ],
+        [
+          615,
+          615
+        ],
+        [
+          628,
+          628
+        ],
+        [
+          641,
+          641
+        ],
+        [
+          655,
+          655
+        ],
+        [
+          681,
+          681
+        ],
+        [
+          694,
+          694
+        ],
+        [
+          707,
+          707
+        ],
+        [
+          721,
+          721
+        ]
+      ],
+      "file": "b9a64bf99e4b-p4.png"
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "page": 1,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+          "component_pixels": 384031
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+          "component_pixels": 384031
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "af57957ab378d3aa9214c4ad6ba632bf9faa4c793daf89a3632aba19ffe8d582",
+          "component_pixels": 384031
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "af57957ab378d3aa9214c4ad6ba632bf9faa4c793daf89a3632aba19ffe8d582",
+          "component_pixels": 384031
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            45,
+            87,
+            450,
+            741
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            45,
+            87,
+            450,
+            741
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          87,
+          87
+        ],
+        [
+          119,
+          119
+        ],
+        [
+          135,
+          135
+        ],
+        [
+          151,
+          151
+        ],
+        [
+          250,
+          250
+        ],
+        [
+          547,
+          547
+        ],
+        [
+          578,
+          578
+        ],
+        [
+          609,
+          609
+        ],
+        [
+          624,
+          624
+        ],
+        [
+          655,
+          655
+        ],
+        [
+          727,
+          727
+        ],
+        [
+          740,
+          740
+        ]
+      ],
+      "file": "d6a23a9cfd0f-p1.png"
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "page": 5,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+          "component_pixels": 384031
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+          "component_pixels": 384031
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9c7fbc9ce3bfc8c6bb110a1ac302bf808803d961c51abb90e7f255afa16fee0e",
+          "component_pixels": 384031
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9c7fbc9ce3bfc8c6bb110a1ac302bf808803d961c51abb90e7f255afa16fee0e",
+          "component_pixels": 384031
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 3648,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            13,
+            86,
+            494,
+            734
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 3648,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            13,
+            86,
+            494,
+            734
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          86,
+          86
+        ],
+        [
+          114,
+          114
+        ],
+        [
+          156,
+          156
+        ],
+        [
+          197,
+          197
+        ],
+        [
+          225,
+          225
+        ],
+        [
+          253,
+          253
+        ],
+        [
+          281,
+          281
+        ],
+        [
+          336,
+          336
+        ],
+        [
+          364,
+          364
+        ],
+        [
+          384,
+          384
+        ],
+        [
+          392,
+          392
+        ],
+        [
+          411,
+          411
+        ],
+        [
+          455,
+          455
+        ],
+        [
+          469,
+          469
+        ],
+        [
+          483,
+          483
+        ],
+        [
+          497,
+          497
+        ],
+        [
+          511,
+          511
+        ],
+        [
+          525,
+          525
+        ],
+        [
+          538,
+          538
+        ],
+        [
+          552,
+          552
+        ],
+        [
+          566,
+          566
+        ],
+        [
+          580,
+          580
+        ],
+        [
+          593,
+          594
+        ],
+        [
+          607,
+          608
+        ],
+        [
+          621,
+          622
+        ],
+        [
+          635,
+          636
+        ],
+        [
+          649,
+          649
+        ],
+        [
+          662,
+          663
+        ],
+        [
+          676,
+          677
+        ],
+        [
+          690,
+          691
+        ],
+        [
+          704,
+          705
+        ],
+        [
+          718,
+          719
+        ],
+        [
+          732,
+          733
+        ]
+      ],
+      "file": "d6a23a9cfd0f-p5.png"
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "page": 1,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+          "component_pixels": 363043
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+          "component_pixels": 363043
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "dd4189ac0c1b834526bfb3c342fc3c34ee44d23566c6c417f2ca1fa93d50165a",
+          "component_pixels": 363043
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "dd4189ac0c1b834526bfb3c342fc3c34ee44d23566c6c417f2ca1fa93d50165a",
+          "component_pixels": 363043
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 354,
+          "maximum_absolute_channel_delta": 167,
+          "bounds_in_page": [
+            71,
+            92,
+            464,
+            519
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 354,
+          "maximum_absolute_channel_delta": 167,
+          "bounds_in_page": [
+            71,
+            92,
+            464,
+            519
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          92,
+          92
+        ],
+        [
+          121,
+          121
+        ],
+        [
+          140,
+          140
+        ],
+        [
+          199,
+          200
+        ],
+        [
+          327,
+          327
+        ],
+        [
+          518,
+          518
+        ]
+      ],
+      "file": "90e7b47716c3-p1.png"
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "page": 6,
+      "frames": {
+        "source": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+          "component_pixels": 363043
+        },
+        "repacked": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+          "component_pixels": 363043
+        },
+        "no-notes": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "baf67a44a3892b1a06403ae7b0162ba89ff0e93ddc260ec00ae3af79d9186cb9",
+          "component_pixels": 363043
+        },
+        "no-info": {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "baf67a44a3892b1a06403ae7b0162ba89ff0e93ddc260ec00ae3af79d9186cb9",
+          "component_pixels": 363043
+        }
+      },
+      "comparisons": {
+        "source": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "repacked": {
+          "comparable": true,
+          "changed_pixels": 0,
+          "maximum_absolute_channel_delta": 0,
+          "bounds_in_page": null
+        },
+        "no-notes": {
+          "comparable": true,
+          "changed_pixels": 509,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            11,
+            247,
+            397,
+            553
+          ]
+        },
+        "no-info": {
+          "comparable": true,
+          "changed_pixels": 509,
+          "maximum_absolute_channel_delta": 127,
+          "bounds_in_page": [
+            11,
+            247,
+            397,
+            553
+          ]
+        }
+      },
+      "no_notes_equals_no_info": true,
+      "changed_y_bands": [
+        [
+          247,
+          247
+        ],
+        [
+          261,
+          261
+        ],
+        [
+          524,
+          524
+        ],
+        [
+          538,
+          538
+        ],
+        [
+          552,
+          552
+        ]
+      ],
+      "file": "90e7b47716c3-p6.png"
+    }
+  ],
+  "original_controls": {
+    "scope": "Original rectangles, page assignments, edge shifts and colors; fixed LineStyle 4 / ShowType 1. URLs use the reserved .invalid domain and are never opened.",
+    "files": [
+      {
+        "name": "links-2500-links.caj",
+        "sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc",
+        "pages": 2,
+        "raw_page_size": [
+          2500,
+          3000
+        ],
+        "annotations": [
+          {
+            "id": 10,
+            "page": 1,
+            "rect": [
+              2500,
+              2500,
+              15500,
+              4500
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 11,
+            "page": 1,
+            "rect": [
+              3075,
+              6075,
+              17025,
+              8075
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 12,
+            "page": 1,
+            "rect": [
+              4100,
+              10950,
+              15850,
+              12450
+            ],
+            "color": "00000000"
+          },
+          {
+            "id": 13,
+            "page": 1,
+            "rect": [
+              2550,
+              15800,
+              16550,
+              18800
+            ],
+            "color": "000000FF"
+          },
+          {
+            "id": 23,
+            "page": 2,
+            "rect": [
+              3550,
+              16800,
+              17550,
+              19800
+            ],
+            "color": "000000FF"
+          },
+          {
+            "id": 22,
+            "page": 2,
+            "rect": [
+              5100,
+              11950,
+              16850,
+              13450
+            ],
+            "color": "00000000"
+          },
+          {
+            "id": 21,
+            "page": 2,
+            "rect": [
+              4075,
+              7075,
+              18025,
+              9075
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 20,
+            "page": 2,
+            "rect": [
+              3500,
+              3500,
+              16500,
+              5500
+            ],
+            "color": "00808080"
+          }
+        ],
+        "native_prefix_sha256": "367a8bbd26b34673bb7ce8caee532815330106f3ca463ccffcbbc1ea77c8c2d7"
+      },
+      {
+        "name": "links-2500-empty.caj",
+        "sha256": "2c48b7c4f5e2ab0c1eb9242f9dca2e641622b56266455f7bb0160c591c71525a",
+        "pages": 2,
+        "raw_page_size": [
+          2500,
+          3000
+        ],
+        "annotations": [],
+        "native_prefix_sha256": "367a8bbd26b34673bb7ce8caee532815330106f3ca463ccffcbbc1ea77c8c2d7"
+      },
+      {
+        "name": "links-3200-links.caj",
+        "sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542",
+        "pages": 2,
+        "raw_page_size": [
+          3200,
+          3600
+        ],
+        "annotations": [
+          {
+            "id": 10,
+            "page": 1,
+            "rect": [
+              2500,
+              2500,
+              15500,
+              4500
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 11,
+            "page": 1,
+            "rect": [
+              3075,
+              6075,
+              17025,
+              8075
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 12,
+            "page": 1,
+            "rect": [
+              4100,
+              10950,
+              15850,
+              12450
+            ],
+            "color": "00000000"
+          },
+          {
+            "id": 13,
+            "page": 1,
+            "rect": [
+              2550,
+              15800,
+              16550,
+              18800
+            ],
+            "color": "000000FF"
+          },
+          {
+            "id": 23,
+            "page": 2,
+            "rect": [
+              3550,
+              16800,
+              17550,
+              19800
+            ],
+            "color": "000000FF"
+          },
+          {
+            "id": 22,
+            "page": 2,
+            "rect": [
+              5100,
+              11950,
+              16850,
+              13450
+            ],
+            "color": "00000000"
+          },
+          {
+            "id": 21,
+            "page": 2,
+            "rect": [
+              4075,
+              7075,
+              18025,
+              9075
+            ],
+            "color": "00808080"
+          },
+          {
+            "id": 20,
+            "page": 2,
+            "rect": [
+              3500,
+              3500,
+              16500,
+              5500
+            ],
+            "color": "00808080"
+          }
+        ],
+        "native_prefix_sha256": "74eed2b94b40b58393ba463a2834799dd401cf655c90d9b9ebd66eb201aa8ae0"
+      },
+      {
+        "name": "links-3200-empty.caj",
+        "sha256": "3a6b591dbe1ae56a2f146b5b746b44a03099e79cd08378057a69f2425b9836b9",
+        "pages": 2,
+        "raw_page_size": [
+          3200,
+          3600
+        ],
+        "annotations": [],
+        "native_prefix_sha256": "74eed2b94b40b58393ba463a2834799dd401cf655c90d9b9ebd66eb201aa8ae0"
+      }
+    ]
+  },
+  "coordinate_checks": {
+    "matched_rectangles": 32,
+    "rule": "floor(raw /100 *96/72 *zoom/100), x at left, y at bottom plus2 device pixels",
+    "page_size_independent": true
+  },
+  "control_views": {
+    "views": [
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-75",
+        "page": 1,
+        "zoom": 75,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "0a73c2edbc8f2558509553dfc63fe0f760e5d18b59a6705ac859087cc4fc9064",
+          "component_pixels": 72571
+        },
+        "changed_pixels": 337,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            75
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            173
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            89
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              47,
+              47
+            ],
+            "x": [
+              25,
+              153
+            ],
+            "pixels": 84
+          },
+          {
+            "y": [
+              82,
+              82
+            ],
+            "x": [
+              30,
+              169
+            ],
+            "pixels": 89
+          },
+          {
+            "y": [
+              126,
+              126
+            ],
+            "x": [
+              41,
+              157
+            ],
+            "pixels": 75
+          },
+          {
+            "y": [
+              190,
+              190
+            ],
+            "x": [
+              25,
+              164
+            ],
+            "pixels": 89
+          }
+        ],
+        "file": "links-2500-links.caj-75-p1.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-75",
+        "page": 2,
+        "zoom": 75,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "0a73c2edbc8f2558509553dfc63fe0f760e5d18b59a6705ac859087cc4fc9064",
+          "component_pixels": 72571
+        },
+        "changed_pixels": 337,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            75
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            173
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            89
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              57,
+              57
+            ],
+            "x": [
+              35,
+              163
+            ],
+            "pixels": 84
+          },
+          {
+            "y": [
+              92,
+              92
+            ],
+            "x": [
+              40,
+              179
+            ],
+            "pixels": 89
+          },
+          {
+            "y": [
+              136,
+              136
+            ],
+            "x": [
+              51,
+              167
+            ],
+            "pixels": 75
+          },
+          {
+            "y": [
+              200,
+              200
+            ],
+            "x": [
+              35,
+              174
+            ],
+            "pixels": 89
+          }
+        ],
+        "file": "links-2500-links.caj-75-p2.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-125",
+        "page": 1,
+        "zoom": 125,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "fe8148f09ebafbceeb44df1e17569f5432746da104089cbed27453a71728aece",
+          "component_pixels": 199024
+        },
+        "changed_pixels": 554,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            124
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            283
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            147
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              77,
+              77
+            ],
+            "x": [
+              41,
+              257
+            ],
+            "pixels": 136
+          },
+          {
+            "y": [
+              136,
+              136
+            ],
+            "x": [
+              51,
+              281
+            ],
+            "pixels": 147
+          },
+          {
+            "y": [
+              209,
+              209
+            ],
+            "x": [
+              68,
+              263
+            ],
+            "pixels": 124
+          },
+          {
+            "y": [
+              315,
+              315
+            ],
+            "x": [
+              42,
+              272
+            ],
+            "pixels": 147
+          }
+        ],
+        "file": "links-2500-links.caj-125-p1.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-125",
+        "page": 2,
+        "zoom": 125,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "fe8148f09ebafbceeb44df1e17569f5432746da104089cbed27453a71728aece",
+          "component_pixels": 199024
+        },
+        "changed_pixels": 553,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            123
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            283
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            147
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              93,
+              93
+            ],
+            "x": [
+              58,
+              274
+            ],
+            "pixels": 136
+          },
+          {
+            "y": [
+              153,
+              153
+            ],
+            "x": [
+              67,
+              297
+            ],
+            "pixels": 147
+          },
+          {
+            "y": [
+              226,
+              226
+            ],
+            "x": [
+              85,
+              279
+            ],
+            "pixels": 123
+          },
+          {
+            "y": [
+              332,
+              332
+            ],
+            "x": [
+              59,
+              289
+            ],
+            "pixels": 147
+          }
+        ],
+        "file": "links-2500-links.caj-125-p2.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-75",
+        "page": 1,
+        "zoom": 75,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            628,
+            453,
+            943,
+            807
+          ],
+          "size": [
+            315,
+            354
+          ],
+          "rgb_sha256": "4c3a5557f02d1ae4a1fea06771e2b8ef90baf4cbb8c9935234ad8d7576d29565",
+          "component_pixels": 110843
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            628,
+            453,
+            943,
+            807
+          ],
+          "size": [
+            315,
+            354
+          ],
+          "rgb_sha256": "e705f78817dc04428563cf53ea114c52332cb28351a36d96cf1746445a9d7f1d",
+          "component_pixels": 110843
+        },
+        "changed_pixels": 337,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            75
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            173
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            89
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              47,
+              47
+            ],
+            "x": [
+              25,
+              153
+            ],
+            "pixels": 84
+          },
+          {
+            "y": [
+              82,
+              82
+            ],
+            "x": [
+              30,
+              169
+            ],
+            "pixels": 89
+          },
+          {
+            "y": [
+              126,
+              126
+            ],
+            "x": [
+              41,
+              157
+            ],
+            "pixels": 75
+          },
+          {
+            "y": [
+              190,
+              190
+            ],
+            "x": [
+              25,
+              164
+            ],
+            "pixels": 89
+          }
+        ],
+        "file": "links-3200-links.caj-75-p1.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-75",
+        "page": 2,
+        "zoom": 75,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            628,
+            453,
+            943,
+            807
+          ],
+          "size": [
+            315,
+            354
+          ],
+          "rgb_sha256": "168e27c4db29bb5b4f63a135d17413eb4ff74166101d940e30a8cb4faa9ea4d8",
+          "component_pixels": 110843
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            628,
+            453,
+            943,
+            807
+          ],
+          "size": [
+            315,
+            354
+          ],
+          "rgb_sha256": "e705f78817dc04428563cf53ea114c52332cb28351a36d96cf1746445a9d7f1d",
+          "component_pixels": 110843
+        },
+        "changed_pixels": 337,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            75
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            173
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            89
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              57,
+              57
+            ],
+            "x": [
+              35,
+              163
+            ],
+            "pixels": 84
+          },
+          {
+            "y": [
+              92,
+              92
+            ],
+            "x": [
+              40,
+              179
+            ],
+            "pixels": 89
+          },
+          {
+            "y": [
+              136,
+              136
+            ],
+            "x": [
+              51,
+              167
+            ],
+            "pixels": 75
+          },
+          {
+            "y": [
+              200,
+              200
+            ],
+            "x": [
+              35,
+              174
+            ],
+            "pixels": 89
+          }
+        ],
+        "file": "links-3200-links.caj-75-p2.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-125",
+        "page": 1,
+        "zoom": 125,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            525,
+            337,
+            1047,
+            924
+          ],
+          "size": [
+            522,
+            587
+          ],
+          "rgb_sha256": "099bff0759402ed5e514efa67e27251d26a4183bb9222c3b13fed50902ff1418",
+          "component_pixels": 305307
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            525,
+            337,
+            1047,
+            924
+          ],
+          "size": [
+            522,
+            587
+          ],
+          "rgb_sha256": "d04e1ba2b0a913401229bffb9300155fa46505d0d8a8311d2b0d4545cbfff38b",
+          "component_pixels": 305307
+        },
+        "changed_pixels": 554,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            124
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            283
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            147
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              77,
+              77
+            ],
+            "x": [
+              41,
+              257
+            ],
+            "pixels": 136
+          },
+          {
+            "y": [
+              136,
+              136
+            ],
+            "x": [
+              51,
+              281
+            ],
+            "pixels": 147
+          },
+          {
+            "y": [
+              209,
+              209
+            ],
+            "x": [
+              68,
+              263
+            ],
+            "pixels": 124
+          },
+          {
+            "y": [
+              315,
+              315
+            ],
+            "x": [
+              42,
+              272
+            ],
+            "pixels": 147
+          }
+        ],
+        "file": "links-3200-links.caj-125-p1.png"
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-125",
+        "page": 2,
+        "zoom": 125,
+        "frame": {
+          "complete": true,
+          "bounds_with_border": [
+            525,
+            337,
+            1047,
+            924
+          ],
+          "size": [
+            522,
+            587
+          ],
+          "rgb_sha256": "f39185768ef5b21b5bfa30c5706b38d5ed9560f689c0f4cc2d10ad284b8d0c44",
+          "component_pixels": 305307
+        },
+        "empty_frame": {
+          "complete": true,
+          "bounds_with_border": [
+            525,
+            337,
+            1047,
+            924
+          ],
+          "size": [
+            522,
+            587
+          ],
+          "rgb_sha256": "d04e1ba2b0a913401229bffb9300155fa46505d0d8a8311d2b0d4545cbfff38b",
+          "component_pixels": 305307
+        },
+        "changed_pixels": 553,
+        "colors": [
+          [
+            [
+              0,
+              0,
+              0
+            ],
+            123
+          ],
+          [
+            [
+              128,
+              128,
+              128
+            ],
+            283
+          ],
+          [
+            [
+              255,
+              0,
+              0
+            ],
+            147
+          ]
+        ],
+        "lines": [
+          {
+            "y": [
+              93,
+              93
+            ],
+            "x": [
+              58,
+              274
+            ],
+            "pixels": 136
+          },
+          {
+            "y": [
+              153,
+              153
+            ],
+            "x": [
+              67,
+              297
+            ],
+            "pixels": 147
+          },
+          {
+            "y": [
+              226,
+              226
+            ],
+            "x": [
+              85,
+              279
+            ],
+            "pixels": 123
+          },
+          {
+            "y": [
+              332,
+              332
+            ],
+            "x": [
+              59,
+              289
+            ],
+            "pixels": 147
+          }
+        ],
+        "file": "links-3200-links.caj-125-p2.png"
+      }
+    ],
+    "repeats": [
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-75-repeat",
+        "page": 1,
+        "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+        "exact": true
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-2500-links-75-repeat",
+        "page": 2,
+        "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+        "exact": true
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-125-repeat",
+        "page": 1,
+        "rgb_sha256": "099bff0759402ed5e514efa67e27251d26a4183bb9222c3b13fed50902ff1418",
+        "exact": true
+      },
+      {
+        "label": "fonts-ready-linkcontrol-links-3200-links-125-repeat",
+        "page": 2,
+        "rgb_sha256": "f39185768ef5b21b5bfa30c5706b38d5ed9560f689c0f4cc2d10ad284b8d0c44",
+        "exact": true
+      }
+    ]
+  },
+  "pdf_array_views": [
+    {
+      "zoom": 75,
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkpdf-baseline-75",
+        "fonts-ready-linkpdf-page-75",
+        "fonts-ready-linkpdf-annotation-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "28cc3bbe9c0a2249ce1c8a8181354f36d954005c9f86b43f448d7165f4c0154f",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "356a0a45a61511493f63e1a2e98ebc341ac659aef2c864af6cfa6d1316862cdf",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "0ff6a7bae4098a3cd31de8d1b557095d1a1f88f5969858d1180aad4a96c35d75",
+          "component_pixels": 72571
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            170,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 712,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            171,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 964,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            171,
+            191
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 664,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            25,
+            47,
+            171,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 800,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            25,
+            46,
+            171,
+            191
+          ]
+        }
+      ],
+      "file": "links-75-p1.png"
+    },
+    {
+      "zoom": 75,
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkpdf-baseline-75",
+        "fonts-ready-linkpdf-page-75",
+        "fonts-ready-linkpdf-annotation-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "28cc3bbe9c0a2249ce1c8a8181354f36d954005c9f86b43f448d7165f4c0154f",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "4dcee34447c83a8e193a8abddba0ff75f1d57400a09d46366785c2c158fd1968",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "4d4914cdfeec5ad56fc05ba3b13b88fb7b7a66122346c1af384a7cfcd0082906",
+          "component_pixels": 72571
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            180,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 712,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            181,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 964,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            181,
+            201
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 664,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            35,
+            57,
+            181,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 800,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            35,
+            56,
+            181,
+            201
+          ]
+        }
+      ],
+      "file": "links-75-p2.png"
+    },
+    {
+      "zoom": 125,
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkpdf-baseline-125",
+        "fonts-ready-linkpdf-page-125",
+        "fonts-ready-linkpdf-annotation-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "77de06135323122b69cebed506a9f78ad9649308de7c1d407a10f82fea71a302",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "63d057d94af3b9634515c4150f4a6f82334ed92ee7f0763a23bd35a3318ed0f0",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "bda26dca5104609ac1f1c79ca5b40e707423ba933c7be52ea69a8223cee7ec41",
+          "component_pixels": 199024
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 690,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            282,
+            316
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1936,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            284,
+            318
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1304,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            284,
+            317
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 1246,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            41,
+            78,
+            284,
+            318
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1422,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            41,
+            77,
+            284,
+            317
+          ]
+        }
+      ],
+      "file": "links-125-p1.png"
+    },
+    {
+      "zoom": 125,
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkpdf-baseline-125",
+        "fonts-ready-linkpdf-page-125",
+        "fonts-ready-linkpdf-annotation-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "77de06135323122b69cebed506a9f78ad9649308de7c1d407a10f82fea71a302",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "e0ab903c3f489bacd31df2506e129d462f6ac748d5a9558243d8b145155a5f42",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "eee516ee42d196ddc4daccc9b07a700372ba606a09e6eab480b24e5ae607d347",
+          "component_pixels": 199024
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 689,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            298,
+            333
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1950,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            301,
+            334
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1305,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            301,
+            334
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 1261,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            58,
+            94,
+            301,
+            334
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1450,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            58,
+            93,
+            301,
+            334
+          ]
+        }
+      ],
+      "file": "links-125-p2.png"
+    }
+  ],
+  "pdf_explicit_views": [
+    {
+      "zoom": 75,
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkpdf-baseline-75",
+        "fonts-ready-linkexplicit-page-75",
+        "fonts-ready-linkexplicit-annotation-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "28cc3bbe9c0a2249ce1c8a8181354f36d954005c9f86b43f448d7165f4c0154f",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "6f430788f4538c2b06e73036f74ab2c988dabad634b5c2efa357b5d73897574a",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2a12f856fc67b2761a5084c2e169d8f4f358c33fd0681103ccfb8fba90884352",
+          "component_pixels": 72571
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            170,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 759,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            170,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 960,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            170,
+            191
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 595,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            25,
+            47,
+            168,
+            191
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 714,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            25,
+            46,
+            168,
+            191
+          ]
+        }
+      ],
+      "file": "links-75-p1.png"
+    },
+    {
+      "zoom": 75,
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkpdf-baseline-75",
+        "fonts-ready-linkexplicit-page-75",
+        "fonts-ready-linkexplicit-annotation-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "28cc3bbe9c0a2249ce1c8a8181354f36d954005c9f86b43f448d7165f4c0154f",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "b072ffa7e7ecaf80abf08c4fe8af67178d6a1933edc18c88b89279b1d056bcd6",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "5dcab0a75e4edd1e19f1a1deadcf463b21409691576e8cfddacfc97f06cce174",
+          "component_pixels": 72571
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 557,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            180,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 759,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            180,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 960,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            10,
+            11,
+            180,
+            201
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 595,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            35,
+            57,
+            178,
+            201
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 714,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            35,
+            56,
+            178,
+            201
+          ]
+        }
+      ],
+      "file": "links-75-p2.png"
+    },
+    {
+      "zoom": 125,
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkpdf-baseline-125",
+        "fonts-ready-linkexplicit-page-125",
+        "fonts-ready-linkexplicit-annotation-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "77de06135323122b69cebed506a9f78ad9649308de7c1d407a10f82fea71a302",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "15a17e97afb9ff1992d8ba0aa9f5ab6306e52142d6d84a8a188b69faf7adac65",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "17236cb39e5507a5a7baa10d71784c46abe389488c5bc74f5bfa54821dd25f03",
+          "component_pixels": 199024
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 690,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            282,
+            316
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1793,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            282,
+            318
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1265,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            282,
+            317
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 1103,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            41,
+            78,
+            280,
+            318
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1258,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            41,
+            77,
+            280,
+            317
+          ]
+        }
+      ],
+      "file": "links-125-p1.png"
+    },
+    {
+      "zoom": 125,
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkpdf-baseline-125",
+        "fonts-ready-linkexplicit-page-125",
+        "fonts-ready-linkexplicit-annotation-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "77de06135323122b69cebed506a9f78ad9649308de7c1d407a10f82fea71a302",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "eb387c1c286c50641b91b5332dac337ced106d441b27efca91139c40a46c716b",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "62c092c646de4151c0c5d163ff7e29c239c684de2dc33e18250d274670cfb516",
+          "component_pixels": 199024
+        }
+      ],
+      "against_source": [
+        {
+          "comparable": true,
+          "changed_pixels": 689,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            298,
+            333
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1812,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            298,
+            334
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1286,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            18,
+            19,
+            298,
+            334
+          ]
+        }
+      ],
+      "against_baseline": [
+        {
+          "comparable": true,
+          "changed_pixels": 1123,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            58,
+            94,
+            297,
+            334
+          ]
+        },
+        {
+          "comparable": true,
+          "changed_pixels": 1288,
+          "maximum_absolute_channel_delta": 255,
+          "bounds_in_page": [
+            58,
+            93,
+            297,
+            334
+          ]
+        }
+      ],
+      "file": "links-125-p2.png"
+    }
+  ],
+  "pdf_invariants": [
+    {
+      "route": "link-pdf-diagnostics",
+      "annotation_pdf_sha256": "c9529bc457fc4a661a8777a1a1c6cf546f855787e5fcc2ce921257c48bbe0910",
+      "existing_raw_content_and_resource_graphs_exact": true,
+      "page_boxes_exact": true,
+      "object_ids_may_be_renumbered": true,
+      "links": 8
+    },
+    {
+      "route": "link-pdf-explicit",
+      "annotation_pdf_sha256": "67538d96a307fd94660248bb2264fdad81a4965c4c32dcdc2adf15fbc77507b9",
+      "existing_raw_content_and_resource_graphs_exact": true,
+      "page_boxes_exact": true,
+      "object_ids_may_be_renumbered": true,
+      "links": 8
+    }
+  ],
+  "actual_pdf_invariants": [
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "route": "link-actual",
+      "pdf_sha256": "414f8f371c9292b93b7c0a65d6b8ce67f3dddd593a0d68006b799e654f0f457d",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 35
+    },
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "route": "link-alpha",
+      "pdf_sha256": "c6cb93e254d68ea9972bc52422b5c63f7e53715a20fc42c5310954e417bc9985",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 35
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "route": "link-actual",
+      "pdf_sha256": "af33fb1ed03b23cadcf27872a287ea6f9cb18b5ff6efdcfadac967da2ca39210",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 75
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "route": "link-alpha",
+      "pdf_sha256": "504dc7aba224ca07f10d750c8f1da3eaac6a55b19cee4c37b2c5700880090199",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 75
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "route": "link-actual",
+      "pdf_sha256": "0e3709224344e935ae9cd79205286bc9330c4fad91bc606eaf7f47ad00ec1c88",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 23
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "route": "link-alpha",
+      "pdf_sha256": "67b783fcb5c0f4b5d3e2fee88dac02ca7627793bf50667fac6a352df9f00ba42",
+      "body_content_and_resource_graphs_exact": true,
+      "annotations": 23
+    }
+  ],
+  "actual_pdf_views": [
+    {
+      "name": "b9a64bf99e4b",
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-ruleproduction-b9a64bf99e4b-pdf",
+        "fonts-ready-linkactual-b9a64bf99e4b"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "8e4bf252fcb33b42fb29d9c13a50f69f4f593ee907f9fad97276b676f8413aa0",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "239cca89b8756f752ab9211de0d8c7ab8f77d848ef63b2b34eac437700e3a8c8",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 12124,
+      "after": 12971,
+      "file": "b9a64bf99e4b-p1.png"
+    },
+    {
+      "name": "b9a64bf99e4b",
+      "page": 4,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-ruleproduction-b9a64bf99e4b-pdf",
+        "fonts-ready-linkactual-b9a64bf99e4b"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "6d756078a0fcc54e091d3704eae44643a6121bf5641191a9d1979b046debdaa5",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "134ff8e6ae8d686e834e2fd482d0d8ca97060bacd722e27a48c1a48023ccbfd4",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 6608,
+      "after": 9366,
+      "file": "b9a64bf99e4b-p4.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-ruleproduction-d6a23a9cfd0f-pdf",
+        "fonts-ready-linkactual-d6a23a9cfd0f"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "75f3a2f57e06afb1e8c6e5259ce6bd2f87758065d1007992d867437d9876563c",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "0675cb81a302352de9591e9743d24b438dfc08cd17e39ab966444adda947726c",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 25289,
+      "after": 26104,
+      "file": "d6a23a9cfd0f-p1.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 5,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-ruleproduction-d6a23a9cfd0f-pdf",
+        "fonts-ready-linkactual-d6a23a9cfd0f"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "c07d94bf333dd9b542fecb6ac5691d046026d1ab9a3a9f39d59932fda5c572df",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "67b3b2ce46c164dfa95c7873f6f182e6145b33629f205508471d0d3a1238262c",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 28549,
+      "after": 33901,
+      "file": "d6a23a9cfd0f-p5.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 1,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-ruleproduction-90e7b47716c3-pdf-retry",
+        "fonts-ready-linkactual-90e7b47716c3"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a1f15e29011839c783d22cc8176f5cf59e9a5561783eebcf5392447d3ee16fa9",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "50a874787e3e45226e0b818d05a2f186fdda1b313da93e7329d9131ed6d87126",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 15743,
+      "after": 16206,
+      "file": "90e7b47716c3-p1.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 6,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-ruleproduction-90e7b47716c3-pdf-retry",
+        "fonts-ready-linkactual-90e7b47716c3"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "09e3431f4405129629fab71c6de516f2853fd807d7b762523d1c2cd61bd0bded",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "f9d8290aa6117ee9f0ee5e31336c4ddcc94c8ac51a0b7257455415730af1a584",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 14066,
+      "after": 15012,
+      "file": "90e7b47716c3-p6.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-ruleproduction-d6a23a9cfd0f-pdf",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "004053715efdb185a6412646caf7f1a985d057d7d38960dfc8030ccd795ec975",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d0bb05e30d05cea130db3ce0cdddfd3d4854d1dc470e82944a5e05d85fdf9c6f",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d7960d5b2c1f8ef07420f1eb820f3dd05362af9d307ae9641de7a4877f8a5eaa",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 71518,
+      "after": 71530,
+      "file": "d6a23a9cfd0f-p2.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 4,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-ruleproduction-d6a23a9cfd0f-pdf",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d6337b46d196d17c03d97efee6c086bd6a2e798d0cf9ecf3593343de91d57bbf",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "5d1f4b969c68367b14b6f79c1478318d31e1ea2b6ea1f5a450a4237fefbc3ca1",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "a8f2fb07c7ce7dcd08a1aa07e5ceb5a6b5d51cb9f84580726657010335984dc4",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 57331,
+      "after": 57343,
+      "file": "d6a23a9cfd0f-p4.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 2,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-ruleproduction-90e7b47716c3-pdf-retry",
+        "fonts-ready-linkactual-90e7b47716c3-remaining"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "908171848bd243ad117275750e2b6723362c52f00b3bdc8c35966f8796b38c1f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "4f4d5a9dd33a9b79c0d45124a4f641568f9d940252286310f936503f9f595bf7",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "847bb6de4517c0df70187fd674fd21ebd389a4cd3dee4e6253cff69f90aae4ac",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 12102,
+      "after": 12110,
+      "file": "90e7b47716c3-p2.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 3,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-ruleproduction-90e7b47716c3-pdf-retry",
+        "fonts-ready-linkactual-90e7b47716c3-remaining"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "28c58837d86e1c3d522cd2f31e670ac11c3128a80d1fca3b6f32b677152c5ad7",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "dbb77209677ac8b5a4878d6d5bda3cbbbbf8091f54258a3ce89b8e28d74155bd",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "b9814c4a29c1b5094378a2a56e2720b355e4825691823af0ea0da874b5af0b9d",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 8425,
+      "after": 8440,
+      "file": "90e7b47716c3-p3.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 4,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-ruleproduction-90e7b47716c3-pdf-retry",
+        "fonts-ready-linkactual-90e7b47716c3-remaining"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "9cf3afc53e29c9abe16c364bdc0636e4cfd83f240f10807728f3c0581f4009a3",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "60b6bdfbce4f791bb6ab9c4d42d091486d7e6f680a8f27b7c5eeb8e833f501c3",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "c88b12eda4d743890c85fb418e6113dbe5ca11cb8438565796351cd768bc971a",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 5427,
+      "after": 5586,
+      "file": "90e7b47716c3-p4.png"
+    }
+  ],
+  "alpha_views": [
+    {
+      "name": "b9a64bf99e4b",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkactual-b9a64bf99e4b-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "239cca89b8756f752ab9211de0d8c7ab8f77d848ef63b2b34eac437700e3a8c8",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "88442d9bfcccf44c57d9d543bb501b2b978c66834e6f66a792c0653027a08d2f",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 12971,
+      "after": 13042,
+      "file": "b9a64bf99e4b-75-p1.png"
+    },
+    {
+      "name": "b9a64bf99e4b",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkactual-b9a64bf99e4b-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "134ff8e6ae8d686e834e2fd482d0d8ca97060bacd722e27a48c1a48023ccbfd4",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "8b6043fb17c5c5c259fb62c7268007ac4e39e657afb65baa6c0219a6d06a8105",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 9366,
+      "after": 9753,
+      "file": "b9a64bf99e4b-75-p4.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-linkactual-d6a23a9cfd0f",
+        "fonts-ready-linkactual-d6a23a9cfd0f-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "0675cb81a302352de9591e9743d24b438dfc08cd17e39ab966444adda947726c",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "a19d78c55e8e512dbed08275553289ebe9c97da38a597e05d57617f94a7f9403",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 26104,
+      "after": 26263,
+      "file": "d6a23a9cfd0f-75-p1.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "004053715efdb185a6412646caf7f1a985d057d7d38960dfc8030ccd795ec975",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d7960d5b2c1f8ef07420f1eb820f3dd05362af9d307ae9641de7a4877f8a5eaa",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "c25d3cbdecc3955a72a68ab1db945f518f55f39a45e048c0cd15a69e3d6f4e7b",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 71530,
+      "after": 71530,
+      "file": "d6a23a9cfd0f-75-p2.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d6337b46d196d17c03d97efee6c086bd6a2e798d0cf9ecf3593343de91d57bbf",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "a8f2fb07c7ce7dcd08a1aa07e5ceb5a6b5d51cb9f84580726657010335984dc4",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "83be6a2c42bc67e031f33613ffe0b6cebc73f5e83b5e641b91317582f8a84fb8",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 57343,
+      "after": 57343,
+      "file": "d6a23a9cfd0f-75-p4.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 5,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-linkactual-d6a23a9cfd0f",
+        "fonts-ready-linkactual-d6a23a9cfd0f-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "67b3b2ce46c164dfa95c7873f6f182e6145b33629f205508471d0d3a1238262c",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "bee4fcdf4c68f191236902ff0926dd67733d8bfb4f7d14cb7d8bbc81c0b73a09",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 33901,
+      "after": 34666,
+      "file": "d6a23a9cfd0f-75-p5.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-linkactual-90e7b47716c3",
+        "fonts-ready-linkactual-90e7b47716c3-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "50a874787e3e45226e0b818d05a2f186fdda1b313da93e7329d9131ed6d87126",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "982b48d1bf2dfdbbe64bec9f82ea280027b27b0fce02f6de32c7ac4f5a4b02a8",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 16206,
+      "after": 16304,
+      "file": "90e7b47716c3-75-p1.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "908171848bd243ad117275750e2b6723362c52f00b3bdc8c35966f8796b38c1f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "847bb6de4517c0df70187fd674fd21ebd389a4cd3dee4e6253cff69f90aae4ac",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "c2030760dcf08500fabc5293ebd5beb90f38a6fbcc8598592e6f05d2551e8fd0",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 12110,
+      "after": 12116,
+      "file": "90e7b47716c3-75-p2.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 3,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "28c58837d86e1c3d522cd2f31e670ac11c3128a80d1fca3b6f32b677152c5ad7",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "b9814c4a29c1b5094378a2a56e2720b355e4825691823af0ea0da874b5af0b9d",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "c281de6be9815aa4dd55d1d1b0e522e8461bb78c77a1a2e18a4a15dea2c3d6b4",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 8440,
+      "after": 8440,
+      "file": "90e7b47716c3-75-p3.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "9cf3afc53e29c9abe16c364bdc0636e4cfd83f240f10807728f3c0581f4009a3",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "c88b12eda4d743890c85fb418e6113dbe5ca11cb8438565796351cd768bc971a",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "19d49f28ad62e04b30fea78687030387049e29ba9ff261f15c08677f5a133254",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 5586,
+      "after": 5632,
+      "file": "90e7b47716c3-75-p4.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 6,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-linkactual-90e7b47716c3",
+        "fonts-ready-linkactual-90e7b47716c3-alpha"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "f9d8290aa6117ee9f0ee5e31336c4ddcc94c8ac51a0b7257455415730af1a584",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a20ed20107dab1c0ab8e860e5425d18a85005ab5254074bff8af8adb65bfa9cc",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 15012,
+      "after": 15012,
+      "file": "90e7b47716c3-75-p6.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkcontrol-alpha-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2a12f856fc67b2761a5084c2e169d8f4f358c33fd0681103ccfb8fba90884352",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "e12cddefc38b100acddf722f55f4293511741d3f8353f1d32246770d8e816269",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 1033,
+      "file": "controls-75-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkcontrol-alpha-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "5dcab0a75e4edd1e19f1a1deadcf463b21409691576e8cfddacfc97f06cce174",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2e1b1cd2b7972e7b0184870136555713803fbe545ca1737b31a73c62fac47c5e",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 1033,
+      "file": "controls-75-p2.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkcontrol-alpha-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "17236cb39e5507a5a7baa10d71784c46abe389488c5bc74f5bfa54821dd25f03",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "916d4f709afcfacfe6d8274d1271b6bdd386186b5563821a9922b248addad8c3",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1265,
+      "after": 1557,
+      "file": "controls-125-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkcontrol-alpha-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "62c092c646de4151c0c5d163ff7e29c239c684de2dc33e18250d274670cfb516",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "28e3de163aae26e0696d297b48534ca89d3c3683bf8362456e216a38a0dc266f",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1286,
+      "after": 1581,
+      "file": "controls-125-p2.png"
+    }
+  ],
+  "actual_conversions": [
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "baseline_sha256": "d988d73dbeffb1e632e7fac5b2578d838476e58fcca0078cbf46c16565a8786a",
+      "pdf_sha256": "414f8f371c9292b93b7c0a65d6b8ce67f3dddd593a0d68006b799e654f0f457d",
+      "annotations_per_page": [
+        9,
+        0,
+        0,
+        26
+      ],
+      "semantic": {
+        "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "pdf_sha256": "414f8f371c9292b93b7c0a65d6b8ce67f3dddd593a0d68006b799e654f0f457d",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1597,
+            "pdf_glyphs": 1597,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "51bc70c6844fe9bb5ffadfe1df7fcd70bb06593e3125380a138593d2a3255f38",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 2052,
+            "pdf_glyphs": 2052,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a35083b224b46c7e7cda898381d6a0bf205c1f3589dbc2d383608afc49e6c6b1",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1683,
+            "pdf_glyphs": 1683,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "5e7562b705aa85802488a58e19a4750c2c0bdcc297d1a2fe87165b783b328d71",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 2233,
+            "pdf_glyphs": 2233,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "2274ed59dd19cb918031be4b08b13b6dedfa95218a130ea56b8af6e3fcdbe736",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      }
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "baseline_sha256": "90a05f465a2495525455b791d1f8d49c802c1c0989b772006febb61e61300d3c",
+      "pdf_sha256": "af33fb1ed03b23cadcf27872a287ea6f9cb18b5ff6efdcfadac967da2ca39210",
+      "annotations_per_page": [
+        16,
+        1,
+        0,
+        1,
+        57
+      ],
+      "semantic": {
+        "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "pdf_sha256": "af33fb1ed03b23cadcf27872a287ea6f9cb18b5ff6efdcfadac967da2ca39210",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 2492,
+            "pdf_glyphs": 2492,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "6f65ab79415b3f2832299133eef35e459e83ef7093061f7efafdb6c6d17e9441",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1597,
+            "pdf_glyphs": 1597,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "a23838ea761d3be497472f9affc03c95519fe7038a0a11f201596d0eaabbdefa",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 1731,
+            "pdf_glyphs": 1731,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "04409de79e41768acaeeeaca43b03a19aa563acf6dbaf7a1f4c8a2dfb2fe9939",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 1905,
+            "pdf_glyphs": 1905,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "7cdb778e7a8128927507d6c6916e9641c1c3ee62f74a242ab2fcd3f17eba0bd9",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 2552,
+            "pdf_glyphs": 2552,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "65c8a9bf3b62270758639e831c12fd488ad551c313dbd357f865383915f10394",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      }
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "baseline_sha256": "13f3766c9a94124e577f1c6eca216f52640409a1ae92f6beacb45d76f48ca483",
+      "pdf_sha256": "0e3709224344e935ae9cd79205286bc9330c4fad91bc606eaf7f47ad00ec1c88",
+      "annotations_per_page": [
+        13,
+        1,
+        1,
+        1,
+        0,
+        7
+      ],
+      "semantic": {
+        "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "pdf_sha256": "0e3709224344e935ae9cd79205286bc9330c4fad91bc606eaf7f47ad00ec1c88",
+        "status": "PASS",
+        "pages": [
+          {
+            "page": 1,
+            "source_glyphs": 1015,
+            "pdf_glyphs": 1015,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "f2dca508d347c63179f4bf57dea30ecf0d2133632200e8af699819f14536e391",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 2,
+            "source_glyphs": 1338,
+            "pdf_glyphs": 1338,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "497f614c7a1a0c89cfcdcd4a4d550433f8d9022080ccc377a76df2f1379674a3",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 3,
+            "source_glyphs": 840,
+            "pdf_glyphs": 840,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "ec2aa2a5e1f152763516b0892819e4b007c14af4450a59e140b2f1c3544940c1",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 4,
+            "source_glyphs": 986,
+            "pdf_glyphs": 986,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "1b2edfdb80a581a20723f2408ed966d91461d8c7ec2c230e1b9bae196bb0a406",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 5,
+            "source_glyphs": 801,
+            "pdf_glyphs": 801,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "17dc792e85d83dc4f806a25e8f9494306e9f2d0d27e150b60d06f8674ef50c83",
+            "ignored_hnb_tail_bytes": 0
+          },
+          {
+            "page": 6,
+            "source_glyphs": 1658,
+            "pdf_glyphs": 1658,
+            "unicode_order": "PASS",
+            "glyph_sequence_sha256": "373acfcf55c04736b7ea89d7574aab1956a1e1e9585aecf734bb4b938d5a07d1",
+            "ignored_hnb_tail_bytes": 0
+          }
+        ],
+        "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-b9a64bf99e4b-source",
+      "input_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "aa0389823f432c800ae28d52162c32cf0c70bb624456bfdd16a6f44f051803cc",
+      "closed_sha256": "ffe40688a814fc2e7b4dada97439cb73e07af6038a9c5e1fc1176b18403a3e39",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-b9a64bf99e4b-repacked",
+      "input_sha256": "19fd20954fc0a725b9d0a06437928fd06a743922b5c34c72b092255307a02535",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "6c6930ff3017582f1399009b06379692655f7e6926d115171e1f4eef1518dcf3",
+      "closed_sha256": "c1ff84d41919ead513d12e2ac5f1c3867d2eb9d872a113655f90d3444ccae1d8",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-b9a64bf99e4b-no-notes",
+      "input_sha256": "d91d319aece4265298fb413b929a0a357f2e57e05447c96f9d2ce44ce8892a5f",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "eb7dfa309e3637d155469401da6dfa0013a231c24ba27761d9e76b02f26ae291",
+      "closed_sha256": "5341ed9cbaf4d969e3694c10979dea3dd6a1b19207e687dcb66e3c2c210323f8",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-b9a64bf99e4b-no-info",
+      "input_sha256": "3fcecb0b8c6c2b8b95e5dea9f8fa1733165bfb715412c543afadbb25d1d56e37",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "e78fe4bb980d5472c6cec291736a09a6f544b0a06e3a79f854c85cb1bee1d64a",
+      "closed_sha256": "6eb5a1e4bd778061ee677392132570308d1efd847dd2e047be35988204e52efb",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+      "input_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "zoom": 75,
+      "pages": [
+        1,
+        5
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "9a309d7566637b23985d9b25e949564610f0fab6bb88b036df15f28ba462f7d6",
+      "closed_sha256": "59019b5c305b3c27e2b1c417ba0be220a245b05980027e3ab056e18314ff0c4c",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-d6a23a9cfd0f-repacked",
+      "input_sha256": "5fe84334363f5ebaf849c8f72e848fc819cddef4cac2380565c60dbfd010aed3",
+      "zoom": 75,
+      "pages": [
+        1,
+        5
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "3ac63c1d747a00a732d6c43f7d2192d69bb75f9e17b281be2afd994c34ede3a3",
+      "closed_sha256": "69de771ee56cee9b9bf28471fa36d6e7b63a74911f24c80c59bef7e943bed20e",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-d6a23a9cfd0f-no-notes",
+      "input_sha256": "4cb45064bc5f3a9d8f53b7d6bfc4f701b4b0ef325f6724bfc80b56ce6fd38ead",
+      "zoom": 75,
+      "pages": [
+        1,
+        5
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "5ab62a79575fe5b00dfd12d0e3c4f27bc86367bb42478a958b3a5b4bcfbcbf9b",
+      "closed_sha256": "0bc9f9941cc59d9017e4c99a2a660394add06807202324a5aa297fe0bd70e073",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-d6a23a9cfd0f-no-info",
+      "input_sha256": "8916a3c1ef31e4ecc49630e0738d0418bee853b8897197025edfc921d671b8b5",
+      "zoom": 75,
+      "pages": [
+        1,
+        5
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "eec3f54396aedb35f6cbb9810905a152ddb030ba36ae5ce808d7169953845364",
+      "closed_sha256": "b14d841feca742df65be5e8f1e362fb4056d4e9c73d89b294a0c33d8541256c8",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-90e7b47716c3-source",
+      "input_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "zoom": 75,
+      "pages": [
+        1,
+        6
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "011880a9175113528bcb8c4c11afc458876875f5428fb710bc06a991996d5d91",
+      "closed_sha256": "16a7e3a8ddbe80e6973057e4659c925780488aa653eee068f6d147067f5ce9ae",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-90e7b47716c3-repacked",
+      "input_sha256": "1415c597b0bfa9eb735f3345527ab2ac251fd417c866797892a87918847bfcf8",
+      "zoom": 75,
+      "pages": [
+        1,
+        6
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "eff52ab2ea743317eb7f9bcd726a7857150db97ff786b6ae4109935512158538",
+      "closed_sha256": "c91f56a5bd547cd091ba0ad761b231cc704629b35e52ac7195ebbd6c53a36ac9",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-90e7b47716c3-no-notes",
+      "input_sha256": "b214161102b26e4548b7702013249c66d3a7d640cb067ba0d568978008ab4948",
+      "zoom": 75,
+      "pages": [
+        1,
+        6
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "ade8db622f3a531a778653608ed195c515e9ce5278df02efa9978590a6829dfa",
+      "closed_sha256": "0da8fa6740423fd5063ab1c717612c2f003c77671e2e1dbe3cd9ebb99bd00fb8",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-metadata",
+      "label": "fonts-ready-linkmeta-90e7b47716c3-no-info",
+      "input_sha256": "a42dc0907db549ea2776424f7db49e82cc0182a3dd2b23c47c7963228e9bc8db",
+      "zoom": 75,
+      "pages": [
+        1,
+        6
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "489b4c6ad27b636ffc34c64acd6c6c4b7a26efe36cf6279ed0d58665d0add156",
+      "closed_sha256": "7be0a6cd5deb61e7b77f160640a7d41944bef0ab1469bdfa4dce4343117d8f56",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-2500-links-75",
+      "input_sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "134d1af9fdd7e2dd7854be919aed36e2227e1803ac7cf853fad3ca4b272be00b",
+      "closed_sha256": "c239f006905da9b8c2c18c0598ddcf5284dddedcaf6d709419b531e8f476e870",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-2500-links-125",
+      "input_sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "b05785d208cdf2e24b0c4d720f11f03941986ed49ec1b1d32df2a6519732a353",
+      "closed_sha256": "9493f6813937ec2bf3808c72b304ed6567700a31ed2b4f75a752b1a44b601870",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-2500-empty-75",
+      "input_sha256": "2c48b7c4f5e2ab0c1eb9242f9dca2e641622b56266455f7bb0160c591c71525a",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "681ec97b3d550745f0a97148275e4b5c9a7b4c5e5aa47fb2a9899ee3cf38fc57",
+      "closed_sha256": "6b712940e1073984cf61f35274560814a63c7961fa3c57db9e93031cf703a72b",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-2500-empty-125",
+      "input_sha256": "2c48b7c4f5e2ab0c1eb9242f9dca2e641622b56266455f7bb0160c591c71525a",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "44dd01ac9b1f7fe7f180edf5fe7c580697e4193c4b9b5c5f26332fdc77619a05",
+      "closed_sha256": "844ae4d3667753a3c3f7161c9e406ce3b244bd48a01640870a15aee944660b9c",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-3200-links-75",
+      "input_sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "5c5372629de858990347076a507bf668ed09410cf56cfe5f3d331b7b7f322c71",
+      "closed_sha256": "81e923f8dfe8c36ff0fea80e24fb3048164053cada7d00d67f49cb70dd1d333e",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-3200-links-125",
+      "input_sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "87184437f47b7bcf3913bf3c4f7157fcfbe9b2fe3133246619e049720b207421",
+      "closed_sha256": "e85482c878c5055878851b92511135a6a6c20b3a52679ab60061af0aba0796b8",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-3200-empty-75",
+      "input_sha256": "3a6b591dbe1ae56a2f146b5b746b44a03099e79cd08378057a69f2425b9836b9",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "116814038b1fdfafbb7e3c0c4d6e4e4ad2e39958e66ffec26aced7d47b90c7c0",
+      "closed_sha256": "0780f8c5254585b5445fe625e5038d3715b58cb68209073f51809073ef63f8ec",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-3200-empty-125",
+      "input_sha256": "3a6b591dbe1ae56a2f146b5b746b44a03099e79cd08378057a69f2425b9836b9",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "842f20d4cac2f48f1ffa9bb5cfa41db3a4a4d4e77aa1a8d33df16c9664744630",
+      "closed_sha256": "0e0e9ccd1e5f7fbda2028851bd6c90c7be52850f1a6e796203d4b68eda535429",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-2500-links-75-repeat",
+      "input_sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "f1fd4216e77531877aaf9059ff50588f206b293baa43c2d36c9516fe7910c451",
+      "closed_sha256": "e86d060988b6449270bd9658ec98aa35e4615188bedd446e8bf32ef7ed3ec463",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-controls",
+      "label": "fonts-ready-linkcontrol-links-3200-links-125-repeat",
+      "input_sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "66f5d145a80d3ac23b02f0542b95056b0235cdf36b4af073e05cd1d712247eb6",
+      "closed_sha256": "dbbcfa25b069c1f9cc858c9fad7e8c0d150f83719d388195d42e6c638c77bcc4",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-baseline-75",
+      "input_sha256": "9bff2653d0ad47e982cdc43067dd9c8e71efaf95eea421df05fe0afea33785d9",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "fb9178f15933389f821c279115858e8655b541db6cb1368e83e6a84dcba0955a",
+      "closed_sha256": "f76555c7c3c3df7c94055973b34e627f2aea27e8cbf49d8fefae185168b90576",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-baseline-125",
+      "input_sha256": "9bff2653d0ad47e982cdc43067dd9c8e71efaf95eea421df05fe0afea33785d9",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "775c69838ed06fbfa9ec59485cd3e2cbc088648ef9900e4f18079f787fa3f0c8",
+      "closed_sha256": "13c5d436db82fda092b0799eacc73a05aa52e7ec05b9cfabdae12ed68c8e22ff",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-page-75",
+      "input_sha256": "0a84352fbf6079f857eacf083174be1419a04dfddaa0d86e94a71b134f18f9ad",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "c302d4eacdce96aeaa5397d3c6ce50d05d4891dda5014676f34ddec69ec65c67",
+      "closed_sha256": "cad6c6dcb97f6377bc4ff125eeb539baee3231943e98001d9a83354035b99d6a",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-page-125",
+      "input_sha256": "0a84352fbf6079f857eacf083174be1419a04dfddaa0d86e94a71b134f18f9ad",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "f17b838211138ed17803f6098a2371e1931e73fc0ad48d479f13e588e3d3e42d",
+      "closed_sha256": "ebb2373a57fccb2c5ec3acbb9b997ea15d81477fd5e76ed823b7c8e23cbc58d4",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-annotation-75",
+      "input_sha256": "c9529bc457fc4a661a8777a1a1c6cf546f855787e5fcc2ce921257c48bbe0910",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "6cc647bef12e5e646f53d13959fc3042f53f4c8779473857c0fda11e069b8878",
+      "closed_sha256": "62afeb85f8bec3e18a598759d935889ab247cec6454db34ce8df36920babd90d",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-pdf",
+      "label": "fonts-ready-linkpdf-annotation-125",
+      "input_sha256": "c9529bc457fc4a661a8777a1a1c6cf546f855787e5fcc2ce921257c48bbe0910",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "24ccad1277fb383c23eac1f7cf3d23d343f143bcdb994ac276b8d0e1beeaf946",
+      "closed_sha256": "161d4070dd74b203ba9eeb5725c67d2dacb3f0357c4e06e10410857c15654c86",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-explicit",
+      "label": "fonts-ready-linkexplicit-page-75",
+      "input_sha256": "41229d1626ad68672b5e1c811a6d3187390b6e339902e2df250593f7f5de12ac",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "797438591027d13ba5b73438e685899dc8afd2d0735f7591ab9cc13aa6c051a1",
+      "closed_sha256": "63b40c24d8fe66f3c7bc71d405470e4bb3ac93a74d7ed3c86e6bb749913bec46",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-explicit",
+      "label": "fonts-ready-linkexplicit-page-125",
+      "input_sha256": "41229d1626ad68672b5e1c811a6d3187390b6e339902e2df250593f7f5de12ac",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "ad358b9943247033e2f146d9258664a981f692b3b4b156f532c6317b1873ffbb",
+      "closed_sha256": "2d07d1fe5fd84e0f4ea1e9dbdc57035b4d0abefc2ab6ee412ed1ef95dbe9a375",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-explicit",
+      "label": "fonts-ready-linkexplicit-annotation-75",
+      "input_sha256": "67538d96a307fd94660248bb2264fdad81a4965c4c32dcdc2adf15fbc77507b9",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "4977ac4e005a317535d8658c10a8344c28e3afe38eda8efa1261ecd5dc482153",
+      "closed_sha256": "26f58a87f02f8b1554b9146e94db42d768ddd4735b69d6a711e28c3e0e565fe6",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-explicit",
+      "label": "fonts-ready-linkexplicit-annotation-125",
+      "input_sha256": "67538d96a307fd94660248bb2264fdad81a4965c4c32dcdc2adf15fbc77507b9",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "57ce260e37138fac110a40526d347b53f64496e6dd4908c2e2bc89863b47a517",
+      "closed_sha256": "7dd8ad0a899baa704387fc8c4a7ebefa513c24b9db443d98bcf7b2e3716ba57e",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-actual",
+      "label": "fonts-ready-linkactual-b9a64bf99e4b",
+      "input_sha256": "414f8f371c9292b93b7c0a65d6b8ce67f3dddd593a0d68006b799e654f0f457d",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "582d1e28c5cbceb6fbb5ec1e55bd14c3e30f6e82a65550753864fbcff6b10749",
+      "closed_sha256": "e7156cb93c1f14be1b0ef983986a19b033dbd0a94676f3e0d76b0d8399448d59",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-actual",
+      "label": "fonts-ready-linkactual-d6a23a9cfd0f",
+      "input_sha256": "af33fb1ed03b23cadcf27872a287ea6f9cb18b5ff6efdcfadac967da2ca39210",
+      "zoom": 75,
+      "pages": [
+        1,
+        5
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "d6a74ad68bf2efd4595c3e1501dc2f1c996d0242561f5d4caffc4b1c8c35ce70",
+      "closed_sha256": "3590f09ea47da5edf3a7aeb6e1662256cca99822f89ea3bdc46d732eeccd3924",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-actual",
+      "label": "fonts-ready-linkactual-90e7b47716c3",
+      "input_sha256": "0e3709224344e935ae9cd79205286bc9330c4fad91bc606eaf7f47ad00ec1c88",
+      "zoom": 75,
+      "pages": [
+        1,
+        6
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "50d0a4b9d050998bff066df065382148bed4eca3c7bef98180f632d044251ec2",
+      "closed_sha256": "16cba6c857f114696ef1e83fae8a9b23bd02d5befecaef07f486ea0050078e98",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-remaining",
+      "label": "fonts-ready-linkactual-d6a23a9cfd0f-remaining",
+      "input_sha256": "af33fb1ed03b23cadcf27872a287ea6f9cb18b5ff6efdcfadac967da2ca39210",
+      "zoom": 75,
+      "pages": [
+        2,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "36e4ae46dfec7e0f33ce679b6eff3f9bb6a7edc0d5929d8b881bbcc11d551f46",
+      "closed_sha256": "d84a34093c7647e4face2663cbcf68e6d325daad4f2bf9efa3d72d6633df8a07",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-remaining",
+      "label": "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+      "input_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "zoom": 75,
+      "pages": [
+        2,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "132000d05ba937bae5db4d871a70e9b26b4d45396ffd26891ce9ba7501452355",
+      "closed_sha256": "240325400a5f3792bfcf195b5672e117886d3128e9a4e0326eb961a7afac6ef7",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-remaining",
+      "label": "fonts-ready-linkactual-90e7b47716c3-remaining",
+      "input_sha256": "0e3709224344e935ae9cd79205286bc9330c4fad91bc606eaf7f47ad00ec1c88",
+      "zoom": 75,
+      "pages": [
+        2,
+        3,
+        4
+      ],
+      "admitted_visits": 3,
+      "audit_sha256": "563bcc4130baf524c5a94d29190e6bda4f38cebefcfc60cc1d0b6af4714dadd1",
+      "closed_sha256": "ccc635b206da26c825ad823b7a9720b0166e0552e704ecfd3717d3fcddba8b83",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-remaining",
+      "label": "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+      "input_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "zoom": 75,
+      "pages": [
+        2,
+        3,
+        4
+      ],
+      "admitted_visits": 3,
+      "audit_sha256": "02637c72c9d55997feed82d0ba2fe89d34c645aa258200afc51b2fb25604d67d",
+      "closed_sha256": "27d003c512a8d5452d960b91a31f27c68bfa0e741b04350d7bf40198f1a7c575",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-alpha",
+      "label": "fonts-ready-linkactual-b9a64bf99e4b-alpha",
+      "input_sha256": "c6cb93e254d68ea9972bc52422b5c63f7e53715a20fc42c5310954e417bc9985",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "ea474d2a4741839a82bd88716fd9b02817f0d15f3326d30f392c43338c4a9cbe",
+      "closed_sha256": "f5121374ce4d08bc3033b2c37a1f78eec3430307f1f569b0b4a29a3cbae4db67",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-alpha",
+      "label": "fonts-ready-linkactual-d6a23a9cfd0f-alpha",
+      "input_sha256": "504dc7aba224ca07f10d750c8f1da3eaac6a55b19cee4c37b2c5700880090199",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "admitted_visits": 4,
+      "audit_sha256": "bf43506c7031176ba82a171292325595b8932e37b1abf779e875b215601c431b",
+      "closed_sha256": "891fcd359ca205a949c254ed697df5b8e65192b658a72eba2b52a77529c9c368",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-alpha",
+      "label": "fonts-ready-linkactual-90e7b47716c3-alpha",
+      "input_sha256": "67b783fcb5c0f4b5d3e2fee88dac02ca7627793bf50667fac6a352df9f00ba42",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "admitted_visits": 5,
+      "audit_sha256": "2cce923ec2c513bad2afd7d69eb45b6842a2bec6ed19ac457e00fb9619ba928e",
+      "closed_sha256": "5822c35ed7ee441d030169aec2c1537318d34a721fbe373270958d5bd1930939",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-alpha",
+      "label": "fonts-ready-linkcontrol-alpha-75",
+      "input_sha256": "e6d3ab7fd07bcde7f0478ec21bd7770ea1b851a6fd35d588340c27c896be95d7",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "afcaac1232dccee084054ef7f0c56375f7e87f71915bf3079173a265dca89f6f",
+      "closed_sha256": "eafb8fd8a1799a7a59be919bc631c2befa0a80e740f6f1c4a42fcc86c5ab226a",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-alpha",
+      "label": "fonts-ready-linkcontrol-alpha-125",
+      "input_sha256": "e6d3ab7fd07bcde7f0478ec21bd7770ea1b851a6fd35d588340c27c896be95d7",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "audit_sha256": "00fc8d0de22c0d5a60013c18c0482fa5a229e05635937e0a2c95b0514428d546",
+      "closed_sha256": "6243a85776f04ddc6f36fba985253a2115e19a4440c3f8e42c2e9965e3716218",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    }
+  ],
+  "summary": {
+    "cold_sessions": 44,
+    "admitted_visits": 95,
+    "actual_views": 6,
+    "unchanged_repack_views": 6,
+    "metadata_removed_pixels": 7405,
+    "original_views": 8,
+    "cold_repeat_visits": 4
+  },
+  "observations": {
+    "note_unit": "PointsM",
+    "rect_units_per_pdf_point": 100,
+    "origin": "page top-left",
+    "underline": "bottom edge; observed device row floor(b/100 * 96/72 * zoom/100) + 2",
+    "dash_device_pixels": [
+      9,
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    "color": "00BBGGRR; gray128, black and red controls",
+    "page_sizes": "Changing raw page size leaves link positions unchanged relative to top-left",
+    "pdf_routes": "Both page painting and Link AP paint; six-entry PDF dash array appears uniform in Wine; explicit segments retain dash-dot-dot structure. No production adoption."
+  },
+  "limits": [
+    "Only Type Link / LineStyle4 / ShowType1 / PointsM version1.0 rectangles are controlled; other profiles are unmeasured.",
+    "PDF candidates use a nominal 96-DPI physical approximation (6.75/2.25 point dashes, 1.5 point gap); source dash/gap is device-fixed. Cross-zoom weight/phase differences remain.",
+    "Both opaque and half-opacity Link AP diagnostics cover all11 affected actual pages, but visible weight/phase differences remain. Parser/emitter, malformed-tail behavior, bounded state and runtime parity remain implementation work.",
+    "View toggles did not remove these particular links; print and preview require a printer unavailable in this offline profile. No print or target-navigation evidence."
+  ],
+  "drivers": {
+    "prepare_link_metadata.py": "84dc74c150355f1af5f505504343f461f77bb138cb8bba989cb0e38e03b3eed4",
+    "run_link_metadata.py": "9e37f4f504f6b006a39a6f0a98af4336ea97927633b826f8c567d86565f7a29b",
+    "analyze_link_metadata.py": "0c8af2f3143302af44ffb4f1fc59780cd199cb74a9f6db021134651b4aeb15f2",
+    "run_link_controls.py": "44f3b845659f422c1a668ad01b27e3a4a2f0b7ae9401a8e175b78f90ab98bbd8",
+    "analyze_link_controls.py": "1e660eb0c04e0850ed7e0e1d00c36e9b4c8b7858e3bc65ee919cf4aaea7f38f9",
+    "prepare_link_pdf_diagnostics.py": "a5b7aea52b78de73dcc836abbcee2da0bd9d44cef9ec79341127c904444c6231",
+    "prepare_link_pdf_explicit.py": "9fe23c870a5075c8ce3250a149fecc3839d7a912a94b8fb473545e362921f7db",
+    "analyze_link_pdf.py": "b6474a9fb6e55b0e0dfdbde6d0fd9aef73a00450423f4655996e451ed47fb388",
+    "analyze_link_explicit.py": "6e7372cd7c690e878b555738caaf00ccb2d4a5a83d37bf8d85137b0d9707296c",
+    "prepare_link_actual.py": "d70f8e1afcd8207465423c706a3ba169bb7561f27faa7ebe01314f9a665fa23f",
+    "prepare_link_alpha.py": "cc5b06228f8dd147eceffaf38d54ee5f25f86225b51c301797ccec3ad3335153",
+    "analyze_link_actual.py": "36ef8451936c3d05e4d040d84f207e3f07da54a7cfc49cb22ff191dde466d0ef",
+    "analyze_link_alpha.py": "900430505b3ee66bbf83d1eeed409b2e4c5efb8d797310d1b666e6ebbdee17ac",
+    "run_audit_digit_retry.py": "3810628ab0730bbd298789d7f1e3105f75c191eb0a477e1f9b54ec3f4ee9a1b5",
+    "session.py": "e21b25677bad1ae82338812f2bf1b6c872653b65e6e70a73779f924cab58a6ce",
+    "ui_numeric_v5.c": "443c1961d1d6d9f7d13d3944bffa6d2162fc57a09c5ae5f713b8fb0660bd6da2",
+    "ui_numeric_v5.exe": "6963b378f6fc55a578ca5985b1f6874d1dd61da29779b53c6fc72447879155cc"
+  },
+  "generator_sha256": "b64635ab860d4da740753438a615c6ceca2de51806ca1bfab988dc761423f8e8",
+  "generator_reproduced": true,
+  "alpha_pdfs_reproduced": true
+}

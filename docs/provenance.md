@@ -3931,3 +3931,33 @@ retains all 55 cold sessions, 140 admitted visits, one failed startup and its
 independent retry, rejected finite-width diagnostics and browser setup
 failures. The user's normal-reading criterion accepts harmless subpixel
 differences; the remaining ornament/underline findings stay open under #541.
+
+### C8 application-info link appearances (#545, 2026-10-11)
+
+The [link-appearance study](research/wine-link-appearances-20261011.md)
+independently removes only application-info notes from three actual sources,
+preserving every preceding byte. All six unchanged-XML repacks retain exact
+pixels; removing only notes matches removing the whole tail and removes
+only visible underlines. The 13-document inventory contains 133 links on
+11 pages in these three sources. This extends the appearance evidence for
+#302's previously count-only `NoteItems`; it does not change that completed
+issue's implementation scope.
+
+Per-file provenance review: `scripts/research/wine_link_controls.py` is
+original MIT code using this project's independently established C8 framing
+and observed application-info element/attribute names. Its four documents
+contain independently authored rectangles, page assignments, colors and
+reserved `.invalid` targets, with no external text or font data. They and
+their manifest reproduce exactly. Source controls at two zooms and two page
+sizes establish hundredth-point positions, color order and device-fixed
+dash/gap behavior; four cold repeated visits agree.
+
+The external diagnostic PDF writer uses explicit Link appearance Forms and
+retains original page content and resolved resource streams. A verifier's
+initial object-ID assumption fails because pikepdf renumbers references;
+graph/payload comparison replaces that invalid invariant. PDF arrays,
+explicit segments, actual-page annotation candidates and a half-opacity
+treatment remain diagnostics, with visible weight differences retained.
+No production annotation parser/emitter is adopted. No vendor, foreign
+converter or private HN/JBIG implementation is inspected or copied; corpus,
+font, PDF, XML body and screenshot data remain external.

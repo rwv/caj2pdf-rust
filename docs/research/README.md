@@ -10,6 +10,14 @@ improvements, 14 unchanged rasters and no regressions. Every changed region
 was visually reviewed. Ornament seams and native dashed underlines remain
 separate under #541.
 
+The [link-appearance isolation](wine-link-appearances-20261011.md) establishes
+that missing dashed underlines come from C8 application-info annotations.
+Original controls measure their coordinate, color and device-fixed dash
+behavior. #545 now tracks their preservation: the three affected documents
+contain 133 links on 11 pages. Diagnostic PDF annotations paint successfully,
+but their weight still needs correction; no production annotation change is
+adopted.
+
 The format investigations, oracle reports and validation runs behind the
 decoders now live in the
 [caj2pdf-samples repository](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes)
