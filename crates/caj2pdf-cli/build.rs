@@ -50,11 +50,11 @@ fn main() {
     if let Some(local) = env::var_os("CAJ2PDF_FONT_PACK") {
         let local = PathBuf::from(local);
         println!("cargo:rerun-if-changed={}", local.display());
-        assert!(
-            verify(&local),
-            "CAJ2PDF_FONT_PACK must be the checksum-pinned font pack"
-        );
         fs::copy(local, &output).unwrap();
+        assert!(
+            verify(&output),
+            "copied CAJ2PDF_FONT_PACK must match the pinned checksum"
+        );
     } else if !verify(&output) {
         let temporary = output.with_extension("download");
         let status = Command::new("curl")

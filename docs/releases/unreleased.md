@@ -1,26 +1,5 @@
-# Unreleased: v0.8.0 automatic native-text fonts
+# Unreleased
 
-CLI and JavaScript native C8/HN-B conversions now use a built-in CAJViewer
-7.3 Wine reference preset. Fonts, mode selection, glyph aliases, symbol and
-ornament identities, and full-font embedding require no user configuration.
-
-This intentionally changes the default PDF and distribution sizes. Native
-binaries contain the 58.6 MiB uncompressed resource pack and work offline.
-npm contains the same pack; Node reads it locally, while the browser downloads
-it into a verified OPFS cache on first native-text conversion. The core and
-raw WASM do not embed font programs. See [bundled fonts](../bundled-fonts.md).
-
-Explicit custom fonts keep their previous behavior. To restore installed-font
-discovery, use `--no-bundled-fonts`. To disable all automatic fonts, add
-`--no-system-fonts`, or use JavaScript `hnc8: { fonts: false }`.
-Source builds require curl or a verified local `CAJ2PDF_FONT_PACK`.
-
-No additional document profile is admitted. C8/HN-B outlines remain omitted;
-existing codec, image-raster and unsupported-profile limitations remain.
-The font-data `fonts-v1` release is a build input, separate from a converter
-release. This change is scheduled for the next minor release under the v0.x
-release policy.
-
-The manifests advance to 0.8.0 so the CLI registry package resolves the new
-core preset API, instead of the already-published 0.7.0 core. No converter
-tag or registry publication is part of this PR.
+Changes after [v0.7.0](v0.7.0.md) are prepared in the
+[v0.8.0 candidate notes](v0.8.0.md): automatic bundled native-text fonts and
+mode-specific parameters. The converter version has not been published.

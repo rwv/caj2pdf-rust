@@ -17,8 +17,8 @@ export async function verify(path = target) {
 
 export async function stage() {
   if (process.env.CAJ2PDF_FONT_PACK) {
-    await verify(process.env.CAJ2PDF_FONT_PACK);
     await copyFile(process.env.CAJ2PDF_FONT_PACK, target);
+    await verify();
     return;
   }
   try { await verify(); return; } catch {}
