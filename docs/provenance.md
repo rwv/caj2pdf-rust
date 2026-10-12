@@ -3816,3 +3816,26 @@ the pre-observation correction of a hand-calculated held-out edge assertion,
 guard-padding regressions and both numeric-bound counterexamples. All original
 font programs and page boxes remain unchanged; added edge images are explicitly
 recorded. Production dependencies, APIs and bounded I/O are unchanged.
+
+### Image Forms and direct clipping (#543, 2026-10-11)
+
+The [image-Form study](research/wine-image-forms-20261011.md) records 44 cold
+Wine sessions / 68 admitted visits. Five image-only Form constructions retain
+original payloads, net matrix tokens, fonts, nonimage operators and semantic
+text. Tight ordinary bounds improve a few gray and mixed-page edges, while
+tight isolated groups regress at 100%. The unchanged direct-clip helper then
+reproduces all ten matching ordinary-Form frames. This separates a small
+clipping response from the unresolved general endpoint/sampling correction;
+no production change or new full-cohort/runtime result is claimed.
+
+Per-file provenance review: `scripts/research/wine_image_form_diagnostic.py`
+is original MIT pikepdf research code, independently authored from the public
+PDF Form/group definitions and this project's image operators. It neither
+decodes images nor accepts a target zoom. Its function ASTs match the observed
+prototype; 27 Form PDFs and metadata reproduce byte-for-byte. The existing
+original MIT `wine_image_pattern_diagnostic.py` is reused unchanged; its three
+new direct-clip PDFs also reproduce exactly. Independent MuPDF construction
+checks and every counterexample are retained separately from Wine scores.
+No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
+Corpus, font, PDF and screenshot bytes remain external; production APIs,
+dependencies and bounded I/O are unchanged. #543 remains open.

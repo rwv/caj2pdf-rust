@@ -307,3 +307,12 @@ zooms. Held-out 125/175% failures and numeric-bound regressions remain.
 Both new source/current-PDF pairs and 64 diagnostics reproduce exactly.
 Research JPEG/mask admission checks are corrected with positive and negative
 controls. #543 remains open for a general production correction.
+
+The [image Form and direct-clipping study](wine-image-forms-20261011.md)
+adds 44 cold sessions / 68 admitted visits. Tight ordinary Forms remove a few
+gray and mixed-page edge differences; direct unit-square clipping reproduces
+all ten corresponding frames without Forms. Tight transparency groups regress
+at 100%, while image-only pages and black endpoint sizes remain unresolved.
+All 30 diagnostic PDFs reproduce exactly, with eight exact cold repeat visits.
+This supports further evaluation of clipping, not a general rendering fix;
+#543 and the production fidelity obligations remain open.
