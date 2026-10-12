@@ -18,10 +18,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+static FONT_PACK: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fonts.bin"));
+
 #[derive(Default)]
 pub struct Resources {
     // Retain opened input identities so --force cannot overwrite a font.
     pub inputs: Vec<Input>,
+    pub bundled_mode: Option<u32>,
     pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
     /// Collection face of each opened font source.
     pub font_faces: [u32; C8_MAX_FONTS],
@@ -35,11 +38,27 @@ pub struct Resources {
 
 impl Resources {
     pub fn has_fonts(&self) -> bool {
-        self.font_roles.is_some()
+        self.bundled_mode.is_some() || self.font_roles.is_some()
     }
 
     /// The opened fonts and their roles, for one conversion.
     pub fn fonts(&mut self) -> caj2pdf_core::Result<Option<Fonts<'_>>> {
+        if let Some(mode) = self.bundled_mode {
+            let sources = caj2pdf_core::bundled_fonts::RESOURCES
+                .iter()
+                .map(|&(offset, size)| {
+                    let source: Box<dyn RangedSource> =
+                        Box::new(&FONT_PACK[offset as usize..(offset + size) as usize]);
+                    C8FontSource { source, face: 0 }
+                })
+                .collect();
+            let mut fonts = Fonts {
+                sources,
+                ..Fonts::default()
+            };
+            caj2pdf_core::bundled_fonts::configure(&mut fonts, mode, &Limits::default())?;
+            return Ok(Some(fonts));
+        }
         let Some(roles) = self.font_roles else {
             return Ok(None);
         };

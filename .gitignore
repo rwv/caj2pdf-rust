@@ -12,3 +12,5 @@ __pycache__/
 
 # Extracted container build inputs from tested release archives.
 /docker/artifacts/
+
+/js/caj2pdf-fonts-v1.bin

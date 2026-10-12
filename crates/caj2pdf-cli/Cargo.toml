@@ -1,6 +1,6 @@
 [package]
 name = "caj2pdf-cli"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
@@ -8,7 +8,7 @@ description = "Native command-line interface for caj2pdf"
 repository = "https://github.com/rwv/caj2pdf-rust"
 publish = ["crates-io"]
 readme = "../../README.md"
-include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/**", "build.rs", "font-pack.json", "FONT-NOTICES.txt", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "caj2pdf"
@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
-caj2pdf-core = { version = "0.7.0", path = "../caj2pdf-core" }
+caj2pdf-core = { version = "0.8.0", path = "../caj2pdf-core" }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
@@ -35,3 +35,7 @@ tempfile = { version = "3.27.0", default-features = false }
 [dev-dependencies]
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha2 = { version = "0.11.0", default-features = false }
+
+[build-dependencies]
+sha2 = { version = "0.11.0", default-features = false }
+serde_json = { version = "1.0.151", default-features = false, features = ["std"] }

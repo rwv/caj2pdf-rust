@@ -18,7 +18,7 @@ caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf inspect paper.caj --json   # format, page count, bookmarks
 ```
 
-Or install it from crates.io with Rust 1.88 or newer:
+Or install it from crates.io with Rust 1.88 or newer and curl:
 
 ```sh
 cargo install --locked caj2pdf-cli
@@ -54,7 +54,7 @@ await writer.close();
 | CAJ | Supported, with its bookmarks. |
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
-| C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
+| C8, HN-B | Experimental: image pages, and native text pages with automatic bundled fonts (below). No bookmarks yet. |
 | CAA | Recognized target descriptor: inspection only; obtain the referenced document to convert it. |
 | TEB | Recognized, conversion not implemented; detection does not establish encryption or recoverability. |
 
@@ -74,20 +74,17 @@ Other record/style combinations can still be refused.
 
 ## Fonts for C8 and HN-B text pages
 
-Native C8/HN-B text pages need a CJK and a Latin font. Nothing is bundled.
-Without font options the CLI uses installed fonts from a fixed list and
-names them on standard error. This free pair covers every tested document:
+CLI and JavaScript conversions automatically use the measured CAJViewer font
+preset, including mode-specific parameters. No font installation or extra
+conversion arguments are needed. Native binaries work offline; Node reads
+fonts from the package, and the browser downloads and caches them on first use.
 
-```sh
-sudo apt-get install -y fonts-noto-cjk fonts-freefont-ttf
-caj2pdf paper.caj -o paper.pdf
-```
-
-To choose fonts yourself, pass `--font-cjk FILE --font-latin FILE` or
-`--fonts DIR`; `--no-system-fonts` turns the search off. The
-[CLI reference](docs/cli.md#installed-fonts) lists the searched directories
-and faces, the measured comparison, the optional font roles and the fallback
-rule. Node and the browser take fonts only as explicit options.
+The resource pack adds about 58.6 MiB before compression. It stays outside the
+core/WASM module, and ranged reads keep it outside the WASM heap. Complete
+original font programs also increase the size of native-text PDFs.
+See [bundled fonts](docs/bundled-fonts.md) for browser hosting, offline source
+builds and custom-font overrides. Explicit fonts remain available through
+`--fonts DIR` or JavaScript `hnc8.fonts`.
 
 ## Limits
 

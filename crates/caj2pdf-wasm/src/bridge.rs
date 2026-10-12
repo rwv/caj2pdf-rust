@@ -499,3 +499,54 @@ pub extern "C" fn caj2pdf_set_ttkn_response(a: u64, b: u64, c: u64, d: u64) -> u
     }
     with_session(0, |session| session.set_ttkn_response(&bytes) as u32)
 }
+
+/// Probe native font mode: 1 for mode 0, 3 for mode 2, 0 for no fonts,
+/// -1 on a failed probe (conversion subsequently reports the actual error).
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn caj2pdf_native_font_mode(
+    source_size: u64,
+    chunk_size: u32,
+    max_input_bytes: u64,
+    max_output_bytes: u64,
+    max_allocation_bytes: u64,
+    max_pages: u32,
+    max_bookmarks: u32,
+) -> i32 {
+    let limits = limits(
+        chunk_size,
+        max_input_bytes,
+        max_output_bytes,
+        max_allocation_bytes,
+        max_pages,
+        max_bookmarks,
+    );
+    with_session(-1, |session| {
+        match session.native_font_mode(&mut Imports, source_size, &limits) {
+            Ok(Some(mode)) => mode as i32 + 1,
+            Ok(None) => 0,
+            Err(_) => -1,
+        }
+    })
+}
+
+/// Verify host resource 1 as the pinned font pack, then register the preset.
+/// JavaScript replaces that reader with the eleven pack ranges on success.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_use_bundled_fonts(
+    mode: u32,
+    chunk_size: u32,
+    max_allocation_bytes: u64,
+) -> u32 {
+    let limits = Limits {
+        io_chunk_bytes: chunk_size as usize,
+        max_allocation_bytes,
+        ..Limits::default()
+    };
+    with_session(0, |session| {
+        u32::from(
+            session.verify_font_pack(&mut Imports, &limits).is_ok()
+                && session.use_bundled_fonts(mode),
+        )
+    })
+}

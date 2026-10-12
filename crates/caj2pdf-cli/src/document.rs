@@ -104,9 +104,15 @@ pub fn convert<W: Write>(
     result.map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
 }
 
-/// Whether `input` is an HN/C8 document that converts with native text
-/// composition and therefore needs fonts. Other and unrecognized formats
-/// return `false`; conversion then reports its own errors.
+/// Select built-in font parameters using the core's native-text routing.
+pub fn native_font_mode(input: &mut Input, limits: &Limits) -> Result<Option<u32>, CliError> {
+    let mut source =
+        SeekableSource::new(&mut input.file).map_err(|e| CliError::runtime(e.to_string()))?;
+    caj2pdf_core::native_font_mode(&mut source, limits, &mut Progress::new(None))
+        .map_err(|e| CliError::runtime(e.to_string()))
+}
+
+/// Whether input needs native fonts; conversion reports unrecognized formats.
 pub fn needs_fonts(input: &mut Input, limits: &Limits) -> Result<bool, CliError> {
     (|| {
         let mut source = ranged(&mut input.file)?;

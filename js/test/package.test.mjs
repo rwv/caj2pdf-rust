@@ -39,11 +39,15 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     );
     const files = new Map(packed.files.map((file) => [file.path, file]));
     assert.deepEqual([...files.keys()].sort(), [
+      "FONT-NOTICES.txt",
       "LICENSE",
       "README.md",
       "browser.d.mts",
       "browser.mjs",
+      "caj2pdf-fonts-v1.bin",
       "caj2pdf_wasm.wasm",
+      "internal/bundled-fonts.mjs",
+      "internal/font-pack.mjs",
       "internal/run.mjs",
       "internal/spool-write.mjs",
       "internal/worker.mjs",
@@ -99,6 +103,9 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
           await finished(output).catch(() => {});
         }
       }
+      const automatic = (await open("automatic.pdf", "wx")).createWriteStream();
+      await root.convert(module, "native-3.c8", root.nodeWritableSink(automatic));
+      automatic.end(); await finished(automatic);
       console.log("packed exports and Node conversion passed");
     `], { cwd: consumer });
     assert.match(stdout, /packed exports and Node conversion passed/);
@@ -187,6 +194,17 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
         }
         assert.deepEqual(c8.remaining, []);
         assert.match(Buffer.from(c8.outputs[0].bytes).toString("latin1"), /\/Filter \/FlateDecode/);
+        const automatic = await page.evaluate(`(async () => {
+          const api=await import('/browser.mjs'), module=await api.loadModule();
+          const input=await (await fetch('/native-3.c8')).blob(), chunks=[];
+          await api.convert(module,input,{async writeChunk(b){chunks.push(b.slice());return b.length;},async flush(){}});
+          const bytes=await new Blob(chunks).arrayBuffer();
+          return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
+        })()`);
+        const { createHash } = await import("node:crypto");
+        const packedNative = await readFile(join(consumer, "automatic.pdf"));
+        await validatePdf(t, packedNative, 1);
+        assert.equal(automatic, createHash("sha256").update(packedNative).digest("hex"));
         assert.deepEqual(page.errors, []);
       } finally {
         await browser?.close();

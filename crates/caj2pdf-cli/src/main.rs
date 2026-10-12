@@ -122,6 +122,9 @@ mod cli {
                 refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut input = open_input(&input, limits.max_input_bytes)?;
                 let mut resources = crate::hnc8::Resources::load(&options, &limits)?;
+                if !resources.has_fonts() && !options.no_bundled_fonts {
+                    resources.bundled_mode = document::native_font_mode(&mut input, &limits)?;
+                }
                 if !resources.has_fonts()
                     && !options.no_system_fonts
                     && document::needs_fonts(&mut input, &limits)?

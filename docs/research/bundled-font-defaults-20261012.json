@@ -1,0 +1,389 @@
+{
+  "schema": 1,
+  "issue": 547,
+  "font_pack_sha256": "8d828782065b3a405736cb51e47a747d0848a61ca47958550e26915de39d68c0",
+  "documents": 13,
+  "pages": 77,
+  "baseline": "Final explicit original-font Wine reference configuration from #541/#542",
+  "cli": [
+    {
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+      "mode": 2,
+      "pages": 5,
+      "exit": 0,
+      "seconds": 3.328757904469967,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "exact": true,
+      "bytes": 25228167
+    },
+    {
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+      "mode": 2,
+      "pages": 12,
+      "exit": 0,
+      "seconds": 3.207015674561262,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "exact": true,
+      "bytes": 21700542
+    },
+    {
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+      "mode": 2,
+      "pages": 4,
+      "exit": 0,
+      "seconds": 3.6903986111283302,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "exact": true,
+      "bytes": 24948872
+    },
+    {
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "mode": 2,
+      "pages": 4,
+      "exit": 0,
+      "seconds": 4.153001353144646,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "exact": true,
+      "bytes": 30443954
+    },
+    {
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "mode": 0,
+      "pages": 4,
+      "exit": 0,
+      "seconds": 3.6939492113888264,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "exact": true,
+      "bytes": 30800943
+    },
+    {
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+      "mode": 2,
+      "pages": 10,
+      "exit": 0,
+      "seconds": 2.6526991799473763,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "exact": true,
+      "bytes": 30654733
+    },
+    {
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "mode": 2,
+      "pages": 6,
+      "exit": 0,
+      "seconds": 2.622471585869789,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "exact": true,
+      "bytes": 21821487
+    },
+    {
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "mode": 2,
+      "pages": 4,
+      "exit": 0,
+      "seconds": 3.599323209375143,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "exact": true,
+      "bytes": 31127892
+    },
+    {
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "mode": 2,
+      "pages": 5,
+      "exit": 0,
+      "seconds": 3.7493849210441113,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "exact": true,
+      "bytes": 32149451
+    },
+    {
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+      "mode": 2,
+      "pages": 6,
+      "exit": 0,
+      "seconds": 3.5908786579966545,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "exact": true,
+      "bytes": 31465674
+    },
+    {
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+      "mode": 2,
+      "pages": 5,
+      "exit": 0,
+      "seconds": 3.6405975185334682,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "exact": true,
+      "bytes": 30948246
+    },
+    {
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+      "mode": 2,
+      "pages": 7,
+      "exit": 0,
+      "seconds": 3.6458920799195766,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "exact": true,
+      "bytes": 30521654
+    },
+    {
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+      "mode": 2,
+      "pages": 5,
+      "exit": 0,
+      "seconds": 3.7153482623398304,
+      "stderr": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)\n",
+      "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "exact": true,
+      "bytes": 30939308
+    }
+  ],
+  "javascript": [
+    {
+      "runtime": "Node",
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+      "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "bytes": 25228167,
+      "maxChunk": 139607,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+      "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "bytes": 21700542,
+      "maxChunk": 16384,
+      "pages": 12,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+      "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "bytes": 24948872,
+      "maxChunk": 78936,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "bytes": 30443954,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "bytes": 30800943,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+      "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "bytes": 30654733,
+      "maxChunk": 262144,
+      "pages": 10,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "bytes": 21821487,
+      "maxChunk": 16384,
+      "pages": 6,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "bytes": 31127892,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "bytes": 32149451,
+      "maxChunk": 127274,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+      "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "bytes": 31465674,
+      "maxChunk": 262144,
+      "pages": 6,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+      "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "bytes": 30948246,
+      "maxChunk": 16384,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+      "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "bytes": 30521654,
+      "maxChunk": 16384,
+      "pages": 7,
+      "exact": true
+    },
+    {
+      "runtime": "Node",
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+      "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "bytes": 30939308,
+      "maxChunk": 16384,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+      "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+      "bytes": 25228167,
+      "maxChunk": 139607,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+      "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+      "bytes": 21700542,
+      "maxChunk": 16384,
+      "pages": 12,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+      "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+      "bytes": 24948872,
+      "maxChunk": 78936,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+      "bytes": 30443954,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+      "bytes": 30800943,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+      "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+      "bytes": 30654733,
+      "maxChunk": 262144,
+      "pages": 10,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "bytes": 21821487,
+      "maxChunk": 16384,
+      "pages": 6,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+      "sha256": "2ec9032682381cc0706d5febbd442aa5f7eea25dc7f890a8ce2e98a23768b4cd",
+      "bytes": 31127892,
+      "maxChunk": 16384,
+      "pages": 4,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+      "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "bytes": 32149451,
+      "maxChunk": 127274,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+      "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+      "bytes": 31465674,
+      "maxChunk": 262144,
+      "pages": 6,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+      "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+      "bytes": 30948246,
+      "maxChunk": 16384,
+      "pages": 5,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+      "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+      "bytes": 30521654,
+      "maxChunk": 16384,
+      "pages": 7,
+      "exact": true
+    },
+    {
+      "runtime": "Chromium",
+      "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+      "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+      "bytes": 30939308,
+      "maxChunk": 16384,
+      "pages": 5,
+      "exact": true
+    }
+  ]
+}

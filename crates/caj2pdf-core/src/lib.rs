@@ -38,5 +38,8 @@ pub use operations::{
     FONTS_REQUIRE_HNC8, Fonts, ImageCounts, InputFormat, InspectOptions, OmittedPage,
     PDF_HEADER_SEARCH_BYTES, PageVisitor, Progress, SIGNATURE_BYTES, Structure, convert,
     convert_with_ttkn_response, detect_format, detect_source, index_pdf, inspect, inspect_pages,
-    needs_fonts, read_outline,
+    native_font_mode, needs_fonts, read_outline,
 };
+
+/// Shared defaults for versioned native-text font resources.
+pub mod bundled_fonts;

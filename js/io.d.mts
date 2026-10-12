@@ -8,7 +8,7 @@ export declare const MAX_U64: bigint;
 export declare const MAX_ALLOCATION_LIMIT: bigint;
 export declare const DEFAULT_LIMITS: Readonly<Required<Limits>>;
 
-/** Input format names in WASM code order. Native C8/HN-B text needs caller fonts (`hnc8.fonts`). */
+/** Input format names in WASM code order. Native C8/HN-B text uses the bundled font preset by default. */
 export type Format = "auto" | "pdf" | "caj" | "kdh" | "hn" | "c8" | "teb" | "nh" | "caa";
 export type DetectedFormat = Exclude<Format, "auto">;
 export declare const FORMATS: readonly Format[];
@@ -239,6 +239,6 @@ export interface C8SymbolFontIdentity {
 }
 
 export interface Hnc8Options<Input> {
-  /** Enables the admitted native C8 profile; currently requires includeBookmarks: false. */
-  fonts?: C8Fonts<Input>;
+  /** Omit for bundled defaults, supply fonts to override, or false to disable automatic fonts. */
+  fonts?: C8Fonts<Input> | false;
 }

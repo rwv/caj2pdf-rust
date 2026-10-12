@@ -333,3 +333,22 @@ pub fn needs_fonts<S: RangedSource>(
         _ => Ok(false),
     }
 }
+
+/// Native rendering mode when the input needs fonts, otherwise `None`.
+/// Uses the same bounded routing as [`needs_fonts`]; does not read fonts.
+pub fn native_font_mode<S: RangedSource>(
+    source: &mut S,
+    limits: &Limits,
+    progress: &mut dyn Progress,
+) -> Result<Option<u32>> {
+    if !needs_fonts(source, limits, progress)? {
+        return Ok(None);
+    }
+    let observer = Observer::new(progress);
+    let mut source = observer.track(source);
+    Ok(
+        crate::hnc8::Hnc8Reader::open(&mut source, limits, &observer)?
+            .header()
+            .native_mode,
+    )
+}

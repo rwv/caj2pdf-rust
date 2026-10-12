@@ -54,6 +54,7 @@ with tempfile.TemporaryDirectory() as temporary:
     name = 'caj2pdf.exe' if 'windows' in args.target else 'caj2pdf'
     (stage / name).write_bytes(args.binary.read_bytes())
     (stage / name).chmod(0o755)
+    (stage / 'FONT-NOTICES.txt').write_bytes(Path('crates/caj2pdf-cli/FONT-NOTICES.txt').read_bytes())
     for document in ['LICENSE', 'README.md']:
         (stage / document).write_bytes(Path(document).read_bytes())
     (stage / 'THIRD-PARTY-NOTICES.txt').write_text(''.join(

@@ -11,7 +11,7 @@ are MIT-licensed.
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text needs caller fonts (below). `inspect` reads page counts and validated HN-A bookmark counts. |
+| HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text uses bundled fonts automatically (below). `inspect` reads page counts and validated HN-A bookmark counts. |
 | CAA (v0.6.0) | `inspect` returns `format: "caa"` and null counts; `convert` rejects with `UnsupportedFormatError` and asks for the referenced document. |
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
@@ -285,7 +285,7 @@ interoperability policy; generic JBIG2 parsing remains strict. See the
 
 HN-A outlines are supported. C8/HN-B currently require explicit
 `includeBookmarks: false`. Admitted native C8/HN-B text pages use the
-[explicit font sources](#explicit-fonts-for-native-c8-and-hn-b-pages) below;
+[automatic font preset](#fonts-for-native-c8-and-hn-b-pages) below;
 unverified content is rejected rather than silently omitted. The shared HN/C8
 route admits only the documented unused-refinement-template anomaly. Other
 malformed JBIG2 headers remain errors. Image-only pages receive no OCR text
@@ -527,8 +527,17 @@ conversion still rejects with its original error object.
 
 ### Fonts for native C8 and HN-B pages
 
-The admitted native C8 and HN-B text/vector profiles accept caller-owned
-fonts, given as inputs of the same kinds as the document. Only `cjk` and
+By default `convert()` automatically loads the bundled fonts and selects all
+mode-specific parameters. Node reads the package resource; the browser streams
+it into an OPFS cache on first native-text conversion and verifies it on reuse.
+Serve `caj2pdf-fonts-v1.bin` alongside the package assets (bundlers discover its
+`new URL()` reference). Secure-context OPFS and Web Locks are required.
+Inspection and image-only conversions do not load fonts. The pack is about
+58.6 MiB before compression, kept outside the WASM heap; full embedded programs
+can increase output PDF size. See [bundled fonts](../docs/bundled-fonts.md).
+
+To override the entire preset, the admitted native C8 and HN-B text/vector
+profiles accept caller-owned fonts, given as inputs of the same kinds as the document. Only `cjk` and
 `latin` are required:
 
 ```js
@@ -615,7 +624,8 @@ characters (CJK blocks and halfwidth/fullwidth forms) use `cjk` and every
 other character, including the decoration alias `►`, uses `latin`. A glyph
 missing from that font still fails with its page and source byte. There
 is no system-font lookup. The CLI's `--fonts DIR` lookup is not part of
-the JavaScript API: open the font files and pass them as sources.
+the JavaScript API: custom font files are passed as sources.
+Set `hnc8: { fonts: false }` to disable automatic fonts entirely.
 
 Fonts may be supplied for any HN/C8 input. The core inspects the header and
 the first page with text: only a C8/HN-B document in a native rendering mode
@@ -623,8 +633,7 @@ whose text holds native records uses the fonts. HN-A and other image documents a
 byte-identical to a conversion without `hnc8.fonts`, and the font sources
 are not read. The CLI applies the same rule.
 
-Tested free-font recipe for Node. The fonts are installed separately and
-never bundled. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
+Optional free-font override for Node. These alternative fonts are installed separately. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
 for the installation command and the supported font formats:
 
 ```js

@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--no-system-fonts]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--no-bundled-fonts] [--no-system-fonts]
 caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -45,7 +45,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
-| `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with installed or given fonts | Container variant and pages |
+| `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with automatic bundled fonts | Container variant and pages |
 | `[TARGET]` and all observed CAA fields within 1,024 bytes | CAA | Target descriptor; exits with status 1 and asks for the referenced document | Format only; counts unknown |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
@@ -96,7 +96,7 @@ HN/C8 conversion always uses the built-in standard T.82/T.88 codec states.
 The `--qm-states` and `--mq-states` overrides were removed (#348).
 HN-A outlines are supported;
 C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the
-fonts below, installed or given; unverified profiles are rejected. Image-only pages receive
+bundled preset below, or explicit custom fonts; unverified profiles are rejected. Image-only pages receive
 no OCR text layer. General text extraction and semantic reading order remain
 outside the [verified text scope](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
 malformed JBIG2 flags remain errors.
@@ -110,8 +110,10 @@ output. Stdout can contain a partial PDF on failure, as for other formats.
 
 ### Native C8 font resources
 
-Native C8/HN-B text pages need a CJK and a Latin font. Put them in one
-directory under fixed names and pass `--fonts DIR`:
+Native C8/HN-B text pages automatically use the [bundled preset](bundled-fonts.md).
+The mode, full-font embedding and glyph/symbol/ornament parameters are built in.
+For custom fonts, put a CJK and Latin font in one directory under fixed names
+and pass `--fonts DIR`:
 
 | Role | File in `DIR` | Per-role flag |
 | --- | --- | --- |
@@ -128,8 +130,9 @@ directory under fixed names and pass `--fonts DIR`:
 A per-role flag overrides the directory's file for that role, and the
 per-role flags alone also work: `--font-cjk FILE --font-latin FILE` is the
 minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
-`NAME.ttc` (the first face of a collection). Without any font option, the
-[installed fonts](#installed-fonts) are searched instead; no font is bundled.
+`NAME.ttc` (the first face of a collection). Without any font option, the bundled preset is selected.
+`--no-bundled-fonts` restores [installed-font discovery](#installed-fonts).
+Add `--no-system-fonts` to disable both automatic sources.
 A missing CJK or Latin font fails before output staging.
 
 The three optional CJK roles select fonts for the measured C8 and HN-B
@@ -194,7 +197,8 @@ stay the same, so a substitute font can still look different or overlap.
 
 #### Installed fonts
 
-When no font option (`--fonts`, `--font-*`) is given and the document routes
+With `--no-bundled-fonts`, when no explicit font option (`--fonts`, `--font-*`)
+is given and the document routes
 to native composition (the rule above), the CLI searches the installed fonts
 for one CJK and one Latin face. Image documents never search. Any font option
 disables the search entirely, so explicit fonts always win and the search
@@ -202,7 +206,7 @@ never fills a role you left out. `--no-system-fonts` disables it too: the
 document is then converted without fonts, so a C8 document with native
 pages, or an HN-B document with a text-only page, fails, while an HN-B
 document whose pages all have images converts as images without its text.
-Node and the browser never search: they take only explicit fonts.
+Node and the browser use the bundled preset or explicit fonts; they never search installed fonts.
 
 The directories, in order:
 

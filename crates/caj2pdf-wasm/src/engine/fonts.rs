@@ -20,6 +20,7 @@ const MAX_SYMBOL_GLYPHS: usize = 21;
 /// Explicitly registered font resources and their roles.
 #[derive(Default)]
 pub(super) struct Fonts {
+    bundled_mode: Option<u32>,
     sizes: [u64; C8_MAX_FONTS],
     faces: [u32; C8_MAX_FONTS],
     count: usize,
@@ -34,6 +35,17 @@ pub(super) struct Fonts {
 }
 
 impl Fonts {
+    pub(super) fn use_bundled(&mut self, mode: u32) -> bool {
+        if !matches!(mode, 0 | 2) || self.count != 0 {
+            return false;
+        }
+        self.bundled_mode = Some(mode);
+        for (_, size) in caj2pdf_core::bundled_fonts::RESOURCES {
+            self.add(size, 0);
+        }
+        true
+    }
+
     pub(super) fn set_embedding(&mut self, mode: u32) -> bool {
         let embedding = match mode {
             0 => FontEmbedding::Subset,
@@ -199,7 +211,8 @@ impl Fonts {
         symbols: u32,
     ) -> bool {
         // `u32::MAX` marks an absent optional role; core applies its fallback.
-        if self.roles.is_some()
+        if self.bundled_mode.is_some()
+            || self.roles.is_some()
             || [cjk, latin]
                 .into_iter()
                 .any(|index| index as usize >= self.count)
@@ -249,8 +262,9 @@ impl Fonts {
     pub(super) fn resources<'h, H: Host + 'h>(
         &self,
         host: &'h RefCell<&'h mut H>,
-    ) -> Option<FontResources<'h>> {
-        (self.count != 0).then(|| FontResources {
+        limits: &caj2pdf_core::Limits,
+    ) -> caj2pdf_core::Result<Option<FontResources<'h>>> {
+        let mut resources = (self.count != 0).then(|| FontResources {
             embedding: self.embedding.unwrap_or_default(),
             glyph_aliases: self.glyph_aliases.clone(),
             sources: (0..self.count)
@@ -268,7 +282,11 @@ impl Fonts {
             symbol_font: self.symbol_font.clone(),
             decoration_glyphs: self.decoration_glyphs.clone(),
             decoration_font: self.decoration_font.clone(),
-        })
+        });
+        if let (Some(mode), Some(fonts)) = (self.bundled_mode, resources.as_mut()) {
+            caj2pdf_core::bundled_fonts::configure(fonts, mode, limits)?;
+        }
+        Ok(resources)
     }
 }
 

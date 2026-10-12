@@ -1683,7 +1683,7 @@ fn hnb_symbol_glyphs_select_the_symbols_font_glyph_or_fail_atomically() {
 }
 
 #[test]
-fn native_text_without_font_options_uses_installed_fonts() {
+fn disabling_bundled_fonts_restores_installed_font_discovery() {
     let scratch = Scratch::new("installed-fonts");
     scratch.write("input.c8", &native_c8_pages(false));
     fs::create_dir_all(scratch.path("fonts/noto")).unwrap();
@@ -1708,7 +1708,13 @@ fn native_text_without_font_options_uses_installed_fonts() {
             .output()
             .unwrap()
     };
-    let base = ["input.c8", "--no-bookmarks", "--force", "-o"];
+    let base = [
+        "input.c8",
+        "--no-bundled-fonts",
+        "--no-bookmarks",
+        "--force",
+        "-o",
+    ];
     let with = |extra: &[&'static str]| {
         let mut args = base.to_vec();
         args.extend(extra);
@@ -1782,7 +1788,14 @@ fn native_text_without_font_options_uses_installed_fonts() {
     }
     // An HN-B native document uses the same installed fonts.
     scratch.write("native.hn", &native_hnb());
-    let hnb = ["native.hn", "--no-bookmarks", "--force", "-q", "-o"];
+    let hnb = [
+        "native.hn",
+        "--no-bundled-fonts",
+        "--no-bookmarks",
+        "--force",
+        "-q",
+        "-o",
+    ];
     let mut args = hnb.to_vec();
     args.push("hnb-auto.pdf");
     assert_success(&installed(&args));
@@ -2203,4 +2216,32 @@ fn complete_original_fonts_and_glyph_aliases_preserve_atomic_cli_output() {
     }
     assert_eq!(fs::read(scratch.path("font.ttf")).unwrap(), font);
     assert_eq!(scratch.entries(), ["font.ttf", "full.pdf", "input.c8"]);
+}
+
+#[test]
+fn native_text_uses_embedded_fonts_without_installed_files_or_arguments() {
+    let scratch = Scratch::new("bundled-fonts");
+    scratch.write("input.c8", &native_c8_pages(false));
+    let output = scratch.run(["input.c8", "-o", "default.pdf"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("using installed"));
+    assert_eq!(validate_pdf(&scratch.path("default.pdf")).0, 2);
+    let bytes = fs::read(scratch.path("default.pdf")).unwrap();
+    assert!(
+        bytes
+            .windows(b"/FontFile2".len())
+            .any(|s| s == b"/FontFile2")
+    );
+    let offline = scratch.run(["input.c8", "--no-system-fonts", "-o", "offline.pdf"]);
+    assert_eq!(offline.status.code(), Some(0), "{}", stderr(&offline));
+    assert_eq!(bytes, fs::read(scratch.path("offline.pdf")).unwrap());
+    let output = scratch.run([
+        "input.c8",
+        "--no-bundled-fonts",
+        "--no-system-fonts",
+        "-o",
+        "disabled.pdf",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!scratch.path("disabled.pdf").exists());
 }
