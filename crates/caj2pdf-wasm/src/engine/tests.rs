@@ -1078,6 +1078,17 @@ fn ornament_registration_requires_roles_and_is_bounded() {
 }
 
 #[test]
+fn explicit_subset_embedding_cannot_be_registered_twice() {
+    let mut session = Session::default();
+    assert!(!session.set_c8_font_embedding(0));
+    assert_eq!(session.add_font_source(100, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    assert!(session.set_c8_font_embedding(0));
+    assert!(!session.set_c8_font_embedding(0));
+    assert!(!session.set_c8_font_embedding(1));
+}
+
+#[test]
 fn full_font_embedding_and_aliases_reach_native_conversion_through_host_resources() {
     let bytes = native_c8();
     let font = include_bytes!("../../../../tests/fonts/geometric.ttf");

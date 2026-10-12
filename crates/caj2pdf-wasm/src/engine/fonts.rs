@@ -24,14 +24,8 @@ pub(super) struct Fonts {
     sizes: [u64; C8_MAX_FONTS],
     faces: [u32; C8_MAX_FONTS],
     count: usize,
-    roles: Option<C8PageFonts>,
-    embedding: Option<FontEmbedding>,
-    glyph_aliases: Vec<NativeFontGlyphAlias>,
-    /// At most [`MAX_SYMBOL_GLYPHS`]; the core validates the codes.
-    symbol_glyphs: Vec<NativeSymbolGlyph>,
-    symbol_font: Option<SymbolFontIdentity>,
-    decoration_glyphs: Vec<NativeDecorationGlyph>,
-    decoration_font: Option<SymbolFontIdentity>,
+    config: FontResources<'static>,
+    embedding_set: bool,
 }
 
 impl Fonts {
@@ -52,33 +46,35 @@ impl Fonts {
             1 => FontEmbedding::Full,
             _ => return false,
         };
-        if self.roles.is_none() || self.embedding.is_some() {
+        if self.config.roles.is_none() || self.embedding_set {
             return false;
         }
-        self.embedding = Some(embedding);
+        self.config.embedding = embedding;
+        self.embedding_set = true;
         true
     }
 
     pub(super) fn add_glyph_alias(&mut self, font: u32, character: u32, glyph: u32) -> bool {
+        let config = &mut self.config;
         let (Some(character), Some(glyph)) = (char::from_u32(character), char::from_u32(glyph))
         else {
             return false;
         };
         let font = font as usize;
-        if self.roles.is_none()
+        if config.roles.is_none()
             || font >= self.count
             || character > '\u{ffff}'
             || glyph > '\u{ffff}'
-            || self.glyph_aliases.len() == MAX_NATIVE_FONT_GLYPHS
-            || self
+            || config.glyph_aliases.len() == MAX_NATIVE_FONT_GLYPHS
+            || config
                 .glyph_aliases
                 .last()
                 .is_some_and(|entry| (entry.font, entry.character) >= (font, character))
-            || self.glyph_aliases.try_reserve(1).is_err()
+            || config.glyph_aliases.try_reserve(1).is_err()
         {
             return false;
         }
-        self.glyph_aliases.push(NativeFontGlyphAlias {
+        config.glyph_aliases.push(NativeFontGlyphAlias {
             font,
             character,
             glyph,
@@ -91,7 +87,7 @@ impl Fonts {
     }
 
     pub(super) fn add(&mut self, size: u64, face: u32) -> u32 {
-        if self.count == self.sizes.len() || self.roles.is_some() {
+        if self.count == self.sizes.len() || self.config.roles.is_some() {
             return 0;
         }
         self.sizes[self.count] = size;
@@ -101,7 +97,7 @@ impl Fonts {
     }
 
     pub(super) fn set_latin_state(&mut self, state: u32, index: u32) -> bool {
-        let Some(roles) = &mut self.roles else {
+        let Some(roles) = &mut self.config.roles else {
             return false;
         };
         let role = match state {
@@ -118,7 +114,7 @@ impl Fonts {
     }
 
     pub(super) fn set_cjk_style(&mut self, style: u32, index: u32) -> bool {
-        let Some(roles) = &mut self.roles else {
+        let Some(roles) = &mut self.config.roles else {
             return false;
         };
         let role = match style {
@@ -137,24 +133,26 @@ impl Fonts {
     /// Map one 16-bit code to a BMP glyph of the symbols role. Like the CLI,
     /// leave code and duplicate checks to the core's native preflight.
     pub(super) fn add_symbol_glyph(&mut self, code: u32, glyph: u32) -> bool {
+        let config = &mut self.config;
         let (Ok(code), Some(glyph)) = (u16::try_from(code), char::from_u32(glyph)) else {
             return false;
         };
-        if self.roles.is_none_or(|roles| roles.symbols.is_none())
+        if config.roles.is_none_or(|roles| roles.symbols.is_none())
             || glyph > '\u{ffff}'
-            || self.symbol_glyphs.len() == MAX_SYMBOL_GLYPHS
+            || config.symbol_glyphs.len() == MAX_SYMBOL_GLYPHS
         {
             return false;
         }
-        self.symbol_glyphs.push(NativeSymbolGlyph { code, glyph });
+        config.symbol_glyphs.push(NativeSymbolGlyph { code, glyph });
         true
     }
 
     /// Bind the symbol glyph map to a PostScript name (`length` bytes,
     /// little-endian in `words`) and `head` checkSumAdjustment, once.
     pub(super) fn set_symbol_font(&mut self, checksum: u32, length: u32, words: [u64; 8]) -> bool {
-        if self.roles.is_none_or(|roles| roles.symbols.is_none())
-            || self.symbol_font.is_some()
+        let config = &mut self.config;
+        if config.roles.is_none_or(|roles| roles.symbols.is_none())
+            || config.symbol_font.is_some()
             || length > 64
         {
             return false;
@@ -162,22 +160,24 @@ impl Fonts {
         let Some(identity) = font_identity(checksum, length, words) else {
             return false;
         };
-        self.symbol_font = Some(identity);
+        config.symbol_font = Some(identity);
         true
     }
 
     /// Register at most four ornament aliases. The core validates values and duplicates.
     pub(super) fn add_decoration_glyph(&mut self, value: u32, glyph: u32) -> bool {
+        let config = &mut self.config;
         let (Ok(value), Some(glyph)) = (u16::try_from(value), char::from_u32(glyph)) else {
             return false;
         };
-        if self.roles.is_none_or(|roles| roles.decoration.is_none())
+        if config.roles.is_none_or(|roles| roles.decoration.is_none())
             || glyph > '\u{ffff}'
-            || self.decoration_glyphs.len() == 4
+            || config.decoration_glyphs.len() == 4
         {
             return false;
         }
-        self.decoration_glyphs
+        config
+            .decoration_glyphs
             .push(NativeDecorationGlyph { value, glyph });
         true
     }
@@ -189,15 +189,16 @@ impl Fonts {
         length: u32,
         words: [u64; 8],
     ) -> bool {
-        if self.roles.is_none_or(|roles| roles.decoration.is_none())
-            || self.decoration_font.is_some()
+        let config = &mut self.config;
+        if config.roles.is_none_or(|roles| roles.decoration.is_none())
+            || config.decoration_font.is_some()
         {
             return false;
         }
         let Some(identity) = font_identity(checksum, length, words) else {
             return false;
         };
-        self.decoration_font = Some(identity);
+        config.decoration_font = Some(identity);
         true
     }
 
@@ -212,7 +213,7 @@ impl Fonts {
     ) -> bool {
         // `u32::MAX` marks an absent optional role; core applies its fallback.
         if self.bundled_mode.is_some()
-            || self.roles.is_some()
+            || self.config.roles.is_some()
             || [cjk, latin]
                 .into_iter()
                 .any(|index| index as usize >= self.count)
@@ -239,7 +240,7 @@ impl Fonts {
         } else {
             Some(symbols as usize)
         };
-        self.roles = Some(C8PageFonts {
+        self.config.roles = Some(C8PageFonts {
             cjk: cjk as usize,
             latin: latin as usize,
             alternate_latin,
@@ -260,33 +261,28 @@ impl Fonts {
     /// The registered fonts as host resources 1..=11 for one conversion;
     /// `None` when none are registered.
     pub(super) fn resources<'h, H: Host + 'h>(
-        &self,
+        self,
         host: &'h RefCell<&'h mut H>,
         limits: &caj2pdf_core::Limits,
     ) -> caj2pdf_core::Result<Option<FontResources<'h>>> {
-        let mut resources = (self.count != 0).then(|| FontResources {
-            embedding: self.embedding.unwrap_or_default(),
-            glyph_aliases: self.glyph_aliases.clone(),
-            sources: (0..self.count)
-                .map(|index| {
-                    let source: Box<dyn RangedSource + 'h> =
-                        Box::new(HostSource::new(host, index as u32 + 1, self.sizes[index]));
-                    C8FontSource {
-                        source,
-                        face: self.faces[index],
-                    }
-                })
-                .collect(),
-            roles: self.roles,
-            symbol_glyphs: self.symbol_glyphs.clone(),
-            symbol_font: self.symbol_font.clone(),
-            decoration_glyphs: self.decoration_glyphs.clone(),
-            decoration_font: self.decoration_font.clone(),
-        });
-        if let (Some(mode), Some(fonts)) = (self.bundled_mode, resources.as_mut()) {
-            caj2pdf_core::bundled_fonts::configure(fonts, mode, limits)?;
+        if self.count == 0 {
+            return Ok(None);
         }
-        Ok(resources)
+        let mut fonts: FontResources<'h> = self.config;
+        fonts.sources = (0..self.count)
+            .map(|index| {
+                let source: Box<dyn RangedSource + 'h> =
+                    Box::new(HostSource::new(host, index as u32 + 1, self.sizes[index]));
+                C8FontSource {
+                    source,
+                    face: self.faces[index],
+                }
+            })
+            .collect();
+        if let Some(mode) = self.bundled_mode {
+            caj2pdf_core::bundled_fonts::configure(&mut fonts, mode, limits)?;
+        }
+        Ok(Some(fonts))
     }
 }
 

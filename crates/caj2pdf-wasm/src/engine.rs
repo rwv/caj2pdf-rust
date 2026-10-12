@@ -419,7 +419,7 @@ impl Session {
         let result = run(
             &host,
             source_size,
-            &fonts,
+            fonts,
             response.as_ref(),
             limits,
             operation,
@@ -490,7 +490,7 @@ fn in_hnc8(error: Error, format: Option<InputFormat>) -> Error {
 fn run<'h, H: Host>(
     host: &'h RefCell<&'h mut H>,
     source_size: u64,
-    fonts: &fonts::Fonts,
+    fonts: fonts::Fonts,
     response: Option<&caj2pdf_core::pdf::TtknResponse>,
     limits: Limits,
     operation: Operation,

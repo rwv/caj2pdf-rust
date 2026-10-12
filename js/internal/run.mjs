@@ -194,14 +194,9 @@ function fontConfig(options) {
   if (ornaments.length > 0 && decoration === undefined) throw new TypeError("decorationGlyphs require a decoration font");
   const identity = fontIdentity(symbolFontIdentity, glyphs, "symbol");
   const ornamentIdentity = fontIdentity(decorationFontIdentity, ornaments, "decoration");
-  const fonts = {
-    embedding,
-    roles,
+  // Resolve optional roles once for both Worker registration and glyph aliases.
+  const optionalRoles = {
     symbols: optional(symbols),
-    symbolGlyphs: glyphs,
-    symbolFontIdentity: identity,
-    decorationGlyphs: ornaments,
-    decorationFontIdentity: ornamentIdentity,
     latinState3: optional(latinState3),
     latinState28: optional(latinState28),
     latinState31: optional(latinState31),
@@ -209,10 +204,17 @@ function fontConfig(options) {
     cjkKai: optional(cjkKai),
     cjkSystem: optional(cjkSystem),
   };
+  const fonts = {
+    embedding,
+    roles,
+    ...optionalRoles,
+    symbolGlyphs: glyphs,
+    symbolFontIdentity: identity,
+    decorationGlyphs: ornaments,
+    decorationFontIdentity: ornamentIdentity,
+  };
   const aliases = [];
-  const roleIndices = { cjk: roles[0], latin: roles[1], alternateLatin: roles[2], decoration: roles[3],
-    symbols: fonts.symbols, latinState3: fonts.latinState3, latinState28: fonts.latinState28,
-    latinState31: fonts.latinState31, cjkSans: fonts.cjkSans, cjkKai: fonts.cjkKai, cjkSystem: fonts.cjkSystem };
+  const roleIndices = { cjk: roles[0], latin: roles[1], alternateLatin: roles[2], decoration: roles[3], ...optionalRoles };
   for (const entry of glyphAliases) {
     if (aliases.length === 11 * 65536) throw new RangeError("too many native font glyph aliases");
     const { role, character, glyph } = entry ?? {};
