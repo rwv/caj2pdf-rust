@@ -4,6 +4,13 @@
 
 No changes recorded yet.
 
+## v0.8.1
+
+See the [release notes](docs/releases/v0.8.1.md). Compatible maintenance:
+one authored font manifest, less adapter registration duplication, grouped
+advanced CLI font options, and one current release procedure. Public APIs,
+font resources and PDF output remain unchanged.
+
 ## v0.8.0
 
 See the [release notes and migration guide](docs/releases/v0.8.0.md).

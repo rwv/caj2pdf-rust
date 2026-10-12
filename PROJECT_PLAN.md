@@ -31,19 +31,32 @@ language of the repository, API, CLI, documentation, and diagnostics.
 The [support matrix](docs/conformance.md#current-support-and-release-status)
 is authoritative. CAJ, KDH and PDF are supported. HN-A converts as image
 pages with bookmarks. C8 and HN-B convert image pages and admitted native-text
-profiles with caller fonts, and omit their unverified outlines with a warning.
+profiles with automatic bundled fonts in the CLI and JavaScript package,
+and omit their unverified outlines with a warning.
 The CLI interface is documented in the [CLI reference](docs/cli.md).
 
-## Remaining sequence
+## Current work
 
-1. **C8/HN-B bookmarks (#303).** Blocked on a sample whose viewer shows a
-   non-empty outline.
-2. **Release v0.4.0 (#287).** Run the full release matrix from current main.
-3. **Registry publication (#293).** Needs crates.io and npm accounts.
-4. **Partial CAJ output decision (#297).** Waiting on a maintainer decision.
+Track acceptance and dependencies in the live issues:
 
-Use short PRs with focused tests and the existing native, WASM, license,
-link and coverage gates. Add an abstraction only for a concrete need.
+- [Architecture simplification #346](https://github.com/rwv/caj2pdf-rust/issues/346):
+  the font manifest, registration and usage cleanup ships in
+  [v0.8.1](docs/releases/v0.8.1.md). The remaining core-size target needs a
+  focused pass; it is not met by those changes.
+- [Wine rendering #543](https://github.com/rwv/caj2pdf-rust/issues/543) and
+  [PDF page-one control #540](https://github.com/rwv/caj2pdf-rust/issues/540):
+  isolate the remaining image/raster differences before changing rendering.
+- [Corpus recovery #406](https://github.com/rwv/caj2pdf-rust/issues/406):
+  distinguish supported repairs from incomplete or missing original bytes.
+- [C8/HN-B bookmarks #303](https://github.com/rwv/caj2pdf-rust/issues/303):
+  blocked on a sample whose viewer shows a non-empty outline.
+- [Classic-Worker backport #433](https://github.com/rwv/caj2pdf-rust/issues/433):
+  the current release includes the fix; the requested v0.6.2 patch-line
+  publication remains outstanding.
+
+Use focused PRs with the existing quality gates. The
+[release policy](docs/release-policy.md) is the current publication procedure;
+registry setup and the partial-output decision are no longer prerequisites.
 
 ## History
 

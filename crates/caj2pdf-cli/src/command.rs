@@ -91,6 +91,8 @@ pub enum Command {
     },
 }
 
+const FONT_HELP: &str = "Advanced font overrides";
+
 const USAGE: &str = "caj2pdf INPUT [-o OUTPUT] [--force]
        caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
        caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]";
@@ -159,67 +161,67 @@ struct ConvertArgs {
     #[arg(long, overrides_with = "no_bookmarks")]
     no_bookmarks: bool,
     /// Native C8/HN-B fonts named cjk, latin, ... (.ttf/.otf/.ttc) in DIR
-    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "DIR", allow_hyphen_values = true)]
     fonts: Option<OsString>,
     /// Embed used fonts as compact subsets or complete TrueType programs
-    #[arg(long, value_parser = ["subset", "full"], default_value = "subset")]
+    #[arg(help_heading = FONT_HELP, long, value_parser = ["subset", "full"], default_value = "subset")]
     font_embedding: String,
     /// Use a font's original cmap GLYPH for text CHAR, preserving text; repeatable
-    #[arg(long, value_name = "ROLE:CHAR=GLYPH", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "ROLE:CHAR=GLYPH", allow_hyphen_values = true)]
     font_glyph: Vec<OsString>,
     /// Native C8/HN-B CJK font (required with --font-latin)
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk: Option<OsString>,
     /// Optional C8/HN-B CJK font for Hei/sans styles
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_sans: Option<OsString>,
     /// Optional C8/HN-B CJK font for Kai styles
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_kai: Option<OsString>,
     /// Optional C8/HN-B CJK font for measured system-font styles
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_cjk_system: Option<OsString>,
     /// Native C8/HN-B ordinary Latin font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin: Option<OsString>,
     /// Optional native C8/HN-B alternate Latin font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_alternate_latin: Option<OsString>,
     /// Optional HN-B/C8 state-3 Latin font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin_state3: Option<OsString>,
     /// Optional C8 state-28 Latin font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin_state28: Option<OsString>,
     /// Optional C8 state-31 Latin font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_latin_state31: Option<OsString>,
     /// Optional HN-B mode-0 semantic symbol font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_symbols: Option<OsString>,
     /// Optional native C8/HN-B decoration font
-    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "FILE", allow_hyphen_values = true)]
     font_decoration: Option<OsString>,
     /// Decoration alias (default: ►; not document text)
-    #[arg(long, value_name = "CHAR", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "CHAR", allow_hyphen_values = true)]
     decoration_char: Option<OsString>,
     /// Draw the symbols-font glyph CHAR (or U+XXXX) for HN-B mode-0 raw CODE (hex); repeatable
-    #[arg(long, value_name = "CODE=CHAR", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "CODE=CHAR", allow_hyphen_values = true)]
     symbol_glyph: Vec<OsString>,
     /// Require the symbols font NAME (PostScript) with head checkSumAdjustment CHECKSUM (8 hex digits)
-    #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
     symbol_font_identity: Option<OsString>,
     /// Draw CHAR (or U+XXXX) for ornament VALUE (1, 2, 46 or 117); repeatable
-    #[arg(long, value_name = "VALUE=CHAR", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "VALUE=CHAR", allow_hyphen_values = true)]
     decoration_glyph: Vec<OsString>,
     /// Require the decoration font NAME with head checkSumAdjustment CHECKSUM (8 hex digits)
-    #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
+    #[arg(help_heading = FONT_HELP, long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
     decoration_font_identity: Option<OsString>,
     /// Disable the built-in font preset (explicit fonts still take priority)
-    #[arg(long)]
+    #[arg(help_heading = FONT_HELP, long)]
     no_bundled_fonts: bool,
     /// Do not search installed fonts for native C8/HN-B text
-    #[arg(long, overrides_with = "no_system_fonts")]
+    #[arg(help_heading = FONT_HELP, long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
 }
 
