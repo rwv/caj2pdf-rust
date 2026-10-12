@@ -326,3 +326,12 @@ reproduce, and all 77 fresh native crops equal the historical crops. The
 85-session receipt admits 230 visits, retaining twelve incomplete captures and
 six unobserved startup-failure visits separately. #543 remains open; no
 production correction is adopted.
+
+
+The [RGB decoding and edge-control study](wine-image-rgb-edge-decode-20261011.md)
+adds 62 cold Wine sessions / 86 admitted visits. All 24 decoder/interpolation
+comparisons retain exact frames when clipping state is fixed. Independently
+generated RGB controls reproduce clipping regressions across reversed paint
+order; 432 declared panel windows account for all changed pixels. Four sources,
+eighteen new PDFs and five legacy gray PDFs reproduce exactly. No production
+correction is adopted; #543 remains open.

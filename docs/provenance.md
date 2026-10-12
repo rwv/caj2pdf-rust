@@ -3871,3 +3871,33 @@ failures and every regression are retained. No vendor, foreign converter or
 private HN/JBIG code is inspected or migrated, and no corpus/font/PDF/screenshot
 bytes are committed. Production code, APIs, dependencies and bounded I/O are
 unchanged; #543/#541/#406 remain open.
+
+
+### RGB image decoding and edge controls (#543, 2026-10-11)
+
+The [RGB edge study](research/wine-image-rgb-edge-decode-20261011.md) records
+62 cold Wine sessions / 86 admitted visits. On the actual clipping
+counterexample, all 24 decoder/interpolation comparisons retain exact pixels
+when clipping state is held constant. Four inverted-image controls change.
+Original RGB panels also regress under clipping at 95%, with exact reversed
+paint-order results. No production correction is adopted.
+
+Per-file provenance review: `scripts/research/wine_jpeg_decode_diagnostic.py`
+extends the original MIT helper with explicit RGB admission, channel counts
+and removal of DCT-only parameters from decoded Flate. It accepts only absent
+parameters or the measured ColorTransform1 dictionary. Two positive admissions
+and ten expected refusals pass, and all five prior grayscale PDFs/metadata
+remain byte-exact. `wine_image_edge_controls.py` is original MIT source that
+generates RGB gradients/stripes and known project C8 image records. It varies
+source resolution, declared top-origin phase, boundary colors, descriptor
+direction and paint order without copying any external image or implementation.
+
+All four original sources and eighteen new PDFs/metadata reproduce byte-exactly.
+Six cold repeats, eight historical actual references and eighteen order
+comparisons are exact. Eleven original font programs, physical matrices and
+10,277 semantic characters are preserved in the actual-document variants;
+decoded/inverted image payload changes are explicitly recorded. The initial
+pre-observation RGB-parameter refusal and all visual regressions are retained.
+No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
+Corpus, font, PDF and screenshot bodies remain external. Production code,
+APIs, dependencies and bounded I/O are unchanged; #543/#541/#406 remain open.

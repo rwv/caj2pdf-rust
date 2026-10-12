@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Create grayscale JPEG/Flate/interpolation controls from an external PDF.
+"""Create JPEG/Flate/interpolation controls from an external PDF.
 
 Research only: this is not a converter or a codec-conformance checker. Inputs
-must contain only direct grayscale JPEG image XObjects. No document, font,
+must contain only direct grayscale JPEG image XObjects, or RGB with --allow-rgb.
+No document, font,
 decoded image or output PDF belongs in the source repository.
 """
 
@@ -41,7 +42,7 @@ def preserved(pdf):
     }
 
 
-def generate(source, output_directory):
+def generate(source, output_directory, allow_rgb=False):
     output_directory.mkdir(exist_ok=False)
     files = []
     for kind in ["baseline", "flate", "jpeg-interpolate", "flate-interpolate", "flate-positive"]:
@@ -51,28 +52,36 @@ def generate(source, output_directory):
             before = preserved(pdf)
             for number, page in enumerate(pdf.pages, 1):
                 for name, obj in page.Resources.get("/XObject", {}).items():
+                    color_space = obj.get("/ColorSpace")
+                    mode = "RGB" if allow_rgb and color_space == pikepdf.Name.DeviceRGB else "L"
+                    channels = 3 if mode == "RGB" else 1
+                    parameters = obj.get("/DecodeParms")
+                    supported_parameters = parameters is None or (
+                        mode == "RGB" and isinstance(parameters, pikepdf.Dictionary)
+                        and dict(parameters) == {"/ColorTransform": 1}
+                    )
                     if not (
                         obj.Subtype == pikepdf.Name.Image
                         and obj.Filter == pikepdf.Name.DCTDecode
-                        and obj.ColorSpace == pikepdf.Name.DeviceGray
+                        and color_space == (pikepdf.Name.DeviceRGB if mode == "RGB" else pikepdf.Name.DeviceGray)
                         and obj.BitsPerComponent == 8
-                        and "/DecodeParms" not in obj
+                        and supported_parameters
                         and "/Decode" not in obj
                         and "/Mask" not in obj
                         and "/SMask" not in obj
                     ):
-                        raise ValueError("Expected an unmasked grayscale JPEG")
+                        raise ValueError("Expected an unmasked grayscale JPEG (or RGB with --allow-rgb)")
                     width, height = int(obj.Width), int(obj.Height)
                     if not (0 < width * height <= 10_000_000):
                         raise ValueError("Image exceeds the diagnostic pixel bound")
                     encoded = obj.read_raw_bytes()
                     with Image.open(BytesIO(encoded)) as image:
-                        if image.size != (width, height) or image.mode != "L":
+                        if image.size != (width, height) or image.mode != mode:
                             raise ValueError("JPEG dimensions or mode disagree")
                         image.load()
                         raw = image.tobytes()
-                    if len(raw) != width * height:
-                        raise ValueError("Decoded grayscale byte count disagrees")
+                    if len(raw) != width * height * channels:
+                        raise ValueError("Decoded image byte count disagrees")
                     images.append({
                         "page": number,
                         "resource": str(name),
@@ -83,13 +92,20 @@ def generate(source, output_directory):
                         "decoded_sha256": hashlib.sha256(raw).hexdigest(),
                         "decoded_bytes": len(raw),
                     })
+                    if allow_rgb:
+                        images[-1].update(
+                            color_space=str(color_space), decoded_mode=mode, channels=channels,
+                            color_transform=None if parameters is None else int(parameters.ColorTransform),
+                        )
                     if kind == "flate-positive":
-                        # Deliberately invert grayscale values. This is an image
+                        # Deliberately invert sample values. This is an image
                         # rendering control, never a fidelity candidate.
                         raw = raw.translate(bytes(reversed(range(256))))
                         images[-1]["positive_sha256"] = hashlib.sha256(raw).hexdigest()
                     if kind.startswith("flate"):
                         obj.write(zlib.compress(raw), filter=pikepdf.Name.FlateDecode)
+                        if "/DecodeParms" in obj:
+                            del obj["/DecodeParms"]
                         if obj.read_bytes() != raw:
                             raise ValueError("Flate round trip changed decoded bytes")
                     if kind.endswith("interpolate"):
@@ -128,6 +144,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_pdf", type=Path)
     parser.add_argument("output_directory", type=Path)
+    parser.add_argument("--allow-rgb", action="store_true", help="Also admit direct DeviceRGB JPEGs")
     arguments = parser.parse_args()
-    receipt = generate(arguments.input_pdf, arguments.output_directory)
+    receipt = generate(arguments.input_pdf, arguments.output_directory, arguments.allow_rgb)
     print(f"Created {len(receipt['files'])} diagnostic PDFs; no viewer result implied")
