@@ -100,16 +100,15 @@ const ABOUT: &str = "Convert CAJ-family documents to PDF.
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
-and admitted native C8/HN-B text profiles with installed or given fonts.
+and admitted native C8/HN-B text profiles with automatic bundled fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B outlines are unverified: none is written and a warning is shown.";
 
 const AFTER_HELP: &str = "\
-Without font options, a native C8/HN-B text document uses the first
-installed CJK and Latin fonts from a fixed list (see docs/cli.md) and names
-them on standard error. Absent optional font roles and characters a role's
-font lacks fall back to the CJK font for CJK-coded characters and to the
-Latin font otherwise.
+Native C8/HN-B text uses bundled fonts and measured parameters automatically.
+No font installation or extra arguments are needed. Explicit font options
+override the preset. Use --no-bundled-fonts to restore installed-font discovery;
+add --no-system-fonts to disable both automatic font sources.
 
 Exit status: 0 on success, 3 for a partial PDF with blank pages,
 2 for invalid arguments, 1 for other failures.";
