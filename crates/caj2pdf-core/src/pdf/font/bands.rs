@@ -3,7 +3,7 @@
 //! Recognize horizontally constant TrueType ornaments without a full outline
 //! loader. Only small, simple, instruction-free rectangle contours qualify.
 //! Other glyphs retain ordinary repeated placement. OpenType `glyf` / `loca`:
-//! https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
+//! <https://learn.microsoft.com/en-us/typography/opentype/spec/glyf>
 
 use super::*;
 use xberg_ttf_parser::{GlyphId, head::IndexToLocationFormat};

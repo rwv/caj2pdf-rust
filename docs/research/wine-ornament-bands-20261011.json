@@ -20,7 +20,7 @@
     "crates/caj2pdf-core/src/hnc8/native_page.rs": "4d393fabb264631068d66b5e2526f976dfd1edc14091a865eabc4ce035fc316a",
     "crates/caj2pdf-core/src/pdf/document/text.rs": "e0c2dc5197283b462edfb916ceefc048405e2ac0c665addc057e4e41bbb47bbd",
     "crates/caj2pdf-core/src/pdf/font.rs": "3cf50ecb5e8764153c55fd9def4a46c3557bfbbd9fe92b427fceed3fafdb4a27",
-    "crates/caj2pdf-core/src/pdf/font/bands.rs": "56ad41276bfaf50a7b5e1e9548b3ae9d3f801a1679399f0cc9836b6c8a949a42",
+    "crates/caj2pdf-core/src/pdf/font/bands.rs": "38ba5fc75ee6a5b98371beb9664643bf9b3820bbd398c6a0184357dec4c4acf7",
     "crates/caj2pdf-core/src/pdf/font/bands/tests.rs": "115fa83430b3e7264169727a8618381ef51a03dedee5953b545df81b4fc0f622",
     "crates/caj2pdf-core/src/pdf/font/tests.rs": "c1fb700981af31119ca5a6d7bc4559b5202bf00ecc5795f07eaff56b24c47773",
     "crates/caj2pdf-core/src/pdf/mod.rs": "90f36f5e21b62d5f3dd2feea6d0b3fc52fc7a8278e22f56da28bf70bc4bf5ad9",
@@ -3491,5 +3491,6 @@
     "General pattern cadence, band pixel phase/weight, physical annotation cadence and image-edge raster differences remain.",
     "Final four GUI views match the visually inspected overdraw diagnostics; other page content is byte-invariant from the earlier complete 77-page review.",
     "External documents/fonts/PDFs/screenshots are not included; no universal renderer or native Windows claim."
-  ]
+  ],
+  "documentation_followup": "Rustdoc link formatting corrected after the first CI failure; production behavior and observed binary artifacts unchanged."
 }
