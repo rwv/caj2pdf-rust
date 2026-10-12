@@ -1078,6 +1078,12 @@ fn ornament_registration_requires_roles_and_is_bounded() {
 }
 
 #[test]
+fn session_remains_send_and_sync_before_host_io_is_attached() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Session>();
+}
+
+#[test]
 fn explicit_subset_embedding_cannot_be_registered_twice() {
     let mut session = Session::default();
     assert!(!session.set_c8_font_embedding(0));
