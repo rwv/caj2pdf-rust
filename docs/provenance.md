@@ -3901,3 +3901,33 @@ pre-observation RGB-parameter refusal and all visual regressions are retained.
 No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
 Corpus, font, PDF and screenshot bodies remain external. Production code,
 APIs, dependencies and bounded I/O are unchanged; #543/#541/#406 remain open.
+
+### Native rule contrast (#544, 2026-10-11)
+
+The [rule-contrast report](research/wine-visible-rules-20261011.md) records
+independent original controls at four zooms, phase and endpoint reversals,
+mode-0 framing and text-state controls. Horizontal/vertical segments have
+lighter observed interiors than diagonals. The production writer uses
+gray-127 device hairlines for admitted axis-aligned segments, preserving
+coordinates, admission and the black diagonal encoding. This is an empirical
+appearance approximation, not a claim of an encoded gray pen. No zoom or
+document-specific fitting is introduced.
+
+Per-file provenance review: `scripts/research/wine_rule_controls.py` is
+original MIT code authored from this project's established record framing
+and admitted geometry. It generates three independent sources and reuses
+the project's original mode-0 wrapper. All three sources and their manifest
+reproduce exactly. `hnc8/native_page.rs` and its new regression are original
+MIT changes using the existing bounded PDF path writer and partial-I/O
+fixtures. No vendor, foreign converter or private HN/JBIG implementation is
+inspected or migrated. Fonts, corpus documents, PDFs and screenshots remain
+external.
+
+All 77 actual output pages are observed again; every changed region is
+visually reviewed. The 347 rule changes preserve page geometry, original
+font/image streams, resource dictionaries, all other content and semantic
+text. Sixteen native/Node/Chromium comparisons are byte-identical. The receipt
+retains all 55 cold sessions, 140 admitted visits, one failed startup and its
+independent retry, rejected finite-width diagnostics and browser setup
+failures. The user's normal-reading criterion accepts harmless subpixel
+differences; the remaining ornament/underline findings stay open under #541.

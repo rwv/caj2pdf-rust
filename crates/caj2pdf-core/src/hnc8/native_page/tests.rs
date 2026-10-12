@@ -361,7 +361,7 @@ pub(crate) fn mixed_page() -> Vec<u8> {
         "/F1 1 Tf",
         "<0041> Tj",
         "/Im0 Do",
-        " l S Q",
+        "S Q",
         "/F2 1 Tf",
         "/Im1 Do",
         "/F1 1 Tf",
@@ -3161,6 +3161,45 @@ fn mode_two_letter_origins_preserve_resource_states_and_cjk_character_mode() {
             if profile == 0 {
                 assert!(text.contains("/ActualText <FEFF0041>"));
                 assert!(text.contains("/ActualText <FEFF0069>"));
+            }
+        }
+    }
+}
+
+#[test]
+fn native_rule_contrast_preserves_diagonals_and_text_state() {
+    // Original line controls: axis-aligned rules retain their lighter appearance
+    // across the black-text switch; diagonals remain black and endpoints retain
+    // their order. The fixture reader/writer also exercises partial I/O.
+    for profile in [0, 18] {
+        for reversed in [false, true] {
+            let mut words = Vec::new();
+            for end in [[5000, 4400], [4800, 4600], [5000, 4600]] {
+                let mut ends = [[4800, 4400], end];
+                if reversed {
+                    ends.reverse();
+                }
+                words.extend([[0x8006, 0xa385], ends[0], ends[1]]);
+            }
+            if profile == 0 {
+                words.extend([[0x81ff, 1], [0, 200]]);
+            }
+            words.extend([[0x8006, 0xa385], [4800, 4700], [5000, 4700]]);
+            words.extend([
+                [0x8001, 4350],
+                [0x8002, 0x1084],
+                [4682, 0xd6d0],
+                [0x8004, 1],
+            ]);
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), profile);
+            result.unwrap();
+            assert!(finished);
+            let content = crate::test_support::pdf_text(&pdf);
+            assert_eq!(content.matches("0.498039 G").count(), 3);
+            assert_eq!(content.matches(" l S Q").count(), 1);
+            assert!(content.contains("<4E2D> Tj"));
+            if profile == 0 {
+                assert!(content.contains("0.000000 g"));
             }
         }
     }

@@ -123,6 +123,15 @@ differences; device rounding and unequal-axis rasterization remain open in #541.
 
 ### Other unreleased changes
 
+- Native C8/HN-B header, table and other admitted axis-aligned segments use
+  gray-127 device hairlines to match Wine CAJViewer's lighter appearance
+  (#544). Diagonals remain black; coordinates, font programs, semantic text
+  and admission rules are unchanged. This changes affected PDF hashes across
+  native, CLI, Node and browser; reconvert to receive the correction. No API,
+  dependency or buffering change. All 77 observed pages retain or improve
+  diagnostic agreement, with every changed region visually reviewed. Small
+  vertical-coverage and overlapping-line raster differences remain.
+
 - The Rust PDF writer adds `pdf::FontEmbedding` and
   `PdfDocument::embed_font_with_embedding(&handle, &mut font, FontEmbedding::Full)`
   (#541). Used standalone TrueType programs retain their exact bytes; TTC

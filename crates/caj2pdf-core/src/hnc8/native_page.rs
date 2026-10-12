@@ -887,7 +887,7 @@ impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '
                     return Err(invalid("unverified C8 segment coordinate flags"));
                 }
                 let [from, to] = empirical_c8_segment(self.geometry, self.origin, points, style)?;
-                self.page.segment(from, to, 0.0)?;
+                self.draw_segment(from, to)?;
             }
             NativeRecord::Drawing {
                 tag: 0x8010,
@@ -1015,6 +1015,18 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
         native_glyphs::lookup(self.glyph_aliases, font, character).unwrap_or(character)
     }
 
+    fn draw_segment(&mut self, from: [f64; 2], to: [f64; 2]) -> Result<()> {
+        // Original controls at four zooms establish lighter axis-aligned rules
+        // independently of text gray, style, endpoint order and mode. Preserve
+        // coordinates and the device hairline; this matches observed appearance,
+        // not an assertion that the source encodes an explicit gray pen.
+        if from[0] == to[0] || from[1] == to[1] {
+            self.page.stroke_polyline(&[from, to], 0.0, 127)
+        } else {
+            self.page.segment(from, to, 0.0)
+        }
+    }
+
     fn draw_text(
         &mut self,
         font: usize,
@@ -1101,7 +1113,7 @@ impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 for end in &mut ends {
                     end[1] += 5.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                self.page.segment(ends[0], ends[1], 0.0)?;
+                self.draw_segment(ends[0], ends[1])?;
             }
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character_for_mode(0, code)

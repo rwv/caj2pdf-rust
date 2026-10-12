@@ -1,5 +1,15 @@
 # Research notes
 
+Current Wine acceptance uses **normal-reading visual agreement**, including
+original supplied fonts; harmless subpixel/antialiasing differences are
+acceptable. Exact RGB counts in historical notes are diagnostics, not a
+zero-difference completion gate. The
+[native rule-contrast correction](wine-visible-rules-20261011.md) changes 347
+axis-aligned rules and checks all 77 actual pages, with 63 diagnostic
+improvements, 14 unchanged rasters and no regressions. Every changed region
+was visually reviewed. Ornament seams and native dashed underlines remain
+separate under #541.
+
 The format investigations, oracle reports and validation runs behind the
 decoders now live in the
 [caj2pdf-samples repository](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes)
