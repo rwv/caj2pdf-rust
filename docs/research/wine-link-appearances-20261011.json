@@ -12,8 +12,7 @@
     "image": "sha256:6c9f5ec0610a7ff8bc45fe8e0a87dffd0ff17e42466c90b80237a1712847b95c"
   },
   "criterion": "Normal-reading visual agreement; harmless subpixel differences accepted; RGB counts are diagnostics, not a gate.",
-  "production_commit": "b19d62d761ab0aacee5a8904c14de0fde81ae421",
-  "production_change": false,
+  "production_change": true,
   "verification_note": "Initial verifier rejected changed indirect reference numbers after pikepdf annotation insertion; resolved resource graphs and raw stream payloads then compared exactly. Object-ID identity is not claimed.",
   "sources": [
     {
@@ -5732,16 +5731,282 @@
       "cleanup": true,
       "source_unchanged": true,
       "oom": false
+    },
+    {
+      "study": "link-filled",
+      "label": "fonts-ready-linkfilled-b9a64bf99e4b-75",
+      "input_sha256": "97730acb5ed878e91e35ca1087f88cc35a2f15640ebaf42367b2bae2581e0d1e",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "c43ec7a68d184e81086de5d5e8fee012c49b7d763016c76422c6c0c10fdce388",
+      "closed_sha256": "7224d06065f8d3bb81192a31c530933f76537a6b98d59ae018729298899e0cc4",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-filled",
+      "label": "fonts-ready-linkfilled-controls-75",
+      "input_sha256": "276e864bf0b79b4ab3eb78283185c872153be7084c5a736d1436749cce711d12",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "d79f91744966bf7652c8cfb4ef25b7f0afddd8aa81c21968b6b8a608e3455701",
+      "closed_sha256": "9502279f878d21e78abb3f9b1930dece831f089e4700c647e9d84f12ac6b7f97",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-filled",
+      "label": "fonts-ready-linkfilled-controls-125",
+      "input_sha256": "276e864bf0b79b4ab3eb78283185c872153be7084c5a736d1436749cce711d12",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "7513aae296249c588171dc5145a97da850d14fc6855fb870a3b03de6390528ae",
+      "closed_sha256": "0da4c791ee22aa019ce66d53d5c37ddbc1464f9df359105dcce27a7c1d95c050",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin",
+      "label": "fonts-ready-linkthin-90e7b47716c3-75",
+      "input_sha256": "fd06aee76bc44310ac2d15ab3c3f718fe10d9e9c93885d8771c805bafe58062e",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "admitted_visits": 0,
+      "admitted": false,
+      "error": "RuntimeError: single-page numeric layout not stable",
+      "audit_sha256": "defbc0ac53026b3d249a1446109b6b00b77d534bce5087000975d0157d8b9a70",
+      "closed_sha256": "b3bf999f6f47c015e450f1ebc852772c90258827a1c87e9a9e9637bda00f1950",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin",
+      "label": "fonts-ready-linkthin-b9a64bf99e4b-75",
+      "input_sha256": "05dfc5335abd883e54c6842ecf9c6da256d8fb4cfff4e3fc24295e8f262e1f27",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "5897efcd01a379e93c440e4d5f2502b07e2ba8c7ab5f3c2b26f508332bfda020",
+      "closed_sha256": "b46d4849090b8c3c9422dc87710d2b44962425aadca06251c8c46305c104fe3b",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin",
+      "label": "fonts-ready-linkthin-d6a23a9cfd0f-75",
+      "input_sha256": "cc6eb387dd9bb2a00df913182fbf9f0d6f27d8b3e5d319efe0a6aff6817d962c",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "admitted_visits": 4,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "19971eeb02ad0507e9a8a4150eb815ae0efec936ec7be9372082e359b63ad4d2",
+      "closed_sha256": "5b5888119c195b0cb003d6650efb69abbb8da4c6f93a25641e7cf63a2bf67986",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin",
+      "label": "fonts-ready-linkthin-controls-75",
+      "input_sha256": "89272c0f9735929a1b56c7c2022494b8626579c861700a64c11b405b0af52ab1",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "c2a6e225d41e65d55dff646e9dbc915901de7bd5e0660935c120734a73d86200",
+      "closed_sha256": "6441643cc4a3c39137bfef0ea02a60cdac08edde1d1a461fafa35478fa887837",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin",
+      "label": "fonts-ready-linkthin-controls-125",
+      "input_sha256": "89272c0f9735929a1b56c7c2022494b8626579c861700a64c11b405b0af52ab1",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "22aaeb0ff17ac420740656bcaa4e8621bb0d2a38ce548c645181696c26b1cc89",
+      "closed_sha256": "09e246b915a1bd0b2a07153c1026274cf7d6f1184eeec55d80e76f0d39f9a533",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-thin-retry",
+      "label": "fonts-ready-linkthin-90e7b47716c3-75-retry",
+      "input_sha256": "fd06aee76bc44310ac2d15ab3c3f718fe10d9e9c93885d8771c805bafe58062e",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "admitted_visits": 5,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "8f5714e7d6610caef383a2cd5788172826e24995db9bd62ef3e2f1832099d76a",
+      "closed_sha256": "60e6666f824a5f5fa9b08d9c3ecc69f6290de73170a58d9ec588071b6b0153ab",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-production",
+      "label": "fonts-ready-linkproduction-90e7b47716c3",
+      "input_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "admitted_visits": 5,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "0083ef4b2d016a2c1f3597e909c307184a5c1c4ce30cfc2b8a7e932d03d161e4",
+      "closed_sha256": "9fced9a04623c34cc8f0feff0e75d564fda751b72d9dee7accf5cfa65189936f",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-production",
+      "label": "fonts-ready-linkproduction-b9a64bf99e4b",
+      "input_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+      "zoom": 75,
+      "pages": [
+        1,
+        4
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "0efcdfe7159ed6ba1e6049fce5fd2fcbac04952ada3ea32af475a27f05cabbe0",
+      "closed_sha256": "7b2f50022f3ed4c8b06b4d42f68d52e32369bafb23c37a59f90d7ebe6c047a0e",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-production",
+      "label": "fonts-ready-linkproduction-d6a23a9cfd0f",
+      "input_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+      "zoom": 75,
+      "pages": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "admitted_visits": 4,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "7f3285e8a4d282f0e20bf446bbd7c9b6b690cec119e7af3c16c1b9666162809e",
+      "closed_sha256": "b63f6101c4ef714492f3ecba146b6a9c3cf6c1081790dbf80f5be231b8438a31",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-production",
+      "label": "fonts-ready-linkproduction-controls-75",
+      "input_sha256": "f50aa4b71a86c2be004d865d2d1e0b5f493e8bca8fede0d3cec89cbf59c3d571",
+      "zoom": 75,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "e87a84873ee81d97d7237048bf2abf5d945e43bd61415e63b2319573fb35c311",
+      "closed_sha256": "e6fefde9beb70273e4e4c66eabc67e44a720950510ebcdff874dc344bc6b0f47",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
+    },
+    {
+      "study": "link-production",
+      "label": "fonts-ready-linkproduction-controls-125",
+      "input_sha256": "f50aa4b71a86c2be004d865d2d1e0b5f493e8bca8fede0d3cec89cbf59c3d571",
+      "zoom": 125,
+      "pages": [
+        1,
+        2
+      ],
+      "admitted_visits": 2,
+      "admitted": true,
+      "error": null,
+      "audit_sha256": "9db2aba23353bbbc687e8218f44bb5db933cf9db5b91dd462e9ccad65748ade8",
+      "closed_sha256": "c62ea283232b16098c18fdeec138de7fc2c8ff46741072156eade49fcb3b8824",
+      "cleanup": true,
+      "source_unchanged": true,
+      "oom": false
     }
   ],
   "summary": {
-    "cold_sessions": 44,
-    "admitted_visits": 95,
-    "actual_views": 6,
-    "unchanged_repack_views": 6,
-    "metadata_removed_pixels": 7405,
-    "original_views": 8,
-    "cold_repeat_visits": 4
+    "cold_sessions": 58,
+    "admitted_sessions": 57,
+    "admitted_visits": 131,
+    "actual_documents": 13,
+    "actual_pages": 77,
+    "actual_links": 133,
+    "affected_pages": 11,
+    "production_fresh_visits": 15
   },
   "observations": {
     "note_unit": "PointsM",
@@ -5758,13 +6023,13 @@
     ],
     "color": "00BBGGRR; gray128, black and red controls",
     "page_sizes": "Changing raw page size leaves link positions unchanged relative to top-left",
-    "pdf_routes": "Both page painting and Link AP paint; six-entry PDF dash array appears uniform in Wine; explicit segments retain dash-dot-dot structure. No production adoption."
+    "pdf_routes": "Production uses Link annotations with explicit 0.5-point filled appearance Forms; no page-body painting, opacity state or zoom parameter."
   },
   "limits": [
-    "Only Type Link / LineStyle4 / ShowType1 / PointsM version1.0 rectangles are controlled; other profiles are unmeasured.",
-    "PDF candidates use a nominal 96-DPI physical approximation (6.75/2.25 point dashes, 1.5 point gap); source dash/gap is device-fixed. Cross-zoom weight/phase differences remain.",
-    "Both opaque and half-opacity Link AP diagnostics cover all11 affected actual pages, but visible weight/phase differences remain. Parser/emitter, malformed-tail behavior, bounded state and runtime parity remain implementation work.",
-    "View toggles did not remove these particular links; print and preview require a printer unavailable in this offline profile. No print or target-navigation evidence."
+    "Only the measured Type Link / LineStyle4 / ShowType1 / PointsM version1.0 profile is admitted by native composition; unsupported appearances fail explicitly and malformed tails remain warnings. Inspection and image-only diagnostics remain metadata-only.",
+    "The PDF pattern has physical dimensions, while Wine uses device-fixed cadence/gap. Weight/phase/cross-zoom differences remain; no universal or pixel-exact equivalence.",
+    "No printing or target-navigation evidence. No link URI is opened during conversion or validation.",
+    "All affected actual pages and original controls reviewed at normal reading size; unrelated ornament seams remain open under #541."
   ],
   "drivers": {
     "prepare_link_metadata.py": "84dc74c150355f1af5f505504343f461f77bb138cb8bba989cb0e38e03b3eed4",
@@ -5783,9 +6048,3569 @@
     "run_audit_digit_retry.py": "3810628ab0730bbd298789d7f1e3105f75c191eb0a477e1f9b54ec3f4ee9a1b5",
     "session.py": "e21b25677bad1ae82338812f2bf1b6c872653b65e6e70a73779f924cab58a6ce",
     "ui_numeric_v5.c": "443c1961d1d6d9f7d13d3944bffa6d2162fc57a09c5ae5f713b8fb0660bd6da2",
-    "ui_numeric_v5.exe": "6963b378f6fc55a578ca5985b1f6874d1dd61da29779b53c6fc72447879155cc"
+    "ui_numeric_v5.exe": "6963b378f6fc55a578ca5985b1f6874d1dd61da29779b53c6fc72447879155cc",
+    "prepare_link_filled.py": "ddb74b410d961a06229e3efc5c190865afb32a1b02613a700e1b3761b665f811",
+    "prepare_link_thin.py": "3fa6c3ee779248eba8eee4a99cbb2c1f40872eaf304711bfd7ef8cbe88c56cd4",
+    "prepare_link_production_v2.py": "53d7bd1a2e6d8ccae74716be23da6e6424aae7755efecfc3bf92e365f6d2f142",
+    "verify_link_final.py": "b661c125fb55d088e8ec68d1706ec3c6fccf6813fba595fcd15bdd7340cfc8fc",
+    "analyze_link_production.py": "d501d26d62615913cc1414415df03920e45876900c5327069a9e7a00a276333a",
+    "check-link-runtime-final.mjs": "8155fd1fc8717613a43c19f89d3b4ac03f4d58cb34a774740b5dee5b4fd2c612"
   },
   "generator_sha256": "b64635ab860d4da740753438a615c6ceca2de51806ca1bfab988dc761423f8e8",
   "generator_reproduced": true,
-  "alpha_pdfs_reproduced": true
+  "alpha_pdfs_reproduced": true,
+  "phase1_summary": {
+    "cold_sessions": 44,
+    "admitted_visits": 95,
+    "actual_views": 6,
+    "unchanged_repack_views": 6,
+    "metadata_removed_pixels": 7405,
+    "original_views": 8,
+    "cold_repeat_visits": 4
+  },
+  "previous_production_commit": "b19d62d761ab0aacee5a8904c14de0fde81ae421",
+  "implementation": {
+    "base_commit": "10a9eaa197bce027fd1bf333e36a85ece78e8801",
+    "code_sha256": {
+      "crates/caj2pdf-core/src/hnc8/appinfo.rs": "7c77debc2d16300dd6422b09b50ffe0c8be744b54ec8f3c2848a5ba4d43e3259",
+      "crates/caj2pdf-core/src/hnc8/appinfo/links.rs": "a4b8957cd348f812a8fed23a8f93ce195c982d4637f8a3b5b06fb5b7fae299d1",
+      "crates/caj2pdf-core/src/hnc8/compose.rs": "d00017c5bbb34674c6aeb4f2106daf9d6cc03b322694211ef70daded3c9b6692",
+      "crates/caj2pdf-core/src/hnc8/compose/native.rs": "a8ffc3a2bb284c2e6d81e01436cf31d3f50575c628d48842462b2c0f0028f705",
+      "crates/caj2pdf-core/src/hnc8/native_page.rs": "0331e9845fd514e5d9da1f9bf8d8b5d60b057efd5fcc216981be0cbee01cce27",
+      "crates/caj2pdf-core/src/hnc8/appinfo/tests.rs": "b90c220f5c83b1c2b3a1b59a131d23efd50d5bdf2851c8c85f7c71adfe757cfc",
+      "crates/caj2pdf-core/src/hnc8/compose/tests/application_info.rs": "695bfa3541f21bfd04990f523de6c1c56e0a0c35618a72ac8d85055ea5631a33",
+      "crates/caj2pdf-core/src/pdf/document.rs": "21e6d83e7b836c4e1a1651477dc1cb5f4ebcbb9e86be6134d67c3b9832d33b02",
+      "crates/caj2pdf-core/src/pdf/document/links.rs": "2b6ef58d813135ed8a4a6c2af8a7abc1bf8380b0bca31fc23a41ac8c701b6463",
+      "crates/caj2pdf-core/src/pdf/document/text.rs": "7f574561436885a5d417e37b1b7dcfced2e2e0e61b064928d4f3f40bb48d4bfb",
+      "crates/caj2pdf-core/src/pdf/document/text/tests.rs": "8c280ce448db4ae40c9a80404997b2b2b4c1f49b5281bcd737d0875c1aa68993",
+      "crates/caj2pdf-core/src/pdf/mod.rs": "f3a1681cd21463679e45dbef1d95c058dc83606b541e02981f59c19b75971017"
+    },
+    "cli_sha256": "81ae460017362062c534d4bd500d88fb895de5e794eefe6a641f384444d5cc98",
+    "wasm_sha256": "a999421822f2378d497f13df83456818b781649588342089bf460e0928e20805",
+    "pdf_reproductions": [
+      {
+        "name": "03770ea1cdeb.pdf",
+        "pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442"
+      },
+      {
+        "name": "166d00147923.pdf",
+        "pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7"
+      },
+      {
+        "name": "1b9aa912e0bc.pdf",
+        "pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e"
+      },
+      {
+        "name": "3f3b9b57d692.pdf",
+        "pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13"
+      },
+      {
+        "name": "63870d12f206.pdf",
+        "pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc"
+      },
+      {
+        "name": "7e3f2c0faebb.pdf",
+        "pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b"
+      },
+      {
+        "name": "90e7b47716c3.pdf",
+        "pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51"
+      },
+      {
+        "name": "b9a64bf99e4b.pdf",
+        "pdf_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0"
+      },
+      {
+        "name": "d6a23a9cfd0f.pdf",
+        "pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef"
+      },
+      {
+        "name": "e1b17805a87f.pdf",
+        "pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61"
+      },
+      {
+        "name": "9a50414e00a6.pdf",
+        "pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc"
+      },
+      {
+        "name": "a286d812d9d1.pdf",
+        "pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3"
+      },
+      {
+        "name": "4447375ea1b1.pdf",
+        "pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9"
+      },
+      {
+        "name": "links-2500-links.pdf",
+        "pdf_sha256": "f50aa4b71a86c2be004d865d2d1e0b5f493e8bca8fede0d3cec89cbf59c3d571"
+      },
+      {
+        "name": "links-2500-empty.pdf",
+        "pdf_sha256": "9bff2653d0ad47e982cdc43067dd9c8e71efaf95eea421df05fe0afea33785d9"
+      },
+      {
+        "name": "links-3200-links.pdf",
+        "pdf_sha256": "3b1ab8840dd4a2b0fe84500927637d56e1bace8cb13c2d3e032424c08bd03bbe"
+      },
+      {
+        "name": "links-3200-empty.pdf",
+        "pdf_sha256": "afa7f73256fdf7983c6aa294357d1fba20ef786a72c77e0a6105cfdf141696f3"
+      }
+    ],
+    "conversions": [
+      {
+        "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+        "mode": 2,
+        "pages": 5,
+        "pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+        "baseline_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
+          "pdf_sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1438,
+              "pdf_glyphs": 1438,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "6befca7c948cef35c0ef5b92ce588396f19628e872cc2ec132c3f6909d89d7c9",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1347,
+              "pdf_glyphs": 1347,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "db72f79ea4b76f6d984605a2c1a776c995622bccc56ad28ddc0d326c6461792f",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 921,
+              "pdf_glyphs": 921,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "3ee7da20c78265695b05077910c1c53b452d0afac0b6aea1e920bcb6a4f8ad7b",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1169,
+              "pdf_glyphs": 1169,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "c9337285e55c6ab296e756dc7721fdc4e8eeeec1f59645be31cdaa0b1bd611d1",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 2846,
+              "pdf_glyphs": 2846,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "7dda0cd154fa226a6ff467c9f7d79de59e38e77535d3bff5260a6c556ea451d1",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+        "mode": 2,
+        "pages": 12,
+        "pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+        "baseline_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e",
+          "pdf_sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1681,
+              "pdf_glyphs": 1681,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "8dee7e968da9d76eec5a82b5bf628ab411879151ec1a53f1c505632128ecf6a8",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 805,
+              "pdf_glyphs": 805,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "c92feea9ef3bf4450c029c672747370d12503a5acd1e17ea83ee00d6c054b48f",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1435,
+              "pdf_glyphs": 1435,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "0caf3b491f4fd1ad202496418c31d018bae10a428d0779c8e73cfca5c7946518",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1057,
+              "pdf_glyphs": 1057,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "227be4e173348b1da60bb78ea7902f4a4377d0b5c21ee3c046ef8a178b58f0ee",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 1737,
+              "pdf_glyphs": 1737,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "ddec7ae168c58e5049e06f100c694125a11557f8e2bd2a40389ff5f4ba5c42ff",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 6,
+              "source_glyphs": 1003,
+              "pdf_glyphs": 1003,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "4c68d5acdf1e3422e09edb6af0115ea04ec3265b6cdbc230c76b2dc37225cc5c",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 7,
+              "source_glyphs": 1271,
+              "pdf_glyphs": 1271,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "6f7a70a68f205d6ac5ae0b8aa3544ede8fae9de7e3ba1973eecc02ae330f6b74",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 8,
+              "source_glyphs": 1503,
+              "pdf_glyphs": 1503,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "a551aec890d609fdc8438559e9476e11a9381ba34ea07accd5a67c95f4e161c0",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 9,
+              "source_glyphs": 1371,
+              "pdf_glyphs": 1371,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "b589f1a811c676194348f9274d9bfdf6a72fa74eb85d504e33d36c583224ccca",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 10,
+              "source_glyphs": 2592,
+              "pdf_glyphs": 2592,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "55050b4dbbaeacb315368f6d05229eccb3ff771ffe9767a2b96da21057603bcf",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 11,
+              "source_glyphs": 3632,
+              "pdf_glyphs": 3632,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "581de8862ed043d2619a747377036b784d0bca152764f7caf1e56c02df23388c",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 12,
+              "source_glyphs": 2606,
+              "pdf_glyphs": 2606,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "79f7bc680cfd4a805c6b4208a2ba6279e825986f52e257f657067b2091781cbf",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+        "mode": 2,
+        "pages": 4,
+        "pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+        "baseline_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
+          "pdf_sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1536,
+              "pdf_glyphs": 1536,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "68a8f2500dfccf05e816952312c92c90b8f1839ab355e5a5f0d4513cbab7c927",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1133,
+              "pdf_glyphs": 1133,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "fbd7330e4b1715627918d7c5b67bf3765da782d0a435e273258ace1f252453c4",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1046,
+              "pdf_glyphs": 1046,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "853c7b3641d2f8ffebd6b896b20500b9aa38e7eb19b3a45e68f1d8201be73761",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 2864,
+              "pdf_glyphs": 2864,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "734ed8f44093e3211ec09fed8a96ae90e2556c6e9becbe4d6d1454239056ee81",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+        "mode": 2,
+        "pages": 4,
+        "pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+        "baseline_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+          "pdf_sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1302,
+              "pdf_glyphs": 1302,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "21101c9c10d65cf5d808a3154f50c39a7465f3fa27686ede42754cd26b4cea49",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1555,
+              "pdf_glyphs": 1555,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "1b3e35baa8b1294831b70d894828db38eb85fc7af65c6c24bad9705964637557",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1470,
+              "pdf_glyphs": 1470,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "1379c67ad20c4d6a25e673422e8c0b3396f3a4cec48e288780887d507413312d",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1642,
+              "pdf_glyphs": 1642,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "95458938a301c79c65fed2c0f73d9e35a221bd07933f77122ed9f22fd7cf5641",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+        "mode": 0,
+        "pages": 4,
+        "pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+        "baseline_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+          "pdf_sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 2060,
+              "pdf_glyphs": 2060,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "b0a2c1244c9fdfd67d7c28c2774319d12fa7263067812b72aa6625ef0ac1a55c",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 2569,
+              "pdf_glyphs": 2569,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "2794db168a2539c6fbdb3a58c4229bdf8badf632c663416754efb1b33b80933a",
+              "ignored_hnb_tail_bytes": 15904
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1902,
+              "pdf_glyphs": 1902,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "b50b2865ef797f091a35b8aceb2d083b8a38504c1f216e491f2ae05139b0322b",
+              "ignored_hnb_tail_bytes": 9100
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1398,
+              "pdf_glyphs": 1398,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "794bdfe91ddc1e3f60fbf97f5112ff02a0974e421bd979d231e679910b1df020",
+              "ignored_hnb_tail_bytes": 8880
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+        "mode": 2,
+        "pages": 10,
+        "pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+        "baseline_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b",
+          "pdf_sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 6,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 7,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 8,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 9,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 10,
+              "source_glyphs": 1977,
+              "pdf_glyphs": 1977,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "91a38a9357aeee3c90a5d80e5ba0ef48a5781d9d5ddd671369c42b9b6fbf78b0",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+        "mode": 2,
+        "pages": 6,
+        "pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+        "baseline_sha256": "13f3766c9a94124e577f1c6eca216f52640409a1ae92f6beacb45d76f48ca483",
+        "annotations_per_page": [
+          13,
+          1,
+          1,
+          1,
+          0,
+          7
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+          "pdf_sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1015,
+              "pdf_glyphs": 1015,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "f2dca508d347c63179f4bf57dea30ecf0d2133632200e8af699819f14536e391",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1338,
+              "pdf_glyphs": 1338,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "497f614c7a1a0c89cfcdcd4a4d550433f8d9022080ccc377a76df2f1379674a3",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 840,
+              "pdf_glyphs": 840,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "ec2aa2a5e1f152763516b0892819e4b007c14af4450a59e140b2f1c3544940c1",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 986,
+              "pdf_glyphs": 986,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "1b2edfdb80a581a20723f2408ed966d91461d8c7ec2c230e1b9bae196bb0a406",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 801,
+              "pdf_glyphs": 801,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "17dc792e85d83dc4f806a25e8f9494306e9f2d0d27e150b60d06f8674ef50c83",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 6,
+              "source_glyphs": 1658,
+              "pdf_glyphs": 1658,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "373acfcf55c04736b7ea89d7574aab1956a1e1e9585aecf734bb4b938d5a07d1",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+        "mode": 2,
+        "pages": 4,
+        "pdf_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+        "baseline_sha256": "d988d73dbeffb1e632e7fac5b2578d838476e58fcca0078cbf46c16565a8786a",
+        "annotations_per_page": [
+          9,
+          0,
+          0,
+          26
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b",
+          "pdf_sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1597,
+              "pdf_glyphs": 1597,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "51bc70c6844fe9bb5ffadfe1df7fcd70bb06593e3125380a138593d2a3255f38",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 2052,
+              "pdf_glyphs": 2052,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "a35083b224b46c7e7cda898381d6a0bf205c1f3589dbc2d383608afc49e6c6b1",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1683,
+              "pdf_glyphs": 1683,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "5e7562b705aa85802488a58e19a4750c2c0bdcc297d1a2fe87165b783b328d71",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 2233,
+              "pdf_glyphs": 2233,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "2274ed59dd19cb918031be4b08b13b6dedfa95218a130ea56b8af6e3fcdbe736",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+        "mode": 2,
+        "pages": 5,
+        "pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+        "baseline_sha256": "90a05f465a2495525455b791d1f8d49c802c1c0989b772006febb61e61300d3c",
+        "annotations_per_page": [
+          16,
+          1,
+          0,
+          1,
+          57
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d",
+          "pdf_sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 2492,
+              "pdf_glyphs": 2492,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "6f65ab79415b3f2832299133eef35e459e83ef7093061f7efafdb6c6d17e9441",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1597,
+              "pdf_glyphs": 1597,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "a23838ea761d3be497472f9affc03c95519fe7038a0a11f201596d0eaabbdefa",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1731,
+              "pdf_glyphs": 1731,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "04409de79e41768acaeeeaca43b03a19aa563acf6dbaf7a1f4c8a2dfb2fe9939",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1905,
+              "pdf_glyphs": 1905,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "7cdb778e7a8128927507d6c6916e9641c1c3ee62f74a242ab2fcd3f17eba0bd9",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 2552,
+              "pdf_glyphs": 2552,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "65c8a9bf3b62270758639e831c12fd488ad551c313dbd357f865383915f10394",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+        "mode": 2,
+        "pages": 6,
+        "pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+        "baseline_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+          "pdf_sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1280,
+              "pdf_glyphs": 1280,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "d71de86c89df0bc79ff6c305d1e34ece19c3a382443a8a67dc2f6d8d21d955fa",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1837,
+              "pdf_glyphs": 1837,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "ab247f8ba11e302b73758dfb05441bd511f31dffbe0b1ee1a5f8f5ee72bd9d30",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1689,
+              "pdf_glyphs": 1689,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "c3aac1a4ce2a1caf47b8d1914abb7c2507cda9c87eda57971e54ad3a3790d4e7",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1679,
+              "pdf_glyphs": 1679,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "031d827f34441c0de6967c400df28101f221c91173f20399c1461b178012ad51",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 1599,
+              "pdf_glyphs": 1599,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "4dc1030a865911479d6eb20094ad67da49ff3e0ca97565cc887742bc157aa3db",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 6,
+              "source_glyphs": 0,
+              "pdf_glyphs": 0,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+        "mode": 2,
+        "pages": 5,
+        "pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+        "baseline_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c",
+          "pdf_sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1757,
+              "pdf_glyphs": 1757,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "89e1547d7a52ec70566ca09c3a95ddfa76c650edeeb4e29667af98a03427af37",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1938,
+              "pdf_glyphs": 1938,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "1fc428fca3f2c49175ab05d04340f1dfe6074907815709b7171deb0eace28236",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1891,
+              "pdf_glyphs": 1891,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "7558d956dcf57a05ccaba4e90532fc6551f93e2ba7b81df315fb10e61634081f",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1923,
+              "pdf_glyphs": 1923,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "6210e6f732c0f1833a63ca6bef2d6baf509415a041424b9a05f6f9e85f3720ed",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 1417,
+              "pdf_glyphs": 1417,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "a160728da173ec21ad24c7957d60e2d8530f592574b7dd90ef15ba9eb5e24bfb",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+        "mode": 2,
+        "pages": 7,
+        "pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+        "baseline_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852",
+          "pdf_sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1367,
+              "pdf_glyphs": 1367,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "61e4d90bdeb5cca5cdfa5c9bf24fc59055aec234bccba2ea2ac795dcfa747420",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1788,
+              "pdf_glyphs": 1788,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "9fea4e854464e594d501b78637d27725e0a101322c67bd52de49f05f4d8e215d",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1774,
+              "pdf_glyphs": 1774,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "329e0f35ed279d211473b1fc198f54b6addfb6448c6d9914318dfc2a338072e9",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 1832,
+              "pdf_glyphs": 1832,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "86cba181280b33a486148775234bb7194056b750c0d609545ce582762df6d567",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 1773,
+              "pdf_glyphs": 1773,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "2662b80f3e84bbdef1b9cbc41ca87f4ea52bc0cd3ff7b17833e41dec9b4c2e90",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 6,
+              "source_glyphs": 1721,
+              "pdf_glyphs": 1721,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "2e893b01ad8a39697c23cefa552191406e29c8d6461cbf7948c3760c0c1ad66e",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 7,
+              "source_glyphs": 1734,
+              "pdf_glyphs": 1734,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "1b99492a903cce397f6f7a5e8f673e45348e4666f59f1de879ee573da4694a2e",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      },
+      {
+        "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+        "mode": 2,
+        "pages": 5,
+        "pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+        "baseline_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+        "annotations_per_page": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "body_resources_boxes_exact": true,
+        "semantic": {
+          "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33",
+          "pdf_sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+          "status": "PASS",
+          "pages": [
+            {
+              "page": 1,
+              "source_glyphs": 1444,
+              "pdf_glyphs": 1444,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "bdd8c19ac8b323d69a0fcf099124554cee39f98e6160d1f9c3abf08a8e57ac8b",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 2,
+              "source_glyphs": 1942,
+              "pdf_glyphs": 1942,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "7d9350a3046194ac2ca8d5724a81edf13e8ad0968999074b738f24964693f2f9",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 3,
+              "source_glyphs": 1977,
+              "pdf_glyphs": 1977,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "5f63f2546089b730a9d473195727be484246aa4422637ce34f04f7ae21b2fe48",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 4,
+              "source_glyphs": 2015,
+              "pdf_glyphs": 2015,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "e57bbeb1a1bcaacd833366f80346ec9791c5e12e6698374115a5f2d1944e5046",
+              "ignored_hnb_tail_bytes": 0
+            },
+            {
+              "page": 5,
+              "source_glyphs": 1693,
+              "pdf_glyphs": 1693,
+              "unicode_order": "PASS",
+              "glyph_sequence_sha256": "4d132fab08d8e3747b40795b275d03402338ef411ccaa18ceb077ef724d89c3e",
+              "ignored_hnb_tail_bytes": 0
+            }
+          ],
+          "scope": "Source glyph identities/order through explicit ToUnicode and ActualText; no visual or geometric claim"
+        }
+      }
+    ],
+    "views": [
+      {
+        "name": "90e7b47716c3",
+        "page": 1,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-90e7b47716c3-source",
+          "fonts-ready-linkthin-90e7b47716c3-75-retry",
+          "fonts-ready-linkproduction-90e7b47716c3"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              255,
+              1035,
+              985
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "a17257e3e61839b2600598bed2c3ae9ee81ba90a22368a769dda2f4608092033",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "a17257e3e61839b2600598bed2c3ae9ee81ba90a22368a769dda2f4608092033",
+            "component_pixels": 363043
+          }
+        ],
+        "before": 16068,
+        "after": 16068,
+        "file": "90e7b47716c3-75-p1.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "90e7b47716c3",
+        "page": 2,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+          "fonts-ready-linkthin-90e7b47716c3-75-retry",
+          "fonts-ready-linkproduction-90e7b47716c3"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "908171848bd243ad117275750e2b6723362c52f00b3bdc8c35966f8796b38c1f",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "eeb49434bbf3a06eb776b23b7cef40aec46165a054739943dfd25c712a482e6d",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "eeb49434bbf3a06eb776b23b7cef40aec46165a054739943dfd25c712a482e6d",
+            "component_pixels": 363043
+          }
+        ],
+        "before": 12110,
+        "after": 12110,
+        "file": "90e7b47716c3-75-p2.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "90e7b47716c3",
+        "page": 3,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+          "fonts-ready-linkthin-90e7b47716c3-75-retry",
+          "fonts-ready-linkproduction-90e7b47716c3"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "28c58837d86e1c3d522cd2f31e670ac11c3128a80d1fca3b6f32b677152c5ad7",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "64c40b54014b7d9bb7177840246ef8c3e3ba24eeaf2b4cbf2e523844e9266689",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "64c40b54014b7d9bb7177840246ef8c3e3ba24eeaf2b4cbf2e523844e9266689",
+            "component_pixels": 363043
+          }
+        ],
+        "before": 8428,
+        "after": 8428,
+        "file": "90e7b47716c3-75-p3.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "90e7b47716c3",
+        "page": 4,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+          "fonts-ready-linkthin-90e7b47716c3-75-retry",
+          "fonts-ready-linkproduction-90e7b47716c3"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "9cf3afc53e29c9abe16c364bdc0636e4cfd83f240f10807728f3c0581f4009a3",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "797709ceeb23ad4a281f2b908cd035d48240d200a4bdddc7321b40f689d06213",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "797709ceeb23ad4a281f2b908cd035d48240d200a4bdddc7321b40f689d06213",
+            "component_pixels": 363043
+          }
+        ],
+        "before": 5586,
+        "after": 5586,
+        "file": "90e7b47716c3-75-p4.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "90e7b47716c3",
+        "page": 6,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-90e7b47716c3-source",
+          "fonts-ready-linkthin-90e7b47716c3-75-retry",
+          "fonts-ready-linkproduction-90e7b47716c3"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "6fc62525d23c6ddc79beb0735dd9a96fd1f9997acf69d26cea0558eabdecc0f5",
+            "component_pixels": 363043
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              536,
+              265,
+              1035,
+              995
+            ],
+            "size": [
+              499,
+              730
+            ],
+            "rgb_sha256": "6fc62525d23c6ddc79beb0735dd9a96fd1f9997acf69d26cea0558eabdecc0f5",
+            "component_pixels": 363043
+          }
+        ],
+        "before": 14333,
+        "after": 14333,
+        "file": "90e7b47716c3-75-p6.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "b9a64bf99e4b",
+        "page": 1,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-b9a64bf99e4b-source",
+          "fonts-ready-linkthin-b9a64bf99e4b-75",
+          "fonts-ready-linkproduction-b9a64bf99e4b"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              246,
+              1038,
+              994
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+            "component_pixels": 376489
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              256,
+              1038,
+              1004
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "b66cbf7dc57982acaa7557e29bd005a09bb2d8bdd5d247b6b0ee28f3adfc3be9",
+            "component_pixels": 376489
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              256,
+              1038,
+              1004
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "b66cbf7dc57982acaa7557e29bd005a09bb2d8bdd5d247b6b0ee28f3adfc3be9",
+            "component_pixels": 376489
+          }
+        ],
+        "before": 12505,
+        "after": 12505,
+        "file": "b9a64bf99e4b-75-p1.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "b9a64bf99e4b",
+        "page": 4,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-b9a64bf99e4b-source",
+          "fonts-ready-linkthin-b9a64bf99e4b-75",
+          "fonts-ready-linkproduction-b9a64bf99e4b"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              256,
+              1038,
+              1004
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+            "component_pixels": 376489
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              256,
+              1038,
+              1004
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "f069eb6c96d72b2507e7b2116e57990a26a3c3f4a4352e9a6bb8e43186aba618",
+            "component_pixels": 376489
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              533,
+              256,
+              1038,
+              1004
+            ],
+            "size": [
+              505,
+              748
+            ],
+            "rgb_sha256": "f069eb6c96d72b2507e7b2116e57990a26a3c3f4a4352e9a6bb8e43186aba618",
+            "component_pixels": 376489
+          }
+        ],
+        "before": 8286,
+        "after": 8286,
+        "file": "b9a64bf99e4b-75-p4.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "d6a23a9cfd0f",
+        "page": 1,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+          "fonts-ready-linkthin-d6a23a9cfd0f-75",
+          "fonts-ready-linkproduction-d6a23a9cfd0f"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              237,
+              1037,
+              1003
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "45242af491076d05a7372563a2670fc1ab8f7c76743b446ac81236f80b342c98",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "45242af491076d05a7372563a2670fc1ab8f7c76743b446ac81236f80b342c98",
+            "component_pixels": 384031
+          }
+        ],
+        "before": 25816,
+        "after": 25816,
+        "file": "d6a23a9cfd0f-75-p1.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "d6a23a9cfd0f",
+        "page": 2,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+          "fonts-ready-linkthin-d6a23a9cfd0f-75",
+          "fonts-ready-linkproduction-d6a23a9cfd0f"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "004053715efdb185a6412646caf7f1a985d057d7d38960dfc8030ccd795ec975",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "97da5e1778e815ea3e678596c18795245afaa9c0404e3f4a59be94537ef1bfbb",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "97da5e1778e815ea3e678596c18795245afaa9c0404e3f4a59be94537ef1bfbb",
+            "component_pixels": 384031
+          }
+        ],
+        "before": 71520,
+        "after": 71520,
+        "file": "d6a23a9cfd0f-75-p2.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "d6a23a9cfd0f",
+        "page": 4,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+          "fonts-ready-linkthin-d6a23a9cfd0f-75",
+          "fonts-ready-linkproduction-d6a23a9cfd0f"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "d6337b46d196d17c03d97efee6c086bd6a2e798d0cf9ecf3593343de91d57bbf",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "b75bc98fb0bb6549568d9374185606ec40d9334665d0c978af1662eed7836fa6",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "b75bc98fb0bb6549568d9374185606ec40d9334665d0c978af1662eed7836fa6",
+            "component_pixels": 384031
+          }
+        ],
+        "before": 57333,
+        "after": 57333,
+        "file": "d6a23a9cfd0f-75-p4.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "d6a23a9cfd0f",
+        "page": 5,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+          "fonts-ready-linkthin-d6a23a9cfd0f-75",
+          "fonts-ready-linkproduction-d6a23a9cfd0f"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "a6045327b726e13e31c248a98d5b99f873f50356ef5fc8c2e2e898726cff6559",
+            "component_pixels": 384031
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              534,
+              247,
+              1037,
+              1013
+            ],
+            "size": [
+              503,
+              766
+            ],
+            "rgb_sha256": "a6045327b726e13e31c248a98d5b99f873f50356ef5fc8c2e2e898726cff6559",
+            "component_pixels": 384031
+          }
+        ],
+        "before": 31585,
+        "after": 31585,
+        "file": "d6a23a9cfd0f-75-p5.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "controls",
+        "page": 1,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkcontrol-links-2500-links-75",
+          "fonts-ready-linkthin-controls-75",
+          "fonts-ready-linkproduction-controls-75"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+            "component_pixels": 72571
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "c1bbe58d5907b7e584c7091cbfcd9308cebd4a43a7a9d9917db8ab37c03ce066",
+            "component_pixels": 72571
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "c1bbe58d5907b7e584c7091cbfcd9308cebd4a43a7a9d9917db8ab37c03ce066",
+            "component_pixels": 72571
+          }
+        ],
+        "before": 755,
+        "after": 755,
+        "file": "controls-75-p1.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "controls",
+        "page": 2,
+        "zoom": 75,
+        "labels": [
+          "fonts-ready-linkcontrol-links-2500-links-75",
+          "fonts-ready-linkthin-controls-75",
+          "fonts-ready-linkproduction-controls-75"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+            "component_pixels": 72571
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "8c95f3990647e46ce57e2593af152166fadb5facebd2d798cee753591dfcc5ca",
+            "component_pixels": 72571
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              662,
+              482,
+              909,
+              778
+            ],
+            "size": [
+              247,
+              296
+            ],
+            "rgb_sha256": "8c95f3990647e46ce57e2593af152166fadb5facebd2d798cee753591dfcc5ca",
+            "component_pixels": 72571
+          }
+        ],
+        "before": 755,
+        "after": 755,
+        "file": "controls-75-p2.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "controls",
+        "page": 1,
+        "zoom": 125,
+        "labels": [
+          "fonts-ready-linkcontrol-links-2500-links-125",
+          "fonts-ready-linkthin-controls-125",
+          "fonts-ready-linkproduction-controls-125"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+            "component_pixels": 199024
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "f3819917d9f561b8af9f91b172a65f6d7a36f7b26a3e9119f6e5b22f7bf7f5f6",
+            "component_pixels": 199024
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "f3819917d9f561b8af9f91b172a65f6d7a36f7b26a3e9119f6e5b22f7bf7f5f6",
+            "component_pixels": 199024
+          }
+        ],
+        "before": 1468,
+        "after": 1468,
+        "file": "controls-125-p1.png",
+        "diagnostic_to_production": 0
+      },
+      {
+        "name": "controls",
+        "page": 2,
+        "zoom": 125,
+        "labels": [
+          "fonts-ready-linkcontrol-links-2500-links-125",
+          "fonts-ready-linkthin-controls-125",
+          "fonts-ready-linkproduction-controls-125"
+        ],
+        "frames": [
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+            "component_pixels": 199024
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "6d8ba120a17a0d6f610e42f337bd2d6e2ac21f8711bf4ff09bb21be32f59612a",
+            "component_pixels": 199024
+          },
+          {
+            "complete": true,
+            "bounds_with_border": [
+              582,
+              385,
+              990,
+              875
+            ],
+            "size": [
+              408,
+              490
+            ],
+            "rgb_sha256": "6d8ba120a17a0d6f610e42f337bd2d6e2ac21f8711bf4ff09bb21be32f59612a",
+            "component_pixels": 199024
+          }
+        ],
+        "before": 1459,
+        "after": 1459,
+        "file": "controls-125-p2.png",
+        "diagnostic_to_production": 0
+      }
+    ],
+    "visually_reviewed_views": 15,
+    "diagnostic_and_production_views_exact": 15,
+    "runtime": [
+      {
+        "runtime": "Node",
+        "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+        "bytes": 25228167,
+        "maxChunk": 65536,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+        "bytes": 21700542,
+        "maxChunk": 16384,
+        "pages": 12,
+        "byte_identical": true,
+        "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+        "bytes": 24948872,
+        "maxChunk": 65536,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+        "bytes": 30443954,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+        "bytes": 30800943,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+        "bytes": 30654733,
+        "maxChunk": 65536,
+        "pages": 10,
+        "byte_identical": true,
+        "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+        "bytes": 21821487,
+        "maxChunk": 16384,
+        "pages": 6,
+        "byte_identical": true,
+        "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+        "bytes": 31128565,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+        "bytes": 32149451,
+        "maxChunk": 65536,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+        "bytes": 31465674,
+        "maxChunk": 65536,
+        "pages": 6,
+        "byte_identical": true,
+        "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+        "bytes": 30948246,
+        "maxChunk": 16384,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+        "bytes": 30521654,
+        "maxChunk": 16384,
+        "pages": 7,
+        "byte_identical": true,
+        "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+        "bytes": 30939308,
+        "maxChunk": 16384,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "f50aa4b71a86c2be004d865d2d1e0b5f493e8bca8fede0d3cec89cbf59c3d571",
+        "bytes": 32096,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "9bff2653d0ad47e982cdc43067dd9c8e71efaf95eea421df05fe0afea33785d9",
+        "bytes": 22628,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "2c48b7c4f5e2ab0c1eb9242f9dca2e641622b56266455f7bb0160c591c71525a"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "3b1ab8840dd4a2b0fe84500927637d56e1bace8cb13c2d3e032424c08bd03bbe",
+        "bytes": 32095,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542"
+      },
+      {
+        "runtime": "Node",
+        "sha256": "afa7f73256fdf7983c6aa294357d1fba20ef786a72c77e0a6105cfdf141696f3",
+        "bytes": 22626,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "3a6b591dbe1ae56a2f146b5b746b44a03099e79cd08378057a69f2425b9836b9"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "32bd76cb689308c8dfad865d520e16507d3e0b28b953b4e8ee2a993bc8d7e442",
+        "bytes": 25228167,
+        "maxChunk": 65536,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "c0a4f0e25f32c587f258792c5e403fdc3762c3d7556c43e3e8f39d4be3f733a7",
+        "bytes": 21700542,
+        "maxChunk": 16384,
+        "pages": 12,
+        "byte_identical": true,
+        "source_sha256": "166d0014792326570d9e8ca42fe13a4a44329e4ad095d3ac8dfd73c8ddb9f20e"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "f6b9df95b9973cc96703d43dbbcd2a8c77c00785f5b691b972e7cf0cd49c9e5e",
+        "bytes": 24948872,
+        "maxChunk": 65536,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "c227d96c0fb34444c01afd0207274e34e5e4179373e88d788c6cdc9253f06e13",
+        "bytes": 30443954,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "1e8fd748209bda173625ad67007e1affd07e96fa65f2f97b3cb74977d9db1bcc",
+        "bytes": 30800943,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "e3bbe9903f5113f0024bf2aa359f23cc707a8ab4d5f0d794add9635a55e7331b",
+        "bytes": 30654733,
+        "maxChunk": 65536,
+        "pages": 10,
+        "byte_identical": true,
+        "source_sha256": "7e3f2c0faebb8ddac2f4feff3cfc9249476ab170b43250ac00610b10aa46c74b"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "56859da402fb10a59f5d432ce0f470a6a522b7e46bec4712de916dc1b42d8c51",
+        "bytes": 21821487,
+        "maxChunk": 16384,
+        "pages": 6,
+        "byte_identical": true,
+        "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "ba61be896e3e81ae5339519e6da340d75ffa4c87d42927af1b737da5ebbca2c0",
+        "bytes": 31128565,
+        "maxChunk": 16384,
+        "pages": 4,
+        "byte_identical": true,
+        "source_sha256": "b9a64bf99e4bc496b976541a27128ee84109835d5f79f228a9c8ad159ec6829b"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "65cb8168af200b1713801c29a281b20d16b0f3c71c09b1089892c01260a77fef",
+        "bytes": 32149451,
+        "maxChunk": 65536,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "d6a23a9cfd0f37a71e245a3c96b2c3fafdf648f4bb1694f094cfe746b3f4f13d"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "3adccc2c51064d21b564bb199e6538d6353eb2bda37bd69ddd939ff9a8b7bc61",
+        "bytes": 31465674,
+        "maxChunk": 65536,
+        "pages": 6,
+        "byte_identical": true,
+        "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "bc6d4ef790b7bc32d144986a405173afcc4b3f54b4436f73adc69653890653cc",
+        "bytes": 30948246,
+        "maxChunk": 16384,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "9a50414e00a69836546c1b80cf2c2633cc712ae948a94f5ee512da3ff7b7726c"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "f77824e7b4493b6720cdf23b98c36ef19833378b8da4e8749dec1836748db9a3",
+        "bytes": 30521654,
+        "maxChunk": 16384,
+        "pages": 7,
+        "byte_identical": true,
+        "source_sha256": "a286d812d9d1b8cc9b7e4f558bb945b115255159cfb2676e7f9c2b2b15d4f852"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "e9622c53efa4b0a03f2516b2d6121d46d2f9ecc8ad476f913cb7b862ccefd6a9",
+        "bytes": 30939308,
+        "maxChunk": 16384,
+        "pages": 5,
+        "byte_identical": true,
+        "source_sha256": "4447375ea1b1adf0086721fde0fd26b31e9d661bd70c2aff259872150d5b8a33"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "f50aa4b71a86c2be004d865d2d1e0b5f493e8bca8fede0d3cec89cbf59c3d571",
+        "bytes": 32096,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "a7746f21aac6d031e8cb7411cf4e2eb413c3d25831ba26e2eb677bf075a028fc"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "9bff2653d0ad47e982cdc43067dd9c8e71efaf95eea421df05fe0afea33785d9",
+        "bytes": 22628,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "2c48b7c4f5e2ab0c1eb9242f9dca2e641622b56266455f7bb0160c591c71525a"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "3b1ab8840dd4a2b0fe84500927637d56e1bace8cb13c2d3e032424c08bd03bbe",
+        "bytes": 32095,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "f0e36f3265c1ecb00974ffc5327cf2b5fb5a2362da4a783559bf5cd06cd58542"
+      },
+      {
+        "runtime": "Chromium",
+        "sha256": "afa7f73256fdf7983c6aa294357d1fba20ef786a72c77e0a6105cfdf141696f3",
+        "bytes": 22626,
+        "maxChunk": 2597,
+        "pages": 2,
+        "byte_identical": true,
+        "source_sha256": "3a6b591dbe1ae56a2f146b5b746b44a03099e79cd08378057a69f2425b9836b9"
+      }
+    ],
+    "unannotated_documents_byte_exact": 10,
+    "semantic_characters": 113418,
+    "limits": {
+      "package_bytes": 1048576,
+      "links": 8192,
+      "attribute_uri_bytes": 4096,
+      "allocation": "XML + directory + aggregate targets + fixed field allowance bounded by Limits.max_allocation_bytes; per-page PDF references and object directory bounded separately"
+    },
+    "appearance": {
+      "weight_points": 0.5,
+      "gap_points": 1.5,
+      "dash_points": [
+        6.75,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25
+      ],
+      "color": "source RGB; no opacity state"
+    },
+    "tests": {
+      "workspace_passed": 1461,
+      "workspace_ignored_excluded": 7,
+      "new_followup_regressions_passed": 1,
+      "final_targeted_passed": 33,
+      "final_bounds_passed": 15,
+      "js_passed": 192,
+      "js_skipped": 0,
+      "clippy": "PASS"
+    },
+    "failures": [
+      "One thin-diagnostic Wine startup did not reach stable numeric layout; excluded, independent cold retry admitted.",
+      "First production verifier found a serialized zero-width terminal rectangle from decimal subtraction; quantized BBox precision and an original regression fix it. Failed candidate retained externally."
+    ]
+  },
+  "filled_views": [
+    {
+      "name": "b9a64bf99e4b",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkfilled-b9a64bf99e4b-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "239cca89b8756f752ab9211de0d8c7ab8f77d848ef63b2b34eac437700e3a8c8",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "17950cd1e76cf17bf72a50c50374203a26c5b3598ecb3a8df87fdaba19be3c88",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 12971,
+      "after": 12592,
+      "file": "b9a64bf99e4b-75-p1.png"
+    },
+    {
+      "name": "b9a64bf99e4b",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkfilled-b9a64bf99e4b-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "134ff8e6ae8d686e834e2fd482d0d8ca97060bacd722e27a48c1a48023ccbfd4",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "11bd9fa507f82974e624433d4e90d19eedf7c0e9db77aa3c79572a04636033fb",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 9366,
+      "after": 9118,
+      "file": "b9a64bf99e4b-75-p4.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkfilled-controls-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2a12f856fc67b2761a5084c2e169d8f4f358c33fd0681103ccfb8fba90884352",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c5666eee631485f9b01e8f66734ddb97c74ec0ca28d37f6402c6ac32657f7287",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 960,
+      "file": "controls-75-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkfilled-controls-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "5dcab0a75e4edd1e19f1a1deadcf463b21409691576e8cfddacfc97f06cce174",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "5641249926eb36dd32fd581f4739665ef16f132616d43975808205486051066b",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 960,
+      "file": "controls-75-p2.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkfilled-controls-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "17236cb39e5507a5a7baa10d71784c46abe389488c5bc74f5bfa54821dd25f03",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "7ce86a0cb3b8bce4f491efdc2ad936577546b3a79d6007f26167a8651af98ac8",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1265,
+      "after": 1428,
+      "file": "controls-125-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkfilled-controls-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "62c092c646de4151c0c5d163ff7e29c239c684de2dc33e18250d274670cfb516",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "11ffdf5ba4b08194fef5c2c8a80907d5514f98b7b2a5e3e52b58f24a16313a4d",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1286,
+      "after": 1447,
+      "file": "controls-125-p2.png"
+    }
+  ],
+  "thin_views": [
+    {
+      "name": "90e7b47716c3",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-linkactual-90e7b47716c3",
+        "fonts-ready-linkthin-90e7b47716c3-75-retry"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            255,
+            1035,
+            985
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a13ab037c668d020a00e2643c037517a6164eaa27aed629902dc4707190c8867",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "50a874787e3e45226e0b818d05a2f186fdda1b313da93e7329d9131ed6d87126",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "a17257e3e61839b2600598bed2c3ae9ee81ba90a22368a769dda2f4608092033",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 16206,
+      "after": 16068,
+      "file": "90e7b47716c3-75-p1.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkthin-90e7b47716c3-75-retry"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "908171848bd243ad117275750e2b6723362c52f00b3bdc8c35966f8796b38c1f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "847bb6de4517c0df70187fd674fd21ebd389a4cd3dee4e6253cff69f90aae4ac",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "eeb49434bbf3a06eb776b23b7cef40aec46165a054739943dfd25c712a482e6d",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 12110,
+      "after": 12110,
+      "file": "90e7b47716c3-75-p2.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 3,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkthin-90e7b47716c3-75-retry"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "28c58837d86e1c3d522cd2f31e670ac11c3128a80d1fca3b6f32b677152c5ad7",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "b9814c4a29c1b5094378a2a56e2720b355e4825691823af0ea0da874b5af0b9d",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "64c40b54014b7d9bb7177840246ef8c3e3ba24eeaf2b4cbf2e523844e9266689",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 8440,
+      "after": 8428,
+      "file": "90e7b47716c3-75-p3.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source-remaining",
+        "fonts-ready-linkactual-90e7b47716c3-remaining",
+        "fonts-ready-linkthin-90e7b47716c3-75-retry"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "9cf3afc53e29c9abe16c364bdc0636e4cfd83f240f10807728f3c0581f4009a3",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "c88b12eda4d743890c85fb418e6113dbe5ca11cb8438565796351cd768bc971a",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "797709ceeb23ad4a281f2b908cd035d48240d200a4bdddc7321b40f689d06213",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 5586,
+      "after": 5586,
+      "file": "90e7b47716c3-75-p4.png"
+    },
+    {
+      "name": "90e7b47716c3",
+      "page": 6,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-90e7b47716c3-source",
+        "fonts-ready-linkactual-90e7b47716c3",
+        "fonts-ready-linkthin-90e7b47716c3-75-retry"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "91ad9fbe7bb5c9a21273eff30b882a97d8376b05ac1e23f04314a651a168007f",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "f9d8290aa6117ee9f0ee5e31336c4ddcc94c8ac51a0b7257455415730af1a584",
+          "component_pixels": 363043
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            536,
+            265,
+            1035,
+            995
+          ],
+          "size": [
+            499,
+            730
+          ],
+          "rgb_sha256": "6fc62525d23c6ddc79beb0735dd9a96fd1f9997acf69d26cea0558eabdecc0f5",
+          "component_pixels": 363043
+        }
+      ],
+      "before": 15012,
+      "after": 14333,
+      "file": "90e7b47716c3-75-p6.png"
+    },
+    {
+      "name": "b9a64bf99e4b",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkthin-b9a64bf99e4b-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            246,
+            1038,
+            994
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "77ef95f75b0be8c54b6b90e01e3df6b0e430f79a35cbc092144e6506e4547c39",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "239cca89b8756f752ab9211de0d8c7ab8f77d848ef63b2b34eac437700e3a8c8",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "b66cbf7dc57982acaa7557e29bd005a09bb2d8bdd5d247b6b0ee28f3adfc3be9",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 12971,
+      "after": 12505,
+      "file": "b9a64bf99e4b-75-p1.png"
+    },
+    {
+      "name": "b9a64bf99e4b",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-b9a64bf99e4b-source",
+        "fonts-ready-linkactual-b9a64bf99e4b",
+        "fonts-ready-linkthin-b9a64bf99e4b-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "40bd46229962af1bc7747006c82900e0bde389021b466e695eb5df2d23980c51",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "134ff8e6ae8d686e834e2fd482d0d8ca97060bacd722e27a48c1a48023ccbfd4",
+          "component_pixels": 376489
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            533,
+            256,
+            1038,
+            1004
+          ],
+          "size": [
+            505,
+            748
+          ],
+          "rgb_sha256": "f069eb6c96d72b2507e7b2116e57990a26a3c3f4a4352e9a6bb8e43186aba618",
+          "component_pixels": 376489
+        }
+      ],
+      "before": 9366,
+      "after": 8286,
+      "file": "b9a64bf99e4b-75-p4.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-linkactual-d6a23a9cfd0f",
+        "fonts-ready-linkthin-d6a23a9cfd0f-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            237,
+            1037,
+            1003
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "9955999885ee771ac8ab9641188a24b5be38b0776aa7b5e2f10447482dadf13e",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "0675cb81a302352de9591e9743d24b438dfc08cd17e39ab966444adda947726c",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "45242af491076d05a7372563a2670fc1ab8f7c76743b446ac81236f80b342c98",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 26104,
+      "after": 25816,
+      "file": "d6a23a9cfd0f-75-p1.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining",
+        "fonts-ready-linkthin-d6a23a9cfd0f-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "004053715efdb185a6412646caf7f1a985d057d7d38960dfc8030ccd795ec975",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d7960d5b2c1f8ef07420f1eb820f3dd05362af9d307ae9641de7a4877f8a5eaa",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "97da5e1778e815ea3e678596c18795245afaa9c0404e3f4a59be94537ef1bfbb",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 71530,
+      "after": 71520,
+      "file": "d6a23a9cfd0f-75-p2.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 4,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source-remaining",
+        "fonts-ready-linkactual-d6a23a9cfd0f-remaining",
+        "fonts-ready-linkthin-d6a23a9cfd0f-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "d6337b46d196d17c03d97efee6c086bd6a2e798d0cf9ecf3593343de91d57bbf",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "a8f2fb07c7ce7dcd08a1aa07e5ceb5a6b5d51cb9f84580726657010335984dc4",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "b75bc98fb0bb6549568d9374185606ec40d9334665d0c978af1662eed7836fa6",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 57343,
+      "after": 57333,
+      "file": "d6a23a9cfd0f-75-p4.png"
+    },
+    {
+      "name": "d6a23a9cfd0f",
+      "page": 5,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkmeta-d6a23a9cfd0f-source",
+        "fonts-ready-linkactual-d6a23a9cfd0f",
+        "fonts-ready-linkthin-d6a23a9cfd0f-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "79d13e6e4c79940404381c12fb3a5179db87bf3786e52d44df2ffc9fdd027214",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "67b3b2ce46c164dfa95c7873f6f182e6145b33629f205508471d0d3a1238262c",
+          "component_pixels": 384031
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            534,
+            247,
+            1037,
+            1013
+          ],
+          "size": [
+            503,
+            766
+          ],
+          "rgb_sha256": "a6045327b726e13e31c248a98d5b99f873f50356ef5fc8c2e2e898726cff6559",
+          "component_pixels": 384031
+        }
+      ],
+      "before": 33901,
+      "after": 31585,
+      "file": "d6a23a9cfd0f-75-p5.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkthin-controls-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c4e833343b737c74414383c86239a209ebe7541cf20e22681b9486f038c77220",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2a12f856fc67b2761a5084c2e169d8f4f358c33fd0681103ccfb8fba90884352",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "c1bbe58d5907b7e584c7091cbfcd9308cebd4a43a7a9d9917db8ab37c03ce066",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 755,
+      "file": "controls-75-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 75,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-75",
+        "fonts-ready-linkexplicit-annotation-75",
+        "fonts-ready-linkthin-controls-75"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "2b43e530710a4b8e40ff3ffa56dd8e70bdf9c5aa99ad2b6343d1562dda6c1692",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "5dcab0a75e4edd1e19f1a1deadcf463b21409691576e8cfddacfc97f06cce174",
+          "component_pixels": 72571
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            662,
+            482,
+            909,
+            778
+          ],
+          "size": [
+            247,
+            296
+          ],
+          "rgb_sha256": "8c95f3990647e46ce57e2593af152166fadb5facebd2d798cee753591dfcc5ca",
+          "component_pixels": 72571
+        }
+      ],
+      "before": 960,
+      "after": 755,
+      "file": "controls-75-p2.png"
+    },
+    {
+      "name": "controls",
+      "page": 1,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkthin-controls-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "8144054c4f9ef3d1aee011a25dcdf41016666a829465a9a385a17f855df301b7",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "17236cb39e5507a5a7baa10d71784c46abe389488c5bc74f5bfa54821dd25f03",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "f3819917d9f561b8af9f91b172a65f6d7a36f7b26a3e9119f6e5b22f7bf7f5f6",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1265,
+      "after": 1468,
+      "file": "controls-125-p1.png"
+    },
+    {
+      "name": "controls",
+      "page": 2,
+      "zoom": 125,
+      "labels": [
+        "fonts-ready-linkcontrol-links-2500-links-125",
+        "fonts-ready-linkexplicit-annotation-125",
+        "fonts-ready-linkthin-controls-125"
+      ],
+      "frames": [
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "b57418ddc44da5f22ff270d5c3611f13b50b39a81df8cbf90b9ffe91996698cf",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "62c092c646de4151c0c5d163ff7e29c239c684de2dc33e18250d274670cfb516",
+          "component_pixels": 199024
+        },
+        {
+          "complete": true,
+          "bounds_with_border": [
+            582,
+            385,
+            990,
+            875
+          ],
+          "size": [
+            408,
+            490
+          ],
+          "rgb_sha256": "6d8ba120a17a0d6f610e42f337bd2d6e2ac21f8711bf4ff09bb21be32f59612a",
+          "component_pixels": 199024
+        }
+      ],
+      "before": 1286,
+      "after": 1459,
+      "file": "controls-125-p2.png"
+    }
+  ]
 }

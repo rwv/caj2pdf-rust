@@ -129,7 +129,8 @@ pub struct ComposeReport {
     /// `ComposeOptions::include_bookmarks` is set.
     pub outline: OutlineReport,
     /// Whether a C8 application-info package was read into the PDF `/Info`
-    /// or ignored as defective; a defect never fails conversion.
+    /// or ignored as defective. Native C8 also writes admitted links; unknown
+    /// required appearances fail, while damaged packages remain warnings.
     pub application_info: ApplicationInfoStatus,
 }
 
@@ -169,6 +170,15 @@ fn finish_document<S: RangedSource, W: Write, C: Cancellation>(
     let read = reader
         .application_info_report()
         .map_err(|error| container(error, Hnc8Stage::Container))?;
+    finish_with_application_info(document, report, at, read)
+}
+
+fn finish_with_application_info<W: Write, C: Cancellation>(
+    document: PdfDocument<'_, W, C>,
+    report: &mut ComposeReport,
+    at: At,
+    read: super::ApplicationInfoReport,
+) -> Result<ConversionReport> {
     report.application_info = read.status;
     let info = read.info.unwrap_or_default();
     document

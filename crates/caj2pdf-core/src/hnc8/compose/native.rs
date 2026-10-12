@@ -160,6 +160,9 @@ where
             Error::invalid("decoration glyphs require native mode 2"),
         ));
     }
+    let (application_info, links) = reader
+        .application_info_with_links()
+        .map_err(|error| container(error, Hnc8Stage::Container))?;
     let mut document =
         PdfDocument::new(sink, limits, cancellation).map_err(at.locator(Hnc8Stage::Pdf))?;
     let mut handles: Vec<FontObject> =
@@ -352,6 +355,7 @@ where
             &page_aliases,
             &images,
             &top_first,
+            &links,
         )
         .map_err(|error| container(error, Hnc8Stage::Text))?
             + 1;
@@ -367,7 +371,7 @@ where
             .embed_font_with_embedding(handle, &mut font, fonts.embedding)
             .map_err(at.locator(Hnc8Stage::Pdf))?;
     }
-    report.conversion = finish_document(&mut reader, document, &mut report, at)?;
+    report.conversion = finish_with_application_info(document, &mut report, at, application_info)?;
     report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);
     Ok(report)
 }

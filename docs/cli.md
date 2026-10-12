@@ -474,9 +474,28 @@ Some C8 files end with an application-info package (see
 `inspect` reports its DOI, URL and annotation count. Conversion writes a PDF
 document information dictionary only when a DOI or URL is present:
 the custom keys `/CNKI_DOI` and `/CNKI_URL` hold the verbatim identifier and
-URL as UTF-16BE text strings. No title is invented
-and annotations are not converted. Other inputs and C8 files without a package
-produce unchanged output.
+URL as UTF-16BE text strings. No title is invented.
+
+Native C8 conversion also preserves the measured `Link` / `LineStyle=4` /
+`ShowType=1` appearance in `PointsM`, version 1.0: PDF link annotations carry
+explicit dash-dot-dot underlines and the source HTTP(S) URI. Conversion never
+opens, fetches or executes a target. Appearance Forms leave the page body,
+font programs, images and semantic text unchanged. The fixed physical line
+pattern approximates Wine's device-fixed marks; small weight, phase and
+cross-zoom differences remain. Printing and link navigation are not validated.
+
+This is a behavior change: native conversion now refuses unknown note types,
+styles, units, versions, child structures and target encodings instead of
+silently losing required appearance. Reconvert admitted inputs; handle
+`UnsupportedFormat` / JavaScript `UnsupportedFormatError` for other profiles.
+The image-only diagnostic API still extracts only document metadata.
+`inspect` retains its DOI/URL/count schema. No new option is needed.
+
+Link state is capped at 8,192 entries and one 4,096-byte URI per entry,
+with the XML, directory and aggregate target bytes bounded by
+`Limits.max_allocation_bytes`; the existing 1 MiB package ceiling remains.
+Per-page PDF references are bounded separately. Other inputs and C8 files
+without annotations retain their previous output.
 
 A defective package never fails `convert` or `inspect`. The PDF is written
 exactly as without a package, and one located line is printed on standard

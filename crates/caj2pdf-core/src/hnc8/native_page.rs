@@ -194,6 +194,7 @@ pub fn write_c8_native_page<S, W, C>(
     glyph_aliases: &[NativeFontGlyphAlias],
     images: &[ImageObject],
     top_first: &[bool],
+    links: &[super::appinfo::links::Link],
 ) -> Result<u32>
 where
     S: RangedSource,
@@ -275,7 +276,23 @@ where
         legacy,
     };
     reader.visit_native_records(&mut writer)?;
-    page.finish().map_err(source_error)
+    let page_number = current.page.page_number;
+    let first = links.partition_point(|link| link.page < page_number);
+    let last = links.partition_point(|link| link.page <= page_number);
+    page.finish_with_links(links[first..last].iter().map(|link| {
+        let [l, t, r, b] = link.rect.map(|v| f64::from(v) / 100.0);
+        crate::pdf::LinkAnnotation {
+            rect: [
+                l,
+                geometry.size.height_points - b,
+                r,
+                geometry.size.height_points - t,
+            ],
+            rgb: link.rgb,
+            uri: &link.uri,
+        }
+    }))
+    .map_err(source_error)
 }
 
 fn invalid(reason: &'static str) -> Error {

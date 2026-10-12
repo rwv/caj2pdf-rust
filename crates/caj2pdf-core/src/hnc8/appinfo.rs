@@ -2,8 +2,9 @@
 
 //! The independently observed C8 application-info package at the end of the
 //! source; see docs/research/c8-native-records.md. Only the DOI, DURL and the number of
-//! `NoteItems` entries are extracted, by a small scanner rather than a general
-//! XML parser. A defect here is located but must not fail page conversion.
+//! `NoteItems` entries are exposed publicly by a small scanner rather than a
+//! general XML parser. Native composition additionally reads the measured link
+//! appearances. A malformed tail is located but does not fail page conversion.
 
 use super::inflate::{ExactInflate, InflateFault, InflateFaultKind};
 use super::{Hnc8Reader, Location, Variant, read_fixed};
@@ -11,6 +12,8 @@ use crate::fallible::{len_u64, reserve_exact};
 use crate::hnc8::TEXT_DECODER_RESERVATION_BYTES;
 use crate::{Cancellation, Error, ErrorKind, RangedSource, Result};
 use std::fmt;
+
+pub(super) mod links;
 
 /// Ceiling for both the compressed and the inflated package.
 pub const MAX_APPLICATION_INFO_BYTES: u32 = 1024 * 1024;
@@ -94,7 +97,8 @@ pub enum ApplicationInfoStatus {
     /// No package, or not a C8 source.
     #[default]
     Absent,
-    /// The package was read; its DOI and URL went to the PDF `/Info`.
+    /// The package was read; its DOI and URL went to the PDF `/Info`. Native
+    /// C8 composition also preserves admitted link annotations.
     Read,
     /// The package was defective and ignored; pages are unaffected.
     Ignored(ApplicationInfoDefect),
@@ -134,6 +138,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// treat every error except cancellation as a warning. Independent of the
     /// page cursor.
     pub fn application_info(&mut self) -> Result<Option<ApplicationInfo>> {
+        let Some((xml, loc)) = self.application_info_xml()? else {
+            return Ok(None);
+        };
+        scan(&xml, loc).map(Some)
+    }
+
+    fn application_info_xml(&mut self) -> Result<Option<(Vec<u8>, Location)>> {
         if self.header.variant != Variant::C8 {
             return Ok(None);
         }
@@ -150,7 +161,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             return Ok(None);
         };
         let xml = self.inflate(package, loc.at(package.offset))?;
-        scan(&xml, loc.at(package.offset)).map(Some)
+        Ok(Some((xml, loc.at(package.offset))))
     }
 
     /// Locate a final `APPINFOSIGN <decimal start>` trailer in the last 32
@@ -362,6 +373,31 @@ fn is_name_byte(byte: u8) -> bool {
 /// is checked; attributes are skipped after a quoting check; declarations,
 /// unknown entities and text outside the root are rejected.
 fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
+    scan_with(bytes, loc, &mut |_| Ok(()))
+}
+
+/// Borrowed events from the same bounded, structure-checking metadata scanner.
+enum Event<'a> {
+    Start {
+        parents: &'a [&'a str],
+        name: &'a str,
+        empty: bool,
+        tag: &'a str,
+    },
+    End {
+        path: &'a [&'a str],
+    },
+    Text {
+        path: &'a [&'a str],
+        text: &'a str,
+    },
+}
+
+fn scan_with(
+    bytes: &[u8],
+    loc: Location,
+    observe: &mut impl FnMut(Event<'_>) -> Result<()>,
+) -> Result<ApplicationInfo> {
     let bad = |reason| loc.malformed(reason);
     let xml = std::str::from_utf8(bytes)
         .map_err(|_| bad("application-info XML: package is not UTF-8"))?;
@@ -377,6 +413,10 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
         if !rest.starts_with('<') {
             let end = rest.find('<').unwrap_or(rest.len());
             let text = &rest[..end];
+            observe(Event::Text {
+                path: &stack[..depth],
+                text,
+            })?;
             if let Some((_, value)) = &mut capture {
                 decode_text(text, value, loc)?;
             } else if depth == 0 && !text.bytes().all(is_space) {
@@ -409,6 +449,10 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
             if let Some((_, value)) = &mut capture {
                 push(value, &tail[..end], loc)?;
             }
+            observe(Event::Text {
+                path: &stack[..depth],
+                text: &tail[..end],
+            })?;
             rest = &tail[end + 3..];
         } else if rest.starts_with("<!") {
             return Err(bad("application-info XML: declarations are not accepted"));
@@ -422,6 +466,9 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
                     "application-info XML: end tag does not match the open element",
                 ));
             }
+            observe(Event::End {
+                path: &stack[..depth],
+            })?;
             depth -= 1;
             root_closed = depth == 0;
             if let Some((field, value)) = capture.take() {
@@ -440,6 +487,12 @@ fn scan(bytes: &[u8], loc: Location) -> Result<ApplicationInfo> {
                 return Err(bad("application-info XML: root element is not one Package"));
             }
             let path = &stack[..depth];
+            observe(Event::Start {
+                parents: path,
+                name,
+                empty,
+                tag: &rest[..length],
+            })?;
             let field = match name {
                 "DOI" => Some(Field::Doi),
                 "DURL" => Some(Field::Url),

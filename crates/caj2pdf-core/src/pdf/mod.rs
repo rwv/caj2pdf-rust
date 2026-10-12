@@ -16,6 +16,7 @@ mod writer;
 mod xref;
 
 pub use append::{PdfOutlineAppender, copy_pdf, copy_pdf_range};
+pub(crate) use document::LinkAnnotation;
 pub use document::{
     BilevelImageSpec, BilevelImageWriter, ContentPageWriter, FontObject, ImageEncoding,
     ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,

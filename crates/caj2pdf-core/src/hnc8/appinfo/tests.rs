@@ -404,3 +404,46 @@ fn defects_display_their_location_and_reason() {
         ApplicationInfoStatus::Absent
     );
 }
+
+#[test]
+fn native_links_use_bounded_reads_and_keep_damaged_tails_as_warnings() {
+    let xml = "<Package><Note-Package><NoteItems Unit='PointsM' Version='1.0'><Item Type='Link' Page='1' Color='00808080' LineStyle='4' ShowType='1'><RC l='100' t='200' r='900' b='500'/><Item Type='UrlLink' Aim='https://example.invalid/'/></Item></NoteItems></Note-Package></Package>";
+    let limits = Limits {
+        io_chunk_bytes: 7,
+        ..Limits::default()
+    };
+    let run = |data: Vec<u8>, cancel: &CancelAfter| {
+        let mut source = SeekableSource::new(Cursor::new(data)).unwrap();
+        Hnc8Reader::open(&mut source, &limits, cancel)?.application_info_with_links()
+    };
+    let (report, links) = run(package(xml), &NEVER).unwrap();
+    assert_eq!(report.status, ApplicationInfoStatus::Read);
+    assert_eq!(links.len(), 1);
+    for changed in [
+        xml.replace("r='900'", "r='0'"),
+        xml.replace("</Package>", "</Wrong>"),
+    ] {
+        let (report, links) = run(package(&changed), &NEVER).unwrap();
+        assert!(matches!(report.status, ApplicationInfoStatus::Ignored(_)));
+        assert!(report.info.is_none() && links.is_empty());
+    }
+    assert!(matches!(
+        run(
+            package(&xml.replace("LineStyle='4'", "LineStyle='9'")),
+            &NEVER
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::UnsupportedFormat
+    ));
+    let counter = CancelAfter::never();
+    run(package(xml), &counter).unwrap();
+    for allowed in [0, counter.queries() / 2, counter.queries() - 1] {
+        assert!(matches!(
+            run(package(xml), &CancelAfter::new(allowed))
+                .unwrap_err()
+                .kind,
+            ErrorKind::Cancelled
+        ));
+    }
+}

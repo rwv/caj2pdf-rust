@@ -862,6 +862,13 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     }
 
     pub fn finish(self) -> Result<u32> {
+        self.finish_with_links(std::iter::empty())
+    }
+
+    pub(crate) fn finish_with_links<'u>(
+        self,
+        links: impl Iterator<Item = LinkAnnotation<'u>> + Clone,
+    ) -> Result<u32> {
         if self.failed {
             return Err(Error::invalid(
                 "PDF content page cannot finish after a failed draw",
@@ -872,6 +879,7 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         deflate.finish(&mut document.writer)?;
         document.writer.end_stream()?;
         document.deflate = Some(deflate);
+        let annotations = document.write_link_annotations(links)?;
         let parent = document
             .leaf
             .as_ref()
@@ -905,7 +913,13 @@ impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         }
         document
             .writer
-            .write_bytes(format!(" >> >> /Contents {} 0 R >>", self.content.number()).as_bytes())?;
+            .write_bytes(format!(" >> >> /Contents {} 0 R", self.content.number()).as_bytes())?;
+        if let Some(annotations) = annotations {
+            document
+                .writer
+                .write_bytes(format!(" /Annots {} 0 R", annotations.number()).as_bytes())?;
+        }
+        document.writer.write_bytes(b" >>")?;
         document.writer.end_object()?;
         let index = document.register_page(self.page)?;
         document.image_page_failed = false;

@@ -394,3 +394,26 @@ ten are unchanged and two worsen slightly; all 113,418 source characters
 are preserved and all 13 Node/native PDFs are byte-identical. Additional
 HN-A/C8/NH checks cover 43 selected pages, not all 433 NH pages. See the
 [67-session evidence and remaining limits](../research/wine-page-extents-20261011.md).
+
+### Breaking native C8 behavior: preserve link appearances (#545)
+
+Native Rust, CLI, Node and browser conversion now emits the measured
+application-info links as PDF `/Link` annotations with explicit appearance
+Forms. Previously all notes were counted and visually discarded. Their source
+page, rectangle, color and HTTP(S) URI are retained without accessing the
+URI; body streams, font/image resources and semantic text are unchanged.
+The original font setup is unaffected. Reconvert files to receive the marks.
+
+Unknown required note styles/types/units/versions or URI profiles now produce
+an unsupported-format error. Callers must handle that error instead of
+assuming metadata notes are always ignored. Damaged packages remain located
+warnings; inspection and the image-only diagnostic API retain their existing
+metadata-only behavior. No public field, WASM ABI, option or dependency is
+added. See [the admitted profile and bounds](../cli.md#c8-application-info).
+
+The appearance is a documented physical approximation: 0.5-point filled
+marks, 6.75/2.25-point dash-dot-dot runs and a 1.5-point lower gap. Wine keeps
+its dash cadence and gap in device pixels, so zoom-dependent differences
+remain. Exact RGB equality is not an acceptance gate. Original controlled
+sources and all 11 affected actual pages are compared at reading size;
+printing and target navigation remain untested.

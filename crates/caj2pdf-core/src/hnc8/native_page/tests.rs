@@ -306,6 +306,7 @@ fn convert_with_fonts(
             &[],
             slice,
             top_first,
+            &[],
         );
         cancel.0.set(false);
         input_fault.set(false);

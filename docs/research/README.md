@@ -7,16 +7,16 @@ zero-difference completion gate. The
 [native rule-contrast correction](wine-visible-rules-20261011.md) changes 347
 axis-aligned rules and checks all 77 actual pages, with 63 diagnostic
 improvements, 14 unchanged rasters and no regressions. Every changed region
-was visually reviewed. Ornament seams and native dashed underlines remain
-separate under #541.
+was visually reviewed. Ornament seams remain under #541.
 
 The [link-appearance isolation](wine-link-appearances-20261011.md) establishes
 that missing dashed underlines come from C8 application-info annotations.
 Original controls measure their coordinate, color and device-fixed dash
-behavior. #545 now tracks their preservation: the three affected documents
-contain 133 links on 11 pages. Diagnostic PDF annotations paint successfully,
-but their weight still needs correction; no production annotation change is
-adopted.
+behavior. Native conversion now preserves 133 links on 11 actual pages as
+PDF annotations with thin filled appearances (#545). All body/font/image
+resources remain unchanged; ten unannotated PDFs stay byte-exact. Fifteen
+fresh Wine views reproduce the inspected treatment. Cross-zoom dash cadence
+remains approximate; printing and navigation are untested.
 
 The format investigations, oracle reports and validation runs behind the
 decoders now live in the

@@ -3961,3 +3961,26 @@ treatment remain diagnostics, with visible weight differences retained.
 No production annotation parser/emitter is adopted. No vendor, foreign
 converter or private HN/JBIG implementation is inspected or copied; corpus,
 font, PDF, XML body and screenshot data remain external.
+
+
+### Bounded native C8 link output (#545)
+
+`hnc8/appinfo/links.rs` and `pdf/document/links.rs` are original MIT project
+implementations derived from the independent controls documented in
+[the link appearance study](research/wine-link-appearances-20261011.md).
+The former extends the existing project-owned UTF-8 scanner with borrowed
+events and a fixed attribute directory; the latter writes ordinary PDF Link
+annotations and self-contained Form streams. Neither reads vendor code nor
+copies/transliterates any external converter. Existing source files only
+connect these original components to native composition and retain the
+metadata-only inspection interface. No private HN/JBIG module is migrated.
+
+The 0.5-point filled appearance is an empirical visual approximation selected
+after the opaque hairline, half-opacity and 0.75-point filled diagnostics.
+It preserves source RGB values and adds no opacity state. It does not assert
+that the source stores a physical pen width. Native device-fixed dash cadence
+cannot be represented identically at every zoom by this physical PDF pattern.
+Original tests cover entity-decoded targets, page assignment, colors, malformed
+rectangles/attributes, unmeasured profiles, bounds, cancellation, short I/O,
+PDF escaping, body preservation and failed-output invalidation. Font, corpus,
+PDF and screenshot files remain outside this repository.

@@ -2,6 +2,8 @@
 
 //! Bounded page and outline assembly over the forward-only PDF writer.
 
+mod links;
+pub(crate) use links::LinkAnnotation;
 mod text;
 pub use text::{ContentPageWriter, FontObject};
 
