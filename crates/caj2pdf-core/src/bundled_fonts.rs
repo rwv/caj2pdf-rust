@@ -3,12 +3,13 @@
 //! Versioned CAJViewer font resource facts and measured native-text presets.
 //! Adapters supply the bytes; the core never downloads or opens files.
 mod data;
+mod resources;
 
 use crate::hnc8::{
     C8PageFonts, NativeDecorationGlyph, NativeFontGlyphAlias, NativeSymbolGlyph, SymbolFontIdentity,
 };
 use crate::{Cancellation, Error, Fonts, Limits, RangedSource, Result, read_exact_at};
-pub use data::{PACK_SHA256, PACK_SIZE, RESOURCES};
+pub use resources::{PACK_SHA256, PACK_SIZE, RESOURCES};
 use sha2::{Digest, Sha256};
 
 /// Verify a complete font pack with bounded reads before trusting cached bytes.
