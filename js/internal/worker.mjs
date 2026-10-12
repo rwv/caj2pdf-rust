@@ -11,6 +11,9 @@
  * READ_COUNT answer reads that the caller serves from its own thread.
  */
 
+import { loadFontPack } from "./bundled-fonts.mjs";
+import { FONT_PACK } from "./font-pack.mjs";
+
 import { FORMATS } from "../io.mjs";
 
 const CANCEL = 0;
@@ -110,6 +113,7 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
   }
   let memory;
   let posted = 0;
+  let reportProgress = false;
   let hostFailure;
   const imports = {
     caj2pdf: {
@@ -140,7 +144,7 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
         return 0;
       },
       caj2pdf_progress(done, total) {
-        post({ type: "progress", done, total });
+        if (reportProgress) post({ type: "progress", done, total });
       },
       caj2pdf_cancelled() {
         return shared == null ? 0 : Atomics.load(shared, CANCEL);
@@ -157,6 +161,21 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
     bytes.fill(0);
     words.fill(0n);
     if (accepted !== 1) throw new TypeError("WASM module rejected the TTKN response configuration");
+  }
+  if (operation === "convert" && fonts == null && config.bundledFonts && (config.format === 0 || config.format === 4 || config.format === 5)) {
+    const { size, chunkSize, limits } = config;
+    const mode = exports.caj2pdf_native_font_mode?.(BigInt(size), chunkSize, limits.maxInputBytes, limits.maxOutputBytes, limits.maxAllocationBytes, limits.maxPages, limits.maxBookmarks);
+    if (mode === 1 || mode === 3) {
+      await loadFontPack(async (input) => {
+        const pack = await openReader(input, 1, shared, served, closers);
+        readers[1] = pack;
+        if (exports.caj2pdf_use_bundled_fonts(mode - 1, chunkSize, limits.maxAllocationBytes) !== 1) return false;
+        for (const [index, { offset, size }] of FONT_PACK.resources.entries()) {
+          readers[index + 1] = (at, view) => pack(offset + at, view.subarray(0, Math.max(0, Math.min(view.byteLength, size - at))));
+        }
+        return true;
+      }, () => shared != null && Atomics.load(shared, CANCEL) !== 0);
+    }
   }
   if (fonts != null) {
     for (const [index, face] of fonts.faces.entries()) {
@@ -212,6 +231,7 @@ async function run({ operation, module, inputs, fonts, config, control, data }, 
     }
   }
   const { size, chunkSize, format, flags, limits } = config;
+  reportProgress = true;
   const status = operation === "convert"
     ? exports.caj2pdf_convert(BigInt(size), chunkSize, format, flags, limits.maxInputBytes, limits.maxOutputBytes, limits.maxAllocationBytes, limits.maxPages, limits.maxBookmarks)
     : exports.caj2pdf_inspect(BigInt(size), chunkSize, format, limits.maxInputBytes, limits.maxOutputBytes, limits.maxAllocationBytes, limits.maxPages, limits.maxBookmarks);

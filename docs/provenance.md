@@ -4004,3 +4004,17 @@ The initial exact-width stretch is retained as a rejected experiment because
 independent controls exposed shortened endpoints. The final clipped overdraw
 has no target-zoom or per-document fitted geometry. Its source/visual/runtime
 scope and remaining pitch/antialiasing limits are recorded in the report.
+
+## Automatic bundled font presets (#547)
+
+[Bundled font provenance](bundled-fonts.md) records the per-file review and
+SHA-256 of four independently authored Wine observation tables migrated as
+numeric glyph/identity data. No preparation implementation, private HN/JBIG
+module or differently licensed converter source was migrated. All new Rust,
+JavaScript and packaging source is original MIT code. Font programs are
+separate immutable data assets with retained embedded attribution and explicit
+per-file hashes; no document corpus is distributed. Existing `sha2` and
+`serde_json` versions are reused for the native build's bounded verification;
+there are no new registry dependencies. The build adapter invokes curl for
+HTTPS retrieval, or verifies an explicitly supplied offline pack. The core has
+no network or filesystem policy.

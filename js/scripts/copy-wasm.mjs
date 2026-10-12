@@ -20,3 +20,5 @@ if (!magic.equals(Buffer.from([0, 0x61, 0x73, 0x6d]))) {
 copyFileSync(source, target);
 chmodSync(target, 0o644);
 console.log(`copied ${source} -> ${target}`);
+
+await (await import("./font-pack.mjs")).stage();

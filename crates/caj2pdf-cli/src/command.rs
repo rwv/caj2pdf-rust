@@ -43,6 +43,7 @@ pub struct ConvertOptions {
     pub decoration_font: Option<SymbolFontIdentity>,
     /// Never search the installed fonts for native C8/HN-B text.
     pub no_system_fonts: bool,
+    pub no_bundled_fonts: bool,
 }
 
 /// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
@@ -215,6 +216,9 @@ struct ConvertArgs {
     /// Require the decoration font NAME with head checkSumAdjustment CHECKSUM (8 hex digits)
     #[arg(long, value_name = "NAME:CHECKSUM", allow_hyphen_values = true)]
     decoration_font_identity: Option<OsString>,
+    /// Disable the built-in font preset (explicit fonts still take priority)
+    #[arg(long)]
+    no_bundled_fonts: bool,
     /// Do not search installed fonts for native C8/HN-B text
     #[arg(long, overrides_with = "no_system_fonts")]
     no_system_fonts: bool,
@@ -456,6 +460,7 @@ impl ConvertArgs {
                 })
                 .transpose()?,
             no_system_fonts: self.no_system_fonts,
+            no_bundled_fonts: self.no_bundled_fonts,
             ..ConvertOptions::default()
         };
         for (role, path) in options.fonts.iter_mut().zip(fonts) {

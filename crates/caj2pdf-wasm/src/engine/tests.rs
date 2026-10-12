@@ -1121,3 +1121,28 @@ fn full_font_embedding_and_aliases_reach_native_conversion_through_host_resource
     assert!(!session.add_c8_font_glyph(0, 66, 65));
     assert!(!session.set_c8_font_embedding(1));
 }
+
+#[test]
+fn bundled_registration_is_exclusive_and_probe_does_not_consume_session() {
+    let bytes = caj_bytes();
+    let mut host = Memory {
+        input: &bytes,
+        ..Memory::default()
+    };
+    let mut session = Session::default();
+    assert_eq!(
+        session
+            .native_font_mode(&mut host, bytes.len() as u64, &limits(32))
+            .unwrap(),
+        None
+    );
+    assert!(host.output.is_empty());
+    assert!(!session.use_bundled_fonts(1));
+    assert!(session.use_bundled_fonts(2));
+    assert!(!session.use_bundled_fonts(0));
+    assert_eq!(session.add_font_source(1, 0), 0);
+    assert!(!session.set_c8_fonts(0, 1, u32::MAX, u32::MAX, 0, u32::MAX));
+    let mut explicit = Session::default();
+    assert_eq!(explicit.add_font_source(1, 0), 1);
+    assert!(!explicit.use_bundled_fonts(2));
+}

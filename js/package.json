@@ -1,6 +1,6 @@
 {
   "name": "caj2pdf-rust",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "CAJ, KDH, HN/C8 and PDF to PDF conversion for browsers and Node.js through WebAssembly in a Worker",
   "license": "MIT",
   "repository": {
@@ -47,11 +47,15 @@
     "browser.d.mts",
     "caj2pdf_wasm.wasm",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "internal/bundled-fonts.mjs",
+    "internal/font-pack.mjs",
+    "caj2pdf-fonts-v1.bin",
+    "FONT-NOTICES.txt"
   ],
   "scripts": {
     "build:wasm": "cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown && node scripts/copy-wasm.mjs",
-    "prepack": "node -e \"if (require('node:fs').readFileSync('caj2pdf_wasm.wasm').readUInt32BE(0) !== 0x0061736d) throw new Error('caj2pdf_wasm.wasm is not a WebAssembly module')\"",
+    "prepack": "node -e \"if (require('node:fs').readFileSync('caj2pdf_wasm.wasm').readUInt32BE(0) !== 0x0061736d) throw new Error('caj2pdf_wasm.wasm is not a WebAssembly module')\" && node --input-type=module -e 'await (await import(\"./scripts/font-pack.mjs\")).verify()'",
     "test": "node --test test/*.test.mjs"
   },
   "publishConfig": {

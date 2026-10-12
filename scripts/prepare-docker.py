@@ -17,7 +17,7 @@ for platform, target in platforms.items():
     destination = Path('docker/artifacts') / arch
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(path) as archive:
-        for name in ['caj2pdf', 'LICENSE', 'THIRD-PARTY-NOTICES.txt']:
+        for name in ['caj2pdf', 'LICENSE', 'THIRD-PARTY-NOTICES.txt', 'FONT-NOTICES.txt']:
             member = archive.getmember(name)
             if not member.isfile():
                 raise ValueError(f'Expected regular file: {name}')

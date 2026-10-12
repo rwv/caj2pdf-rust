@@ -1,0 +1,149 @@
+Bundled font data v1
+====================
+
+The converter source is MIT-licensed. The font programs are separate assets,
+not covered by the converter source license. Their original names, outlines,
+metrics and embedded notices are preserved byte-for-byte.
+
+Nine resource fonts originate from CAJViewer 7.3.151 Simple, TTKN Resource/cajfonts.
+The SimSun collection is the system font used in the retained Wine experiments.
+Only face 0 is selected. This pack is concatenated original data, with offsets
+and SHA-256 identities in font-pack.json. It contains no document samples.
+
+HGSS_CNKI.TTF
+SHA-256: f3f98834f9cfd8a075732ee187edd4b496dbc7f8ec71e2b3c6dc5436cbf6f002
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGSS_CNKI
+name ID 1: 华光书宋_CNKI
+name ID 2: Regular
+name ID 3: HGSS_CNKI:2.00 Regular
+name ID 3: 华光书宋_CNKI:2.00 Regular
+name ID 4: HGSS_CNKI
+name ID 4: 华光书宋_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGBZ_CNKI.ttf
+SHA-256: c44abe24684e5c0ea849b43116dc97a97d2eeda5b36eb33d490090f7d0723758
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGBZ_CNKI
+name ID 2: Regular
+name ID 3: HGBZ_CNKI:2.00 Regular
+name ID 4: HGBZ_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGHZ_CNKI.ttf
+SHA-256: ca30188a44b36dd11f0657dd4481367124152d3dfa170aaee382503649be2322
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGHZ_CNKI
+name ID 2: Regular
+name ID 3: HGHZ_CNKI:2.00 Regular
+name ID 4: HGHZ_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGFX_CNKI.ttf
+SHA-256: 4ef6bcbe9c48ebff552a57e0bca245554dcb4d5bb12d580b95e0babdd736036c
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGFX_CNKI
+name ID 2: Regular
+name ID 3: HGFX_CNKI:2.00 Regular
+name ID 4: HGFX_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGBX_CNKI.ttf
+SHA-256: 1615702953570a2a34b1179d9d7b88c00777b0f5a9162e0a951d98bc4d843cbd
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGBX_CNKI
+name ID 2: Regular
+name ID 3: HGBX_CNKI:2.00 Regular
+name ID 4: HGBX_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGB1_CNKI.ttf
+SHA-256: bbccfcab5e5c516900a041e9b99185745dc3ba446238f7d3788d4df3de32313a
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGB1_CNKI
+name ID 2: Regular
+name ID 3: HGB1_CNKI:2.00 Regular
+name ID 4: HGB1_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGB1X_CNKI.ttf
+SHA-256: e8fbebd7bee2438270de5d83b2d909fa70009ea79546cbb28d6dec7b1384fd60
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGB1X_CNKI
+name ID 2: Regular
+name ID 3: HGB1X_CNKI:2.00 Regular
+name ID 4: HGB1X_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGHT_CNKI.ttf
+SHA-256: 92f48e4f1ddd7e6a6ee52253191e7f92c2cc5a4fc64a0cfa55924c4940df7e4a
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGHT_CNKI
+name ID 1: 华光黑体_CNKI
+name ID 2: Regular
+name ID 3: HGHT_CNKI:2.00 Regular
+name ID 3: 华光黑体_CNKI:2.00 Regular
+name ID 4: HGHT_CNKI
+name ID 4: 华光黑体_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+HGKT_CNKI.TTF
+SHA-256: 8ecb0d0458f0259f31f750dd2cf9cdcbbeb6397619c324aaa1de8cfc6f638d46
+name ID 0: Copyright(c) Weifang Beida Jade Bird Huaguang Imagesetter Co., Ltd. 1994-2015
+name ID 1: HGKT_CNKI
+name ID 1: 华光楷体_CNKI
+name ID 2: Regular
+name ID 3: HGKT_CNKI:2.00 Regular
+name ID 3: 华光楷体_CNKI:2.00 Regular
+name ID 4: HGKT_CNKI
+name ID 4: 华光楷体_CNKI
+name ID 5: Version 2.00
+name ID 7: Œ´∑ª±±¥Û«‡ƒÒª™π‚’’≈≈”–œﬁπ´Àæ
+name ID 7: 潍坊北大青鸟华光照排有限公司
+name ID 14: http://www.hgfonts.com/services_21.html
+
+cjk-system.ttc
+SHA-256: 2e3cc9dbd787c827f73496f01633bba430e15c5db4d4f6ed9938386ea01f0171
+name ID 0: © Copyright ZHONGYI Electronic Co. 2001
+name ID 0: © Copyright ZHONGYI Electronic Co. 2001
+字体数据由北京中易中标电子信息技术有限公司提供。
+name ID 1: SimSun
+name ID 1: 宋体
+name ID 2: Regular
+name ID 2: 常规
+name ID 3: SimSun
+name ID 3: 宋体
+name ID 4: SimSun
+name ID 4: 宋体
+name ID 5: Version 5.16
+name ID 7: Trademark of ZHONGYI Electronic Co., Beijing
+name ID 8: Beijing ZhongYi Electronics Co.
+name ID 9: Beijing ZhongYi Electronics Co.
+name ID 13: Microsoft supplied font. You may use this font to create, display, and print content as permitted by the license terms or terms of use, of the Microsoft product, service, or content in which this font was included. You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content. Any other use is prohibited.
+name ID 14: http://www.microsoft.com/typography/fonts
+

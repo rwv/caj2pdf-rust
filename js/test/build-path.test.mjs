@@ -18,6 +18,10 @@ test("WASM copy follows Cargo target-directory settings instead of stale default
     await writeFile(join(root, "Cargo.toml"), '[workspace]\n[package]\nname="build-path-test"\nversion="0.0.0"\n[lib]\npath="lib.rs"\n');
     await writeFile(join(root, "lib.rs"), "");
     await cp(new URL("../scripts/copy-wasm.mjs", import.meta.url), join(root, "js", "scripts", "copy-wasm.mjs"));
+    await cp(new URL("../scripts/font-pack.mjs", import.meta.url), join(root, "js", "scripts", "font-pack.mjs"));
+    await mkdir(join(root, "js", "internal"));
+    await cp(new URL("../internal/font-pack.mjs", import.meta.url), join(root, "js", "internal", "font-pack.mjs"));
+    await cp(new URL("../caj2pdf-fonts-v1.bin", import.meta.url), join(root, "js", "caj2pdf-fonts-v1.bin"));
     const stale = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
     const current = Buffer.concat([stale, Buffer.from([0, 1, 0])]);
     for (const [directory, bytes] of [["target", stale], ["custom-target", current]]) {

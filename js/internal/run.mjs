@@ -145,7 +145,7 @@ function isBmpScalar(character) {
  * share one resource.
  */
 function fontConfig(options) {
-  if (options?.fonts === undefined) return undefined;
+  if (options?.fonts === undefined || options.fonts === false) return undefined;
   const { cjk, latin, cjkSans, cjkKai, cjkSystem, alternateLatin, decoration, decorationGlyphs, decorationFontIdentity, symbols, symbolGlyphs, symbolFontIdentity, latinState3, latinState28, latinState31, embedding = "subset", glyphAliases = [] } = options.fonts ?? {};
   if (embedding !== "subset" && embedding !== "full") throw new TypeError("font embedding must be subset or full");
   const sources = [];
@@ -439,6 +439,7 @@ export async function runOperation(platform, operation, wasm, source, sink, opti
       inputs: inputs.map((input) => (input.kind === "served" ? { kind: "served", size: input.size } : input)),
       fonts: fontSetup == null ? null : { faces: fontSetup.faces, ...fontSetup.fonts },
       config: {
+        bundledFonts: options?.hnc8?.fonts !== false,
         size: inputs[0].size,
         chunkSize: config.chunkSize,
         format: config.format,

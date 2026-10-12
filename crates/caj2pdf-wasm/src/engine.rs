@@ -228,6 +228,12 @@ struct HostProgress<'h, H: Host> {
     shown: Option<u32>,
 }
 
+impl<H: Host> caj2pdf_core::Cancellation for HostProgress<'_, H> {
+    fn is_cancelled(&self) -> bool {
+        self.host.borrow_mut().cancelled()
+    }
+}
+
 impl<H: Host> Progress for HostProgress<'_, H> {
     fn format(&mut self, format: Option<InputFormat>) {
         self.format = format;
@@ -261,6 +267,49 @@ pub struct Session {
 }
 
 impl Session {
+    /// Use the versioned preset after the host has verified the pack and
+    /// installed eleven ranged readers in the shared resource order.
+    pub fn use_bundled_fonts(&mut self, mode: u32) -> bool {
+        self.result.is_none() && self.fonts.use_bundled(mode)
+    }
+
+    /// Probe native text without consuming the session or writing output.
+    pub fn native_font_mode<H: Host>(
+        &self,
+        host: &mut H,
+        size: u64,
+        limits: &Limits,
+    ) -> Result<Option<u32>> {
+        if self.result.is_some() {
+            return Err(Error::invalid("session already ran"));
+        }
+        validate_limits(limits)?;
+        let host = RefCell::new(host);
+        let mut source = HostSource::new(&host, 0, size);
+        let mut progress = HostProgress {
+            host: &host,
+            format: None,
+            shown: None,
+        };
+        caj2pdf_core::native_font_mode(&mut source, limits, &mut progress)
+    }
+
+    /// Verify the pinned font pack exposed temporarily as host resource 1.
+    pub fn verify_font_pack<H: Host>(&self, host: &mut H, limits: &Limits) -> Result<()> {
+        if self.result.is_some() {
+            return Err(Error::invalid("session already ran"));
+        }
+        validate_limits(limits)?;
+        let host = RefCell::new(host);
+        let mut source = HostSource::new(&host, 1, caj2pdf_core::bundled_fonts::PACK_SIZE);
+        let progress = HostProgress {
+            host: &host,
+            format: None,
+            shown: None,
+        };
+        caj2pdf_core::bundled_fonts::verify(&mut source, limits, &progress)
+    }
+
     /// Set an explicit, case-sensitive TTKN response before conversion.
     pub fn set_ttkn_response(&mut self, ascii: &[u8]) -> bool {
         if self.result.is_some() {
@@ -457,7 +506,7 @@ fn run<'h, H: Host>(
     let result = match operation {
         Operation::Convert { options } => {
             let options = ConversionOptions {
-                fonts: fonts.resources(host),
+                fonts: fonts.resources(host, &limits)?,
                 ..options
             };
             let mut sink = HostSink { host };

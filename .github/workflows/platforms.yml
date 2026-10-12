@@ -410,7 +410,7 @@ jobs:
           mem: 8192
           cpu: 4
           cache-after-prepare: true
-          prepare: pkg install -y rust python311 qpdf mupdf
+          prepare: pkg install -y curl rust python311 qpdf mupdf
           run: |
             set -eu
             rustc --version
@@ -493,7 +493,7 @@ jobs:
             ftp -o /tmp/xbase.tar.xz "https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/$machine/binary/sets/xbase.tar.xz"
             test "$(sha512 -q /tmp/xbase.tar.xz)" = "$digest"
             tar -xJpf /tmp/xbase.tar.xz -C /
-            /usr/sbin/pkg_add -u rust python311 qpdf mupdf
+            /usr/sbin/pkg_add -u curl rust python311 qpdf mupdf
           run: |
             set -eu
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
@@ -532,7 +532,7 @@ jobs:
           cache-after-prepare: true
           prepare: |
             set -eu
-            pkg_add rust python%3.13 qpdf mupdf-1.27.2
+            pkg_add curl rust python%3.13 qpdf mupdf-1.27.2
             /usr/local/bin/python3.13 --version
             /usr/local/bin/mutool -v
           run: |
@@ -573,7 +573,7 @@ jobs:
           cache-after-prepare: true
           prepare: |
             set -eu
-            pkg install rust python-313
+            pkg install web/curl rust python-313
           run: |
             set -eu
             export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
