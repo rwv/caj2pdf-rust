@@ -1,15 +1,18 @@
 # Command-line interface
 
-This note documents the `caj2pdf` executable delivered for
-[issue #12](https://github.com/rwv/caj2pdf-rust/issues/12). The command is a
-thin native adapter over the platform-neutral core: it opens files, spools
-forward-only input, stages path output, and chooses the core operation from
-the input's leading signature. Format parsing and PDF writing stay in
-`caj2pdf-core`. Versions `v0.x.y` may change this interface; such changes are
-listed in the release notes.
+Convert a document with no font installation or configuration:
+
+```sh
+caj2pdf paper.caj -o paper.pdf
+```
+
+Native C8/HN-B text uses bundled fonts and measured parameters automatically.
+See [format support](conformance.md#current-support-and-release-status) for
+admitted profiles and known limitations. Custom font flags are grouped under
+**Advanced font overrides** in `--help` and [below](#advanced-font-overrides).
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--no-bundled-fonts] [--no-system-fonts]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks]
 caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -112,6 +115,9 @@ output. Stdout can contain a partial PDF on failure, as for other formats.
 
 Native C8/HN-B text pages automatically use the [bundled preset](bundled-fonts.md).
 The mode, full-font embedding and glyph/symbol/ornament parameters are built in.
+
+#### Advanced font overrides
+
 For custom fonts, put a CJK and Latin font in one directory under fixed names
 and pass `--fonts DIR`:
 

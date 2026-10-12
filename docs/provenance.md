@@ -4040,3 +4040,13 @@ clones without changing validation, logical resource IDs, tables, font
 programs, public interfaces or dependencies. JavaScript resolves optional
 role indices once for both registration and glyph aliases. No external
 implementation or private code is migrated.
+
+### Usage and release simplification (#553)
+
+CLI font-option help headings are original MIT presentation metadata; argument
+parsing, font selection and conversion are unchanged. Current documentation
+separates already published registry setup from the tagged OIDC procedure,
+with the original bootstrap text retained in `releases/registry-bootstrap.md`.
+No dependency, external source, fixture or font resource is added. The CI
+coverage label now states its existing 90% floor; the measuring script and
+full publication/attestation gates are unchanged.

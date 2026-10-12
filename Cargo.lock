@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "caj2pdf-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "caj2pdf-core",
  "clap",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "caj2pdf-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "aes",
  "base64",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "caj2pdf-wasm"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "caj2pdf-core",
 ]

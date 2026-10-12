@@ -6,35 +6,8 @@ Worker, through a raw, dependency-free WebAssembly ABI. It has no npm
 dependencies, and all project-owned JavaScript and TypeScript declarations
 are MIT-licensed.
 
-| Input | Conversion |
-| --- | --- |
-| PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
-| CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
-| KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text uses bundled fonts automatically (below). `inspect` reads page counts and validated HN-A bookmark counts. |
-| CAA (v0.6.0) | `inspect` returns `format: "caa"` and null counts; `convert` rejects with `UnsupportedFormatError` and asks for the referenced document. |
-| TEB | Recognized; rejected with `UnsupportedFormatError`. |
-| Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
-
-The measured `.nh` sample contains HN-A bytes and uses the HN reader. The
-legacy forced format `"nh"` remains unsupported; it does not mean the `.nh`
-extension. Detection uses bytes, not names. CAA recognition is limited to
-the complete observed descriptor fields within the first 1,024 bytes; it
-never decodes or fetches their opaque targets. CAS has no verified sample.
-
-**v0.6.0 breaking inspection type change:** `DocumentInfo.pageCount` is now
-`number | null`, because CAA descriptors have no known page count. Callers
-should handle `info.pageCount === null` before using it as a number; the
-`Format` union also includes `"caa"`. Existing successful document inspections
-still return numeric page counts.
-
-## TTKN response input
-
-For the [measured TTKN server profile](../docs/ttkn-pdf.md), pass
-`{ ttknResponse: response }` to `convert`. It must be exactly 32 hexadecimal
-ASCII characters with its original case. Node and browsers use the same
-option; no embedded authentication URL is contacted. `inspect` does not
-accept this option. Other encrypted profiles remain unsupported.
+Native C8/HN-B text uses bundled fonts and measured parameters automatically;
+the default examples below need no font options.
 
 ## Install
 
@@ -45,22 +18,6 @@ npm install caj2pdf-rust
 The published package includes the tested WASM module; consumers do not need
 a Rust toolchain. Version 0.5.0 changes the Worker API; see the
 [migration guide](https://github.com/rwv/caj2pdf-rust/blob/main/docs/releases/v0.5.0.md).
-
-## Build and test
-
-```sh
-cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
-node js/scripts/copy-wasm.mjs
-node --test js/test/*.test.mjs
-```
-
-`npm run build:wasm` (run inside `js/`) builds the module and copies it next
-to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
-`0644`), which is where `loadModule()` looks by default. That copy is
-gitignored and is never committed. Examples use this same packaged module path,
-including when Cargo builds into a custom target directory. The `files` list puts it in the tarball,
-and `prepack` refuses to pack without a WebAssembly module there. The release process ([release policy](../docs/release-policy.md)) tests the
-actual tarball on Node.js and Chromium before publishing it.
 
 ## Usage
 
@@ -91,10 +48,7 @@ import { convert, loadModule, webWritableSink } from "caj2pdf-rust";
 
 const module = await loadModule();
 const writer = (await (await showSaveFilePicker()).createWritable()).getWriter();
-await convert(module, file, webWritableSink(writer), {
-  signal,
-  progress: (fraction) => console.log(`${Math.round(fraction * 100)}%`),
-});
+await convert(module, file, webWritableSink(writer));
 await writer.close();
 ```
 
@@ -116,7 +70,39 @@ the previous download. Discard before closing the tab: browser shutdown
 cannot reliably await storage cleanup. The save-picker path writes directly
 to the file you choose.
 
-### API
+## Supported inputs
+
+| Input | Conversion |
+| --- | --- |
+| PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
+| CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
+| KDH (`KDH`) | Decoded PDF, then the PDF path. |
+| HN, C8 | Experimental complete-page conversion with built-in standard codec tables; native C8/HN-B text uses bundled fonts automatically (below). `inspect` reads page counts and validated HN-A bookmark counts. |
+| CAA (v0.6.0) | `inspect` returns `format: "caa"` and null counts; `convert` rejects with `UnsupportedFormatError` and asks for the referenced document. |
+| TEB | Recognized; rejected with `UnsupportedFormatError`. |
+| Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
+
+The measured `.nh` sample contains HN-A bytes and uses the HN reader. The
+legacy forced format `"nh"` remains unsupported; it does not mean the `.nh`
+extension. Detection uses bytes, not names. CAA recognition is limited to
+the complete observed descriptor fields within the first 1,024 bytes; it
+never decodes or fetches their opaque targets. CAS has no verified sample.
+
+**v0.6.0 breaking inspection type change:** `DocumentInfo.pageCount` is now
+`number | null`, because CAA descriptors have no known page count. Callers
+should handle `info.pageCount === null` before using it as a number; the
+`Format` union also includes `"caa"`. Existing successful document inspections
+still return numeric page counts.
+
+## TTKN response input
+
+For the [measured TTKN server profile](../docs/ttkn-pdf.md), pass
+`{ ttknResponse: response }` to `convert`. It must be exactly 32 hexadecimal
+ASCII characters with its original case. Node and browsers use the same
+option; no embedded authentication URL is contacted. `inspect` does not
+accept this option. Other encrypted profiles remain unsupported.
+
+## API
 
 - `convert(wasm, source, sink, options)` detects the format from at most five
   leading bytes, or 1,024 when looking for a displaced `%PDF-` header
@@ -352,6 +338,22 @@ is not awaited. Bytes a sink already accepted are not withdrawn: callers own
 their output and should delete or discard it after a rejection (the examples
 do).
 
+## Build and test
+
+```sh
+cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+node js/scripts/copy-wasm.mjs
+node --test js/test/*.test.mjs
+```
+
+`npm run build:wasm` (run inside `js/`) builds the module and copies it next
+to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
+`0644`), which is where `loadModule()` looks by default. That copy is
+gitignored and is never committed. Examples use this same packaged module path,
+including when Cargo builds into a custom target directory. The `files` list puts it in the tarball,
+and `prepack` refuses to pack without a WebAssembly module there. The release process ([release policy](../docs/release-policy.md)) tests the
+actual tarball on Node.js and Chromium before publishing it.
+
 ## Tests
 
 `js/test/*.test.mjs` run with `node --test` against the real WASM build:
@@ -535,6 +537,8 @@ Serve `caj2pdf-fonts-v1.bin` alongside the package assets (bundlers discover its
 Inspection and image-only conversions do not load fonts. The pack is about
 58.6 MiB before compression, kept outside the WASM heap; full embedded programs
 can increase output PDF size. See [bundled fonts](../docs/bundled-fonts.md).
+
+#### Advanced font overrides
 
 To override the entire preset, the admitted native C8 and HN-B text/vector
 profiles accept caller-owned fonts, given as inputs of the same kinds as the document. Only `cjk` and
