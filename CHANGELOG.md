@@ -4,6 +4,21 @@
 
 No changes recorded yet.
 
+## v0.8.0
+
+See the [release notes and migration guide](docs/releases/v0.8.0.md).
+
+- **Breaking defaults:** CLI and JavaScript native C8/HN-B conversion now
+  selects bundled original fonts and measured mode-specific parameters.
+  No font installation or extra arguments are needed; regenerate PDF
+  hash/size expectations. Explicit custom fonts retain their behavior.
+- Native binaries work offline. npm includes the same 58.6 MiB resource
+  pack; Node reads it locally and browsers stream it to a verified OPFS
+  cache. Source builds need curl or a verified `CAJ2PDF_FONT_PACK`.
+- Default CLI, Node and Chromium PDFs are byte-identical to the explicit
+  Wine-reference setup for all 13 reviewed documents / 77 pages. Existing
+  format, outline and raster limitations remain.
+
 ## v0.7.0
 
 See the [release notes and migration guide](docs/releases/v0.7.0.md).
