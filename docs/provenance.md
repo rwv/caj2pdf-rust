@@ -3839,3 +3839,35 @@ checks and every counterexample are retained separately from Wine scores.
 No vendor, foreign converter or private HN/JBIG code is inspected or migrated.
 Corpus, font, PDF and screenshot bytes remain external; production APIs,
 dependencies and bounded I/O are unchanged. #543 remains open.
+
+### Full-cohort direct clipping (#543, 2026-10-11)
+
+The [full-cohort clipping study](research/wine-image-clip-cohort-20261011.md)
+adds fresh candidate and native views of all 13 documents / 77 pages. Direct
+clipping improves five pages, preserves 71 and regresses one; its 600-pixel
+aggregate reduction does not establish a safe correction. The same actual
+page regresses at 75% but improves at 95%. A geometry-equivalent clip before
+the original matrix reproduces all eight corresponding tested frames.
+
+Per-file provenance review: `scripts/research/wine_image_clip_diagnostic.py`
+is original MIT pikepdf code that inserts an image-space path without changing
+matrix tokens, payloads, fonts or other operators. It explicitly preserves
+image-free pages and the existing bilevel overlay state. All 57 image draws,
+31 bilevel resources and 113,418 semantic characters are accounted for; six
+image-free documents remain byte-identical.
+`wine_image_page_clip_diagnostic.py` is original MIT code that copies the
+original rectangle tokens into a clip before the image matrix. It retains
+an intermediate PDF and verifies byte-exact restoration of content after
+undoing only the inserted rectangles; no source-window or zoom fitting occurs.
+
+All 31 new comparison PDFs, five intermediates and three earlier clipping
+outputs reproduce byte-for-byte, with exact metadata and CLI/function checks.
+Across 85 cold attempts, 230 visits are admitted; twelve incomplete captures
+and six unobserved startup-failure visits remain excluded. All 77 fresh native
+crops match historical crops. Final primary references pass both viewport and
+independent-paper admission after seven historical source sessions expose
+information-bar flags; no acceptance rule is relaxed. Preparation/verifier
+failures and every regression are retained. No vendor, foreign converter or
+private HN/JBIG code is inspected or migrated, and no corpus/font/PDF/screenshot
+bytes are committed. Production code, APIs, dependencies and bounded I/O are
+unchanged; #543/#541/#406 remain open.

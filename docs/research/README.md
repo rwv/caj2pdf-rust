@@ -316,3 +316,13 @@ at 100%, while image-only pages and black endpoint sizes remain unresolved.
 All 30 diagnostic PDFs reproduce exactly, with eight exact cold repeat visits.
 This supports further evaluation of clipping, not a general rendering fix;
 #543 and the production fidelity obligations remain open.
+
+The [full-cohort direct-clipping study](wine-image-clip-cohort-20261011.md)
+adds fresh native and candidate views of all 77 pages. Five improve, 71 retain
+pixels and one regresses, rejecting unconditional clipping. The counterexample
+changes from regression at 75% to improvement at 95%; an equivalent
+page-coordinate clip reproduces the same pixels. All 31 new comparison PDFs
+reproduce, and all 77 fresh native crops equal the historical crops. The
+85-session receipt admits 230 visits, retaining twelve incomplete captures and
+six unobserved startup-failure visits separately. #543 remains open; no
+production correction is adopted.
