@@ -1979,7 +1979,7 @@ corpus, XML/credential values, fonts or captured pixels enter either checkout.
 Production TEB detection still only recognizes a prefix. #469 removes its
 unsupported inference of encryption/impossible conversion, reusing the existing
 generic unsupported paths. CLI JSON reason changes from `drm-encrypted` to
-`not-implemented`; [unreleased notes](releases/unreleased.md) document this
+`not-implemented`; [v0.7.0 notes](releases/v0.7.0.md) document this
 breaking value migration. Existing minimal/truncated TEB controls cover it.
 All nine unchanged sources retain zero-output refusals on native, Node and
 Chromium, with source integrity and temporary cleanup. Native page/outline

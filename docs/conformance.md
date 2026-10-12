@@ -1196,7 +1196,7 @@ positive control. The error observations do not prove general irrecoverability.
 
 CLI inspection now reports TEB `unsupported_reason: "not-implemented"` instead
 of `"drm-encrypted"`, and CLI/JavaScript errors state the current support limit.
-See the [breaking migration](releases/unreleased.md). All nine unchanged inputs
+See the [breaking migration](releases/v0.7.0.md). All nine unchanged inputs
 still refuse conversion on native, Node and real Chromium with zero output and
 confirmed source/temporary integrity. These 27 refusal checks are not conversion
 passes; metadata-declared page counts are not imported into inspection.
