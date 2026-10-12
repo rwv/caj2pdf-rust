@@ -31,7 +31,8 @@ language of the repository, API, CLI, documentation, and diagnostics.
 The [support matrix](docs/conformance.md#current-support-and-release-status)
 is authoritative. CAJ, KDH and PDF are supported. HN-A converts as image
 pages with bookmarks. C8 and HN-B convert image pages and admitted native-text
-profiles with automatic bundled fonts in the CLI and JavaScript package, and omit their unverified outlines with a warning.
+profiles with automatic bundled fonts in the CLI and JavaScript package,
+and omit their unverified outlines with a warning.
 The CLI interface is documented in the [CLI reference](docs/cli.md).
 
 ## Current work
@@ -39,8 +40,9 @@ The CLI interface is documented in the [CLI reference](docs/cli.md).
 Track acceptance and dependencies in the live issues:
 
 - [Architecture simplification #346](https://github.com/rwv/caj2pdf-rust/issues/346):
-  single font manifest #551, adapter registration #552 and current usage/release
-  documentation #553. The separate core-size target remains unmet.
+  the font manifest, registration and usage cleanup ships in
+  [v0.8.1](docs/releases/v0.8.1.md). The remaining core-size target needs a
+  focused pass; it is not met by those changes.
 - [Wine rendering #543](https://github.com/rwv/caj2pdf-rust/issues/543) and
   [PDF page-one control #540](https://github.com/rwv/caj2pdf-rust/issues/540):
   isolate the remaining image/raster differences before changing rendering.

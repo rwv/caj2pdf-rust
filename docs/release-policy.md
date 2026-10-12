@@ -55,6 +55,8 @@ The workspace commits its root `Cargo.lock`; CI and release builds use it in
 locked mode. If a JavaScript package later adds an npm dependency graph, commit
 its package-manager lockfile and use frozen installs for release builds.
 
+<a id="github-release-assets"></a>
+
 ## Current release procedure
 
 1. Merge a reviewed version/notes change. Keep all three crate versions, the
