@@ -88,7 +88,7 @@ jobs:
           binary='target/${{ matrix.target }}/release/caj2pdf'
           if [[ '${{ runner.os }}' == Windows ]]; then binary="$binary.exe"; fi
           python scripts/package-native.py --target '${{ matrix.target }}' --binary "$binary"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -118,7 +118,7 @@ jobs:
           test "$(qpdf --show-npages "$RUNNER_TEMP/i586-output.pdf")" = 2
           mutool draw -q -o "$RUNNER_TEMP/i586-page-%d.png" "$RUNNER_TEMP/i586-output.pdf"
           python3 scripts/package-native.py --target i586-unknown-linux-gnu --binary target/i586-unknown-linux-gnu/release/caj2pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-i586-unknown-linux-gnu
           path: dist/
@@ -193,7 +193,7 @@ jobs:
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested cross binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -248,7 +248,7 @@ jobs:
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested static binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -286,7 +286,7 @@ jobs:
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -383,7 +383,7 @@ jobs:
           test "$(qpdf --show-npages target/bsd-cross/output.pdf)" = 2
           mutool draw -q -o "$RUNNER_TEMP/bsd-smoke-%d.png" target/bsd-cross/output.pdf
           python3 scripts/package-native.py --target '${{ matrix.target }}' --binary target/bsd-cross/caj2pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -418,7 +418,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -430,7 +430,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-*
           merge-multiple: true
@@ -457,7 +457,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y skopeo qpdf
           bash scripts/test-docker.sh dist/caj2pdf-container.oci.tar
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: container-assets
           path: dist/
@@ -502,7 +502,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -543,7 +543,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -590,7 +590,7 @@ jobs:
           qpdf --check dist/illumos-smoke.pdf
           mutool draw -q -o "$RUNNER_TEMP/illumos-%d.png" dist/illumos-smoke.pdf
           rm dist/illumos-smoke.pdf
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -623,7 +623,7 @@ jobs:
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -692,7 +692,7 @@ jobs:
             mutool draw -q -o android-page-%d.png android-output.pdf
       - name: Package tested Android binary
         run: python3 scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.target }}
           path: dist/
