@@ -40,7 +40,7 @@ jobs:
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-${{ matrix.target }}
           path: dist/
@@ -108,7 +108,7 @@ jobs:
             mutool draw -q -o android-page-%d.png android-output.pdf
       - name: Package tested candidate
         run: python3 scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-${{ matrix.target }}
           path: dist/
